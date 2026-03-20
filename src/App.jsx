@@ -63,44 +63,50 @@ function App() {
     {
       icon: BarChart3,
       title: "Dashboard Inteligente",
-      description:
-        "Acompanhe métricas em tempo real e tome decisões baseadas em dados",
+      description: "Acompanhe métricas em tempo real e tome decisões baseadas em dados",
+      color: "bg-blue-500"
     },
     {
       icon: MessageCircle,
       title: "Atendimento Omnichannel",
       description: "WhatsApp, Instagram, Facebook em um só lugar",
+      color: "bg-green-500"
     },
     {
       icon: Users,
       title: "CRM Avançado",
-      description:
-        "Histórico completo de cada cliente e gestão de relacionamento",
+      description: "Histórico completo de cada cliente e gestão de relacionamento",
+      color: "bg-purple-500"
     },
     {
       icon: Zap,
       title: "ChatBot com IA",
       description: "Automação inteligente 24/7 para seus clientes",
+      color: "bg-yellow-500"
     },
     {
       icon: Clock,
       title: "Gestão de Tarefas",
       description: "Organize e acompanhe sua equipe de atendimento",
+      color: "bg-red-500"
     },
     {
       icon: CheckCircle,
       title: "Campanhas Automáticas",
       description: "Mensagens no momento certo para seus clientes",
+      color: "bg-indigo-500"
     },
     {
       icon: BarChart3,
       title: "Relatórios Detalhados",
       description: "Insights para tomar decisões estratégicas",
+      color: "bg-orange-500"
     },
     {
       icon: Smartphone,
       title: "App Mobile",
       description: "Atenda seus clientes de qualquer lugar",
+      color: "bg-pink-500"
     },
   ];
 
@@ -235,23 +241,15 @@ function App() {
     const handleType = () => {
       const i = loopNum % words.length;
       const fullText = words[i];
-
-      setText(
-        isDeleting
-          ? fullText.substring(0, text.length - 1)
-          : fullText.substring(0, text.length + 1),
-      );
-
-      setTypingSpeed(isDeleting ? 40 : 40);
-
+      setText(isDeleting ? fullText.substring(0, text.length - 1) : fullText.substring(0, text.length + 1));
+      setTypingSpeed(isDeleting ? 40 : 80);
       if (!isDeleting && text === fullText) {
-        setTimeout(() => setIsDeleting(true), 200); // Pausa quando termina de escrever
+        setTimeout(() => setIsDeleting(true), 2000);
       } else if (isDeleting && text === "") {
         setIsDeleting(false);
         setLoopNum(loopNum + 1);
       }
     };
-
     const timer = setTimeout(handleType, typingSpeed);
     return () => clearTimeout(timer);
   }, [text, isDeleting, loopNum, typingSpeed]);
@@ -575,30 +573,21 @@ function App() {
       </section>
 
       {/* Features Section */}
-      <section id="funcionalidades" className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
-              Funcionalidades que Transformam seu Atendimento
-            </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Tudo que você precisa para oferecer um atendimento excepcional
-            </p>
+      <section id="funcionalidades" className="py-32 bg-white">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="text-center max-w-3xl mx-auto mb-20">
+            <h2 className="text-4xl lg:text-5xl font-black text-gray-900 mb-6">Funcionalidades Incríveis</h2>
+            <p className="text-xl text-gray-500">Tecnologia desenhada para transformar cada interação em uma oportunidade de negócio.</p>
           </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             {features.map((feature, index) => (
-              <Card key={index} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                    <feature.icon className="h-6 w-6 text-green-600" />
-                  </div>
-                  <CardTitle className="text-lg">{feature.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>{feature.description}</CardDescription>
-                </CardContent>
-              </Card>
+              <div key={index} className="modern-card p-8 rounded-[2rem] text-left">
+                <div className={`w-14 h-14 ${feature.color} rounded-2xl flex items-center justify-center text-white mb-6 shadow-xl shadow-gray-200`}>
+                  <feature.icon size={28} />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-4">{feature.title}</h3>
+                <p className="text-gray-500 leading-relaxed">{feature.description}</p>
+              </div>
             ))}
           </div>
         </div>
