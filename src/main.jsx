@@ -7,12 +7,10 @@ import Blog from "./pages/Blog.jsx";
 import BlogPost from "./pages/BlogPost.jsx";
 import Carreiras from "./pages/Carreiras.jsx";
 import Sobre from "./pages/Sobre.jsx";
-import { Layout } from "./components/Layout.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <Router>
-      <Layout>
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/blog" element={<Blog />} />
@@ -20,7 +18,6 @@ createRoot(document.getElementById("root")).render(
           <Route path="/carreiras" element={<Carreiras />} />
           <Route path="/sobre" element={<Sobre />} />
         </Routes>
-      </Layout>
     </Router>
   </StrictMode>,
 );

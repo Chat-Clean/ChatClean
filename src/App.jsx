@@ -34,6 +34,7 @@ import {
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import "./App.css";
+import ChatbotPopup from '@/components/ChatbotPopup';
 
 // Importar imagens
 import heroDashboard from "./assets/hero-dashboard-2.jpg";
@@ -996,6 +997,7 @@ function App() {
 
       {/* Login Modal */}
       <LoginModal />
+      <ChatbotPopup />
     </div>
   );
 }
