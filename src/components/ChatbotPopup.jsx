@@ -135,7 +135,7 @@ export default function ChatbotPopup() {
               cargo: nextData.cargo,
               qtd_colaboradores: nextData.qtd_colaboradores,
               possui_site: nextData.possui_site,
-              origem: "Popup ChatClean",
+              origem: "Site ChatClean",
             }),
           });
         } catch (error) {
