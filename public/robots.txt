@@ -1,0 +1,28 @@
+# robots.txt - ChatClean
+# https://chatclean.com.br
+
+User-agent: *
+Allow: /
+
+# Bloqueios opcionais (descomente conforme necessidade)
+# Disallow: /admin
+# Disallow: /app
+
+# Bots de IA - permitir indexacao para citacoes em AI Overviews / ChatGPT / Perplexity
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+# Sitemap
+Sitemap: https://chatclean.com.br/sitemap.xml

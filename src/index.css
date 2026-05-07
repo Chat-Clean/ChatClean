@@ -1,3 +1,260 @@
+/* ===========================================================
+   ChatClean — estilos globais
+   =========================================================== */
+
 html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: #ffffff;
+  color: #0f172a;
+  overflow-x: hidden;
+}
+
+/* ----- Selection -------------------------------------------------- */
+::selection {
+  background: #00bd42;
+  color: #fff;
+}
+
+/* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 189, 66, 0.55);
+  background-clip: content-box;
+}
+
+/* ----- Acessibilidade: respeita usuario ------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===========================================================
+   Animacoes globais
+   =========================================================== */
+
+/* --- Gradient mesh / blobs animados (hero premium) --- */
+.blob {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  filter: blur(80px);
+  will-change: transform;
+  opacity: 0.7;
+}
+
+.blob-1 {
+  top: -150px;
+  left: -150px;
+  animation: blob-move-1 18s ease-in-out infinite alternate;
+}
+.blob-2 {
+  top: 30%;
+  right: -200px;
+  animation: blob-move-2 22s ease-in-out infinite alternate;
+}
+.blob-3 {
+  bottom: -200px;
+  left: 30%;
+  animation: blob-move-3 26s ease-in-out infinite alternate;
+}
+
+@keyframes blob-move-1 {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(80px, 60px) scale(1.15);
+  }
+}
+@keyframes blob-move-2 {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(-100px, 80px) scale(1.1);
+  }
+}
+@keyframes blob-move-3 {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(60px, -100px) scale(1.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob {
+    animation: none !important;
+  }
+}
+
+/* --- Glow rings (em volta de cards de feature em hover) --- */
+.glow-ring {
+  position: relative;
+  isolation: isolate;
+}
+.glow-ring::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: conic-gradient(
+    from var(--angle, 0deg),
+    rgba(0, 189, 66, 0) 0deg,
+    rgba(0, 189, 66, 0.6) 90deg,
+    rgba(0, 145, 204, 0.6) 180deg,
+    rgba(124, 58, 237, 0.6) 270deg,
+    rgba(0, 189, 66, 0) 360deg
+  );
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.glow-ring:hover::before {
+  opacity: 1;
+  animation: rotate-angle 4s linear infinite;
+}
+
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes rotate-angle {
+  to {
+    --angle: 360deg;
+  }
+}
+
+/* --- Underline animado em links --- */
+.link-underline {
+  position: relative;
+}
+.link-underline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.link-underline:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+/* --- Texto com gradient (uso pontual em headlines) --- */
+.text-gradient {
+  background: linear-gradient(135deg, #00bd42 0%, #0091cc 50%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* --- Dot pattern background --- */
+.bg-dot {
+  background-image: radial-gradient(
+    rgba(15, 23, 42, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+/* --- Card 3D hover (subtil) --- */
+.card-3d {
+  transition:
+    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.4s ease;
+}
+.card-3d:hover {
+  transform: perspective(1000px) rotateX(2deg) rotateY(-2deg) translateY(-4px);
+}
+
+/* --- Shimmer loading (para skeletons quando precisar) --- */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.05) 0%,
+    rgba(0, 0, 0, 0.1) 50%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* --- Pulse ring (status / live indicators) --- */
+.pulse-ring {
+  position: relative;
+}
+.pulse-ring::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: rgba(0, 189, 66, 0.4);
+  animation: pulse-ring 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* --- Floating animation extra (para mockups) --- */
+.floaty {
+  animation: floaty 8s ease-in-out infinite;
+}
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-12px) rotate(0.6deg);
+  }
 }

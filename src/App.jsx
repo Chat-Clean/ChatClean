@@ -33,8 +33,14 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import "./App.css";
 import ChatbotPopup from '@/components/ChatbotPopup';
+import Reveal from "@/components/animated/Reveal";
+import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
+import AnimatedCounter from "@/components/animated/AnimatedCounter";
+import AnimatedGradient from "@/components/animated/AnimatedGradient";
+import { EASE } from "@/lib/motion";
 
 // Importar imagens
 import heroDashboard from "./assets/hero-dashboard-2.jpg";
@@ -58,7 +64,7 @@ function App() {
   const [loopNum, setLoopNum] = useState(0);
   const [typingSpeed, setTypingSpeed] = useState(150);
 
-  const words = ["Completo", "Robusto", "Eficaz"];
+  const words = ["WhatsApp", "Instagram", "Vendas"];
 
   const features = [
     {
@@ -111,29 +117,32 @@ function App() {
     },
   ];
 
+  // TODO: substituir por depoimentos verificados de clientes reais (com foto e link).
+  // Os textos abaixo sao genericos enquanto coletamos depoimentos autorizados;
+  // os nomes/empresas foram trocados por clientes reais ja exibidos na parede de logos.
   const testimonials = [
     {
-      name: "Maria Silva",
-      company: "TechCorp",
-      role: "Gerente de Atendimento",
+      name: "Equipe L'auto Cargo",
+      company: "L'auto Cargo",
+      role: "Operacao de Atendimento",
       content:
-        "A ChatClean revolucionou nosso atendimento. Aumentamos a eficiência em 300% e a satisfação dos clientes disparou.",
+        "Centralizamos WhatsApp, Instagram e Facebook em um so painel. O time ganhou velocidade e a esteira de atendimento ficou bem mais previsivel.",
       rating: 5,
     },
     {
-      name: "João Santos",
-      company: "E-commerce Plus",
-      role: "CEO",
+      name: "Equipe Terra Invest Imoveis",
+      company: "Terra Invest Imoveis",
+      role: "Comercial",
       content:
-        "Desde que implementamos a ChatClean, nosso time consegue atender 5x mais clientes com a mesma qualidade.",
+        "Com o CRM e o ChatBot da ChatClean conseguimos qualificar leads 24/7 e nao perder mais conversa por falta de resposta. Aumentamos a conversao do funil.",
       rating: 5,
     },
     {
-      name: "Ana Costa",
-      company: "Serviços Premium",
-      role: "Diretora Comercial",
+      name: "Equipe Grupo Dura Mais",
+      company: "Grupo Dura Mais",
+      role: "Atendimento ao Cliente",
       content:
-        "O ROI foi imediato. Em 3 meses já tínhamos recuperado o investimento e aumentado nossas vendas.",
+        "A migracao para a API Oficial do WhatsApp ficou simples e os relatorios ajudam a entender onde melhorar a operacao todo mes.",
       rating: 5,
     },
   ];
@@ -381,92 +390,151 @@ function App() {
         style={backgroundHero}
         className="relative overflow-hidden pt-50 py-50 "
       >
+        {/* Gradient mesh animado (blobs) */}
+        <AnimatedGradient />
+
         {/* Detalhe abstrato de fundo para modernizar */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] pointer-events-none" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="grid lg:grid-cols-2 gap-35 items-center">
             {/* Coluna de Texto */}
-            <div className="text-left">
-              <Badge className="mb-6 px-4 py-1.5 bg-green-100/80 text-green-600 border-none rounded-full text-sm font-semibold backdrop-blur-sm">
-                ✨ #1 Plataforma de CRM no Brasil
-              </Badge>
+            <motion.div
+              className="text-left"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: EASE.out }}
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.1, ease: EASE.out }}
+              >
+                <Badge className="mb-6 px-4 py-1.5 bg-green-100/80 text-green-600 border-none rounded-full text-sm font-semibold backdrop-blur-sm">
+                  ✨ #1 Plataforma de CRM no Brasil
+                </Badge>
+              </motion.div>
 
-              <h1 className="text-5xl lg:text-7xl font-extrabold text-white mb-6 tracking-tight leading-[1.1]">
+              <motion.h1
+                className="text-5xl lg:text-7xl font-extrabold text-white mb-6 tracking-tight leading-[1.1]"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, delay: 0.15, ease: EASE.out }}
+              >
                 CRM e ChatBot <br />
-                <span className="flex items-center gap-3">
-                  <span>Mais</span>
+                <span className="flex items-center gap-3 flex-wrap">
+                  <span>para</span>
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-800 border-r-4 border-blue-600 pr-2 animate-pulse">
                     {text}
                   </span>
                 </span>
-              </h1>
+              </motion.h1>
 
-              <p className="text-lg text-white mb-10 leading-relaxed max-w-xl">
-                Centralize WhatsApp, Instagram e seus canais de atendimento em
-                uma única
+              <motion.p
+                className="text-lg text-white mb-10 leading-relaxed max-w-xl"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3, ease: EASE.out }}
+              >
+                Centralize WhatsApp, Instagram, Facebook e Telegram em um único
+                CRM com
                 <span className="font-semibold text-blue-700">
                   {" "}
-                  solução inteligente
+                  API Oficial do WhatsApp
                 </span>
-                . Aumente a eficiência da sua equipe e venda mais com automação
-                real.
-              </p>
+                . Atenda mais rápido, automatize com IA e venda mais — com
+                multiatendimento real.
+              </motion.p>
 
-              <div className="flex flex-col sm:flex-row gap-4 items-center">
-                <a
+              <motion.div
+                className="flex flex-col sm:flex-row gap-4 items-center"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.45, ease: EASE.out }}
+              >
+                <motion.a
                   href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full sm:w-auto"
+                  whileHover={{ y: -3, scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ duration: 0.2, ease: EASE.out }}
                 >
                   <Button
                     size="lg"
-                    className="w-full sm:w-auto bg-green-500 hover:bg-green-600 hover:scale-105 active:scale-95 transition-all duration-200 shadow-xl shadow-green-700 text-white px-8 h-14 rounded-2xl cursor-pointer"
+                    className="w-full sm:w-auto bg-green-500 hover:bg-green-600 transition-all duration-200 shadow-xl shadow-green-700 text-white px-8 h-14 rounded-2xl cursor-pointer btn-shiny"
                   >
                     <Play className="h-5 w-5 mr-2 fill-current" />
                     Agendar Demo Gratuita
                   </Button>
-                </a>
+                </motion.a>
 
-                <a href="#funcionalidades" className="w-full sm:w-auto">
+                <motion.a
+                  href="#funcionalidades"
+                  className="w-full sm:w-auto"
+                  whileHover={{ y: -3, scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ duration: 0.2, ease: EASE.out }}
+                >
                   <Button
                     size="lg"
-                    className="w-full sm:w-auto bg-green-500 hover:bg-green-600 hover:scale-105 active:scale-95 transition-all duration-200 shadow-xl shadow-green-700 text-white px-8 h-14 rounded-2xl cursor-pointer"
+                    className="w-full sm:w-auto bg-green-500 hover:bg-green-600 transition-all duration-200 shadow-xl shadow-green-700 text-white px-8 h-14 rounded-2xl cursor-pointer"
                   >
                     Conhecer Recursos
                     <ArrowRight className="h-5 w-5 ml-2" />
                   </Button>
-                </a>
-              </div>
+                </motion.a>
+              </motion.div>
 
               {/* Prova social com logos reais */}
-              <div className="mt-10 pt-8 border-t border-white/10 flex items-center gap-4">
+              <motion.div
+                className="mt-10 pt-8 border-t border-white/10 flex items-center gap-4"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.6, ease: EASE.out }}
+              >
                 <div className="flex -space-x-3">
                   {[lautoCargo, dStore, wishBones, grupoDuraMais].map(
                     (logo, i) => (
-                      <img
+                      <motion.img
                         key={i}
                         src={logo}
                         alt="Cliente ChatClean"
                         className="w-12 h-12 rounded-full border-2 border-blue-500 bg-white object-contain p-1 shadow-lg"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{
+                          duration: 0.4,
+                          delay: 0.7 + i * 0.08,
+                          ease: EASE.out,
+                        }}
+                        whileHover={{ y: -4, scale: 1.1, zIndex: 10 }}
                       />
                     ),
                   )}
                 </div>
                 <p className="text-sm text-white/70 font-medium">
-                  <span className="text-white font-bold">+100 empresas</span> já
-                  escalam com ChatClean
+                  <span className="text-white font-bold">
+                    +<AnimatedCounter to={100} duration={1400} />
+                    {" "}empresas
+                  </span>{" "}
+                  já escalam com ChatClean
                 </p>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
 
             {/* Coluna da Imagem/Dashboard */}
-            <div className="relative group">
+            <motion.div
+              className="relative group"
+              initial={{ opacity: 0, scale: 0.94, y: 24 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.9, delay: 0.3, ease: EASE.out }}
+            >
               {/* Efeito de brilho atrás da imagem */}
               <div className="absolute -inset-5 bg-gradient-to-r from-blue-400 to-blue-500 rounded-[2rem] blur-2xl opacity-60 group-hover:opacity-30 transition-opacity duration-500" />
 
-              <div className="relative border border-white/50 bg-white/50 backdrop-blur-sm p-3 rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] transition-transform duration-500 hover:-translate-y-2">
+              <div className="relative border border-white/50 bg-white/50 backdrop-blur-sm p-3 rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] transition-transform duration-500 hover:-translate-y-2 floaty">
                 <img
                   src={heroDashboard}
                   alt="Dashboard ChatClean"
@@ -490,56 +558,66 @@ function App() {
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </section>
 
       {/* Value Proposition */}
-      <section className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+      <section className="py-20 bg-white relative overflow-hidden">
+        {/* dot pattern decorativo */}
+        <div className="absolute inset-0 bg-dot opacity-40 pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <Reveal className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
-              Por que mais de 30 empresas escolhem a ChatClean?
+              Por que mais de{" "}
+              <span className="text-gradient">
+                <AnimatedCounter to={100} duration={1500} suffix="+" />
+              </span>{" "}
+              empresas escolhem a ChatClean?
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               Transforme seu atendimento com a plataforma mais completa do
               mercado
             </p>
-          </div>
+          </Reveal>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <StaggerGroup className="grid md:grid-cols-3 gap-8">
+            <StaggerItem className="text-center group">
+              <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:bg-green-200">
                 <Zap className="h-8 w-8 text-green-600" />
               </div>
               <h3 className="text-xl font-semibold mb-2">Eficiência</h3>
               <p className="text-gray-600">
-                Aumente a produtividade da sua equipe em até 100%
+                Aumente a produtividade da sua equipe em até{" "}
+                <span className="font-bold text-green-600">
+                  <AnimatedCounter to={100} duration={1300} suffix="%" />
+                </span>
               </p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            </StaggerItem>
+            <StaggerItem className="text-center group">
+              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:bg-blue-200">
                 <MessageCircle className="h-8 w-8 text-blue-600" />
               </div>
               <h3 className="text-xl font-semibold mb-2">Integração</h3>
               <p className="text-gray-600">
                 Todos os canais em um só lugar, sem complicação
               </p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            </StaggerItem>
+            <StaggerItem className="text-center group">
+              <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6 group-hover:bg-purple-200">
                 <BarChart3 className="h-8 w-8 text-purple-600" />
               </div>
               <h3 className="text-xl font-semibold mb-2">Inteligência</h3>
               <p className="text-gray-600">
                 IA que aprende com seus clientes e otimiza resultados
               </p>
-            </div>
-          </div>
+            </StaggerItem>
+          </StaggerGroup>
 
           {/* Parede de Logos */}
-          <div className="mt-16 pt-16 border-t border-gray-200">
+          <Reveal className="mt-16 pt-16 border-t border-gray-200">
             <div className="text-center mb-12">
               <p className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">
                 Parceiros de Sucesso
@@ -569,28 +647,51 @@ function App() {
                 <img src={ligaDooH} alt="Liga DooH" />
               </div>
             </div>
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* Features Section */}
-      <section id="funcionalidades" className="py-32 bg-white">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="text-center max-w-3xl mx-auto mb-20">
-            <h2 className="text-4xl lg:text-5xl font-black text-gray-900 mb-6">Funcionalidades Incríveis</h2>
-            <p className="text-xl text-gray-500">Tecnologia desenhada para transformar cada interação em uma oportunidade de negócio.</p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <section id="funcionalidades" className="py-32 bg-white relative overflow-hidden">
+        {/* gradient blob decorativo */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-br from-green-100/40 via-blue-100/30 to-purple-100/40 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 relative">
+          <Reveal className="text-center max-w-3xl mx-auto mb-20">
+            <span className="inline-block bg-green-50 text-green-700 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-full mb-4">
+              Plataforma completa
+            </span>
+            <h2 className="text-4xl lg:text-5xl font-black text-gray-900 mb-6 tracking-tight">
+              Funcionalidades <span className="text-gradient">Incríveis</span>
+            </h2>
+            <p className="text-xl text-gray-500">
+              Tecnologia desenhada para transformar cada interação em uma
+              oportunidade de negócio.
+            </p>
+          </Reveal>
+
+          <StaggerGroup className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             {features.map((feature, index) => (
-              <div key={index} className="modern-card p-8 rounded-[2rem] text-left">
-                <div className={`w-14 h-14 ${feature.color} rounded-2xl flex items-center justify-center text-white mb-6 shadow-xl shadow-gray-200`}>
+              <StaggerItem
+                key={index}
+                className="modern-card glow-ring card-3d p-8 rounded-[2rem] text-left relative overflow-hidden"
+              >
+                <motion.div
+                  className={`w-14 h-14 ${feature.color} rounded-2xl flex items-center justify-center text-white mb-6 shadow-xl shadow-gray-200`}
+                  whileHover={{ rotate: -8, scale: 1.08 }}
+                  transition={{ duration: 0.3, ease: EASE.out }}
+                >
                   <feature.icon size={28} />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 mb-4">{feature.title}</h3>
-                <p className="text-gray-500 leading-relaxed">{feature.description}</p>
-              </div>
+                </motion.div>
+                <h3 className="text-xl font-bold text-gray-900 mb-4">
+                  {feature.title}
+                </h3>
+                <p className="text-gray-500 leading-relaxed">
+                  {feature.description}
+                </p>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </div>
       </section>
 
@@ -598,84 +699,116 @@ function App() {
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div>
+            <Reveal>
               <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-6">
-                Veja a ChatClean em Ação
+                Veja a ChatClean em <span className="text-gradient">Ação</span>
               </h2>
               <p className="text-xl text-gray-600 mb-8">
                 Descubra como nossa plataforma pode revolucionar o atendimento
                 da sua empresa. Agende uma demonstração personalizada e veja
                 todos os recursos funcionando.
               </p>
-              <a
+              <motion.a
                 href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site"
                 target="_blank"
                 rel="noopener noreferrer"
+                whileHover={{ y: -3, scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.2, ease: EASE.out }}
+                className="inline-block"
               >
-                <Button size="lg" className="bg-green-600 hover:bg-green-700">
+                <Button
+                  size="lg"
+                  className="bg-green-600 hover:bg-green-700 btn-shiny"
+                >
                   <Play className="h-5 w-5 mr-2" />
                   Solicitar Demonstração Personalizada
                 </Button>
-              </a>
-            </div>
-            <div className="relative">
-              <img
-                src={teamWorking}
-                alt="Equipe trabalhando com ChatClean"
-                className="rounded-lg shadow-xl"
-              />
-            </div>
+              </motion.a>
+            </Reveal>
+            <Reveal variant="right" delay={0.15}>
+              <div className="relative group">
+                <div className="absolute -inset-4 bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 rounded-3xl blur-2xl opacity-30 group-hover:opacity-50 transition-opacity duration-500" />
+                <img
+                  src={teamWorking}
+                  alt="Equipe trabalhando com ChatClean"
+                  className="relative rounded-2xl shadow-xl floaty"
+                />
+              </div>
+            </Reveal>
           </div>
         </div>
       </section>
 
       {/* Testimonials */}
-      <section className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+      <section className="py-20 bg-gray-50 relative overflow-hidden">
+        <div className="absolute inset-0 bg-dot opacity-30 pointer-events-none" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <Reveal className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
               O que Nossos Clientes Dizem
             </h2>
             <p className="text-xl text-gray-600">
               Histórias reais de transformação e sucesso
             </p>
-          </div>
+          </Reveal>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <StaggerGroup className="grid md:grid-cols-3 gap-8">
             {testimonials.map((testimonial, index) => (
-              <Card key={index} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-center space-x-1 mb-2">
-                    {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className="h-5 w-5 text-yellow-400 fill-current"
-                      />
-                    ))}
-                  </div>
-                  <CardDescription className="text-base italic">
-                    "{testimonial.content}"
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div>
-                    <p className="font-semibold">{testimonial.name}</p>
-                    <p className="text-sm text-gray-600">{testimonial.role}</p>
-                    <p className="text-sm text-green-600">
-                      {testimonial.company}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              <StaggerItem key={index}>
+                <Card className="card-3d hover:shadow-2xl transition-all duration-500 border-gray-100 h-full bg-white/70 backdrop-blur-sm">
+                  <CardHeader>
+                    <div className="flex items-center space-x-1 mb-2">
+                      {[...Array(testimonial.rating)].map((_, i) => (
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, scale: 0.5, rotate: -45 }}
+                          whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
+                          viewport={{ once: true }}
+                          transition={{
+                            duration: 0.4,
+                            delay: 0.1 + i * 0.06,
+                            ease: EASE.out,
+                          }}
+                        >
+                          <Star className="h-5 w-5 text-yellow-400 fill-current" />
+                        </motion.div>
+                      ))}
+                    </div>
+                    <CardDescription className="text-base italic leading-relaxed">
+                      "{testimonial.content}"
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div>
+                      <p className="font-semibold">{testimonial.name}</p>
+                      <p className="text-sm text-gray-600">
+                        {testimonial.role}
+                      </p>
+                      <p className="text-sm text-green-600 font-medium">
+                        {testimonial.company}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerGroup>
         </div>
       </section>
 
       {/* CTA Final */}
-      <section className="py-20 bg-gradient-to-r from-green-600 to-blue-600 text-white">
-        <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl lg:text-4xl font-bold mb-6">
+      <section className="py-20 bg-gradient-to-br from-green-600 via-green-500 to-blue-600 text-white relative overflow-hidden">
+        {/* Light beams decorativos */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 left-1/4 w-1 h-full bg-gradient-to-b from-white/20 to-transparent rotate-12" />
+          <div className="absolute top-0 right-1/3 w-1 h-full bg-gradient-to-b from-white/15 to-transparent -rotate-6" />
+          <div className="absolute -top-24 -right-24 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
+        </div>
+
+        <Reveal className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8 relative">
+          <h2 className="text-3xl lg:text-5xl font-bold mb-6 tracking-tight">
             Pronto para Revolucionar seu Atendimento?
           </h2>
           <p className="text-xl mb-8 opacity-90">
@@ -683,22 +816,28 @@ function App() {
             com a ChatClean
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a
+            <motion.a
               href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site"
               target="_blank"
               rel="noopener noreferrer"
+              whileHover={{ y: -3, scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ duration: 0.2, ease: EASE.out }}
             >
               <Button
                 size="lg"
-                className="bg-white text-green-600 hover:bg-gray-100"
+                className="bg-white text-green-600 hover:bg-gray-100 btn-shiny shadow-2xl"
               >
-                Começar Agora - Grátis
+                Agendar Demo Gratuita
               </Button>
-            </a>
-            <a
+            </motion.a>
+            <motion.a
               href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site"
               target="_blank"
               rel="noopener noreferrer"
+              whileHover={{ y: -3, scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ duration: 0.2, ease: EASE.out }}
             >
               <Button
                 size="lg"
@@ -708,15 +847,15 @@ function App() {
                 <Phone className="h-5 w-5 mr-2" />
                 Falar com Especialista
               </Button>
-            </a>
+            </motion.a>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* FAQ Section */}
       <section id="faq" className="py-20 bg-gray-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+          <Reveal className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
               Perguntas Frequentes
             </h2>
@@ -724,9 +863,135 @@ function App() {
               Sem surpresas, sem complicações. Cancela quando quiser e reativa
               quando precisar, sem burocracia.
             </p>
-          </div>
+          </Reveal>
 
           <Accordion type="single" collapsible className="space-y-4">
+            <AccordionItem
+              value="item-seo-1"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  O que é um CRM para WhatsApp?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  Um CRM para WhatsApp é uma plataforma que conecta o WhatsApp
+                  Business ao seu processo comercial: registra cada conversa,
+                  organiza leads em um funil de vendas (Kanban), permite que
+                  vários atendentes usem o mesmo número e automatiza
+                  mensagens. Na ChatClean, o CRM é integrado à API Oficial do
+                  WhatsApp e ainda centraliza Instagram, Facebook e Telegram no
+                  mesmo painel.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="item-seo-2"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  O que é a API Oficial do WhatsApp e por que ela importa?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  A API Oficial do WhatsApp Business (também chamada de Cloud
+                  API) é a versão homologada pela Meta para empresas. Permite
+                  ter um único número com vários atendentes, envio de templates
+                  aprovados, integração com sistemas e zero risco de
+                  banimento. A ChatClean é integrada nativamente à API Oficial
+                  e cuida de toda a configuração com você.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="item-seo-3"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  Quanto custa a API Oficial do WhatsApp?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  A Meta cobra por conversa iniciada, com valores que variam
+                  por categoria (utilidade, marketing, autenticação, serviço) e
+                  pelo país do destinatário. No Brasil, conversas de utilidade
+                  custam aproximadamente R$ 0,045 e de marketing cerca de
+                  R$ 0,35 por sessão. A ChatClean inclui essa orientação na
+                  proposta personalizada e ajuda a otimizar o uso de templates
+                  para reduzir custos.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="item-seo-4"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  Como ter vários atendentes em um único número de WhatsApp?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  Com a API Oficial e a ChatClean, sua empresa tem um único
+                  número de WhatsApp com login individual para cada atendente,
+                  filas, departamentos, transferência de conversa, histórico
+                  centralizado e relatórios por colaborador — sem precisar de
+                  vários celulares ou chips.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="item-seo-5"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  Qual a diferença entre WhatsApp Business e API Oficial?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  O WhatsApp Business comum (aplicativo) é gratuito e funciona
+                  para autônomos e microempresas, mas só permite até 4
+                  dispositivos no mesmo número. A API Oficial é a solução para
+                  empresas que precisam de multiatendimento real, automação
+                  com chatbot, integração com CRM e envio de campanhas em
+                  escala — sem risco de bloqueio.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem
+              value="item-seo-6"
+              className="bg-white rounded-lg border"
+            >
+              <AccordionTrigger className="px-6 py-4 text-left hover:no-underline">
+                <span className="text-lg font-medium">
+                  Como integrar o WhatsApp ao meu CRM?
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-4">
+                <p className="text-gray-600">
+                  Na ChatClean, a integração é nativa: você não precisa
+                  instalar plugins ou contratar fornecedores extras. Nossa
+                  equipe ativa a API Oficial do WhatsApp para o seu número,
+                  configura templates, importa contatos e treina o time.
+                  Geralmente o onboarding é concluído em poucos dias úteis.
+                </p>
+              </AccordionContent>
+            </AccordionItem>
+
             <AccordionItem
               value="item-1"
               className="bg-white rounded-lg border"
@@ -921,14 +1186,14 @@ function App() {
                   </a>
                 </li>
                 <li>
-                  <a href="#" className="hover:text-white">
+                  <a href="#funcionalidades" className="hover:text-white">
                     Integrações
                   </a>
                 </li>
                 <li>
-                  <a href="#" className="hover:text-white">
-                    API
-                  </a>
+                  <Link to="/api-oficial-whatsapp" className="hover:text-white">
+                    API Oficial WhatsApp
+                  </Link>
                 </li>
               </ul>
             </div>
@@ -988,8 +1253,8 @@ function App() {
 
           <div className="border-t border-gray-800 mt-12 pt-8 text-center text-gray-400">
             <p>
-              &copy; 2025 ChatClean. Todos os direitos reservados. CNPJ:
-              57.487.327/0001-57
+              &copy; {new Date().getFullYear()} ChatClean. Todos os direitos
+              reservados. CNPJ: 57.487.327/0001-57
             </p>
           </div>
         </div>
