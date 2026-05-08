@@ -258,3 +258,242 @@ body {
     transform: translateY(-12px) rotate(0.6deg);
   }
 }
+
+/* ===========================================================
+   AURORA GRADIENT — bg verde animado tipo Linear/Vercel
+   =========================================================== */
+.aurora-bg {
+  background: linear-gradient(
+    125deg,
+    #009161 0%,
+    #00bd42 25%,
+    #00e6b8 50%,
+    #00bd42 75%,
+    #009161 100%
+  );
+  background-size: 400% 400%;
+  animation: aurora-shift 18s ease infinite;
+}
+
+@keyframes aurora-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Aurora light beam (faixas diagonais animadas) */
+.aurora-beams::before,
+.aurora-beams::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 70%
+  );
+  animation: beam-sweep 12s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.aurora-beams::after {
+  animation-delay: 6s;
+  background: linear-gradient(
+    -45deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 70%
+  );
+}
+
+@keyframes beam-sweep {
+  0%,
+  100% {
+    transform: translateX(-30%) translateY(-30%);
+  }
+  50% {
+    transform: translateX(30%) translateY(30%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-bg {
+    animation: none !important;
+  }
+  .aurora-beams::before,
+  .aurora-beams::after {
+    animation: none !important;
+  }
+}
+
+/* ===========================================================
+   GRID PATTERN técnico (estilo Linear/Vercel)
+   =========================================================== */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at center, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 80% 60% at center,
+    black 30%,
+    transparent 80%
+  );
+}
+
+.bg-grid-white {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at center, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 80% 60% at center,
+    black 30%,
+    transparent 80%
+  );
+}
+
+/* ===========================================================
+   PARTICLE FIELD — pontos flutuantes
+   =========================================================== */
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+  animation: particle-float linear infinite;
+}
+
+@keyframes particle-float {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(-120vh) translateX(20px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .particle {
+    animation: none !important;
+    display: none;
+  }
+}
+
+/* ===========================================================
+   BORDER GRADIENT animado (botões e cards premium)
+   =========================================================== */
+.border-gradient {
+  position: relative;
+  background: white;
+  z-index: 0;
+}
+
+.border-gradient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background: linear-gradient(
+    var(--border-angle, 0deg),
+    #00bd42,
+    #00e6b8,
+    #0091cc,
+    #00bd42
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  background-size: 300% 300%;
+  animation: border-rotate 6s linear infinite;
+}
+
+@property --border-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes border-rotate {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 300% 50%;
+  }
+}
+
+/* ===========================================================
+   ICON BOUNCE / WIGGLE no hover
+   =========================================================== */
+.icon-wiggle {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.group:hover .icon-wiggle {
+  animation: wiggle 0.6s ease-in-out;
+}
+
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-12deg) scale(1.1);
+  }
+  75% {
+    transform: rotate(12deg) scale(1.1);
+  }
+}
+
+/* ===========================================================
+   GREEN GLOW (sombra verde para hover de elementos)
+   =========================================================== */
+.green-glow {
+  transition: box-shadow 0.4s ease;
+}
+.green-glow:hover {
+  box-shadow:
+    0 0 0 1px rgba(0, 189, 66, 0.3),
+    0 8px 32px rgba(0, 189, 66, 0.18),
+    0 0 60px rgba(0, 230, 184, 0.25);
+}
+
+/* ===========================================================
+   TEXT GRADIENT VERDE (para títulos)
+   =========================================================== */
+.text-gradient-green {
+  background: linear-gradient(135deg, #009161 0%, #00bd42 50%, #00e6b8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ===========================================================
+   NUMBER TICKER container
+   =========================================================== */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
