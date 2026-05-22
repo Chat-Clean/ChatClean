@@ -19,8 +19,8 @@ export default function ChatbotPopup() {
   const messagesEndRef = useRef(null);
 
   const N8N_WEBHOOK_URL =
-    "https://webhook.chatclean.online/webhook/15cc67a0-4f72-4f22-b8b0-7852b78384d0";
-  const WHATSAPP_NUMBER = "5584996950105";
+    "https://teste-n8n.pxohxs.easypanel.host/webhook/15cc67a0-4f72-4f22-b8b0-7852b78384d0";
+  const WHATSAPP_NUMBER = "558499358786";
 
   const [messages, setMessages] = useState([
     {
