@@ -194,7 +194,7 @@ function App() {
         </div>
         <div className="space-y-4">
           <a
-            href="https://app.chatclean.com.br/"
+            href="https://beta.chatclean.com.br/"
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center p-5 border border-zinc-200 bg-white rounded-2xl hover:border-emerald-500 hover:shadow-xl hover:shadow-emerald-50 transition-all duration-300"
@@ -208,7 +208,7 @@ function App() {
             </div>
           </a>
           <a
-            href="https://app2.chatclean.com.br/"
+            href="https://beta2.chatclean.com.br/"
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center p-5 border border-zinc-200 bg-white rounded-2xl hover:border-blue-500 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300"
