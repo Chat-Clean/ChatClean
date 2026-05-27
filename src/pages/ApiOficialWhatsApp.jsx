@@ -11,7 +11,8 @@ import {
   BarChart3,
   Phone,
 } from "lucide-react";
-import chatcleanLogo from "/Logo ChatClean.svg";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 
 /**
  * Pagina pilar para SEO: /api-oficial-whatsapp
@@ -70,7 +71,7 @@ export default function ApiOficialWhatsApp() {
         name: "ChatClean",
         logo: {
           "@type": "ImageObject",
-          url: "https://chatclean.com.br/Logo%20ChatClean.svg",
+          url: "https://chatclean.com.br/chatclean.svg",
         },
       },
       mainEntityOfPage: "https://chatclean.com.br/api-oficial-whatsapp",
@@ -155,37 +156,10 @@ export default function ApiOficialWhatsApp() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header simples */}
-      <header className="border-b border-gray-100 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <img src={chatcleanLogo} alt="ChatClean" className="h-10" />
-            <span className="text-lg font-bold text-gray-900">ChatClean</span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-700">
-            <Link to="/" className="hover:text-green-600">
-              Home
-            </Link>
-            <Link to="/blog" className="hover:text-green-600">
-              Blog
-            </Link>
-            <Link to="/sobre" className="hover:text-green-600">
-              Sobre
-            </Link>
-          </nav>
-          <a
-            href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button className="bg-green-600 hover:bg-green-700 text-white">
-              Falar com Especialista
-            </Button>
-          </a>
-        </div>
-      </header>
+      <Navbar />
 
-      {/* Breadcrumb (SEO + UX) */}
+      {/* Breadcrumb (SEO + UX) — compensate for fixed navbar */}
+      <div className="pt-20" />
       <nav
         aria-label="Breadcrumb"
         className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-sm text-gray-500"
@@ -445,12 +419,7 @@ export default function ApiOficialWhatsApp() {
         </div>
       </section>
 
-      {/* Footer simples */}
-      <footer className="bg-gray-900 text-gray-400 py-8 text-center text-sm">
-        <p>
-          &copy; {new Date().getFullYear()} ChatClean. CNPJ: 57.487.327/0001-57
-        </p>
-      </footer>
+      <Footer />
     </div>
   );
 }
