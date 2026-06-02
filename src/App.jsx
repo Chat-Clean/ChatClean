@@ -25,8 +25,6 @@ import { EASE } from "@/lib/motion";
 import ModernHero from "./components/animated/ModernHero";
 import StatsSection from "./components/animated/StatsSection";
 import BentoFeatures from "./components/animated/BentoFeatures";
-import ModernCTA from "./components/animated/ModernCTA";
-
 import bonesRamalho from "./assets/bones-ramalho.jpg";
 import dStore from "./assets/d-store.png";
 import grupoDuraMais from "./assets/grupo-duramais.jpg";
@@ -228,39 +226,59 @@ function App() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="py-24 md:py-32 bg-zinc-50 relative">
-        <div className="max-w-3xl mx-auto px-4">
-          <Reveal className="text-center mb-16">
-            <span className="inline-block px-3 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-700 text-xs font-bold uppercase tracking-widest mb-6 shadow-sm">
-              Perguntas frequentes
+      <section id="faq" className="py-24 md:py-32 aurora-bg aurora-beams relative overflow-hidden">
+        <div className="absolute inset-0 bg-grid-white opacity-30 pointer-events-none" />
+
+        <div className="max-w-6xl mx-auto px-4 relative">
+          <Reveal className="text-center mb-14">
+            <span className="inline-block px-3 py-1 rounded-full bg-white/15 border border-white/30 backdrop-blur-md text-white text-xs font-bold uppercase tracking-widest mb-5">
+              FAQ
             </span>
-            <h2 className="text-4xl md:text-5xl font-black text-zinc-900 mb-4 tracking-tighter">
-              Tudo que você precisa saber
+            <h2 className="text-4xl md:text-5xl font-black text-white mb-4 tracking-tighter">
+              Ficou com alguma dúvida?
             </h2>
-            <p className="text-zinc-600 text-lg">Sem surpresas, sem complicações.</p>
+            <p className="text-white/75 text-lg">Confira as perguntas mais frequentes</p>
           </Reveal>
 
-          <Accordion type="single" collapsible className="space-y-3">
-            {faqs.map((faq, idx) => (
-              <AccordionItem
-                key={idx}
-                value={`item-${idx}`}
-                className="bg-white border border-zinc-100 rounded-2xl overflow-hidden px-2 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-50 transition-all duration-300"
-              >
-                <AccordionTrigger className="px-6 py-4 hover:no-underline text-zinc-900 font-medium text-left">
-                  {faq.q}
-                </AccordionTrigger>
-                <AccordionContent className="px-6 pb-4 text-zinc-600 leading-relaxed">
-                  {faq.a}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Coluna esquerda */}
+            <Accordion type="single" collapsible className="space-y-3">
+              {faqs.slice(0, Math.ceil(faqs.length / 2)).map((faq, idx) => (
+                <AccordionItem
+                  key={idx}
+                  value={`left-${idx}`}
+                  className="bg-emerald-800/70 border border-emerald-700/60 hover:border-emerald-600 rounded-2xl overflow-hidden px-2 transition-all duration-300 data-[state=open]:border-emerald-500 data-[state=open]:bg-emerald-800/90"
+                >
+                  <AccordionTrigger className="px-5 py-4 hover:no-underline text-white/90 hover:text-white data-[state=open]:text-white font-semibold text-left text-sm transition-colors [&>svg]:text-white/50 [&>svg]:data-[state=open]:text-white">
+                    {faq.q}
+                  </AccordionTrigger>
+                  <AccordionContent className="px-5 pb-4 text-white/70 leading-relaxed text-sm">
+                    {faq.a}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+
+            {/* Coluna direita */}
+            <Accordion type="single" collapsible className="space-y-3">
+              {faqs.slice(Math.ceil(faqs.length / 2)).map((faq, idx) => (
+                <AccordionItem
+                  key={idx}
+                  value={`right-${idx}`}
+                  className="bg-emerald-800/70 border border-emerald-700/60 hover:border-emerald-600 rounded-2xl overflow-hidden px-2 transition-all duration-300 data-[state=open]:border-emerald-500 data-[state=open]:bg-emerald-800/90"
+                >
+                  <AccordionTrigger className="px-5 py-4 hover:no-underline text-white/90 hover:text-white data-[state=open]:text-white font-semibold text-left text-sm transition-colors [&>svg]:text-white/50 [&>svg]:data-[state=open]:text-white">
+                    {faq.q}
+                  </AccordionTrigger>
+                  <AccordionContent className="px-5 pb-4 text-white/70 leading-relaxed text-sm">
+                    {faq.a}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
         </div>
       </section>
-
-      {/* CTA Aurora */}
-      <ModernCTA />
 
       <Footer />
       <ChatbotPopup />

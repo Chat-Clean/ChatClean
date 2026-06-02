@@ -7,12 +7,14 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  position: relative; /* garante scroll container posicionado para framer-motion useScroll */
 }
 
 body {
   background: #ffffff;
   color: #0f172a;
   overflow-x: hidden;
+  position: relative; /* necessário para framer-motion scroll container detection */
 }
 
 /* ----- Selection -------------------------------------------------- */
@@ -245,19 +247,6 @@ body {
   }
 }
 
-/* --- Floating animation extra (para mockups) --- */
-.floaty {
-  animation: floaty 8s ease-in-out infinite;
-}
-@keyframes floaty {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0);
-  }
-  50% {
-    transform: translateY(-12px) rotate(0.6deg);
-  }
-}
 
 /* ===========================================================
    AURORA GRADIENT — bg verde animado tipo Linear/Vercel
@@ -265,11 +254,11 @@ body {
 .aurora-bg {
   background: linear-gradient(
     125deg,
-    #009161 0%,
-    #00bd42 25%,
-    #00e6b8 50%,
-    #00bd42 75%,
-    #009161 100%
+    #005c3a 0%,
+    #007a2a 25%,
+    #00a880 50%,
+    #007a2a 75%,
+    #005c3a 100%
   );
   background-size: 400% 400%;
   animation: aurora-shift 18s ease infinite;
@@ -484,7 +473,7 @@ body {
    TEXT GRADIENT VERDE (para títulos)
    =========================================================== */
 .text-gradient-green {
-  background: linear-gradient(135deg, #009161 0%, #00bd42 50%, #00e6b8 100%);
+  background: linear-gradient(135deg, #005c3a 0%, #007a2a 50%, #00a880 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;

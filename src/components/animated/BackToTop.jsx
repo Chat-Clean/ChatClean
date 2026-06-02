@@ -28,7 +28,7 @@ export default function BackToTop() {
           type="button"
           aria-label="Voltar ao topo"
           onClick={handleClick}
-          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-green-600 text-white shadow-2xl shadow-green-600/40 flex items-center justify-center hover:bg-green-700 transition-colors"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-12 h-12 rounded-full bg-green-600 text-white shadow-2xl shadow-green-600/40 flex items-center justify-center hover:bg-green-700 transition-colors"
           initial={{ opacity: 0, scale: 0.6, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.6, y: 20 }}

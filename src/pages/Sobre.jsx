@@ -144,7 +144,7 @@ export default function Sobre() {
               </p>
               <div className="grid grid-cols-2 gap-6">
                 {[
-                  { icon: Users, value: "+100", label: "Empresas atendidas", color: "text-emerald-600", bg: "bg-emerald-50" },
+                  { icon: Users, value: "+300", label: "Empresas atendidas", color: "text-emerald-600", bg: "bg-emerald-50" },
                   { icon: TrendingUp, value: "50%", label: "Aumento médio em vendas", color: "text-blue-600", bg: "bg-blue-50" },
                 ].map((stat) => (
                   <div key={stat.label} className="text-center p-6 rounded-2xl bg-white border border-zinc-100 green-glow">
@@ -163,7 +163,7 @@ export default function Sobre() {
                 <div className="cards-track">
                   {consultoriaSlides.map((img, i) => (
                     <div key={i} className="card-item">
-                      <img src={img} alt="ChatClean consultoria" />
+                      <img src={img} alt="ChatClean consultoria" loading="lazy" decoding="async" />
                       <div className="card-overlay">
                         <h4 className="font-semibold mb-1 text-sm">
                           {["Consultoria Estratégica", "Reuniões Estratégicas", "Consultoria em Ação", "Equipe Especializada"][i]}
@@ -217,7 +217,7 @@ export default function Sobre() {
               <div className="cards-track">
                 {palestrasSlides.map((img, i) => (
                   <div key={i} className="card-item">
-                    <img src={img} alt="ChatClean palestras" />
+                    <img src={img} alt="ChatClean palestras" loading="lazy" decoding="async" />
                     <div className="card-overlay">
                       <h4 className="font-semibold mb-1 text-sm">
                         {["Palestras Motivacionais", "Apresentações Técnicas", "Palestrante Especialista", "Eventos de Capacitação"][i]}
@@ -282,7 +282,7 @@ export default function Sobre() {
                 <div className="cards-track">
                   {metodologiasSlides.map((img, i) => (
                     <div key={i} className="card-item">
-                      <img src={img} alt="Metodologias ChatClean" />
+                      <img src={img} alt="Metodologias ChatClean" loading="lazy" decoding="async" />
                       <div className="card-overlay">
                         <h4 className="font-semibold mb-1 text-sm">
                           {["Metodologias Avançadas", "Treinamento Prático", "Resultados Mensuráveis", "Estratégias Personalizadas"][i]}

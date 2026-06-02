@@ -11,7 +11,7 @@ import Reveal from "./Reveal";
 const stats = [
   {
     icon: Building2,
-    value: 100,
+    value: 300,
     suffix: "+",
     label: "Empresas atendidas",
     description: "PMEs e grandes operações no Brasil",
@@ -77,7 +77,7 @@ export default function StatsSection() {
               key={stat.label}
               initial={{ opacity: 0, y: 40 }}
               whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-80px" }}
+              viewport={{ once: true }}
               transition={{
                 duration: 0.7,
                 delay: i * 0.08,

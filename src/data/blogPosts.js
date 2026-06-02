@@ -574,18 +574,3 @@ O futuro do atendimento é agora. Empresas que se adaptarem rapidamente terão v
     tags: ["Tendências", "Futuro", "Atendimento Digital", "Inovação"],
   },
 ];
-
-export const getPostBySlug = (slug) => {
-  return blogPosts.find((post) => post.slug === slug);
-};
-
-export const getRelatedPosts = (currentPostId, categoria, limit = 3) => {
-  return blogPosts
-    .filter((post) => post.id !== currentPostId && post.categoria === categoria)
-    .slice(0, limit);
-};
-
-export const getPostsByCategory = (categoria) => {
-  if (categoria === "Todos") return blogPosts;
-  return blogPosts.filter((post) => post.categoria === categoria);
-};

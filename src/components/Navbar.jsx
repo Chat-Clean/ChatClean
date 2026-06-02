@@ -86,11 +86,28 @@ export default function Navbar() {
   const isHome = location.pathname === "/";
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 60);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    // Encontra a seção verde (aurora-bg) no topo da página atual
+    const greenSection = document.querySelector("section.aurora-bg");
+
+    if (!greenSection) {
+      // Página sem hero verde → navbar sempre branca
+      setScrolled(true);
+      return;
+    }
+
+    // Verificação inicial (caso a página já esteja scrollada ao carregar)
+    const rect = greenSection.getBoundingClientRect();
+    setScrolled(rect.bottom <= 0);
+
+    // Observa quando a seção verde sai completamente do viewport
+    const observer = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { threshold: 0 }, // dispara quando o ÚLTIMO pixel sai da tela
+    );
+
+    observer.observe(greenSection);
+    return () => observer.disconnect();
+  }, [location.pathname]); // reavalia a cada mudança de rota
 
   useEffect(() => {
     document.body.style.overflow = isLoginModalOpen ? "hidden" : "";

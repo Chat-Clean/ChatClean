@@ -64,13 +64,6 @@ export const scaleIn = {
   },
 };
 
-// Hover micro-interaçao para botoes e cards
-export const hoverLift = {
-  rest: { y: 0, scale: 1 },
-  hover: { y: -4, scale: 1.02, transition: { duration: 0.25, ease: EASE.out } },
-  tap: { scale: 0.98 },
-};
-
 // Page transition
 export const pageTransition = {
   initial: { opacity: 0, y: 16 },
@@ -79,4 +72,4 @@ export const pageTransition = {
 };
 
 // Viewport options padrao para whileInView
-export const viewportOnce = { once: true, margin: "-80px" };
+export const viewportOnce = { once: true };

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -11,7 +12,7 @@ import {
 import { Button } from "../components/ui/button";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import { getPostBySlug, getRelatedPosts } from "../data/blogPosts";
+import { getPostBySlug, getRelatedPosts } from "@/lib/blogStore";
 
 const WHATSAPP_LINK =
   "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+saber+mais+sobre+a+ChatClean";
@@ -19,6 +20,7 @@ const WHATSAPP_LINK =
 export default function BlogPost() {
   const { slug } = useParams();
   const post = getPostBySlug(slug);
+  const [copied, setCopied] = useState(false);
 
   if (!post) {
     return (
@@ -50,8 +52,10 @@ export default function BlogPost() {
     if (navigator.share) {
       navigator.share({ title: post.titulo, text: post.resumo, url: window.location.href });
     } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert("Link copiado para a área de transferência!");
+      navigator.clipboard.writeText(window.location.href).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
     }
   };
 
@@ -115,11 +119,29 @@ export default function BlogPost() {
               className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
             >
               <Share2 className="h-4 w-4" />
-              Compartilhar
+              {copied ? "Link copiado! ✓" : "Compartilhar"}
             </button>
           </motion.div>
         </div>
       </section>
+
+      {/* Imagem de capa */}
+      {post.imagem && (
+        <div className="max-w-3xl mx-auto px-4 -mt-8 relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="rounded-2xl overflow-hidden shadow-2xl border border-zinc-100"
+          >
+            <img
+              src={post.imagem}
+              alt={post.titulo}
+              className="w-full h-72 md:h-96 object-cover"
+            />
+          </motion.div>
+        </div>
+      )}
 
       {/* Content */}
       <main className="max-w-3xl mx-auto px-4 py-16">
@@ -143,45 +165,89 @@ export default function BlogPost() {
           {(() => {
             const lines = post.conteudo.split("\n");
             const result = [];
-            let listBuffer = [];
+            let ulBuffer = [];
+            let olBuffer = [];
             let listKey = 0;
 
-            const flushList = () => {
-              if (listBuffer.length === 0) return;
-              result.push(
-                <ul
-                  key={`ul-${listKey++}`}
-                  className="list-disc list-outside pl-6 space-y-2 mb-6 text-zinc-600"
-                >
-                  {listBuffer.map((item, i) => <li key={i} className="leading-relaxed">{item}</li>)}
-                </ul>,
-              );
-              listBuffer = [];
+            /* ── Parser de markdown inline ────────────────────────────────
+             * Converte **negrito**, *itálico* e `código` em JSX mantendo
+             * o restante do texto como string literal.                    */
+            const parseInline = (text) => {
+              const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/g;
+              const parts = [];
+              let last = 0;
+              let k = 0;
+              let m;
+              while ((m = regex.exec(text)) !== null) {
+                if (m.index > last) parts.push(text.slice(last, m.index));
+                if (m[1] !== undefined)
+                  parts.push(<strong key={k++} className="font-bold text-zinc-900">{m[1]}</strong>);
+                else if (m[2] !== undefined)
+                  parts.push(<em key={k++} className="italic">{m[2]}</em>);
+                else if (m[3] !== undefined)
+                  parts.push(<code key={k++} className="bg-zinc-100 rounded px-1.5 py-0.5 text-sm font-mono text-emerald-700">{m[3]}</code>);
+                last = m.index + m[0].length;
+              }
+              if (last < text.length) parts.push(text.slice(last));
+              return parts.length === 0 ? text
+                : parts.length === 1 && typeof parts[0] === "string" ? text
+                : parts;
             };
 
+            /* ── Esvazia buffers de lista ──────────────────────────────── */
+            const flushUl = () => {
+              if (!ulBuffer.length) return;
+              result.push(
+                <ul key={`ul-${listKey++}`} className="list-disc list-outside pl-6 space-y-2 mb-6 text-zinc-600">
+                  {ulBuffer.map((item, i) => <li key={i} className="leading-relaxed">{parseInline(item)}</li>)}
+                </ul>,
+              );
+              ulBuffer = [];
+            };
+            const flushOl = () => {
+              if (!olBuffer.length) return;
+              result.push(
+                <ol key={`ol-${listKey++}`} className="list-decimal list-outside pl-6 space-y-2 mb-6 text-zinc-600">
+                  {olBuffer.map((item, i) => <li key={i} className="leading-relaxed">{parseInline(item)}</li>)}
+                </ol>,
+              );
+              olBuffer = [];
+            };
+            const flushAll = () => { flushUl(); flushOl(); };
+
             lines.forEach((line, index) => {
-              if (line.trim() === "") { flushList(); return; }
-              if (line.startsWith("# ")) {
-                flushList();
-                result.push(<h1 key={index} className="text-3xl font-black text-zinc-900 tracking-tight mt-10 mb-4">{line.slice(2)}</h1>);
-              } else if (line.startsWith("## ")) {
-                flushList();
-                result.push(<h2 key={index} className="text-2xl font-black text-zinc-900 tracking-tight mt-8 mb-3">{line.slice(3)}</h2>);
-              } else if (line.startsWith("### ")) {
-                flushList();
-                result.push(<h3 key={index} className="text-xl font-bold text-zinc-900 mt-6 mb-2">{line.slice(4)}</h3>);
-              } else if (line.startsWith("- ")) {
-                listBuffer.push(line.slice(2));
-              } else if (line.startsWith("**") && line.endsWith("**")) {
-                flushList();
-                result.push(<p key={index} className="font-bold text-zinc-900 mb-4">{line.slice(2, -2)}</p>);
+              if (line.trim() === "") { flushAll(); return; }
+
+              // Normaliza indentação: remove espaços/tabs iniciais para detecção de prefixo
+              const t = line.trimStart();
+
+              if (t.startsWith("#### ")) {
+                flushAll();
+                result.push(<h4 key={index} className="text-lg font-bold text-zinc-900 mt-5 mb-2">{parseInline(t.slice(5))}</h4>);
+              } else if (t.startsWith("### ")) {
+                flushAll();
+                result.push(<h3 key={index} className="text-xl font-bold text-zinc-900 mt-6 mb-2">{parseInline(t.slice(4))}</h3>);
+              } else if (t.startsWith("## ")) {
+                flushAll();
+                result.push(<h2 key={index} className="text-2xl font-black text-zinc-900 tracking-tight mt-8 mb-3">{parseInline(t.slice(3))}</h2>);
+              } else if (t.startsWith("# ")) {
+                flushAll();
+                result.push(<h1 key={index} className="text-3xl font-black text-zinc-900 tracking-tight mt-10 mb-4">{parseInline(t.slice(2))}</h1>);
+              } else if (t.startsWith("- ")) {
+                // Bullet list (com ou sem indentação)
+                flushOl();
+                ulBuffer.push(t.slice(2));
+              } else if (/^\d+\.\s/.test(t)) {
+                // Lista numerada
+                flushUl();
+                olBuffer.push(t.replace(/^\d+\.\s/, ""));
               } else {
-                flushList();
-                result.push(<p key={index} className="text-zinc-600 mb-4 leading-relaxed">{line}</p>);
+                flushAll();
+                result.push(<p key={index} className="text-zinc-600 mb-4 leading-relaxed">{parseInline(t)}</p>);
               }
             });
 
-            flushList();
+            flushAll();
             return result;
           })()}
         </article>
@@ -230,17 +296,26 @@ export default function BlogPost() {
                   transition={{ delay: i * 0.08, duration: 0.5 }}
                 >
                   <Link to={`/blog/${rel.slug}`} className="group block h-full">
-                    <div className="h-full rounded-2xl border border-zinc-100 hover:border-emerald-200 bg-white p-6 green-glow card-3d transition-all duration-400">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold mb-3">
-                        {rel.categoria}
-                      </span>
-                      <h4 className="font-black text-zinc-900 tracking-tight mb-2 text-sm group-hover:text-emerald-700 transition-colors">
-                        {rel.titulo}
-                      </h4>
-                      <span className="flex items-center gap-1 text-xs text-zinc-400">
-                        <Clock className="h-3 w-3" />
-                        {rel.tempo}
-                      </span>
+                    <div className="h-full rounded-2xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden green-glow card-3d transition-all duration-400">
+                      {rel.imagem && (
+                        <img
+                          src={rel.imagem}
+                          alt={rel.titulo}
+                          className="w-full h-32 object-cover"
+                        />
+                      )}
+                      <div className="p-5">
+                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold mb-3">
+                          {rel.categoria}
+                        </span>
+                        <h4 className="font-black text-zinc-900 tracking-tight mb-2 text-sm group-hover:text-emerald-700 transition-colors">
+                          {rel.titulo}
+                        </h4>
+                        <span className="flex items-center gap-1 text-xs text-zinc-400">
+                          <Clock className="h-3 w-3" />
+                          {rel.tempo}
+                        </span>
+                      </div>
                     </div>
                   </Link>
                 </motion.div>

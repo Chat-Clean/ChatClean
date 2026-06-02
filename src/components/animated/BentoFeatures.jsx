@@ -9,6 +9,9 @@ import {
   Smartphone,
   Sparkles,
   Zap,
+  Instagram,
+  Facebook,
+  Send,
 } from "lucide-react";
 
 /**
@@ -39,7 +42,7 @@ const BentoCard = ({
       onMouseMove={handleMouseMove}
       initial={{ opacity: 0, y: 40 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-60px" }}
+      viewport={{ once: true }}
       transition={{ duration: 0.7, delay, ease: [0.16, 1, 0.3, 1] }}
       className={`relative overflow-hidden rounded-3xl bg-white border border-zinc-100 hover:border-zinc-200 p-8 group transition-all duration-500 hover:-translate-y-1 hover:shadow-2xl hover:shadow-emerald-500/10 ${colSpan}`}
     >
@@ -122,32 +125,25 @@ export default function BentoFeatures() {
             icon={MessageCircle}
             accent="from-emerald-500 to-green-600"
           >
-            {/* Visual: pills dos canais com pulse staggered */}
-            <div className="flex gap-3 items-center">
+            {/* Visual: ícones das redes sociais */}
+            <div className="grid grid-cols-2 gap-4 sm:flex sm:gap-6 sm:items-center">
               {[
-                { color: "bg-green-500", label: "WhatsApp" },
-                { color: "bg-pink-500", label: "Instagram" },
-                { color: "bg-blue-500", label: "Facebook" },
-                { color: "bg-sky-400", label: "Telegram" },
-              ].map((ch, i) => (
+                { Icon: MessageCircle, bg: "bg-green-500",   shadow: "shadow-green-400/50",   title: "WhatsApp"  },
+                { Icon: Instagram,     bg: "bg-gradient-to-br from-pink-500 via-rose-500 to-orange-400", shadow: "shadow-pink-400/50",   title: "Instagram" },
+                { Icon: Facebook,      bg: "bg-blue-600",    shadow: "shadow-blue-400/50",    title: "Facebook"  },
+                { Icon: Send,          bg: "bg-sky-500",     shadow: "shadow-sky-400/50",     title: "Telegram"  },
+              ].map(({ Icon, bg, shadow, title }, i) => (
                 <motion.div
                   key={i}
-                  initial={{ opacity: 0, y: 10 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 + i * 0.08, duration: 0.4 }}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.15 + i * 0.1, duration: 0.4, type: "spring", stiffness: 260, damping: 18 }}
                   viewport={{ once: true }}
-                  className={`px-3 py-2 rounded-xl ${ch.color} text-white text-xs font-bold shadow-lg flex items-center gap-2`}
+                  whileHover={{ y: -4, scale: 1.12 }}
+                  title={title}
+                  className={`w-14 h-14 rounded-2xl ${bg} flex items-center justify-center shadow-xl ${shadow} cursor-default`}
                 >
-                  <motion.span
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{
-                      duration: 1.4,
-                      repeat: Infinity,
-                      delay: i * 0.2,
-                    }}
-                    className="w-2 h-2 rounded-full bg-white/80"
-                  />
-                  {ch.label}
+                  <Icon className="w-7 h-7 text-white" strokeWidth={1.8} />
                 </motion.div>
               ))}
             </div>

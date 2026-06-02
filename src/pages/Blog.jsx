@@ -12,7 +12,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import { blogPosts, getPostsByCategory } from "../data/blogPosts";
+import { getPostsByCategory } from "@/lib/blogStore";
 
 const WHATSAPP_LINK =
   "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
@@ -186,7 +186,7 @@ export default function Blog() {
                 key={post.id}
                 initial={{ opacity: 0, y: 32 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-60px" }}
+                viewport={{ once: true }}
                 transition={{ duration: 0.6, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
               >
                 <Link to={`/blog/${post.slug}`} className="group block h-full">

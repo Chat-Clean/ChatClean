@@ -1,48 +1,14 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Briefcase, Clock, MapPin, Users, Zap } from "lucide-react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import Reveal from "../components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "../components/animated/StaggerGroup";
+import { getVagas } from "@/lib/vagasStore";
 
 const WHATSAPP_BASE =
   "https://api.whatsapp.com/send?phone=5584996950105&text=";
-
-const vagas = [
-  {
-    titulo: "Desenvolvedor Full Stack",
-    departamento: "Tecnologia",
-    localizacao: "Remoto",
-    tipo: "CLT",
-    nivel: "Pleno",
-    descricao:
-      "Desenvolver e manter aplicações web usando React, Node.js e banco de dados relacionais.",
-    accent: "from-blue-500 to-cyan-600",
-    bg: "bg-blue-50",
-  },
-  {
-    titulo: "Especialista em Customer Success",
-    departamento: "Atendimento",
-    localizacao: "São Paulo, SP",
-    tipo: "CLT",
-    nivel: "Sênior",
-    descricao:
-      "Garantir o sucesso dos clientes, implementação e treinamento da plataforma ChatClean.",
-    accent: "from-emerald-500 to-green-600",
-    bg: "bg-emerald-50",
-  },
-  {
-    titulo: "Analista de Marketing Digital",
-    departamento: "Marketing",
-    localizacao: "Híbrido",
-    tipo: "CLT",
-    nivel: "Júnior",
-    descricao:
-      "Criar e executar estratégias de marketing digital, gerenciar campanhas e analisar métricas.",
-    accent: "from-purple-500 to-fuchsia-600",
-    bg: "bg-purple-50",
-  },
-];
 
 const beneficios = [
   {
@@ -75,6 +41,9 @@ const nivelColors = {
 };
 
 export default function Carreiras() {
+  // Lê vagas do store (localStorage), filtra apenas as ativas
+  const [vagas] = useState(() => getVagas().filter((v) => v.ativa !== false));
+
   return (
     <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <Navbar />
@@ -162,13 +131,42 @@ export default function Carreiras() {
             </h2>
           </Reveal>
 
+          {vagas.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className="text-center py-20 bg-white rounded-3xl border border-zinc-100"
+            >
+              <div className="w-20 h-20 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto mb-6">
+                <Briefcase className="w-9 h-9 text-zinc-400" />
+              </div>
+              <h3 className="text-2xl font-black text-zinc-900 tracking-tight mb-3">
+                Nenhuma vaga aberta no momento
+              </h3>
+              <p className="text-zinc-500 text-base max-w-md mx-auto mb-8 leading-relaxed">
+                Não temos oportunidades abertas agora, mas adoraríamos conhecer você.
+                Envie seu currículo e entraremos em contato assim que surgir algo!
+              </p>
+              <a
+                href={`${WHATSAPP_BASE}Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-7 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all duration-200 text-sm"
+              >
+                Enviar Currículo
+                <ArrowRight className="h-4 w-4" />
+              </a>
+            </motion.div>
+          ) : (
           <div className="space-y-4">
             {vagas.map((vaga, i) => (
               <motion.div
                 key={vaga.titulo}
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-60px" }}
+                viewport={{ once: true }}
                 transition={{ duration: 0.6, delay: i * 0.1 }}
               >
                 <div className="bg-white rounded-3xl border border-zinc-100 hover:border-emerald-200 p-8 green-glow card-3d transition-all duration-500">
@@ -215,6 +213,7 @@ export default function Carreiras() {
               </motion.div>
             ))}
           </div>
+          )}
         </div>
       </section>
 

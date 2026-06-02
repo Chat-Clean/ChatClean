@@ -9,14 +9,14 @@ export default function Footer() {
   return (
     <footer
       id="contato"
-      className="bg-zinc-950 text-zinc-300 py-16 border-t border-zinc-900"
+      className="bg-zinc-950 text-zinc-300 py-8 border-t border-zinc-900"
     >
-      <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-4 gap-12">
+      <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-5 gap-8">
         <div>
-          <div className="flex items-center space-x-2 mb-6">
-            <img src={chatcleanLogoWhite} alt="ChatClean" className="h-8 w-auto" />
+          <div className="flex items-center space-x-2 mb-4">
+            <img src={chatcleanLogoWhite} alt="ChatClean" className="h-7 w-auto" />
           </div>
-          <p className="text-zinc-500 mb-6 text-sm leading-relaxed">
+          <p className="text-zinc-500 mb-4 text-sm leading-relaxed">
             A plataforma de CRM e ChatBot para WhatsApp com API Oficial mais
             completa do Brasil.
           </p>
@@ -113,9 +113,25 @@ export default function Footer() {
             </li>
           </ul>
         </div>
+
+        <div>
+          <h4 className="text-white font-bold mb-4">Legal</h4>
+          <ul className="space-y-2 text-sm text-zinc-400">
+            <li>
+              <Link to="/politica-de-privacidade" className="hover:text-emerald-400 transition-colors">
+                Política de Privacidade
+              </Link>
+            </li>
+            <li>
+              <Link to="/termos-de-servico" className="hover:text-emerald-400 transition-colors">
+                Termos de Serviço
+              </Link>
+            </li>
+          </ul>
+        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 mt-16 pt-8 border-t border-zinc-900 text-center text-xs text-zinc-600">
+      <div className="max-w-7xl mx-auto px-4 mt-8 pt-6 border-t border-zinc-900 text-center text-xs text-zinc-600">
         &copy; {new Date().getFullYear()} ChatClean. Todos os direitos reservados.
         CNPJ: 57.487.327/0001-57
       </div>

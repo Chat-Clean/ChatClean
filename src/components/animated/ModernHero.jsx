@@ -147,7 +147,7 @@ export default function ModernHero() {
       <div className="absolute top-1/4 -right-32 w-96 h-96 bg-emerald-300/30 rounded-full blur-[120px] mix-blend-screen pointer-events-none" />
       <div className="absolute bottom-1/4 -left-32 w-[500px] h-[500px] bg-cyan-300/25 rounded-full blur-[140px] mix-blend-screen pointer-events-none" />
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid lg:grid-cols-2 gap-12 items-center w-full">
+      <div className="relative z-10 w-full mx-auto px-4 sm:px-20 grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
         {/* Coluna texto */}
         <motion.div
           style={{ y: yText, opacity }}
@@ -261,7 +261,7 @@ export default function ModernHero() {
             </div>
             <p className="text-sm text-white/85">
               <span className="text-white font-bold">
-                +<AnimatedCounter to={100} duration={1400} /> empresas
+                +<AnimatedCounter to={300} duration={1400} /> empresas
               </span>{" "}
               já escalam com a ChatClean
             </p>
@@ -281,8 +281,8 @@ export default function ModernHero() {
             innerClassName="relative"
             intensity={6}
           >
-            {/* Glow atrás */}
-            <div className="absolute -inset-6 bg-gradient-to-tr from-emerald-300 via-cyan-300 to-yellow-200 rounded-[3rem] blur-3xl opacity-60 animate-pulse" />
+            {/* Sombra sutil atrás */}
+            <div className="absolute -inset-4 bg-black/30 rounded-[3rem] blur-2xl" />
 
             {/* Frame branco com mockup */}
             <div className="relative bg-white/95 backdrop-blur-md p-3 rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.3)] border border-white/60">

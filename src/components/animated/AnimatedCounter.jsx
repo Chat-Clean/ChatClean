@@ -21,7 +21,7 @@ export default function AnimatedCounter({
 }) {
   const reduce = useReducedMotion();
   const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: "-80px" });
+  const inView = useInView(ref, { once: true });
   const [value, setValue] = useState(reduce ? to : 0);
 
   useEffect(() => {
