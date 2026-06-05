@@ -105,12 +105,12 @@ export default function BentoFeatures() {
             Plataforma completa
           </span>
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-900 tracking-tighter leading-[1.05]">
-            Funcionalidades{" "}
-            <span className="text-gradient-green">Incríveis</span>
+            Tudo que sua empresa{" "}
+            <span className="text-gradient-green">precisa</span>
           </h2>
           <p className="text-zinc-600 text-lg mt-6 leading-relaxed">
-            Tecnologia desenhada para transformar cada interação em uma
-            oportunidade de negócio.
+            Ferramentas simples de usar que ajudam sua equipe a
+            atender melhor e vender mais — sem precisar de conhecimento técnico.
           </p>
         </motion.div>
 
@@ -118,8 +118,8 @@ export default function BentoFeatures() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 auto-rows-fr">
           {/* Linha 1 */}
           <BentoCard
-            title="Atendimento Omnichannel"
-            description="WhatsApp, Instagram, Facebook e Telegram centralizados. Sua equipe responde tudo no mesmo painel, sem alternar abas."
+            title="Tudo em Um Só Lugar"
+            description="Seus clientes falam por WhatsApp, Instagram, Facebook ou Telegram? Sua equipe responde tudo numa única tela — sem precisar trocar de aplicativo."
             colSpan="md:col-span-2"
             delay={0.05}
             icon={MessageCircle}
@@ -150,8 +150,8 @@ export default function BentoFeatures() {
           </BentoCard>
 
           <BentoCard
-            title="Dashboard Inteligente"
-            description="Acompanhe métricas em tempo real e tome decisões baseadas em dados."
+            title="Painel de Controle"
+            description="Veja em tempo real quantos atendimentos estão abertos, quem está respondendo e se os clientes estão sendo bem atendidos."
             delay={0.1}
             icon={BarChart3}
             accent="from-blue-500 to-blue-700"
@@ -173,8 +173,8 @@ export default function BentoFeatures() {
 
           {/* Linha 2 */}
           <BentoCard
-            title="ChatBot com IA"
-            description="Atendimento 24/7 que qualifica leads automaticamente e escala conversas para humanos quando necessário."
+            title="Robô de Atendimento"
+            description="Um robô que responde seus clientes 24h por dia, 7 dias por semana. Resolve as dúvidas mais comuns sozinho e só chama um atendente quando for necessário."
             delay={0.15}
             icon={Sparkles}
             accent="from-yellow-400 to-orange-500"
@@ -195,8 +195,8 @@ export default function BentoFeatures() {
           </BentoCard>
 
           <BentoCard
-            title="CRM Avançado com Kanban"
-            description="Histórico completo de cada cliente, funil de vendas visual e gestão de oportunidades em tempo real."
+            title="Organização de Clientes e Vendas"
+            description="Veja o histórico completo de cada cliente, organize suas oportunidades de venda por etapa e nunca perca o fio da conversa."
             colSpan="md:col-span-2"
             delay={0.2}
             icon={Users}
@@ -204,7 +204,7 @@ export default function BentoFeatures() {
             spotlightColor="rgba(168, 85, 247, 0.15)"
           >
             <div className="flex gap-2 w-full px-4">
-              {["Lead", "Qualificado", "Proposta", "Fechado"].map((stage, i) => (
+              {["Novo Contato", "Interessado", "Proposta", "Fechado"].map((stage, i) => (
                 <motion.div
                   key={i}
                   initial={{ opacity: 0, x: -10 }}
@@ -239,8 +239,8 @@ export default function BentoFeatures() {
 
           {/* Linha 3 */}
           <BentoCard
-            title="Campanhas Automáticas"
-            description="Mensagens no momento certo, com templates aprovados pela Meta."
+            title="Envio em Massa"
+            description="Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo — de forma rápida e pelo WhatsApp oficial."
             delay={0.25}
             icon={CheckCircle}
             accent="from-indigo-500 to-purple-600"
@@ -248,8 +248,8 @@ export default function BentoFeatures() {
           />
 
           <BentoCard
-            title="Gestão de Tarefas"
-            description="Organize e acompanhe sua equipe de atendimento por departamento e fila."
+            title="Organização da Equipe"
+            description="Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê — em tempo real."
             delay={0.3}
             icon={Clock}
             accent="from-red-500 to-rose-600"
@@ -257,8 +257,8 @@ export default function BentoFeatures() {
           />
 
           <BentoCard
-            title="App Mobile"
-            description="Atenda seus clientes de qualquer lugar. iOS e Android nativo."
+            title="Atenda pelo Celular"
+            description="Atenda seus clientes de onde estiver — pelo celular, tablet ou computador. Disponível para iPhone e Android."
             delay={0.35}
             icon={Smartphone}
             accent="from-pink-500 to-fuchsia-600"
@@ -275,10 +275,10 @@ export default function BentoFeatures() {
           className="mt-12 flex flex-wrap justify-center gap-3"
         >
           {[
-            "Multiatendimento real",
-            "Templates aprovados Meta",
-            "Integração nativa CRM",
-            "Suporte 100% PT-BR",
+            "Vários atendentes no mesmo número",
+            "Mensagens aprovadas pelo WhatsApp",
+            "Histórico de clientes integrado",
+            "Suporte em Português",
           ].map((item, i) => (
             <span
               key={i}

@@ -39,7 +39,7 @@ const testimonials = [
     company: "L'auto Cargo",
     role: "Operação de Atendimento",
     content:
-      "Centralizamos WhatsApp, Instagram e Facebook em um só painel. O time ganhou velocidade e a esteira de atendimento ficou bem mais previsível.",
+      "Reunimos WhatsApp, Instagram e Facebook em um só lugar. A equipe responde mais rápido e o atendimento ficou muito mais organizado.",
     rating: 5,
   },
   {
@@ -47,7 +47,7 @@ const testimonials = [
     company: "Terra Invest Imóveis",
     role: "Comercial",
     content:
-      "Com o CRM e o ChatBot da ChatClean conseguimos qualificar leads 24/7 e não perder mais conversa por falta de resposta. Aumentamos a conversão.",
+      "Com a ChatClean, conseguimos responder clientes 24 horas por dia sem deixar nenhuma conversa sem resposta. Nossas vendas cresceram muito.",
     rating: 5,
   },
   {
@@ -55,67 +55,67 @@ const testimonials = [
     company: "Grupo Dura Mais",
     role: "Atendimento ao Cliente",
     content:
-      "A migração para a API Oficial do WhatsApp ficou simples e os relatórios ajudam a entender onde melhorar a operação todo mês.",
+      "A mudança para o WhatsApp oficial da empresa foi tranquila e os relatórios nos ajudam a entender o que melhorar todo mês.",
     rating: 5,
   },
 ];
 
 const faqs = [
   {
-    q: "O que é um CRM para WhatsApp?",
-    a: "Um CRM para WhatsApp é uma plataforma que conecta o WhatsApp Business ao seu processo comercial: registra cada conversa, organiza leads em um funil de vendas (Kanban), permite que vários atendentes usem o mesmo número e automatiza mensagens. Na ChatClean, o CRM é integrado à API Oficial do WhatsApp e ainda centraliza Instagram, Facebook e Telegram no mesmo painel.",
+    q: "O que é a ChatClean?",
+    a: "A ChatClean é uma plataforma que organiza todo o atendimento da sua empresa pelo WhatsApp. Com ela, vários funcionários usam o mesmo número ao mesmo tempo, cada conversa fica registrada, e você pode criar respostas automáticas para as dúvidas mais comuns — tudo sem precisar de conhecimento técnico.",
   },
   {
-    q: "O que é a API Oficial do WhatsApp e por que ela importa?",
-    a: "A API Oficial do WhatsApp Business (Cloud API) é a versão homologada pela Meta para empresas. Permite ter um único número com vários atendentes, envio de templates aprovados, integração com sistemas e zero risco de banimento. A ChatClean é integrada nativamente à API Oficial e cuida de toda a configuração com você.",
+    q: "Por que a ChatClean usa o WhatsApp oficial para empresas?",
+    a: "O WhatsApp oficial para empresas é uma versão aprovada pelo próprio WhatsApp para uso comercial. Com ele, vários funcionários atendem pelo mesmo número sem risco de o número ser bloqueado. A ChatClean cuida de toda essa configuração para você — é só começar a usar.",
   },
   {
-    q: "Quanto custa a API Oficial do WhatsApp?",
-    a: "A Meta cobra por conversa iniciada, com valores que variam por categoria (utilidade, marketing, autenticação, serviço) e pelo país do destinatário. No Brasil, conversas de utilidade custam aproximadamente R$ 0,045 e de marketing cerca de R$ 0,35 por sessão.",
+    q: "Existe algum custo extra por mensagem enviada?",
+    a: "O WhatsApp cobra uma pequena taxa por conversa iniciada pela empresa. No Brasil, o valor é em torno de R$ 0,04 para mensagens de suporte e R$ 0,35 para mensagens de marketing. Para conversas em que o cliente fala primeiro, não há cobrança. Nossa equipe orienta você sobre esses valores na proposta.",
   },
   {
-    q: "Como ter vários atendentes em um único número de WhatsApp?",
-    a: "Com a API Oficial e a ChatClean, sua empresa tem um único número de WhatsApp com login individual para cada atendente, filas, departamentos, transferência de conversa, histórico centralizado e relatórios por colaborador — sem precisar de vários celulares ou chips.",
+    q: "Posso ter vários atendentes no mesmo número de WhatsApp?",
+    a: "Sim! Com a ChatClean, toda a sua equipe atende pelo mesmo número de WhatsApp — cada um com seu próprio acesso. Você pode criar departamentos (ex: Vendas, Suporte), transferir conversas entre atendentes e ver quem respondeu o quê, sem precisar de vários celulares ou chips.",
   },
   {
-    q: "Qual a diferença entre WhatsApp Business e API Oficial?",
-    a: "O WhatsApp Business comum (aplicativo) é gratuito e funciona para autônomos e microempresas, mas só permite até 4 dispositivos no mesmo número. A API Oficial é a solução para empresas que precisam de multiatendimento real, automação com chatbot, integração com CRM e envio de campanhas em escala — sem risco de bloqueio.",
+    q: "Qual a diferença do WhatsApp normal para o que a ChatClean usa?",
+    a: "O WhatsApp Business que a maioria das pessoas conhece funciona só para uso individual ou em equipes muito pequenas. Já o WhatsApp que a ChatClean usa não tem esse limite: permite que uma equipe inteira atenda, automatiza respostas e não corre risco de bloqueio — mesmo enviando muitas mensagens.",
   },
   {
-    q: "Como integrar o WhatsApp ao meu CRM?",
-    a: "Na ChatClean, a integração é nativa: você não precisa instalar plugins ou contratar fornecedores extras. Nossa equipe ativa a API Oficial do WhatsApp para o seu número, configura templates, importa contatos e treina o time. Geralmente o onboarding é concluído em poucos dias úteis.",
+    q: "É difícil começar a usar a ChatClean?",
+    a: "Não! Nossa equipe cuida de tudo: configura seu WhatsApp, cria os fluxos de atendimento e treina seu time. Você começa a atender em poucos dias — sem precisar de nenhum conhecimento técnico ou contratar alguém de TI.",
   },
   {
     q: "Existe prazo de fidelidade?",
-    a: "Sem surpresas, sem complicações. Cancela quando quiser e reativa quando precisar, sem burocracia.",
+    a: "Não. Sem surpresas, sem complicações. Você cancela quando quiser e reativa quando precisar, sem multa e sem burocracia.",
   },
   {
-    q: "O que são canais de comunicação?",
-    a: "Canais de comunicação são as diferentes plataformas onde você atende seus clientes, como WhatsApp, Instagram, Facebook Messenger, Telegram, e outros. Nossa plataforma centraliza todos esses canais em um só lugar.",
+    q: "O que são os 'canais' que a ChatClean centraliza?",
+    a: "São os diferentes aplicativos onde seus clientes entram em contato com você: WhatsApp, Instagram, Facebook e Telegram. A ChatClean reúne todos eles numa única tela para que sua equipe não precise ficar trocando de aplicativo durante o trabalho.",
   },
   {
-    q: "O que acontece se eu não pagar a mensalidade do plano?",
-    a: "Caso não seja efetuado o pagamento da mensalidade, o acesso à plataforma será suspenso temporariamente. Seus dados ficam seguros e podem ser recuperados assim que a situação for regularizada.",
+    q: "O que acontece se eu não pagar a mensalidade?",
+    a: "O acesso fica suspenso temporariamente, mas seus dados ficam seguros. Assim que regularizar o pagamento, tudo volta ao normal.",
   },
   {
     q: "Vocês cobram multa de cancelamento?",
-    a: "Não cobramos multa de cancelamento. Você pode cancelar seu plano a qualquer momento sem custos adicionais.",
+    a: "Não cobramos nenhuma multa. Você pode cancelar seu plano a qualquer momento, sem custos adicionais.",
   },
   {
-    q: "Como a ChatClean pode aprimorar meu atendimento ao cliente?",
-    a: "A ChatClean centraliza todos os seus canais de atendimento, oferece automação inteligente com chatbots, CRM integrado para histórico completo dos clientes, e relatórios detalhados para otimizar sua estratégia de atendimento.",
+    q: "Como a ChatClean melhora o meu atendimento?",
+    a: "Com a ChatClean, sua equipe responde mais rápido, nenhuma mensagem fica sem resposta, e um robô resolve as dúvidas mais comuns automaticamente. Você também recebe relatórios simples de entender para saber o que está funcionando bem.",
   },
   {
-    q: "A ChatClean se integra em quais canais?",
-    a: "Integramos com WhatsApp, Instagram Direct, Facebook Messenger, Telegram, webchat para seu site, e diversos outros canais. Também oferecemos integrações com plataformas como Hotmart, Asaas, Trello e muitas outras.",
+    q: "Com quais aplicativos a ChatClean se conecta?",
+    a: "Conectamos com WhatsApp, Instagram, Facebook, Telegram e o chat do seu site. Também temos integrações com plataformas como Hotmart, Asaas, Trello e muitas outras — para encaixar no jeito que sua empresa já trabalha.",
   },
   {
-    q: "Consigo responder mensagens dos clientes no direct, sem sair da ChatClean?",
-    a: "Sim! Você pode responder mensagens de todos os canais integrados diretamente pela plataforma ChatClean, sem precisar alternar entre diferentes aplicativos ou abas do navegador.",
+    q: "Consigo responder mensagens do Instagram e Facebook pela ChatClean?",
+    a: "Sim! Você gerencia tudo em uma única tela: WhatsApp, Instagram, Facebook e Telegram — sem precisar abrir cada aplicativo separado. Sua equipe economiza tempo e nenhum cliente fica sem resposta.",
   },
   {
-    q: "Por que vocês não possuem planos no site?",
-    a: "Cada empresa tem necessidades únicas. Por isso, preferimos criar propostas personalizadas que atendam exatamente às suas demandas, garantindo que você pague apenas pelo que realmente precisa e usa.",
+    q: "Por que vocês não mostram os preços no site?",
+    a: "Cada empresa tem um tamanho e uma necessidade diferente. Por isso, criamos uma proposta feita especialmente para você — assim você paga só pelo que realmente precisa, sem pagar por coisas que não vai usar.",
   },
 ];
 
@@ -142,7 +142,7 @@ function App() {
       <section className="py-14 bg-white border-y border-zinc-100">
         <div className="max-w-7xl mx-auto px-4">
           <p className="text-center text-sm font-medium text-zinc-500 uppercase tracking-widest mb-8">
-            Líderes que escalam com a ChatClean
+            Empresas que confiam na ChatClean
           </p>
           <div className="logos-container">
             <div className="logos-track">
@@ -176,12 +176,12 @@ function App() {
               Clientes que evoluíram com a gente
             </span>
             <h2 className="text-4xl md:text-6xl font-black tracking-tighter mb-6 text-zinc-900">
-              Histórias de{" "}
-              <span className="text-gradient-green">sucesso</span>
+              O que dizem{" "}
+              <span className="text-gradient-green">nossos clientes</span>
             </h2>
             <p className="text-zinc-600 text-lg max-w-2xl mx-auto">
-              Resultados reais de empresas brasileiras que usam a ChatClean no
-              dia a dia.
+              Empresas brasileiras que usam a ChatClean no dia a dia e
+              viram a diferença.
             </p>
           </Reveal>
 
@@ -235,9 +235,9 @@ function App() {
               FAQ
             </span>
             <h2 className="text-4xl md:text-5xl font-black text-white mb-4 tracking-tighter">
-              Ficou com alguma dúvida?
+              Tem alguma dúvida?
             </h2>
-            <p className="text-white/75 text-lg">Confira as perguntas mais frequentes</p>
+            <p className="text-white/75 text-lg">Respondemos as perguntas que as pessoas mais fazem</p>
           </Reveal>
 
           <div className="grid md:grid-cols-2 gap-4">

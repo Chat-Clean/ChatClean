@@ -164,7 +164,7 @@ export default function ModernHero() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-300" />
             </span>
-            Integração nativa com{" "}
+            Conectado ao{" "}
             <motion.span
               key={tagIdx}
               initial={{ opacity: 0, y: 8 }}
@@ -208,12 +208,11 @@ export default function ModernHero() {
             transition={{ delay: 0.7, duration: 0.6 }}
             className="text-lg md:text-xl text-white/90 mb-10 leading-relaxed max-w-xl"
           >
-            Centralize WhatsApp, Instagram, Facebook e Telegram em um único CRM
-            com{" "}
+            Reúna WhatsApp, Instagram, Facebook e Telegram em{" "}
             <span className="text-white font-semibold underline decoration-yellow-200/60 decoration-2 underline-offset-4">
-              API Oficial do WhatsApp
+              um único lugar
             </span>
-            . Atenda mais rápido, automatize com IA e venda mais.
+            . Atenda mais clientes ao mesmo tempo, sem perder nenhuma mensagem e sem complicação.
           </motion.p>
 
           {/* CTAs */}
@@ -225,7 +224,7 @@ export default function ModernHero() {
           >
             <MagneticButton href={WHATSAPP_LINK} variant="primary">
               <Play className="w-5 h-5 fill-current" />
-              Agendar Demo Gratuita
+              Ver uma Demonstração Gratuita
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </MagneticButton>
 
@@ -236,7 +235,7 @@ export default function ModernHero() {
               }}
               variant="secondary"
             >
-              Conhecer Recursos
+              Ver Como Funciona
             </MagneticButton>
           </motion.div>
 
@@ -263,7 +262,7 @@ export default function ModernHero() {
               <span className="text-white font-bold">
                 +<AnimatedCounter to={300} duration={1400} /> empresas
               </span>{" "}
-              já escalam com a ChatClean
+              já crescem com a ChatClean
             </p>
           </motion.div>
         </motion.div>
@@ -314,7 +313,7 @@ export default function ModernHero() {
               delay={1.5}
               position="-bottom-6 left-8 hidden xl:flex"
               icon={Zap}
-              title="IA Bot"
+              title="Robô"
               value="64% automatizado"
               accent="bg-yellow-500"
             />
