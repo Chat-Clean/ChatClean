@@ -224,7 +224,7 @@ export default function ModernHero() {
           >
             <MagneticButton href={WHATSAPP_LINK} variant="primary">
               <Play className="w-5 h-5 fill-current" />
-              Ver uma Demonstração Gratuita
+              Ver Demo
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </MagneticButton>
 
@@ -235,7 +235,7 @@ export default function ModernHero() {
               }}
               variant="secondary"
             >
-              Ver Como Funciona
+              Como Funciona?
             </MagneticButton>
           </motion.div>
 
