@@ -34,3 +34,9 @@ coverage
 *.backup
 *.log
 *.tmp
+
+# BMAD Method (local apenas - nao versionar)
+_bmad/
+_bmad-output/
+.claude/skills/
+.claude/settings.local.json
