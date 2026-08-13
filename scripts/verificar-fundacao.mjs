@@ -1,0 +1,1061 @@
+#!/usr/bin/env node
+/**
+ * Ferramenta de verificação da fundação de design (Story 1.1).
+ *
+ * Roda sobre o CSS que o `vite build` gera — o artefato que as telas de fato
+ * consomem — e afirma, uma asserção por linha da matriz de I/O da story:
+ *
+ *   (a) `components.json` existe, parseia e declara os aliases; os quatro
+ *       componentes shadcn do baseline continuam byte a byte iguais; e
+ *       `src/components/ui/skeleton.jsx`, instalado pelo CLI, existe.
+ *   (b) `:root` no CSS compilado mantém os neutros do shadcn e nenhuma
+ *       declaração de marca — comparado declaração a declaração com o
+ *       baseline, que é a evidência objetiva de não-regressão.
+ *   (c) `.painel` remapeia o conjunto completo de tokens do shadcn para a
+ *       marca e os valores da marca chegam íntegros ao CSS compilado.
+ *   (d) `--chart-1..5` e `--sidebar*` resolvem para valor concreto.
+ *   (e) contraste WCAG 2.1 dos pares que a direção visual promete.
+ *   (f) `npm run lint` sai com código 0 e o gerenciador de pacotes é único.
+ *
+ * O baseline vive em `verificacao/baseline/` (versionado, não ignorado):
+ *   - `dist-index.baseline.css`   CSS compilado antes da story
+ *   - `fonte-App.baseline.css`    `src/App.css` antes da story
+ *   - `componentes-ui/*.jsx`      os quatro componentes shadcn pré-existentes
+ *
+ * Uso:
+ *   npm run build && npm run verificar
+ *   node scripts/verificar-fundacao.mjs --gravar-baseline
+ *
+ * `--gravar-baseline` REGRAVA os três artefatos a partir do estado atual do
+ * repositório. É a única forma de o script escrever em disco: sem a flag ele
+ * apenas lê. Use só ao estabelecer um baseline novo e deliberado — regravar
+ * por engano destrói a evidência de não-regressão, porque o baseline passa a
+ * ser idêntico ao estado que deveria auditar.
+ *
+ * Saída: uma linha por asserção; código 0 se todas passarem, 1 caso contrário.
+ */
+
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const dirBaseline = path.join(raiz, "verificacao", "baseline");
+const dirBaselineUi = path.join(dirBaseline, "componentes-ui");
+const caminhoBaselineCss = path.join(dirBaseline, "dist-index.baseline.css");
+const caminhoBaselineFonte = path.join(dirBaseline, "fonte-App.baseline.css");
+const caminhoAppCss = path.join(raiz, "src", "App.css");
+const dirUi = path.join(raiz, "src", "components", "ui");
+const COMPONENTES_BASE = ["accordion", "badge", "button", "card"];
+
+let falhas = 0;
+
+function secao(titulo) {
+  console.log(`\n${titulo}`);
+}
+
+function afirmar(descricao, condicao, detalhe = "") {
+  if (condicao) {
+    console.log(`  OK    ${descricao}`);
+  } else {
+    falhas += 1;
+    console.log(`  FALHA ${descricao}${detalhe ? ` — ${detalhe}` : ""}`);
+  }
+  return Boolean(condicao);
+}
+
+function ler(caminho) {
+  return readFileSync(caminho, "utf8");
+}
+
+/**
+ * Normaliza fim de linha. O baseline é versionado: em clone novo o git pode
+ * entregar CRLF numa máquina e LF em outra, e a comparação precisa ser sobre
+ * o conteúdo, não sobre a convenção de fim de linha da checkout.
+ */
+function semCR(texto) {
+  return texto.replace(/\r\n/g, "\n");
+}
+
+/**
+ * Executa `acao` e devolve o valor; se a leitura estourar (arquivo ausente,
+ * JSON malformado), conta uma asserção falha e devolve `null` — o script
+ * segue até o fim em vez de morrer antes das seções seguintes.
+ */
+function lerOuFalhar(descricao, acao) {
+  try {
+    return acao();
+  } catch (erro) {
+    afirmar(descricao, false, erro.message);
+    return null;
+  }
+}
+
+/* ─── Gravação do baseline (única escrita do script) ─────────────────── */
+
+function gravarBaseline() {
+  const arquivoCss = acharCssCompilado();
+  if (!arquivoCss) {
+    console.log(
+      "Não há `dist/assets/*.css` para gravar. Rode `npm run build` antes.",
+    );
+    process.exit(1);
+  }
+  mkdirSync(dirBaselineUi, { recursive: true });
+  copyFileSync(arquivoCss, caminhoBaselineCss);
+  copyFileSync(caminhoAppCss, caminhoBaselineFonte);
+  for (const nome of COMPONENTES_BASE) {
+    copyFileSync(
+      path.join(dirUi, `${nome}.jsx`),
+      path.join(dirBaselineUi, `${nome}.jsx`),
+    );
+  }
+  console.log("Baseline regravado a partir do estado atual:");
+  console.log(`  ${path.relative(raiz, caminhoBaselineCss)}`);
+  console.log(`  ${path.relative(raiz, caminhoBaselineFonte)}`);
+  for (const nome of COMPONENTES_BASE) {
+    console.log(
+      `  ${path.relative(raiz, path.join(dirBaselineUi, `${nome}.jsx`))}`,
+    );
+  }
+  process.exit(0);
+}
+
+/* ─── Leitor de CSS ──────────────────────────────────────────────────────
+   O CSS compilado é minificado e aninha regras dentro de `@layer`/`@media`,
+   então a varredura conta chaves — mas precisa ignorar chave e ponto e
+   vírgula que aparecem dentro de comentário, de literal de string e de
+   `url(...)` sem aspas, senão a contagem dessincroniza e corrompe em
+   silêncio o diff de que a seção (b) depende. */
+
+/**
+ * Devolve uma cópia do CSS só com os comentários trocados por espaços,
+ * preservando os índices. É a fonte do texto que as asserções leem: sem
+ * comentário grudado no nome da declaração, mas com as strings intactas.
+ */
+function mascararComentarios(css) {
+  const n = css.length;
+  let saida = "";
+  let i = 0;
+  while (i < n) {
+    if (css[i] === "\\") {
+      saida += css.slice(i, i + 2);
+      i += 2;
+    } else if (css[i] === "/" && css[i + 1] === "*") {
+      const fim = css.indexOf("*/", i + 2);
+      const ate = fim === -1 ? n : fim + 2;
+      saida += " ".repeat(ate - i);
+      i = ate;
+    } else {
+      saida += css[i];
+      i += 1;
+    }
+  }
+  return saida;
+}
+
+/**
+ * Devolve uma cópia do CSS com comentários, strings e `url(...)` trocados por
+ * espaços, preservando os índices. A varredura usa esta cópia para achar
+ * posições; o texto real sai sempre da cópia sem comentários.
+ */
+function mascarar(css) {
+  const n = css.length;
+  let saida = "";
+  let i = 0;
+  while (i < n) {
+    const c = css[i];
+    if (c === "\\") {
+      // Escape de identificador (`.\[\&\:\'size-\'\]`): a barra invertida vale
+      // fora de string também, e é o que impede que uma aspa escapada em
+      // seletor do Tailwind seja lida como abertura de literal.
+      saida += css.slice(i, i + 2);
+      i += 2;
+    } else if (c === "/" && css[i + 1] === "*") {
+      const fim = css.indexOf("*/", i + 2);
+      const ate = fim === -1 ? n : fim + 2;
+      saida += " ".repeat(ate - i);
+      i = ate;
+    } else if (c === '"' || c === "'") {
+      const aspas = c;
+      let j = i + 1;
+      while (j < n && css[j] !== aspas) {
+        if (css[j] === "\\") j += 1;
+        j += 1;
+      }
+      j = Math.min(j + 1, n);
+      saida += " ".repeat(j - i);
+      i = j;
+    } else if (
+      /^url\(/i.test(css.slice(i, i + 4)) &&
+      (i === 0 || !/[\w-]/.test(css[i - 1]))
+    ) {
+      // `url("...")` cai no ramo de aspas na volta seguinte; aqui só o
+      // conteúdo sem aspas, que pode conter chave e ponto e vírgula.
+      const resto = css.slice(i + 4);
+      const primeiro = resto.trimStart()[0];
+      saida += "url(";
+      i += 4;
+      if (primeiro !== '"' && primeiro !== "'") {
+        let j = i;
+        while (j < n && css[j] !== ")") j += 1;
+        saida += " ".repeat(j - i);
+        i = j;
+      }
+    } else {
+      saida += c;
+      i += 1;
+    }
+  }
+  return saida;
+}
+
+const cacheAnalise = new Map();
+
+/** Enumera toda regra do CSS como { prelude, corpo }, inclusive aninhadas. */
+function analisar(css) {
+  const emCache = cacheAnalise.get(css);
+  if (emCache) return emCache;
+
+  const limpo = mascarar(css);
+  const texto = mascararComentarios(css);
+  const encontradas = [];
+  let corte = 0;
+  let profundidade = 0;
+  let truncada = false;
+
+  for (let i = 0; i < limpo.length; i += 1) {
+    const c = limpo[i];
+    if (c === "{") {
+      profundidade += 1;
+      const prelude = texto.slice(corte, i).trim().replace(/\s+/g, " ");
+      let interna = 1;
+      let j = i + 1;
+      while (j < limpo.length && interna > 0) {
+        if (limpo[j] === "{") interna += 1;
+        else if (limpo[j] === "}") interna -= 1;
+        j += 1;
+      }
+      if (interna > 0) truncada = true;
+      encontradas.push({ prelude, corpo: texto.slice(i + 1, j - 1) });
+      corte = i + 1;
+    } else if (c === "}") {
+      profundidade -= 1;
+      corte = i + 1;
+    } else if (c === ";") {
+      corte = i + 1;
+    }
+  }
+
+  const resultado = {
+    regras: encontradas,
+    balanceada: profundidade === 0 && !truncada,
+  };
+  cacheAnalise.set(css, resultado);
+  return resultado;
+}
+
+function regras(css) {
+  return analisar(css).regras;
+}
+
+/** Declarações no nível do corpo, ignorando blocos aninhados. */
+function declaracoes(corpoBruto) {
+  // O texto lido nunca traz comentário grudado no nome da declaração.
+  const corpo = mascararComentarios(corpoBruto);
+  const limpo = mascarar(corpoBruto);
+  const pares = [];
+  let profundidade = 0;
+  let inicio = 0;
+
+  const fecharSegmento = (fim) => {
+    const trechoLimpo = limpo.slice(inicio, fim);
+    const dentroDeBloco = /\{/.test(trechoLimpo);
+    if (!dentroDeBloco) {
+      const posDoisPontos = trechoLimpo.indexOf(":");
+      if (posDoisPontos !== -1) {
+        const nome = corpo
+          .slice(inicio, inicio + posDoisPontos)
+          .trim()
+          .replace(/\s+/g, " ");
+        const valor = corpo
+          .slice(inicio + posDoisPontos + 1, fim)
+          .trim()
+          .replace(/\s+/g, " ");
+        // Sobra de seletor de regra aninhada não é declaração: o nome precisa
+        // ser uma propriedade CSS ou uma custom property.
+        if (/^(--[\w-]+|[a-zA-Z][\w-]*)$/.test(nome)) pares.push([nome, valor]);
+      }
+    }
+    inicio = fim + 1;
+  };
+
+  for (let i = 0; i < limpo.length; i += 1) {
+    const c = limpo[i];
+    if (c === "{") profundidade += 1;
+    else if (c === "}") {
+      profundidade -= 1;
+      inicio = i + 1;
+    } else if (c === ";" && profundidade === 0) fecharSegmento(i);
+  }
+  if (inicio < limpo.length) fecharSegmento(limpo.length);
+  return pares;
+}
+
+/** Uma entrada por regra cujo seletor inclui `alvo`, na ordem do arquivo. */
+function regrasDe(css, alvo) {
+  return regras(css)
+    .filter(({ prelude }) =>
+      prelude
+        .split(",")
+        .map((s) => s.trim())
+        .includes(alvo),
+    )
+    .map(({ corpo }) => new Map(declaracoes(corpo)));
+}
+
+/** União das declarações de todas as regras cujo seletor inclui `alvo`. */
+function declaracoesDe(css, alvo) {
+  const mapa = new Map();
+  for (const regra of regrasDe(css, alvo)) {
+    for (const [nome, valor] of regra) mapa.set(nome, valor);
+  }
+  return mapa;
+}
+
+/** Índice prelude → conjunto de "nome:valor", para diff estrutural. */
+function indice(css) {
+  // At-rules envelope (`@layer`, `@media`) entram pelas regras internas, que a
+  // varredura também enumera — o índice é achatado de propósito.
+  const mapa = new Map();
+  for (const { prelude, corpo } of regras(css)) {
+    const conjunto = mapa.get(prelude) ?? new Set();
+    for (const [nome, valor] of declaracoes(corpo)) conjunto.add(`${nome}:${valor}`);
+    if (conjunto.size > 0) mapa.set(prelude, conjunto);
+  }
+  return mapa;
+}
+
+/* ─── Contraste WCAG 2.1 ─────────────────────────────────────────────── */
+
+function hexParaRgb(valor) {
+  const limpo = valor.trim().toLowerCase();
+  const curto = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(limpo);
+  if (curto) {
+    return curto.slice(1).map((d) => parseInt(d + d, 16));
+  }
+  const longo = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/.exec(limpo);
+  if (longo) return longo.slice(1).map((d) => parseInt(d, 16));
+  if (limpo === "white") return [255, 255, 255];
+  if (limpo === "black") return [0, 0, 0];
+  return null;
+}
+
+function luminancia([r, g, b]) {
+  const canal = (v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
+}
+
+function razaoContraste(corA, corB) {
+  const a = hexParaRgb(corA);
+  const b = hexParaRgb(corB);
+  if (!a || !b) return null;
+  const la = luminancia(a);
+  const lb = luminancia(b);
+  const claro = Math.max(la, lb);
+  const escuro = Math.min(la, lb);
+  return (claro + 0.05) / (escuro + 0.05);
+}
+
+/** Resolve uma cadeia `var(--x)` até um valor literal. */
+function resolver(valor, mapa, profundidade = 0) {
+  if (valor === undefined || valor === null || profundidade > 12) return null;
+  const referencia = /^var\(\s*(--[\w-]+)\s*\)$/.exec(valor.trim());
+  if (!referencia) return valor.trim();
+  return resolver(mapa.get(referencia[1]), mapa, profundidade + 1);
+}
+
+/* ─── Utilitários de arquivo ─────────────────────────────────────────── */
+
+function acharCssCompilado() {
+  const dirAssets = path.join(raiz, "dist", "assets");
+  if (!existsSync(dirAssets)) return null;
+  const candidatos = readdirSync(dirAssets).filter((f) => f.endsWith(".css"));
+  if (candidatos.length !== 1) return null;
+  return path.join(dirAssets, candidatos[0]);
+}
+
+function arquivosJsx(dir) {
+  const achados = [];
+  for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+    const completo = path.join(dir, entrada.name);
+    if (entrada.isDirectory()) achados.push(...arquivosJsx(completo));
+    else if (entrada.name.endsWith(".jsx")) achados.push(completo);
+  }
+  return achados;
+}
+
+/** Extrai o texto de cada atributo `className` de um fonte JSX. */
+function atributosClassName(fonte) {
+  const valores = [];
+  const marcador = /className\s*=\s*/g;
+  let m;
+  while ((m = marcador.exec(fonte)) !== null) {
+    let i = m.index + m[0].length;
+    const abre = fonte[i];
+    if (abre === '"' || abre === "'" || abre === "`") {
+      let j = i + 1;
+      while (j < fonte.length && fonte[j] !== abre) {
+        if (fonte[j] === "\\") j += 1;
+        j += 1;
+      }
+      valores.push(fonte.slice(i + 1, j));
+      marcador.lastIndex = j + 1;
+    } else if (abre === "{") {
+      let profundidade = 1;
+      let j = i + 1;
+      while (j < fonte.length && profundidade > 0) {
+        if (fonte[j] === "{") profundidade += 1;
+        else if (fonte[j] === "}") profundidade -= 1;
+        j += 1;
+      }
+      valores.push(fonte.slice(i + 1, j - 1));
+      marcador.lastIndex = j;
+    }
+  }
+  return valores;
+}
+
+/* ─── Modo gravação ──────────────────────────────────────────────────── */
+
+if (process.argv.includes("--gravar-baseline")) gravarBaseline();
+
+/* ─── (a) shadcn operante ────────────────────────────────────────────── */
+
+secao("(a) CLI do shadcn opera sobre os componentes existentes");
+
+const components = lerOuFalhar("components.json existe e parseia", () =>
+  JSON.parse(ler(path.join(raiz, "components.json"))),
+);
+
+if (components) {
+  afirmar("components.json existe e parseia", true);
+  const esperados = {
+    components: "@/components",
+    ui: "@/components/ui",
+    lib: "@/lib",
+    utils: "@/lib/utils",
+    hooks: "@/hooks",
+  };
+  const aliases = components.aliases ?? {};
+  for (const [chave, valor] of Object.entries(esperados)) {
+    afirmar(
+      `alias "${chave}" declarado como ${valor}`,
+      aliases[chave] === valor,
+      `encontrado: ${aliases[chave] ?? "ausente"}`,
+    );
+  }
+  afirmar(
+    "tailwind.css aponta para src/App.css",
+    components.tailwind?.css === "src/App.css",
+    `encontrado: ${components.tailwind?.css ?? "ausente"}`,
+  );
+  afirmar(
+    "cssVariables habilitado e tsx desabilitado (projeto JSX)",
+    components.tailwind?.cssVariables === true && components.tsx === false,
+  );
+}
+
+// O CLI do shadcn precisa do mapa de caminhos para resolver o alias `@`.
+const jsconfig = lerOuFalhar("jsconfig.json existe e parseia", () =>
+  JSON.parse(ler(path.join(raiz, "jsconfig.json"))),
+);
+if (jsconfig) {
+  afirmar(
+    "jsconfig.json declara o alias @/* → ./src/*",
+    jsconfig.compilerOptions?.paths?.["@/*"]?.[0] === "./src/*",
+  );
+}
+
+if (existsSync(dirBaselineUi)) {
+  for (const nome of COMPONENTES_BASE) {
+    const atual = path.join(dirUi, `${nome}.jsx`);
+    const anterior = path.join(dirBaselineUi, `${nome}.jsx`);
+    const iguais =
+      existsSync(atual) &&
+      existsSync(anterior) &&
+      semCR(ler(atual)) === semCR(ler(anterior));
+    afirmar(`${nome}.jsx intocado desde o baseline (conteúdo idêntico)`, iguais);
+  }
+} else {
+  afirmar(
+    "snapshot dos componentes do baseline disponível",
+    false,
+    `ausente: ${path.relative(raiz, dirBaselineUi)}`,
+  );
+}
+
+afirmar(
+  "src/components/ui/skeleton.jsx existe (instalado pelo CLI)",
+  existsSync(path.join(dirUi, "skeleton.jsx")),
+);
+
+/* ─── CSS compilado ──────────────────────────────────────────────────── */
+
+secao("CSS compilado");
+
+const dirAssets = path.join(raiz, "dist", "assets");
+const cssEmDist = existsSync(dirAssets)
+  ? readdirSync(dirAssets).filter((f) => f.endsWith(".css"))
+  : [];
+const arquivoCss = acharCssCompilado();
+
+afirmar(
+  "dist/assets contém exatamente um .css (rode `npm run build` antes)",
+  cssEmDist.length === 1,
+  `encontrados: ${cssEmDist.length}${cssEmDist.length > 1 ? ` — ${cssEmDist.join(", ")}` : ""}`,
+);
+
+let cssCompilado = null;
+if (arquivoCss) {
+  cssCompilado = lerOuFalhar("CSS compilado legível", () => ler(arquivoCss));
+  console.log(`        arquivo: ${path.relative(raiz, arquivoCss)}`);
+  // Um `dist` obsoleto passaria por todas as asserções de CSS sem refletir a
+  // fonte: o artefato verificado precisa ser mais novo que a fonte.
+  const nascimentoCss = statSync(arquivoCss).mtimeMs;
+  const nascimentoFonte = existsSync(caminhoAppCss)
+    ? statSync(caminhoAppCss).mtimeMs
+    : 0;
+  afirmar(
+    "CSS compilado é mais recente que src/App.css (build atual)",
+    nascimentoCss >= nascimentoFonte,
+    `css: ${new Date(nascimentoCss).toISOString()} < fonte: ${new Date(nascimentoFonte).toISOString()}`,
+  );
+}
+
+const temCss = Boolean(cssCompilado);
+if (temCss) {
+  afirmar("varredura do CSS terminou com as chaves balanceadas", analisar(cssCompilado).balanceada);
+}
+
+const temBaselineCss = afirmar(
+  "CSS do baseline presente para comparação",
+  existsSync(caminhoBaselineCss),
+  `esperado em ${path.relative(raiz, caminhoBaselineCss)}`,
+);
+
+const rootAtual = temCss ? declaracoesDe(cssCompilado, ":root") : new Map();
+const painel = temCss ? declaracoesDe(cssCompilado, ".painel") : new Map();
+
+/* ─── (b) `:root` intocado / não-regressão do site público ───────────── */
+
+secao("(b) `:root` mantém o neutro do shadcn — nenhuma cor de marca");
+
+if (temCss && temBaselineCss) {
+  const baselineCss = lerOuFalhar("CSS do baseline legível", () =>
+    ler(caminhoBaselineCss),
+  );
+  if (baselineCss) {
+    afirmar(
+      "varredura do CSS do baseline terminou balanceada",
+      analisar(baselineCss).balanceada,
+    );
+
+    const antes = indice(baselineCss);
+    const depois = indice(cssCompilado);
+
+    const preludesPerdidos = [...antes.keys()].filter((p) => !depois.has(p));
+    afirmar(
+      "nenhuma regra do baseline desapareceu do CSS compilado",
+      preludesPerdidos.length === 0,
+      preludesPerdidos.slice(0, 5).join(" | "),
+    );
+
+    const declaracoesPerdidas = [];
+    for (const [prelude, conjunto] of antes) {
+      const agora = depois.get(prelude);
+      if (!agora) continue;
+      for (const decl of conjunto) {
+        if (!agora.has(decl)) declaracoesPerdidas.push(`${prelude} { ${decl} }`);
+      }
+    }
+    afirmar(
+      "nenhuma declaração do baseline foi removida ou alterada (só adição)",
+      declaracoesPerdidas.length === 0,
+      declaracoesPerdidas.slice(0, 8).join(" | "),
+    );
+
+    // A camada base é o vetor de regressão: aplica borda e contorno a tudo.
+    const regraCoringa = (css) =>
+      regras(css)
+        .filter(({ prelude }) => prelude === "*" || /^\*\s*,/.test(prelude))
+        .map(({ prelude, corpo }) => `${prelude}{${corpo.trim()}}`)
+        .join("\n");
+    const baseAntes = regraCoringa(baselineCss);
+    afirmar(
+      "regras de `@layer base` sobre `*` idênticas ao baseline",
+      baseAntes !== "" && baseAntes === regraCoringa(cssCompilado),
+    );
+
+    const rootAntes = declaracoesDe(baselineCss, ":root");
+    const divergentes = [...rootAntes.entries()].filter(
+      ([nome, valor]) => rootAtual.get(nome) !== valor,
+    );
+    afirmar(
+      "toda declaração de `:root` do baseline chega intacta",
+      divergentes.length === 0,
+      divergentes.map(([n, v]) => `${n}: ${v}`).join(" | "),
+    );
+    afirmar(
+      `:root declara --primary como no baseline (${rootAntes.get("--primary")})`,
+      rootAtual.get("--primary") === rootAntes.get("--primary") &&
+        // Aceita `0.205`, `.205` e `20.5%`: o minificador pode emitir qualquer
+        // uma das três formas.
+        /oklch\(\s*(0?\.205|20\.5%)/.test(rootAtual.get("--primary") ?? ""),
+      `encontrado: ${rootAtual.get("--primary") ?? "ausente"}`,
+    );
+  }
+}
+
+if (temCss) {
+  // Nenhum token do shadcn aponta para a marca dentro de `:root`.
+  const tokensShadcn = [
+    "--background",
+    "--foreground",
+    "--card",
+    "--card-foreground",
+    "--popover",
+    "--popover-foreground",
+    "--primary",
+    "--primary-foreground",
+    "--secondary",
+    "--secondary-foreground",
+    "--muted",
+    "--muted-foreground",
+    "--accent",
+    "--accent-foreground",
+    "--destructive",
+    "--border",
+    "--input",
+    "--ring",
+    "--radius",
+  ];
+  const marca = /#00bd42|#007a2a|#005c3a|#e8f5ec|--brand-|--surface|--ink/i;
+  const contaminados = tokensShadcn.filter((nome) => {
+    const valor = rootAtual.get(nome);
+    return valor !== undefined && marca.test(valor);
+  });
+  afirmar(
+    "nenhum token do shadcn aponta para a marca dentro de `:root`",
+    contaminados.length === 0,
+    contaminados.join(", "),
+  );
+}
+
+// Verificação na fonte, independente do build.
+const fonteCss = lerOuFalhar("src/App.css legível", () => ler(caminhoAppCss));
+
+if (fonteCss && existsSync(caminhoBaselineFonte)) {
+  const original = lerOuFalhar("fonte do baseline legível", () =>
+    ler(caminhoBaselineFonte),
+  );
+  if (original) {
+    const rootFonteAntes = declaracoesDe(original, ":root");
+    const rootFonteDepois = declaracoesDe(fonteCss, ":root");
+    const perdidas = [...rootFonteAntes.entries()].filter(
+      ([nome, valor]) => rootFonteDepois.get(nome) !== valor,
+    );
+    afirmar(
+      "src/App.css: toda declaração original de `:root` sobrevive inalterada",
+      perdidas.length === 0,
+      perdidas.map(([n, v]) => `${n}: ${v}`).join(" | "),
+    );
+
+    const camadaBase = (texto) =>
+      (/@layer base\s*\{[\s\S]*?\n\}/.exec(semCR(texto)) ?? [""])[0];
+    afirmar(
+      "src/App.css: bloco `@layer base` idêntico ao baseline",
+      camadaBase(fonteCss) === camadaBase(original) &&
+        camadaBase(original) !== "",
+    );
+  }
+} else if (fonteCss) {
+  // Baseline ausente não pode sumir do relatório: sem ele estas duas
+  // asserções simplesmente não existiriam e o script sairia 0 mesmo assim.
+  afirmar(
+    "fonte do baseline presente (`src/App.css` de antes da story)",
+    false,
+    `ausente: ${path.relative(raiz, caminhoBaselineFonte)}`,
+  );
+}
+
+/* ─── (c) `.painel` carrega a marca ──────────────────────────────────── */
+
+secao("(c) `.painel` remapeia os tokens para a marca");
+
+if (temCss) {
+  afirmar("bloco `.painel` presente no CSS compilado", painel.size > 0);
+
+  // Conjunto completo: um componente shadcn instalado não pode renderizar
+  // metade marca, metade neutro.
+  const remapeamentos = {
+    "--background": "var(--surface-sunk)",
+    "--foreground": "var(--ink)",
+    "--card": "var(--surface)",
+    "--card-foreground": "var(--ink)",
+    "--popover": "var(--surface)",
+    "--popover-foreground": "var(--ink)",
+    "--primary": "var(--brand-action)",
+    "--primary-foreground": "#ffffff",
+    "--secondary": "var(--brand-wash)",
+    "--secondary-foreground": "var(--brand-action)",
+    "--muted": "var(--surface-sunk)",
+    "--muted-foreground": "var(--ink-muted)",
+    "--accent": "var(--brand-wash)",
+    "--accent-foreground": "var(--brand-action)",
+    "--border": "var(--border-soft)",
+    "--input": "var(--border-strong)",
+    "--ring": "var(--brand-action)",
+    "--radius": "var(--radius-controle)",
+  };
+  for (const [nome, esperado] of Object.entries(remapeamentos)) {
+    const encontrado = (painel.get(nome) ?? "").toLowerCase();
+    const aceito =
+      encontrado === esperado ||
+      // O minificador encurta `#ffffff` para `#fff`.
+      (esperado === "#ffffff" && encontrado === "#fff");
+    afirmar(
+      `.painel remapeia ${nome} → ${esperado}`,
+      aceito,
+      `encontrado: ${painel.get(nome) ?? "ausente"}`,
+    );
+  }
+
+  // `--destructive` fica de fora de propósito: o DESIGN.md não define cor de
+  // perigo, então o Painel herda o vermelho do sistema.
+  afirmar(
+    "`--destructive` herda o valor do sistema (sem cor de perigo na direção)",
+    !painel.has("--destructive"),
+    `encontrado: ${painel.get("--destructive") ?? ""}`,
+  );
+
+  // Todo token do shadcn ou é remapeado, ou herda de `:root` conscientemente.
+  const semValor = Object.keys(remapeamentos).filter(
+    (nome) => !painel.has(nome) && !rootAtual.has(nome),
+  );
+  afirmar(
+    "todo token remapeado tem origem alcançável",
+    semValor.length === 0,
+    semValor.join(", "),
+  );
+
+  const marcaEsperada = {
+    "--brand-chrome": ["#005c3a"],
+    "--brand-action": ["#007a2a"],
+    "--brand-vivid": ["#00bd42"],
+    "--brand-wash": ["#e8f5ec"],
+    "--ink": ["#0f172a"],
+    "--ink-secondary": ["#37414f"],
+    "--ink-muted": ["#5b6672"],
+    "--surface": ["#ffffff", "#fff"],
+    "--surface-sunk": ["#f4f7f5"],
+    "--border-soft": ["#e6eae8"],
+    "--border-strong": ["#cfd6d2"],
+    "--radius-cartao": ["14px"],
+    "--radius-controle": ["12px"],
+    "--radius-pilula": ["999px"],
+  };
+  for (const [nome, aceitos] of Object.entries(marcaEsperada)) {
+    const valor = (rootAtual.get(nome) ?? "").toLowerCase();
+    afirmar(
+      `${nome} vale ${aceitos[0]} no CSS compilado`,
+      aceitos.includes(valor),
+      `encontrado: ${rootAtual.get(nome) ?? "ausente"}`,
+    );
+  }
+
+  // Os raios são declarados duas vezes na fonte (chave do tema e `:root`).
+  // Quantas cópias chegam ao CSS compilado é decisão do Tailwind, que só
+  // emite a variável de tema quando alguma regra a referencia — por isso a
+  // asserção é sobre concordância, não sobre contagem. A duplicação em si
+  // está travada na fonte, logo abaixo.
+  for (const raio of ["--radius-cartao", "--radius-controle", "--radius-pilula"]) {
+    const copias = regras(cssCompilado)
+      .map(({ corpo }) => new Map(declaracoes(corpo)).get(raio))
+      .filter((v) => v !== undefined);
+    const distintas = [...new Set(copias.map((v) => v.toLowerCase()))];
+    afirmar(
+      `${raio}: as cópias no CSS compilado concordam (${copias.length})`,
+      copias.length >= 1 && distintas.length === 1,
+      `cópias: ${copias.length}, valores: ${distintas.join(" | ")}`,
+    );
+  }
+}
+
+if (fonteCss) {
+  // Mesma trava na fonte: `@theme inline` × `:root`.
+  const blocoTema = /@theme inline\s*\{([\s\S]*?)\n\}/.exec(fonteCss);
+  const temaFonte = blocoTema ? new Map(declaracoes(blocoTema[1])) : new Map();
+  const rootFonte = declaracoesDe(fonteCss, ":root");
+  for (const raio of ["--radius-cartao", "--radius-controle", "--radius-pilula"]) {
+    afirmar(
+      `src/App.css: ${raio} igual em \`@theme inline\` e \`:root\``,
+      temaFonte.get(raio) !== undefined &&
+        temaFonte.get(raio) === rootFonte.get(raio),
+      `tema: ${temaFonte.get(raio) ?? "ausente"} | root: ${rootFonte.get(raio) ?? "ausente"}`,
+    );
+  }
+
+  // Todo token mapeado em `@theme inline` tem origem alcançável.
+  const semOrigem = [];
+  for (const [, valor] of temaFonte) {
+    const alvo = /^var\(\s*(--[\w-]+)\s*\)$/.exec(valor);
+    if (!alvo) continue;
+    if (!rootFonte.has(alvo[1])) semOrigem.push(alvo[1]);
+  }
+  afirmar(
+    "todo token mapeado em `@theme inline` tem valor definido em `:root`",
+    blocoTema !== null && semOrigem.length === 0,
+    semOrigem.join(", "),
+  );
+}
+
+/* ─── Regra dos verdes: brand-vivid nunca carrega texto branco ───────── */
+
+secao("Regra dos verdes: brand-vivid nunca carrega texto branco");
+
+{
+  // A trava real é nos fontes: o Tailwind emite `.bg-brand-vivid{}` e
+  // `.text-white{}` como regras separadas, então procurar as duas
+  // declarações na mesma regra compilada nunca acharia a composição proibida.
+  const dirSrc = path.join(raiz, "src");
+  const ocorrencias = [];
+  if (existsSync(dirSrc)) {
+    for (const arquivo of arquivosJsx(dirSrc)) {
+      const fonte = lerOuFalhar(`${path.relative(raiz, arquivo)} legível`, () =>
+        ler(arquivo),
+      );
+      if (!fonte) continue;
+      for (const atributo of atributosClassName(fonte)) {
+        const temVivid = /(^|[\s"'`:[{(])bg-brand-vivid(?![\w-])/.test(atributo);
+        const temBranco = /(^|[\s"'`:[{(])text-white(\/\d+)?(?![\w-])/.test(
+          atributo,
+        );
+        if (temVivid && temBranco) {
+          ocorrencias.push(
+            `${path.relative(raiz, arquivo)}: ${atributo.trim().slice(0, 90)}`,
+          );
+        }
+      }
+    }
+  }
+  afirmar(
+    "nenhum className compõe bg-brand-vivid com text-white",
+    ocorrencias.length === 0,
+    ocorrencias.slice(0, 5).join(" | "),
+  );
+}
+
+if (temCss && temBaselineCss) {
+  // Complemento: regra autoral nova que já traga o par pronto.
+  const assinatura = ({ prelude, corpo }) =>
+    `${prelude}{${corpo.replace(/\s+/g, "")}}`;
+  const baselineCss = ler(caminhoBaselineCss);
+  const anteriores = new Set(regras(baselineCss).map(assinatura));
+  const autorais = regras(cssCompilado)
+    .filter((regra) => !anteriores.has(assinatura(regra)))
+    .filter(({ corpo }) => {
+      const d = new Map(declaracoes(corpo));
+      const fundo = (
+        d.get("background") ??
+        d.get("background-color") ??
+        ""
+      ).toLowerCase();
+      const tinta = (d.get("color") ?? "").toLowerCase();
+      return (
+        /#00bd42|var\(--brand-vivid\)/.test(fundo) &&
+        /^(#fff|#ffffff|white)$/.test(tinta)
+      );
+    })
+    .map(({ prelude }) => prelude);
+  afirmar(
+    "nenhuma regra nova produz texto branco sobre brand-vivid",
+    autorais.length === 0,
+    autorais.join(", "),
+  );
+}
+
+/* ─── (d) Tokens antes mortos ────────────────────────────────────────── */
+
+secao("(d) tokens antes mortos resolvem para valor concreto");
+
+if (temCss) {
+  const mortos = [
+    "--chart-1",
+    "--chart-2",
+    "--chart-3",
+    "--chart-4",
+    "--chart-5",
+    "--sidebar",
+    "--sidebar-foreground",
+    "--sidebar-primary",
+    "--sidebar-primary-foreground",
+    "--sidebar-accent",
+    "--sidebar-accent-foreground",
+    "--sidebar-border",
+    "--sidebar-ring",
+  ];
+  for (const nome of mortos) {
+    const valor = rootAtual.get(nome);
+    afirmar(
+      `${nome} tem valor concreto`,
+      Boolean(valor) && !valor.includes("var("),
+      `encontrado: ${valor ?? "ausente"}`,
+    );
+  }
+
+  const ciclos = [
+    ...mascarar(cssCompilado).matchAll(/(--[\w-]+)\s*:\s*var\(\s*\1\s*\)/g),
+  ].map((m) => m[1]);
+  afirmar(
+    "nenhuma custom property se auto-referencia",
+    ciclos.length === 0,
+    [...new Set(ciclos)].join(", "),
+  );
+}
+
+/* ─── (e) Contraste WCAG 2.1 ─────────────────────────────────────────── */
+
+secao("(e) contraste WCAG 2.1 dos pares que a direção visual promete");
+
+if (temCss) {
+  const escopoPainel = new Map([...rootAtual, ...painel]);
+  const PISO = 4.5;
+
+  const conferir = (rotulo, tinta, fundo, mapa) => {
+    const corTinta = resolver(tinta, mapa);
+    const corFundo = resolver(fundo, mapa);
+    const razao = razaoContraste(corTinta ?? "", corFundo ?? "");
+    if (razao === null) {
+      afirmar(
+        `${rotulo} ≥ ${PISO.toFixed(1)}:1`,
+        false,
+        `cor não resolvida: ${corTinta ?? tinta} sobre ${corFundo ?? fundo}`,
+      );
+      return;
+    }
+    afirmar(
+      `${rotulo} = ${razao.toFixed(2)}:1 (piso ${PISO.toFixed(1)})`,
+      razao >= PISO,
+      `${corTinta} sobre ${corFundo}`,
+    );
+  };
+
+  conferir("branco sobre brand-action", "#ffffff", "var(--brand-action)", escopoPainel);
+  conferir("ink sobre brand-vivid", "var(--ink)", "var(--brand-vivid)", escopoPainel);
+
+  for (const estado of ["publicado", "agendado", "rascunho", "arquivado"]) {
+    conferir(
+      `estado ${estado}: tinta sobre fundo`,
+      `var(--state-${estado}-ink)`,
+      `var(--state-${estado}-bg)`,
+      escopoPainel,
+    );
+  }
+
+  // Pares que o próprio bloco `.painel` cria.
+  const paresPainel = [
+    ["texto sobre fundo do Painel", "--foreground", "--background"],
+    ["texto sobre cartão", "--card-foreground", "--card"],
+    ["texto sobre popover", "--popover-foreground", "--popover"],
+    ["tinta primária sobre primário", "--primary-foreground", "--primary"],
+    ["texto de apoio sobre muted", "--muted-foreground", "--muted"],
+    ["texto sobre secondary", "--secondary-foreground", "--secondary"],
+    ["texto sobre accent", "--accent-foreground", "--accent"],
+  ];
+  for (const [rotulo, tinta, fundo] of paresPainel) {
+    conferir(
+      rotulo,
+      escopoPainel.get(tinta) ?? "",
+      escopoPainel.get(fundo) ?? "",
+      escopoPainel,
+    );
+  }
+}
+
+/* ─── (f) Lint e gerenciador único ───────────────────────────────────── */
+
+secao("(f) lint executa e o gerenciador de pacotes é único");
+
+const pkg = lerOuFalhar("package.json legível", () =>
+  JSON.parse(ler(path.join(raiz, "package.json"))),
+);
+if (pkg) {
+  afirmar(
+    "package.json não declara `packageManager`",
+    !("packageManager" in pkg),
+    `encontrado: ${pkg.packageManager ?? ""}`,
+  );
+  afirmar(
+    "script `lint` declarado no package.json",
+    typeof pkg.scripts?.lint === "string",
+  );
+}
+afirmar(
+  "package-lock.json presente (npm é o gerenciador único)",
+  existsSync(path.join(raiz, "package-lock.json")),
+);
+afirmar(
+  "nenhum pnpm-lock.yaml no repositório",
+  !existsSync(path.join(raiz, "pnpm-lock.yaml")),
+);
+afirmar("eslint.config.js presente", existsSync(path.join(raiz, "eslint.config.js")));
+
+// Roda o comando que a story promete — não um equivalente. `npx` iria à rede
+// e divergiria assim que o script `lint` ganhasse uma flag.
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+try {
+  // `npm.cmd` no Windows só é executável através do shell.
+  execFileSync(npm, ["run", "lint"], {
+    cwd: raiz,
+    stdio: "pipe",
+    shell: process.platform === "win32",
+  });
+  afirmar("`npm run lint` termina com código 0", true);
+} catch (erro) {
+  if (erro.code === "ENOENT") {
+    afirmar(
+      "`npm run lint` termina com código 0",
+      false,
+      `ferramenta ausente: ${npm} não foi encontrado no PATH`,
+    );
+  } else {
+    const saida = `${erro.stdout ?? ""}${erro.stderr ?? ""}`.trim();
+    afirmar(
+      "`npm run lint` termina com código 0",
+      false,
+      `saiu com código ${erro.status}: ${saida.slice(0, 1500)}`,
+    );
+  }
+}
+
+/* ─── Veredito ───────────────────────────────────────────────────────── */
+
+console.log("");
+if (falhas === 0) {
+  console.log("Fundação verificada: todas as asserções passaram.");
+  process.exit(0);
+}
+console.log(`Fundação NÃO verificada: ${falhas} asserção(ões) falharam.`);
+process.exit(1);

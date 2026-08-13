@@ -611,7 +611,7 @@ export default function AdminBlog() {
 
   /* ── Render principal ─────────────────────────────────────────── */
   return (
-    <div className="h-screen flex flex-col bg-zinc-950 text-white overflow-hidden">
+    <div className="painel h-screen flex flex-col bg-zinc-950 text-white overflow-hidden">
 
       {/* ────── Topbar ─────────────────────────────────────────── */}
       <div className="shrink-0 border-b border-zinc-800 px-6 py-3.5 flex items-center justify-between gap-4">

@@ -1,14 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* A ferramenta de verificação cita nomes de classe no código e no comentário,
-   e o instantâneo do baseline é cópia congelada de componentes. Nenhum dos
-   dois é fonte da interface: sem estas exclusões o Tailwind gera utilitário
-   de verdade a partir do texto da ferramenta e o CSS publicado engorda com
-   regra que tela nenhuma usa. */
-@source not "../scripts";
-@source not "../verificacao";
-
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -47,38 +39,6 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-
-  /* --- Marca ChatClean: nomes de cor do Painel (AD-14) ------------------
-     São apenas nomes disponíveis como utilitário (bg-brand-action, text-ink,
-     rounded-cartao...). O remapeamento dos tokens do shadcn para estes
-     valores acontece exclusivamente sob `.painel`, nunca em `:root`. */
-  --color-brand-chrome: var(--brand-chrome);
-  --color-brand-action: var(--brand-action);
-  --color-brand-vivid: var(--brand-vivid);
-  --color-brand-wash: var(--brand-wash);
-  --color-ink: var(--ink);
-  --color-ink-secondary: var(--ink-secondary);
-  --color-ink-muted: var(--ink-muted);
-  --color-surface: var(--surface);
-  --color-surface-sunk: var(--surface-sunk);
-  --color-border-soft: var(--border-soft);
-  --color-border-strong: var(--border-strong);
-  --color-state-publicado-bg: var(--state-publicado-bg);
-  --color-state-publicado-ink: var(--state-publicado-ink);
-  --color-state-agendado-bg: var(--state-agendado-bg);
-  --color-state-agendado-ink: var(--state-agendado-ink);
-  --color-state-rascunho-bg: var(--state-rascunho-bg);
-  --color-state-rascunho-ink: var(--state-rascunho-ink);
-  --color-state-arquivado-bg: var(--state-arquivado-bg);
-  --color-state-arquivado-ink: var(--state-arquivado-ink);
-
-  /* Raios da direção Etiqueta: cartão mais macio que controle.
-     Valor literal, não `var(--radius-cartao)`: a chave do tema tem o mesmo
-     nome da variável de `:root`, e a referência viraria um ciclo no CSS
-     compilado (`--radius-cartao: var(--radius-cartao)`). */
-  --radius-cartao: 14px;
-  --radius-controle: 12px;
-  --radius-pilula: 999px;
 }
 
 :root {
@@ -101,84 +61,6 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-
-  /* --- Adição pura: tokens antes mortos ---------------------------------
-     `--chart-*` e `--sidebar-*` já eram mapeados em `@theme inline` sem
-     origem alguma. Recebem aqui os valores padrão do shadcn (base neutral),
-     para que componentes instalados pelo CLI nasçam com cor. Nada no código
-     os consome hoje, então a definição é inerte. */
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-
-  /* --- Adição pura: valores nomeados da marca ----------------------------
-     Declarados aqui apenas como vocabulário. NENHUM token do shadcn é
-     remapeado neste escopo — o site público continua no neutro padrão.
-     O remapeamento vive em `.painel` (AD-14). */
-  --brand-chrome: #005c3a;
-  --brand-action: #007a2a;
-  --brand-vivid: #00bd42;
-  --brand-wash: #e8f5ec;
-  --ink: #0f172a;
-  --ink-secondary: #37414f;
-  --ink-muted: #5b6672;
-  --surface: #ffffff;
-  --surface-sunk: #f4f7f5;
-  --border-soft: #e6eae8;
-  --border-strong: #cfd6d2;
-
-  /* Pares de Estado: fundo e tinta, entre 4,9:1 e 6,7:1. */
-  --state-publicado-bg: #e8f5ec;
-  --state-publicado-ink: #007a2a;
-  --state-agendado-bg: #e7f0f7;
-  --state-agendado-ink: #0b6a9e;
-  --state-rascunho-bg: #eef0f2;
-  --state-rascunho-ink: #5b6672;
-  --state-arquivado-bg: #f7ece5;
-  --state-arquivado-ink: #8a4b2a;
-
-  /* Raios da direção Etiqueta. */
-  --radius-cartao: 14px;
-  --radius-controle: 12px;
-  --radius-pilula: 999px;
-}
-
-/* --- Escopo da marca: raiz do Painel (AD-14) ---------------------------
-   Redefinir os tokens do shadcn aqui basta para trocar toda a paleta do
-   Painel, porque `@theme inline` resolve `var(--primary)` em tempo de
-   cascata. `:root` fica intocado e o site público não muda. */
-.painel {
-  --background: var(--surface-sunk);
-  --foreground: var(--ink);
-  --card: var(--surface);
-  --card-foreground: var(--ink);
-  --popover: var(--surface);
-  --popover-foreground: var(--ink);
-  --primary: var(--brand-action);
-  --primary-foreground: #ffffff; /* ~5,5:1 sobre brand-action */
-  --secondary: var(--brand-wash);
-  --secondary-foreground: var(--brand-action);
-  --muted: var(--surface-sunk);
-  --muted-foreground: var(--ink-muted);
-  --accent: var(--brand-wash);
-  --accent-foreground: var(--brand-action);
-  --border: var(--border-soft);
-  --input: var(--border-strong);
-  --ring: var(--brand-action);
-  --radius: var(--radius-controle);
-  /* `--destructive` fica no vermelho padrão do sistema de propósito: a
-     direção Etiqueta não define cor de perigo, e inventar uma aqui seria
-     decisão de design sem origem no DESIGN.md. */
 }
 
 .dark {
