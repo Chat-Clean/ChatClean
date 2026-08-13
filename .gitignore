@@ -40,3 +40,5 @@ _bmad/
 _bmad-output/
 .claude/skills/
 .claude/settings.local.json
+.agents/
+skills-lock.json
