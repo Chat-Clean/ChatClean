@@ -1,0 +1,864 @@
+/**
+ * O schema fechado do conteúdo do Post — a lista de permissão, declarada UMA vez.
+ *
+ * Domínio puro (AD-1): nenhuma dependência de React, de Tiptap, de Supabase ou
+ * de DOM. É importável e executável fora do navegador, e é por isso que ele
+ * nasce aqui e não dentro do componente do Editor.
+ *
+ * **Por que aqui e não na configuração do Editor.** Se a lista de elementos
+ * vivesse dentro do componente React, ela só existiria no navegador — e a
+ * Story 2.5, que valida no servidor antes de gravar, teria de reescrevê-la.
+ * Duas listas divergem: é a premissa que AD-4 existe para eliminar. Declarada
+ * em `domain/blog`, a MESMA lista serve o Editor (que deriva a barra dela), o
+ * servidor (que valida contra ela) e a verificação (que a executa).
+ *
+ * Três coisas moram neste arquivo, e nenhuma delas em outro lugar:
+ *
+ *   `ELEMENTOS`         — os dez elementos que o Autor pode aplicar, na ordem
+ *                         em que a barra os oferece. É a fonte da derivação:
+ *                         acrescentar aqui faz o controle aparecer lá.
+ *   `NOS` / `MARCAS`    — a forma de cada nó e de cada marca do documento,
+ *                         incluindo os estruturais que não têm controle
+ *                         (`doc`, `paragraph`, `text`, `listItem`, `hardBreak`).
+ *   `validarDocumento`  — percorrer o documento descartando o que está fora
+ *                         desta lista **é** a higienização. Não existe filtro
+ *                         de HTML por string em lugar nenhum do projeto.
+ *
+ * **`h1` não existe aqui.** O título do Post é da página; um artigo com `h1`
+ * próprio produziria dois por página — o defeito que o site tem hoje e que a
+ * Story 2.3 registra ao recusar estilizá-lo. `heading` só aceita nível 2 e 3, e
+ * nível 1 é descartado como qualquer outro nó fora da lista.
+ */
+
+/* ─── Espécies ───────────────────────────────────────────────────────────── */
+
+/** Nó: existe na árvore do documento (parágrafo, título, lista). */
+export const NO = "no";
+/** Marca: veste um trecho de texto (negrito, itálico, link). */
+export const MARCA = "marca";
+
+/**
+ * O que o controle faz com o que está selecionado.
+ *
+ * `ALTERNA` liga e desliga: o elemento passa a ter estado ativo, e o texto
+ * selecionado continua existindo depois. `INSERE` acrescenta algo novo no
+ * lugar do cursor e não tem estado ativo nenhum — cobrar "ativo" de uma linha
+ * divisória seria inventar um requisito, e anunciá-lo na barra seria mentir.
+ */
+export const ALTERNA = "alterna";
+export const INSERE = "insere";
+
+/** Os níveis de título que o schema conhece. `1` está fora de propósito. */
+export const NIVEIS_DE_TITULO = Object.freeze([2, 3]);
+
+/* ─── Os dez elementos, na ordem em que a barra os oferece ───────────────── */
+
+/**
+ * Cada entrada carrega tudo o que um controle precisa saber, e nada além:
+ *
+ *   `chave`       identidade estável — chaveia o ícone e a asserção;
+ *   `especie`     `NO` ou `MARCA`;
+ *   `nome`        o nome do nó ou da marca no documento;
+ *   `atributos`   o que distingue este elemento de outro do mesmo nome
+ *                 (título 2 e título 3 são o mesmo nó com `level` diferente);
+ *   `rotulo`      o que o controle diz — a palavra que o Autor lê;
+ *   `faz`         a frase de ajuda: o controle diz exatamente o que fará;
+ *   `comando`     o comando do editor, pelo nome;
+ *   `acao`        `ALTERNA` (liga/desliga, tem estado ativo) ou `INSERE`
+ *                 (acrescenta no cursor, não tem estado ativo);
+ *   `argumentos`  o que vai junto do comando;
+ *   `pede`        o dado que falta para o comando rodar (só o link tem);
+ *   `atalho`      a combinação de teclas, na notação do editor, ou `null`.
+ *
+ * A ordem é significativa: é a ordem da barra. Mudar aqui muda lá, e não há
+ * um segundo lugar onde a ordem esteja escrita.
+ */
+export const ELEMENTOS = Object.freeze([
+  Object.freeze({
+    chave: "titulo2",
+    especie: NO,
+    nome: "heading",
+    atributos: Object.freeze({ level: 2 }),
+    rotulo: "Título 2",
+    faz: "Transforma a linha em título de seção.",
+    comando: "toggleHeading",
+    acao: ALTERNA,
+    argumentos: Object.freeze([Object.freeze({ level: 2 })]),
+    pede: null,
+    atalho: "Mod-Alt-2",
+  }),
+  Object.freeze({
+    chave: "titulo3",
+    especie: NO,
+    nome: "heading",
+    atributos: Object.freeze({ level: 3 }),
+    rotulo: "Título 3",
+    faz: "Transforma a linha em subtítulo, dentro de uma seção.",
+    comando: "toggleHeading",
+    acao: ALTERNA,
+    argumentos: Object.freeze([Object.freeze({ level: 3 })]),
+    pede: null,
+    atalho: "Mod-Alt-3",
+  }),
+  Object.freeze({
+    chave: "negrito",
+    especie: MARCA,
+    nome: "bold",
+    atributos: null,
+    rotulo: "Negrito",
+    faz: "Destaca o trecho selecionado em negrito.",
+    comando: "toggleBold",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-b",
+  }),
+  Object.freeze({
+    chave: "italico",
+    especie: MARCA,
+    nome: "italic",
+    atributos: null,
+    rotulo: "Itálico",
+    faz: "Destaca o trecho selecionado em itálico.",
+    comando: "toggleItalic",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-i",
+  }),
+  Object.freeze({
+    chave: "listaOrdenada",
+    especie: NO,
+    nome: "orderedList",
+    atributos: null,
+    rotulo: "Lista numerada",
+    faz: "Transforma as linhas em lista numerada.",
+    comando: "toggleOrderedList",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-Shift-7",
+  }),
+  Object.freeze({
+    chave: "listaComMarcadores",
+    especie: NO,
+    nome: "bulletList",
+    atributos: null,
+    rotulo: "Lista com marcadores",
+    faz: "Transforma as linhas em lista com marcadores.",
+    comando: "toggleBulletList",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-Shift-8",
+  }),
+  Object.freeze({
+    chave: "link",
+    especie: MARCA,
+    nome: "link",
+    atributos: null,
+    rotulo: "Link",
+    faz: "Aponta o trecho selecionado para um endereço.",
+    comando: "toggleLink",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    // O único elemento que precisa de um dado do Autor para existir. O controle
+    // pede, a barra mostra o campo, e nada disso é escrito por elemento.
+    pede: Object.freeze({
+      propriedade: "href",
+      rotulo: "Endereço do link",
+      exemplo: "https://exemplo.com.br/pagina",
+      // Quando o trecho já é link, o mesmo controle o remove.
+      comandoDeRemocao: "unsetLink",
+      /* As duas recusas moram AQUI, e não no componente, pelo mesmo motivo que
+         o rótulo e o exemplo: a barra é genérica, e uma frase sobre `https://`
+         escrita dentro dela seria conhecimento de link vazando para um lugar
+         que não deve saber o que é um link. São duas porque são causas
+         diferentes — dizer "endereço inválido" quando o endereço está certo e
+         o problema é o lugar manda o Autor consertar o que não está quebrado. */
+      recusaDeFormato: (valor) =>
+        `Não reconhecemos "${valor}" como endereço. Use um endereço que comece com ` +
+        `https://, com uma barra (/blog) ou com # — e sem barra invertida.`,
+      recusaDeContexto:
+        "Não dá para aplicar link aqui. Bloco de código e linha divisória não " +
+        "aceitam link — posicione o cursor num parágrafo, título ou item de lista.",
+    }),
+    atalho: null,
+  }),
+  Object.freeze({
+    chave: "citacao",
+    especie: NO,
+    nome: "blockquote",
+    atributos: null,
+    rotulo: "Citação",
+    faz: "Recua o bloco como citação.",
+    comando: "toggleBlockquote",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-Shift-b",
+  }),
+  Object.freeze({
+    chave: "blocoDeCodigo",
+    especie: NO,
+    nome: "codeBlock",
+    atributos: null,
+    rotulo: "Bloco de código",
+    faz: "Transforma o bloco em código, em pilha monoespaçada.",
+    comando: "toggleCodeBlock",
+    acao: ALTERNA,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: "Mod-Alt-c",
+  }),
+  Object.freeze({
+    chave: "linhaDivisoria",
+    especie: NO,
+    nome: "horizontalRule",
+    atributos: null,
+    rotulo: "Linha divisória",
+    faz: "Insere uma linha divisória entre dois blocos.",
+    comando: "setHorizontalRule",
+    acao: INSERE,
+    argumentos: Object.freeze([]),
+    pede: null,
+    atalho: null,
+  }),
+]);
+
+/* ─── A forma do documento ───────────────────────────────────────────────── */
+
+/**
+ * Os nós que não têm controle na barra porque não são escolha do Autor: eles
+ * são a estrutura em que tudo o mais assenta. Estão no schema — não seriam
+ * descartáveis — mas nunca viram botão.
+ */
+export const NOS_ESTRUTURAIS = Object.freeze([
+  "doc",
+  "paragraph",
+  "text",
+  "listItem",
+  "hardBreak",
+]);
+
+/** Os nós que podem aparecer onde um bloco cabe. */
+const BLOCOS = Object.freeze([
+  "paragraph",
+  "heading",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "codeBlock",
+  "horizontalRule",
+]);
+
+/** O que pode aparecer dentro de uma linha de texto. */
+const INLINE = Object.freeze(["text", "hardBreak"]);
+
+/**
+ * Validadores de atributo. Cada um devolve o valor aceito ou `undefined` para
+ * dizer "este atributo não passa" — e o atributo some sem derrubar o nó.
+ */
+function inteiroEntre(minimo, maximo) {
+  return (valor) =>
+    Number.isInteger(valor) && valor >= minimo && valor <= maximo
+      ? valor
+      : undefined;
+}
+
+function umDentre(lista) {
+  return (valor) => (lista.includes(valor) ? valor : undefined);
+}
+
+function textoOuNulo(valor) {
+  if (valor === null || valor === undefined) return null;
+  return typeof valor === "string" ? valor : undefined;
+}
+
+/**
+ * A forma de cada nó: que atributos aceita, que filhos aceita, e se sobrevive
+ * ficando vazio.
+ *
+ * `filhos: null` significa "nenhum filho" (nó atômico). `vazioSobrevive: false`
+ * significa que um nó que perdeu todo o conteúdo na higienização vira lixo
+ * estrutural e é descartado junto — uma lista sem itens ou um item de lista sem
+ * bloco não são documento, são resto.
+ */
+export const NOS = Object.freeze({
+  doc: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: BLOCOS,
+    vazioSobrevive: true,
+  }),
+  paragraph: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: INLINE,
+    vazioSobrevive: true,
+  }),
+  heading: Object.freeze({
+    // É AQUI que `h1` deixa de existir: nível fora da lista não passa, e um
+    // título sem nível não é título — o nó inteiro cai.
+    atributos: Object.freeze({ level: umDentre([...NIVEIS_DE_TITULO]) }),
+    atributosObrigatorios: Object.freeze(["level"]),
+    filhos: INLINE,
+    vazioSobrevive: true,
+  }),
+  blockquote: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: BLOCOS,
+    vazioSobrevive: false,
+  }),
+  bulletList: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: Object.freeze(["listItem"]),
+    vazioSobrevive: false,
+  }),
+  orderedList: Object.freeze({
+    atributos: Object.freeze({
+      start: inteiroEntre(0, 1e6),
+      // Os cinco valores que o HTML define para `type` de lista ordenada.
+      // String livre aqui vira atributo no HTML derivado da Story 2.5.
+      type: (valor) =>
+        valor === null || valor === undefined
+          ? null
+          : ["1", "a", "A", "i", "I"].includes(valor)
+            ? valor
+            : undefined,
+    }),
+    filhos: Object.freeze(["listItem"]),
+    vazioSobrevive: false,
+  }),
+  listItem: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: BLOCOS,
+    vazioSobrevive: false,
+  }),
+  codeBlock: Object.freeze({
+    atributos: Object.freeze({ language: linguagemDeCodigo }),
+    // Dentro do bloco de código só existe texto: marca nenhuma sobrevive, e é
+    // por isso que ele não precisa de filtro de HTML — não há o que interpretar.
+    filhos: Object.freeze(["text"]),
+    vazioSobrevive: true,
+  }),
+  horizontalRule: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: null,
+    vazioSobrevive: true,
+  }),
+  hardBreak: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: null,
+    vazioSobrevive: true,
+  }),
+  text: Object.freeze({
+    atributos: Object.freeze({}),
+    filhos: null,
+    vazioSobrevive: false,
+    texto: true,
+  }),
+});
+
+/**
+ * Os protocolos que um link pode usar.
+ *
+ * `javascript:` e `data:` estão fora, e essa é a razão de a checagem morar no
+ * domínio e não no componente: a Story 2.5 valida no servidor com esta mesma
+ * função, e um link executável que passasse aqui passaria lá.
+ */
+export const PROTOCOLOS_DE_LINK = Object.freeze([
+  "http:",
+  "https:",
+  "mailto:",
+  "tel:",
+]);
+
+/**
+ * O endereço é aceitável? Relativo (`/algo`, `#ancora`) sempre; absoluto só
+ * com protocolo da lista. Qualquer outra coisa é recusada — inclusive o que
+ * não é string.
+ *
+ * Esta função é chamada pelo servidor na Story 2.5, sobre conteúdo que vem de
+ * fora. Ela é o único lugar do projeto que decide se um endereço pode existir.
+ */
+export function enderecoPermitido(valor) {
+  if (typeof valor !== "string") return false;
+  const limpo = valor.trim();
+  if (limpo === "") return false;
+
+  /* Barra invertida não existe em endereço legítimo e existe em quase toda
+     evasão: `/\evil.com` e `https:/\evil.com` são lidos por navegadores como
+     autoridade externa, porque eles normalizam `\` para `/` antes de resolver.
+     Recusar de saída é mais barato que tentar prever a normalização de cada
+     navegador. */
+  if (limpo.includes("\\")) return false;
+
+  /* Barra dupla no começo é ENDEREÇO RELATIVO DE PROTOCOLO: `//evil.com`
+     parece interno para quem só olha o primeiro caractere, e o navegador o
+     resolve como `https://evil.com`. Era exatamente o buraco que
+     `startsWith("/")` abria — endereço externo classificado como interno. */
+  if (limpo.startsWith("//")) return false;
+  // Espaço, quebra de linha ou caractere de controle dentro do esquema
+  // (`java\nscript:`) é a evasão clássica: o navegador os ignora e o teste
+  // ingênuo os enxerga como parte do nome do esquema.
+  //
+  // A conferência de caractere de controle é por PONTO DE CÓDIGO, e não por
+  // faixa dentro de uma expressão regular: caractere de controle escrito num
+  // literal de regex é invisível na revisão, e o lint do projeto o proíbe com
+  // razão.
+  if (/\s/u.test(limpo)) return false;
+  for (let i = 0; i < limpo.length; i += 1) {
+    const ponto = limpo.charCodeAt(i);
+    if (ponto < 0x20 || ponto === 0x7f) return false;
+  }
+  if (limpo.startsWith("/") || limpo.startsWith("#") || limpo.startsWith("?")) {
+    return true;
+  }
+  // Sem esquema e sem barra inicial: caminho relativo simples.
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(limpo)) return true;
+  const esquema = limpo.slice(0, limpo.indexOf(":") + 1).toLowerCase();
+  return PROTOCOLOS_DE_LINK.includes(esquema);
+}
+
+/**
+ * Onde um link pode abrir. Lista fechada: num schema que se declara lista de
+ * permissão, `target` livre seria uma lista aberta escondida dentro dela.
+ */
+export const ALVOS_DE_LINK = Object.freeze(["_blank", "_self"]);
+
+/** As palavras que `rel` pode conter. Qualquer outra é descartada. */
+export const RELACOES_DE_LINK = Object.freeze([
+  "noopener",
+  "noreferrer",
+  "nofollow",
+  "ugc",
+  "sponsored",
+]);
+
+/**
+ * O `rel` obrigatório de quem abre em nova janela.
+ *
+ * Sem `noopener`, a página aberta recebe `window.opener` e pode reescrever a
+ * aba de origem — o Painel — para onde quiser. É o par que um documento colado
+ * de fora quebra com mais facilidade, porque o `target` sobrevive à colagem e o
+ * `rel` não. Aqui ele não é sugerido: é imposto.
+ *
+ * A frase é exatamente a que o editor já emite, para que um documento válido
+ * continue atravessando a validação sem mudar.
+ */
+export const RELACAO_DE_NOVA_JANELA = "noopener noreferrer nofollow";
+
+/** Filtra `rel` às palavras conhecidas, preservando a ordem declarada. */
+function relacoesDe(valor) {
+  if (valor === null || valor === undefined) return null;
+  if (typeof valor !== "string") return undefined;
+  const palavras = valor
+    .split(/\s+/u)
+    .filter((palavra) => RELACOES_DE_LINK.includes(palavra.toLowerCase()))
+    .map((palavra) => palavra.toLowerCase());
+  return palavras.length > 0 ? [...new Set(palavras)].join(" ") : null;
+}
+
+/**
+ * O nome da linguagem de um bloco de código.
+ *
+ * Restrito porque ele viaja até o renderizador de HTML da Story 2.5, que o
+ * transforma em atributo. String livre num atributo é a porta que a lista de
+ * permissão existe para fechar.
+ */
+function linguagemDeCodigo(valor) {
+  if (valor === null || valor === undefined) return null;
+  if (typeof valor !== "string") return undefined;
+  const limpo = valor.trim().toLowerCase();
+  if (limpo === "") return null;
+  return /^[a-z0-9][a-z0-9+#._-]{0,31}$/.test(limpo) ? limpo : undefined;
+}
+
+/**
+ * A forma de cada marca. `atributos` lista o que sobrevive; o resto some.
+ * `normalizar` roda depois, para as regras que dependem de mais de um atributo.
+ *
+ * `class` aparece aqui porque o editor a materializa como `null` e descartá-la
+ * faria a validação alterar um documento válido. Mas ela só sobrevive VAZIA:
+ * o HTML do artigo não carrega classe — quem estiliza é o invólucro `.artigo`,
+ * e classe gerada em tempo de execução nunca chega ao compilador do Tailwind.
+ */
+export const MARCAS = Object.freeze({
+  bold: Object.freeze({ atributos: Object.freeze({}) }),
+  italic: Object.freeze({ atributos: Object.freeze({}) }),
+  link: Object.freeze({
+    atributos: Object.freeze({
+      href: (valor) => (enderecoPermitido(valor) ? valor.trim() : undefined),
+      target: (valor) =>
+        valor === null || valor === undefined
+          ? null
+          : ALVOS_DE_LINK.includes(valor)
+            ? valor
+            : undefined,
+      rel: relacoesDe,
+      title: textoOuNulo,
+      class: (valor) => (valor === null || valor === undefined ? null : undefined),
+    }),
+    atributosObrigatorios: Object.freeze(["href"]),
+    /**
+     * O par `target="_blank"` + `rel` com `noopener` é imposto aqui, e não
+     * torcido para que venha certo de fora. A atribuição preserva a POSIÇÃO da
+     * chave no objeto: reordenar faria um documento válido deixar de ser ponto
+     * fixo da própria validação.
+     */
+    normalizar(atributos) {
+      if (atributos.target !== "_blank") return atributos;
+      const palavras = String(atributos.rel ?? "").split(/\s+/u);
+      if (palavras.includes("noopener") && palavras.includes("noreferrer")) {
+        return atributos;
+      }
+      if (Object.hasOwn(atributos, "rel")) {
+        atributos.rel = RELACAO_DE_NOVA_JANELA;
+        return atributos;
+      }
+      return { ...atributos, rel: RELACAO_DE_NOVA_JANELA };
+    },
+  }),
+});
+
+/** Todo nome de nó que o schema conhece. */
+export const NOS_PERMITIDOS = Object.freeze(Object.keys(NOS));
+/** Todo nome de marca que o schema conhece. */
+export const MARCAS_PERMITIDAS = Object.freeze(Object.keys(MARCAS));
+
+export function ehNoPermitido(nome) {
+  return typeof nome === "string" && Object.hasOwn(NOS, nome);
+}
+
+export function ehMarcaPermitida(nome) {
+  return typeof nome === "string" && Object.hasOwn(MARCAS, nome);
+}
+
+/** O elemento da barra com esta chave, ou `undefined`. */
+export function elementoPorChave(chave) {
+  return ELEMENTOS.find((elemento) => elemento.chave === chave);
+}
+
+/** O documento de um Post que ainda não tem nada escrito. */
+export function documentoVazio() {
+  return { type: "doc", content: [{ type: "paragraph" }] };
+}
+
+/* ─── A higienização ─────────────────────────────────────────────────────── */
+
+/**
+ * Até onde o documento pode aninhar.
+ *
+ * Não é gosto: é o que separa "nunca lança" de "nunca lança até alguém tentar".
+ * A travessia é recursiva, o runtime tem pilha finita, e um `content` aninhado
+ * dez mil vezes cabe num JSON de poucas centenas de kilobytes — que é
+ * exatamente o tamanho de corpo que a função do servidor da Story 2.5 vai
+ * aceitar sem piscar. Cem níveis é ordens de grandeza além de qualquer artigo
+ * real (citação dentro de item dentro de lista dentro de citação raramente
+ * passa de seis).
+ */
+export const PROFUNDIDADE_MAXIMA = 100;
+
+/** Quantos descartes o relatório carrega antes de passar a só contar. */
+export const LIMITE_DO_RELATORIO = 200;
+
+/**
+ * Filtra os atributos de um nó ou marca pela forma declarada.
+ * Devolve `null` quando falta um atributo obrigatório — quem chama descarta.
+ */
+function filtrarAtributos(forma, atributos, registrar, caminho) {
+  const declarados = forma.atributos ?? {};
+  const obrigatorios = forma.atributosObrigatorios ?? [];
+  const entrada =
+    atributos !== null && typeof atributos === "object" && !Array.isArray(atributos)
+      ? atributos
+      : {};
+
+  const saida = {};
+  for (const [nome, valor] of Object.entries(entrada)) {
+    if (!Object.hasOwn(declarados, nome)) {
+      registrar("atributo", nome, caminho);
+      continue;
+    }
+    const aceito = declarados[nome](valor);
+    if (aceito === undefined) {
+      registrar("atributo", nome, caminho);
+      continue;
+    }
+    saida[nome] = aceito;
+  }
+
+  for (const nome of obrigatorios) {
+    if (!Object.hasOwn(saida, nome)) return null;
+  }
+  // Preserva a ausência: nó sem atributos continua sem a chave `attrs`, para
+  // que um documento válido atravesse a validação sem mudar de forma.
+  return Object.keys(saida).length > 0 ? saida : null;
+}
+
+/** As marcas de um trecho de texto, filtradas pela lista de permissão. */
+function filtrarMarcas(marcas, registrar, caminho) {
+  if (marcas === undefined) return undefined;
+  if (!Array.isArray(marcas)) {
+    registrar("marca", "(não é lista)", caminho);
+    return undefined;
+  }
+
+  const saida = [];
+  for (const marca of marcas) {
+    const nome = marca?.type;
+    if (!ehMarcaPermitida(nome)) {
+      registrar("marca", typeof nome === "string" ? nome : String(nome), caminho);
+      continue;
+    }
+    const forma = MARCAS[nome];
+    let attrs = filtrarAtributos(forma, marca.attrs, registrar, `${caminho}/${nome}`);
+    if (attrs === null && (forma.atributosObrigatorios ?? []).length > 0) {
+      // Link sem endereço aceitável não é link — a MARCA cai, o texto fica.
+      registrar("marca", nome, caminho);
+      continue;
+    }
+    // Regras que dependem de mais de um atributo rodam depois de todos eles
+    // terem sido filtrados — é o caso do par `target`/`rel`.
+    if (attrs !== null && typeof forma.normalizar === "function") {
+      attrs = forma.normalizar(attrs);
+    }
+    saida.push(attrs === null ? { type: nome } : { type: nome, attrs });
+  }
+  return saida.length > 0 ? saida : undefined;
+}
+
+/**
+ * Higieniza um nó. Devolve o nó saneado, ou `null` quando ele não sobrevive —
+ * porque está fora da lista, porque perdeu atributo obrigatório, ou porque
+ * ficou vazio e vazio não é forma válida para ele.
+ */
+function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profundidade = 0) {
+  /* O TETO DE PROFUNDIDADE. Sem ele, "esta função nunca lança" era falso: um
+     documento aninhado fundo o bastante estoura a pilha com `RangeError`, e é
+     esta a função que o servidor da Story 2.5 vai chamar sobre conteúdo de
+     terceiros. Um `content` aninhado dez mil vezes cabe num JSON de poucas
+     centenas de kilobytes.
+     O corte é DESCARTE, não erro: o galho fundo demais cai como qualquer nó
+     fora da lista, fica registrado, e o resto do documento sobrevive. */
+  if (profundidade > PROFUNDIDADE_MAXIMA) {
+    registrar("no", `(aninhamento além de ${PROFUNDIDADE_MAXIMA} níveis)`, caminho);
+    return null;
+  }
+  if (no === null || typeof no !== "object" || Array.isArray(no)) {
+    registrar("no", `(${no === null ? "null" : typeof no})`, caminho);
+    return null;
+  }
+
+  const nome = no.type;
+  if (!ehNoPermitido(nome)) {
+    registrar("no", typeof nome === "string" ? nome : String(nome), caminho);
+    return null;
+  }
+  if (permitidos !== null && !permitidos.includes(nome)) {
+    // O nó existe no schema mas não NESTE lugar (um `listItem` solto no topo).
+    registrar("no", `${nome} (fora de lugar)`, caminho);
+    return null;
+  }
+
+  const forma = NOS[nome];
+  const aqui = `${caminho}/${nome}`;
+
+  if (forma.texto) {
+    if (typeof no.text !== "string" || no.text === "") {
+      registrar("no", "text (sem texto)", aqui);
+      return null;
+    }
+    // Dentro do bloco de código não existe marca: negrito em código é ruído
+    // que o renderizador teria de emitir e o estilo não prevê.
+    const marcas = semMarcas
+      ? (Array.isArray(no.marks) && no.marks.length > 0
+          ? (registrar("marca", "(dentro de bloco de código)", aqui), undefined)
+          : undefined)
+      : filtrarMarcas(no.marks, registrar, aqui);
+    // `marks` antes de `text`, na ordem em que o editor emite: assim um
+    // documento válido atravessa a validação idêntico até na serialização, e a
+    // asserção de ponto fixo pode ser byte a byte em vez de aproximada.
+    return marcas
+      ? { type: "text", marks: marcas, text: no.text }
+      : { type: "text", text: no.text };
+  }
+
+  const attrs = filtrarAtributos(forma, no.attrs, registrar, aqui);
+  if (attrs === null && (forma.atributosObrigatorios ?? []).length > 0) {
+    // Título sem nível, ou com nível 1: o nó inteiro cai.
+    registrar("no", `${nome} (atributo obrigatório fora do schema)`, aqui);
+    return null;
+  }
+
+  const saida = { type: nome };
+  if (attrs !== null) saida.attrs = attrs;
+
+  if (forma.filhos === null) {
+    // Nó atômico: conteúdo que venha junto é descartado sem derrubá-lo.
+    if (Array.isArray(no.content) && no.content.length > 0) {
+      registrar("no", `${nome} (conteúdo em nó atômico)`, aqui);
+    }
+    return saida;
+  }
+
+  const filhoSemMarcas = semMarcas || nome === "codeBlock";
+  const conteudo = [];
+  if (Array.isArray(no.content)) {
+    for (const filho of no.content) {
+      const saneado = filtrarNo(
+        filho,
+        forma.filhos,
+        registrar,
+        aqui,
+        filhoSemMarcas,
+        profundidade + 1,
+      );
+      if (saneado !== null) conteudo.push(saneado);
+    }
+  } else if (no.content !== undefined) {
+    registrar("no", `${nome} (conteúdo não é lista)`, aqui);
+  }
+
+  // Nó que ficou sem conteúdo: ou o vazio é forma válida para ele (parágrafo,
+  // título, bloco de código), e aí ele sai SEM a chave `content` — como o
+  // editor mesmo o emite —, ou ele é resto estrutural e cai junto.
+  if (conteudo.length === 0) return forma.vazioSobrevive ? saida : null;
+
+  saida.content = conteudo;
+  return saida;
+}
+
+/**
+ * Valida um documento contra o schema — que é o mesmo que higienizá-lo.
+ *
+ * **Nunca lança.** Devolve `{ ok: true, documento, descartados }` para
+ * qualquer coisa que SEJA um documento, ainda que cheia de nó proibido, e
+ * `{ ok: false, erro }` para o que não é documento nenhum. A distinção
+ * importa: conteúdo sujo é caso previsto e tem conserto (descartar); entrada
+ * que não é documento é defeito de quem chamou e precisa aparecer como tal.
+ *
+ * `descartados` é a lista do que caiu, com espécie, nome e caminho — é o que
+ * permite a uma tela dizer "a tabela colada foi removida" em vez de a pessoa
+ * descobrir sozinha que faltou conteúdo. A lista tem teto, e por isso vem
+ * acompanhada de `totalDescartado` e `descartadosTruncados`: uma tela que
+ * contasse o tamanho da lista diria "200 removidos" quando foram cinco mil.
+ */
+export function validarDocumento(entrada) {
+  if (entrada === null || entrada === undefined) {
+    return {
+      ok: false,
+      erro: {
+        mensagem: "O conteúdo do post está vazio. Escreva algo antes de salvar.",
+        detalhe: `esperava um documento e veio ${entrada === null ? "null" : "undefined"}`,
+      },
+    };
+  }
+  if (typeof entrada !== "object" || Array.isArray(entrada)) {
+    return {
+      ok: false,
+      erro: {
+        mensagem:
+          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        detalhe: `esperava um documento e veio ${Array.isArray(entrada) ? `lista de ${entrada.length}` : typeof entrada}`,
+      },
+    };
+  }
+  if (entrada.type !== "doc") {
+    return {
+      ok: false,
+      erro: {
+        mensagem:
+          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        detalhe: `a raiz precisa ser \`doc\` e veio ${JSON.stringify(entrada.type ?? null)}`,
+      },
+    };
+  }
+  if (entrada.content !== undefined && !Array.isArray(entrada.content)) {
+    return {
+      ok: false,
+      erro: {
+        mensagem:
+          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        detalhe: `\`content\` da raiz precisa ser uma lista e veio ${typeof entrada.content}`,
+      },
+    };
+  }
+
+  const descartados = [];
+  let totalDescartado = 0;
+  let totalSaneado = 0;
+  const registrar = (especie, nome, caminho) => {
+    /* Duas contagens, porque são duas coisas.
+       `totalDescartado` conta nó e marca: CONTEÚDO que sumiu, e é o número que
+       uma tela mostra ao Autor. `totalSaneado` conta atributo: o conteúdo
+       ficou, mais limpo. Somar os dois inflava o aviso — um `h1` descartado
+       aparecia como dois trechos removidos, porque o nível caiu antes do nó.
+       Teto na LISTA, contagem sem teto: um documento adversário com um milhão
+       de nós proibidos não pode transformar o relatório no gargalo, mas quem
+       for avisar o Autor precisa saber quantos foram de verdade. */
+    if (especie === "atributo") totalSaneado += 1;
+    else totalDescartado += 1;
+    if (descartados.length < LIMITE_DO_RELATORIO) {
+      descartados.push({ especie, nome, caminho });
+    }
+  };
+
+  const documento = filtrarNo(entrada, null, registrar, "");
+
+  // A raiz sobrevive sempre (`doc.vazioSobrevive`), mas um documento sem bloco
+  // nenhum não é editável: o parágrafo vazio é o piso do formato.
+  const saida =
+    documento === null || !Array.isArray(documento.content) || documento.content.length === 0
+      ? documentoVazio()
+      : documento;
+
+  return {
+    ok: true,
+    documento: saida,
+    descartados: Object.freeze(descartados),
+    totalDescartado,
+    totalSaneado,
+    descartadosTruncados: totalDescartado + totalSaneado > descartados.length,
+  };
+}
+
+/**
+ * O texto corrido do documento, sem marcação nenhuma. Existe para o contador
+ * de caracteres e para a busca — e para a verificação medir o custo do caminho
+ * puro sobre um documento grande.
+ *
+ * Percorre a árvore com uma PILHA PRÓPRIA, e não por recursão: ela é chamada
+ * sobre o mesmo conteúdo de terceiros que `validarDocumento` recebe, e uma
+ * versão recursiva estouraria a pilha do runtime exatamente onde a outra tomou
+ * o cuidado de não estourar. Aqui não há teto de profundidade porque não há
+ * profundidade de pilha — só memória, proporcional ao documento.
+ */
+export function textoDoDocumento(no) {
+  if (no === null || typeof no !== "object") return "";
+
+  const pedacos = [];
+  /* A pilha guarda nós e, entre eles, o separador já resolvido — uma string
+     solta. Como o desempilhamento é ao contrário, os filhos entram do último
+     para o primeiro, com o separador logo depois de cada um que tem sucessor. */
+  const pilha = [no];
+  while (pilha.length > 0) {
+    const atual = pilha.pop();
+    if (typeof atual === "string") {
+      pedacos.push(atual);
+      continue;
+    }
+    if (atual === null || typeof atual !== "object") continue;
+    if (atual.type === "text") {
+      if (typeof atual.text === "string") pedacos.push(atual.text);
+      continue;
+    }
+    if (!Array.isArray(atual.content)) continue;
+    const separador =
+      atual.type === "doc" || NOS[atual.type]?.filhos === BLOCOS ? "\n" : "";
+    for (let i = atual.content.length - 1; i >= 0; i -= 1) {
+      pilha.push(atual.content[i]);
+      if (separador !== "" && i > 0) pilha.push(separador);
+    }
+  }
+  return pedacos.join("");
+}

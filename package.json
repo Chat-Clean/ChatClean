@@ -12,13 +12,14 @@
     "supabase:auth": "node scripts/configurar-auth.mjs",
     "conta:criar": "node scripts/criar-conta.mjs",
     "conta:remover": "node scripts/criar-conta.mjs --remover",
-    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface",
+    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:artigo": "node scripts/verificar-artigo.mjs",
     "verificar:supabase": "node scripts/verificar-supabase.mjs",
     "verificar:dados": "node scripts/verificar-dados.mjs",
     "verificar:acesso": "node scripts/verificar-acesso.mjs",
-    "verificar:interface": "node scripts/verificar-interface.mjs"
+    "verificar:interface": "node scripts/verificar-interface.mjs",
+    "verificar:editor": "node scripts/verificar-editor.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -54,6 +55,10 @@
     "@supabase/supabase-js": "^2.112.3",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.1.7",
+    "@tiptap/core": "3.30.1",
+    "@tiptap/pm": "3.30.1",
+    "@tiptap/react": "3.30.1",
+    "@tiptap/starter-kit": "3.30.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -84,6 +89,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "jsdom": "30.0.1",
     "tw-animate-css": "^1.2.9",
     "vite": "^6.3.5"
   }

@@ -127,7 +127,51 @@ export function sanitizar(texto) {
 
 /* ─── Management API ─────────────────────────────────────────────────────── */
 
+/**
+ * A Management API às vezes responde uma página de erro em HTML no lugar do
+ * JSON — instabilidade momentânea, não defeito do projeto.
+ *
+ * Observado duas vezes: a asserção falhava com o texto `<!DOCTYPE html>` e
+ * arrastava sete outras em cascata, e a execução seguinte passava sem
+ * nenhuma alteração. Falhar é melhor que passar em falso, mas falha que não é
+ * falha ensina a pessoa a ignorar falhas — que é o pior desfecho possível para
+ * uma suíte inteira construída sobre a ideia de que verde significa algo.
+ *
+ * Daí a nova tentativa: só para resposta que não é JSON e para 5xx, com espera
+ * curta. Erro real da API responde JSON com mensagem e não entra aqui.
+ */
+const TENTATIVAS = 3;
+const ESPERA_ENTRE_TENTATIVAS_MS = 700;
+
+const ehHtml = (texto) => /^\s*<(?:!doctype|html)\b/i.test(String(texto ?? ""));
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function chamar(token, caminho, opcoes = {}) {
+  let ultima = null;
+  for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa += 1) {
+    const resultado = await chamarUmaVez(token, caminho, opcoes);
+    // Só instabilidade é repetida. Recusa legítima (4xx com JSON) sai na hora,
+    // senão uma escrita negada demoraria três vezes mais para ser reportada.
+    const instavel =
+      resultado.instavel === true ||
+      (resultado.ok === false && resultado.status >= 500);
+    if (!instavel || tentativa === TENTATIVAS) {
+      if (resultado.instavel && tentativa === TENTATIVAS) {
+        return {
+          ...resultado,
+          erro: `${resultado.erro} (${TENTATIVAS} tentativas; a Management API não devolveu JSON — instabilidade, não defeito do schema)`,
+        };
+      }
+      return resultado;
+    }
+    ultima = resultado;
+    await esperar(ESPERA_ENTRE_TENTATIVAS_MS * tentativa);
+  }
+  return ultima;
+}
+
+async function chamarUmaVez(token, caminho, opcoes = {}) {
   let resposta;
   try {
     resposta = await fetch(`${API}${caminho}`, {
@@ -146,15 +190,30 @@ async function chamar(token, caminho, opcoes = {}) {
     return {
       ok: false,
       status: 0,
+      instavel: true,
       erro: sanitizar(`falha de rede em ${caminho}: ${erro?.message ?? erro}`),
     };
   }
   const texto = await resposta.text();
   let corpo = null;
+  let eraJson = true;
   try {
     corpo = texto === "" ? null : JSON.parse(texto);
   } catch {
     corpo = texto;
+    eraJson = false;
+  }
+  // Resposta em HTML é página de erro da borda, não resposta da API — mesmo
+  // quando vem com status 200.
+  if (!eraJson && ehHtml(texto)) {
+    return {
+      ok: false,
+      status: resposta.status,
+      instavel: true,
+      erro: sanitizar(
+        `a Management API respondeu HTML em ${caminho} (HTTP ${resposta.status})`,
+      ),
+    };
   }
   if (!resposta.ok) {
     const detalhe =
