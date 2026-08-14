@@ -25,10 +25,57 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const URL_SUPABASE = String(import.meta.env.VITE_SUPABASE_URL ?? "").trim();
-const CHAVE_PUBLICAVEL = String(
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "",
-).trim();
+/**
+ * Leitura de ambiente que funciona no navegador E fora dele.
+ *
+ * No navegador o valor vem de `import.meta.env.VITE_*`, que o Vite substitui
+ * estaticamente no build — por isso o texto do acesso é preservado
+ * literalmente, dentro de um leitor, em vez de reescrito com acesso dinâmico
+ * que a substituição não alcançaria.
+ *
+ * Fora do navegador `import.meta.env` não existe e o acesso LANÇA. O `try`
+ * cobre esse caso; a ferramenta de verificação da camada de dados precisa
+ * importar estes clientes e EXECUTÁ-LOS de verdade — ler no código que o
+ * cliente público tem `persistSession: false` não prova que ele não envia
+ * sessão, prova só que ele não a guarda.
+ *
+ * O que for engolido fica REGISTRADO em `QUEDAS_DE_AMBIENTE`, e não perdido:
+ * um `catch` mudo aqui esconderia qualquer outro defeito de leitura de
+ * ambiente atrás de "o ambiente está vazio", e a ferramenta confere que o
+ * único motivo observado é o esperado.
+ */
+export const QUEDAS_DE_AMBIENTE = [];
+
+function doVite(leitor) {
+  try {
+    return leitor();
+  } catch (excecao) {
+    QUEDAS_DE_AMBIENTE.push({
+      nome: String(excecao?.name ?? "Error"),
+      mensagem: String(excecao?.message ?? excecao),
+    });
+    return undefined;
+  }
+}
+
+const AMBIENTE_FORA_DO_NAVEGADOR = globalThis.process?.env ?? {};
+
+function lerAmbiente(nome, valorDoVite) {
+  const bruto =
+    typeof valorDoVite === "string" && valorDoVite !== ""
+      ? valorDoVite
+      : AMBIENTE_FORA_DO_NAVEGADOR[nome];
+  return String(bruto ?? "").trim();
+}
+
+const URL_SUPABASE = lerAmbiente(
+  "VITE_SUPABASE_URL",
+  doVite(() => import.meta.env.VITE_SUPABASE_URL),
+);
+const CHAVE_PUBLICAVEL = lerAmbiente(
+  "VITE_SUPABASE_PUBLISHABLE_KEY",
+  doVite(() => import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+);
 
 /**
  * Chave de armazenamento da sessão. Nomeada de propósito: o valor guardado

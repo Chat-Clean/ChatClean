@@ -1840,6 +1840,60 @@ if (cssCompilado) {
   );
 }
 
+/* O ambiente do Supabase precisa CHEGAR ao artefato publicado.
+ *
+ * `src/data/supabase/clientes.js` lê `import.meta.env.VITE_*`, que o Vite
+ * substitui estaticamente no build. Se o valor não estiver configurado na hora
+ * de compilar, o bundle sai com a variável vazia, `exigirAmbiente()` lança e o
+ * Painel abre em erro de configuração — sem nada falhar aqui, porque as demais
+ * asserções são sobre o TEXTO do fonte.
+ *
+ * O que esta asserção prova e o que NÃO prova: ela confirma que o valor real
+ * está no artefato. Ela NÃO prova que o valor é ALCANÇADO em tempo de execução
+ * — um literal dentro de código morto continuaria presente. Essa prova é
+ * executável e vive em `verificar:dados`, que reproduz a substituição estática
+ * num gancho de carregamento e roda a camada com o ambiente do processo vazio.
+ * As duas são complementares: esta pega ambiente ausente no build, aquela pega
+ * o ramo do navegador quebrado. */
+{
+  const lerDoEnvDeVerdade = (nome) => {
+    // Só `.env`, e nunca `.env.example`: cair para o exemplo faria a asserção
+    // comparar o bundle com um valor que ninguém configurou.
+    const caminho = path.join(raiz, ".env");
+    if (!existsSync(caminho)) return null;
+    for (const linha of readFileSync(caminho, "utf8").split(/\r?\n/)) {
+      if (/^\s*#/.test(linha)) continue;
+      const m = new RegExp(`^\\s*(?:export\\s+)?${nome}\\s*=\\s*(.*)$`).exec(linha);
+      if (!m) continue;
+      return m[1]
+        .replace(/\s+#.*$/, "")
+        .trim()
+        .replace(/^["']|["']$/g, "");
+    }
+    return null;
+  };
+
+  const bundles = arquivosDe(path.join(DIR_DIST, "assets"), [".js"]);
+  const juntos = bundles.map((b) => ler(b)).join("\n");
+  for (const nome of ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY"]) {
+    const valor = lerDoEnvDeVerdade(nome);
+    const temValor = afirmar(
+      `${nome} está declarada em .env`,
+      Boolean(valor),
+      "sem ela não há como afirmar o que o bundle deveria conter",
+    );
+    if (temValor) {
+      afirmar(
+        `o valor real de ${nome} chega ao bundle publicado (substituição estática do Vite)`,
+        bundles.length > 0 && juntos.includes(valor),
+        bundles.length === 0
+          ? "sem dist/assets/*.js — rode `npm run build`"
+          : "o valor não foi inlined: o navegador abriria com ambiente vazio e toda leitura viraria erro de configuração",
+      );
+    }
+  }
+}
+
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");

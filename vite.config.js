@@ -14,6 +14,10 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
-    allowedHosts: "all",
+    // `true` (booleano) é o que libera qualquer host no Vite 6. A string
+    // "all" é tratada como uma LISTA DE UM ITEM chamada "all", e todo
+    // hostname que não fosse literalmente `all` recebia `403 Blocked request`
+    // — verificado.
+    allowedHosts: true,
   },
 });
