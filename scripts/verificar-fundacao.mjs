@@ -47,7 +47,27 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+/* O leitor de CSS e o cálculo de contraste nasceram aqui e moram em
+   `css-comum.mjs` desde que a verificação do artigo (Story 2.3) passou a
+   precisar dos mesmos: duas cópias divergentes seriam duas verdades sobre o
+   mesmo arquivo. */
+import {
+  acharCssCompilado as acharCssEm,
+  analisar,
+  casosDeAutoteste,
+  cssCompiladosEm,
+  declaracoes,
+  declaracoesDe,
+  indicePorSeletor,
+  mascarar,
+  razaoContraste,
+  regras,
+  resolver,
+  semCR,
+} from "./css-comum.mjs";
+
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const acharCssCompilado = () => acharCssEm(raiz);
 const dirBaseline = path.join(raiz, "verificacao", "baseline");
 const dirBaselineUi = path.join(dirBaseline, "componentes-ui");
 const caminhoBaselineCss = path.join(dirBaseline, "dist-index.baseline.css");
@@ -74,15 +94,6 @@ function afirmar(descricao, condicao, detalhe = "") {
 
 function ler(caminho) {
   return readFileSync(caminho, "utf8");
-}
-
-/**
- * Normaliza fim de linha. O baseline é versionado: em clone novo o git pode
- * entregar CRLF numa máquina e LF em outra, e a comparação precisa ser sobre
- * o conteúdo, não sobre a convenção de fim de linha da checkout.
- */
-function semCR(texto) {
-  return texto.replace(/\r\n/g, "\n");
 }
 
 /**
@@ -129,301 +140,7 @@ function gravarBaseline() {
   process.exit(0);
 }
 
-/* ─── Leitor de CSS ──────────────────────────────────────────────────────
-   O CSS compilado é minificado e aninha regras dentro de `@layer`/`@media`,
-   então a varredura conta chaves — mas precisa ignorar chave e ponto e
-   vírgula que aparecem dentro de comentário, de literal de string e de
-   `url(...)` sem aspas, senão a contagem dessincroniza e corrompe em
-   silêncio o diff de que a seção (b) depende. */
-
-/**
- * Devolve uma cópia do CSS só com os comentários trocados por espaços,
- * preservando os índices. É a fonte do texto que as asserções leem: sem
- * comentário grudado no nome da declaração, mas com as strings intactas.
- */
-function mascararComentarios(css) {
-  const n = css.length;
-  let saida = "";
-  let i = 0;
-  while (i < n) {
-    if (css[i] === "\\") {
-      saida += css.slice(i, i + 2);
-      i += 2;
-    } else if (css[i] === "/" && css[i + 1] === "*") {
-      const fim = css.indexOf("*/", i + 2);
-      const ate = fim === -1 ? n : fim + 2;
-      saida += " ".repeat(ate - i);
-      i = ate;
-    } else {
-      saida += css[i];
-      i += 1;
-    }
-  }
-  return saida;
-}
-
-/**
- * Devolve uma cópia do CSS com comentários, strings e `url(...)` trocados por
- * espaços, preservando os índices. A varredura usa esta cópia para achar
- * posições; o texto real sai sempre da cópia sem comentários.
- */
-function mascarar(css) {
-  const n = css.length;
-  let saida = "";
-  let i = 0;
-  while (i < n) {
-    const c = css[i];
-    if (c === "\\") {
-      // Escape de identificador (`.\[\&\:\'size-\'\]`): a barra invertida vale
-      // fora de string também, e é o que impede que uma aspa escapada em
-      // seletor do Tailwind seja lida como abertura de literal.
-      saida += css.slice(i, i + 2);
-      i += 2;
-    } else if (c === "/" && css[i + 1] === "*") {
-      const fim = css.indexOf("*/", i + 2);
-      const ate = fim === -1 ? n : fim + 2;
-      saida += " ".repeat(ate - i);
-      i = ate;
-    } else if (c === '"' || c === "'") {
-      const aspas = c;
-      let j = i + 1;
-      while (j < n && css[j] !== aspas) {
-        if (css[j] === "\\") j += 1;
-        j += 1;
-      }
-      j = Math.min(j + 1, n);
-      saida += " ".repeat(j - i);
-      i = j;
-    } else if (
-      /^url\(/i.test(css.slice(i, i + 4)) &&
-      (i === 0 || !/[\w-]/.test(css[i - 1]))
-    ) {
-      // `url("...")` cai no ramo de aspas na volta seguinte; aqui só o
-      // conteúdo sem aspas, que pode conter chave e ponto e vírgula.
-      const resto = css.slice(i + 4);
-      const primeiro = resto.trimStart()[0];
-      saida += "url(";
-      i += 4;
-      if (primeiro !== '"' && primeiro !== "'") {
-        let j = i;
-        while (j < n && css[j] !== ")") j += 1;
-        saida += " ".repeat(j - i);
-        i = j;
-      }
-    } else {
-      saida += c;
-      i += 1;
-    }
-  }
-  return saida;
-}
-
-const cacheAnalise = new Map();
-
-/** Enumera toda regra do CSS como { prelude, corpo }, inclusive aninhadas. */
-function analisar(css) {
-  const emCache = cacheAnalise.get(css);
-  if (emCache) return emCache;
-
-  const limpo = mascarar(css);
-  const texto = mascararComentarios(css);
-  const encontradas = [];
-  let corte = 0;
-  let profundidade = 0;
-  let truncada = false;
-
-  for (let i = 0; i < limpo.length; i += 1) {
-    const c = limpo[i];
-    if (c === "{") {
-      profundidade += 1;
-      const prelude = texto.slice(corte, i).trim().replace(/\s+/g, " ");
-      let interna = 1;
-      let j = i + 1;
-      while (j < limpo.length && interna > 0) {
-        if (limpo[j] === "{") interna += 1;
-        else if (limpo[j] === "}") interna -= 1;
-        j += 1;
-      }
-      if (interna > 0) truncada = true;
-      encontradas.push({ prelude, corpo: texto.slice(i + 1, j - 1) });
-      corte = i + 1;
-    } else if (c === "}") {
-      profundidade -= 1;
-      corte = i + 1;
-    } else if (c === ";") {
-      corte = i + 1;
-    }
-  }
-
-  const resultado = {
-    regras: encontradas,
-    balanceada: profundidade === 0 && !truncada,
-  };
-  cacheAnalise.set(css, resultado);
-  return resultado;
-}
-
-function regras(css) {
-  return analisar(css).regras;
-}
-
-/** Declarações no nível do corpo, ignorando blocos aninhados. */
-function declaracoes(corpoBruto) {
-  // O texto lido nunca traz comentário grudado no nome da declaração.
-  const corpo = mascararComentarios(corpoBruto);
-  const limpo = mascarar(corpoBruto);
-  const pares = [];
-  let profundidade = 0;
-  let inicio = 0;
-
-  const fecharSegmento = (fim) => {
-    const trechoLimpo = limpo.slice(inicio, fim);
-    const dentroDeBloco = /\{/.test(trechoLimpo);
-    if (!dentroDeBloco) {
-      const posDoisPontos = trechoLimpo.indexOf(":");
-      if (posDoisPontos !== -1) {
-        const nome = corpo
-          .slice(inicio, inicio + posDoisPontos)
-          .trim()
-          .replace(/\s+/g, " ");
-        const valor = corpo
-          .slice(inicio + posDoisPontos + 1, fim)
-          .trim()
-          .replace(/\s+/g, " ");
-        // Sobra de seletor de regra aninhada não é declaração: o nome precisa
-        // ser uma propriedade CSS ou uma custom property.
-        if (/^(--[\w-]+|[a-zA-Z][\w-]*)$/.test(nome)) pares.push([nome, valor]);
-      }
-    }
-    inicio = fim + 1;
-  };
-
-  for (let i = 0; i < limpo.length; i += 1) {
-    const c = limpo[i];
-    if (c === "{") profundidade += 1;
-    else if (c === "}") {
-      profundidade -= 1;
-      inicio = i + 1;
-    } else if (c === ";" && profundidade === 0) fecharSegmento(i);
-  }
-  if (inicio < limpo.length) fecharSegmento(limpo.length);
-  return pares;
-}
-
-/** Uma entrada por regra cujo seletor inclui `alvo`, na ordem do arquivo. */
-function regrasDe(css, alvo) {
-  return regras(css)
-    .filter(({ prelude }) =>
-      prelude
-        .split(",")
-        .map((s) => s.trim())
-        .includes(alvo),
-    )
-    .map(({ corpo }) => new Map(declaracoes(corpo)));
-}
-
-/** União das declarações de todas as regras cujo seletor inclui `alvo`. */
-function declaracoesDe(css, alvo) {
-  const mapa = new Map();
-  for (const regra of regrasDe(css, alvo)) {
-    for (const [nome, valor] of regra) mapa.set(nome, valor);
-  }
-  return mapa;
-}
-
-/** Índice prelude → conjunto de "nome:valor", para diff estrutural. */
-/**
- * Divide um prelude nos seletores que ele agrupa.
- *
- * A vírgula só separa no nível de fora: `:is(a, b)` é UM seletor, e prelude de
- * at-rule (`@supports (color:color-mix(in lab,red,red))`) não se divide de
- * jeito nenhum — quebrá-lo produziria chaves que não existem.
- */
-function seletoresDo(prelude) {
-  if (prelude.startsWith("@")) return [prelude];
-  const partes = [];
-  let atual = "";
-  let profundidade = 0;
-  for (const ch of prelude) {
-    if (ch === "(" || ch === "[") profundidade += 1;
-    else if (ch === ")" || ch === "]") profundidade -= 1;
-    if (ch === "," && profundidade === 0) {
-      partes.push(atual.trim());
-      atual = "";
-      continue;
-    }
-    atual += ch;
-  }
-  partes.push(atual.trim());
-  return partes.filter(Boolean);
-}
-
-/** Como `indice`, mas com um seletor por chave — imune a agrupamento. */
-function indicePorSeletor(css) {
-  const mapa = new Map();
-  for (const { prelude, corpo } of regras(css)) {
-    const decls = [...declaracoes(corpo)].map(([nome, valor]) => `${nome}:${valor}`);
-    if (decls.length === 0) continue;
-    for (const seletor of seletoresDo(prelude)) {
-      const conjunto = mapa.get(seletor) ?? new Set();
-      for (const d of decls) conjunto.add(d);
-      mapa.set(seletor, conjunto);
-    }
-  }
-  return mapa;
-}
-
-/* ─── Contraste WCAG 2.1 ─────────────────────────────────────────────── */
-
-function hexParaRgb(valor) {
-  const limpo = valor.trim().toLowerCase();
-  const curto = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(limpo);
-  if (curto) {
-    return curto.slice(1).map((d) => parseInt(d + d, 16));
-  }
-  const longo = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/.exec(limpo);
-  if (longo) return longo.slice(1).map((d) => parseInt(d, 16));
-  if (limpo === "white") return [255, 255, 255];
-  if (limpo === "black") return [0, 0, 0];
-  return null;
-}
-
-function luminancia([r, g, b]) {
-  const canal = (v) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
-}
-
-function razaoContraste(corA, corB) {
-  const a = hexParaRgb(corA);
-  const b = hexParaRgb(corB);
-  if (!a || !b) return null;
-  const la = luminancia(a);
-  const lb = luminancia(b);
-  const claro = Math.max(la, lb);
-  const escuro = Math.min(la, lb);
-  return (claro + 0.05) / (escuro + 0.05);
-}
-
-/** Resolve uma cadeia `var(--x)` até um valor literal. */
-function resolver(valor, mapa, profundidade = 0) {
-  if (valor === undefined || valor === null || profundidade > 12) return null;
-  const referencia = /^var\(\s*(--[\w-]+)\s*\)$/.exec(valor.trim());
-  if (!referencia) return valor.trim();
-  return resolver(mapa.get(referencia[1]), mapa, profundidade + 1);
-}
-
 /* ─── Utilitários de arquivo ─────────────────────────────────────────── */
-
-function acharCssCompilado() {
-  const dirAssets = path.join(raiz, "dist", "assets");
-  if (!existsSync(dirAssets)) return null;
-  const candidatos = readdirSync(dirAssets).filter((f) => f.endsWith(".css"));
-  if (candidatos.length !== 1) return null;
-  return path.join(dirAssets, candidatos[0]);
-}
 
 function arquivosJsx(dir) {
   const achados = [];
@@ -496,6 +213,19 @@ function atributosClassName(fonte) {
 /* ─── Modo gravação ──────────────────────────────────────────────────── */
 
 if (process.argv.includes("--gravar-baseline")) gravarBaseline();
+
+/* ─── Autoteste do leitor de CSS e do cálculo de contraste ───────────────
+   O módulo compartilhado é o alicerce de tudo o que vem abaixo, e nenhuma
+   asserção deste arquivo consegue perceber que ele está quebrado: medido por
+   sabotagem, desligar uma guarda de `mascarar()` deixava esta ferramenta
+   inteiramente verde. Os casos rodam ANTES de qualquer julgamento sobre o
+   repositório, e contam no mesmo veredito. */
+
+secao("Autoteste do leitor de CSS e do cálculo de contraste (css-comum.mjs)");
+
+for (const [descricao, condicao, detalhe] of casosDeAutoteste()) {
+  afirmar(descricao, condicao, detalhe);
+}
 
 /* ─── (a) shadcn operante ────────────────────────────────────────────── */
 
@@ -571,10 +301,7 @@ afirmar(
 
 secao("CSS compilado");
 
-const dirAssets = path.join(raiz, "dist", "assets");
-const cssEmDist = existsSync(dirAssets)
-  ? readdirSync(dirAssets).filter((f) => f.endsWith(".css"))
-  : [];
+const cssEmDist = cssCompiladosEm(raiz).map((f) => path.basename(f));
 const arquivoCss = acharCssCompilado();
 
 afirmar(

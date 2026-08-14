@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* No Tailwind 4 o plugin entra pelo CSS, não por arquivo de configuração.
+   Registrado aqui para que `prose` esteja disponível a quem precisar dela;
+   `.artigo` não a aplica em bloco, e a razão está no comentário daquele
+   bloco, mais abaixo. */
+@plugin "@tailwindcss/typography";
+
 /* A ferramenta de verificação cita nomes de classe no código e no comentário,
    e o instantâneo do baseline é cópia congelada de componentes. Nenhum dos
    dois é fonte da interface: sem estas exclusões o Tailwind gera utilitário
@@ -197,6 +203,277 @@
   /* Redundante em navegador moderno, e é de propósito: `font-feature-settings`
      cobre a pilha que ainda não implementa `font-variant-numeric`. */
   font-feature-settings: "tnum" 1;
+}
+
+/* --- Estilo canônico do artigo (AD-3) ----------------------------------
+   GLOBAL de propósito, e é a única exceção ao escopo do Painel (AD-14).
+   O mesmo artigo precisa ter a mesma aparência no Editor, na página pública
+   e no HTML servido — escopá-lo faria o Autor escrever numa aparência e
+   publicar noutra, que é justamente a divergência que este bloco existe
+   para eliminar. Por isso `.artigo` NÃO fica dentro de `.painel`.
+
+   Consequência direta disso: nenhum token que `.painel` remapeia pode ser
+   lido aqui. `--foreground`, `--muted-foreground`, `--border`, `--primary`,
+   `--background` e `--radius` resolvem valores DIFERENTES dentro e fora do
+   Painel; usá-los faria o artigo mudar de cara ao cruzar a fronteira. Só
+   entram os nomes de marca declarados em `:root`, que `.painel` não toca.
+
+   O HTML do artigo não carrega `class` nenhuma — o renderizador emite HTML
+   semântico puro, e classe utilitária gerada em tempo de execução nunca
+   chega ao compilador do Tailwind. Quem envolve, estiliza.
+
+   `@tailwindcss/typography` está instalado e registrado no topo do arquivo,
+   mas `prose` não é aplicada em bloco: ela estiliza `h1` e `img`, e esta
+   story proíbe os dois — `h1` porque o título é da página (dois `h1` por
+   página é o defeito que o site tem hoje), `img` porque imagem inline está
+   fora do v1. Aplicar e depois desfazer deixaria os dois seletores no CSS
+   compilado, que é o oposto do que se quer provar.
+
+   Por isso também não há seletor coringa (`.artigo *`, `.artigo > * + *`):
+   ele alcançaria `h1` por tabela. Cada elemento é nomeado.
+
+   SOBRE O TEMA ESCURO. `.dark`, logo abaixo, remapeia `--background` e
+   `--foreground`, mas não toca `--ink`, `--ink-secondary` nem
+   `--surface-sunk`, que é de onde o artigo tira tinta. Se `.dark` fosse
+   montada, o artigo ficaria tinta quase preta sobre superfície quase preta —
+   1,92:1, medido. Não há ramo escuro aqui porque NINGUÉM monta `.dark`: não
+   existe provedor de tema no projeto, e a classe nunca chega ao DOM. A
+   verificação trava exatamente isso: no dia em que alguma fonte montar
+   `.dark`, a asserção de terceiro escopo passa a exigir que o artigo
+   permaneça legível, e esta decisão terá de ser revista. */
+.artigo {
+  color: var(--ink-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  /* Medida do texto. `prose` traria `max-width: 65ch` e não é aplicada aqui;
+     sem substituto, texto corrido em contêiner largo fica ilegível por
+     comprimento de linha. 68ch é a medida que o Painel fixa. */
+  max-width: 68ch;
+  /* URL longa em texto corrido não estoura o contêiner. */
+  overflow-wrap: break-word;
+}
+
+.artigo h2 {
+  color: var(--ink);
+  font-size: 1.625rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin-block: 2.25rem 0.875rem;
+}
+
+.artigo h3 {
+  color: var(--ink);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  margin-block: 1.75rem 0.625rem;
+}
+
+/* Primeiro filho não empurra o topo do artigo para baixo. */
+.artigo h2:first-child,
+.artigo h3:first-child {
+  margin-block-start: 0;
+}
+
+.artigo p {
+  margin-block: 0 1.125rem;
+}
+
+.artigo strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.artigo em {
+  font-style: italic;
+}
+
+/* O preflight do Tailwind zera marcador, margem e recuo de lista: sem estas
+   duas regras a lista sai indistinguível de parágrafo. */
+.artigo ul,
+.artigo ol {
+  margin-block: 0 1.5rem;
+  padding-inline-start: 1.5rem;
+}
+
+/* `list-style-type` explícito, não o atalho: `list-style: disc outside` é
+   minificado para `list-style: outside` — `disc` é o valor inicial e some —,
+   e aí a verificação do marcador com marcadores só poderia afirmar a
+   POSIÇÃO, enquanto a da lista ordenada afirma o TIPO. Duas asserções
+   assimétricas sobre a mesma coisa. */
+.artigo ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.artigo ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.artigo li {
+  margin-block: 0.375rem;
+  padding-inline-start: 0.25rem;
+}
+
+.artigo li::marker {
+  color: var(--ink-muted);
+}
+
+/* Lista aninhada: recuo menor e sem o respiro de fim de bloco, que só faz
+   sentido entre a lista e o texto que vem depois dela. */
+.artigo li > ul,
+.artigo li > ol {
+  margin-block: 0.375rem 0.375rem;
+  padding-inline-start: 1.25rem;
+}
+
+/* Link: a afordância NÃO é só a cor. Sublinhado permanente e peso maior
+   continuam distinguindo o link para quem não percebe a diferença de matiz. */
+.artigo a {
+  color: var(--brand-chrome);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--brand-action);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.artigo a:hover {
+  color: var(--brand-action);
+  text-decoration-thickness: 0.14em;
+}
+
+.artigo a:focus-visible {
+  outline: 2px solid var(--brand-action);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Citação: recuo mais marca visual — a barra é o que sobrevive quando a cor
+   não é percebida. */
+.artigo blockquote {
+  margin-block: 1.5rem;
+  margin-inline: 0;
+  padding-block: 0.125rem;
+  padding-inline-start: 1.125rem;
+  border-inline-start: 3px solid var(--brand-action);
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.artigo blockquote p:last-child {
+  margin-block-end: 0;
+}
+
+/* --- Colisões entre elementos aninhados --------------------------------
+   Cada uma destas regras existe porque duas declarações corretas isoladas
+   produzem, juntas, um defeito visível. */
+
+/* A citação é itálica e `em` também: sem isto, ênfase DENTRO de citação
+   desaparece — o leitor não vê marca nenhuma. */
+.artigo blockquote em {
+  font-style: normal;
+}
+
+/* Negrito dentro de link perdia a cor do link e sobrava só o sublinhado. */
+.artigo a strong {
+  color: inherit;
+}
+
+/* Link dentro de título caía para peso 500 — mesma especificidade, e
+   `.artigo a` vem depois de `.artigo h2`. A cor do link fica: é ela que
+   distingue o link; o peso é do título. */
+.artigo h2 a,
+.artigo h3 a {
+  font-weight: inherit;
+}
+
+/* Parágrafo dentro de item de lista (lista "solta") mantinha margem que
+   dobrava o espaçamento entre itens. */
+.artigo li > p:last-child {
+  margin-block-end: 0;
+}
+
+/* O último bloco do artigo não empurra o rodapé do invólucro. Enumerado, e
+   não `.artigo > :last-child`, porque um composto sem tipo de elemento
+   alcançaria `h1` — a proibição central da story. */
+.artigo > h2:last-child,
+.artigo > h3:last-child,
+.artigo > p:last-child,
+.artigo > ul:last-child,
+.artigo > ol:last-child,
+.artigo > blockquote:last-child,
+.artigo > pre:last-child,
+.artigo > hr:last-child {
+  margin-block-end: 0;
+}
+
+/* Pilha monoespaçada repetida do bloco `.dado` de propósito: `.dado` é
+   escopada em `.painel` e o artigo é global — referenciá-la amarraria a
+   aparência do artigo ao escopo do Painel, que é o que este bloco evita. */
+.artigo pre,
+.artigo code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* Código inline: fundo tênue da marca, distinto do bloco. */
+.artigo code {
+  background-color: var(--brand-wash);
+  color: var(--brand-chrome);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+
+/* Bloco de código: fundo escuro, que se enxerga sem depender de borda de
+   baixo contraste, e ROLAGEM PRÓPRIA — linha longa rola dentro do bloco em
+   vez de empurrar a página. */
+.artigo pre {
+  margin-block: 1.5rem;
+  padding: 1rem 1.125rem;
+  background-color: var(--ink);
+  color: var(--surface-sunk);
+  border-radius: var(--radius-cartao);
+  font-size: 0.875em;
+  line-height: 1.6;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  /* Tabulação de oito colunas do padrão desperdiça a largura rolável. */
+  tab-size: 2;
+}
+
+/* Região rolável precisa ser alcançável por teclado (WCAG 2.1.1): quem
+   navega sem mouse não tem outra forma de ler o fim de uma linha longa. O
+   Firefox dá foco a contêiner rolável sozinho; o Chrome não, e o `tabindex`
+   é atributo — tem de vir do renderizador, não daqui. O indicador de foco
+   fica pronto no CSS para quando ele vier, e a verificação afirma que ele
+   existe: sem isto, o dia em que o `tabindex` chegasse o foco seria
+   invisível. */
+.artigo pre:focus-visible {
+  outline: 2px solid var(--brand-action);
+  outline-offset: 2px;
+}
+
+/* Dentro do bloco, o `code` é só o veículo semântico: herda tudo. */
+.artigo pre code {
+  background-color: transparent;
+  color: inherit;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+  white-space: inherit;
+}
+
+/* Linha divisória: regra visível, com respiro dos dois lados. */
+.artigo hr {
+  margin-block: 2.5rem;
+  border: 0;
+  border-block-start: 1px solid var(--ink-muted);
 }
 
 .dark {
