@@ -1055,7 +1055,8 @@ try {
 console.log("");
 if (falhas === 0) {
   console.log("Fundação verificada: todas as asserções passaram.");
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  console.log(`Fundação NÃO verificada: ${falhas} asserção(ões) falharam.`);
+  process.exitCode = 1;
 }
-console.log(`Fundação NÃO verificada: ${falhas} asserção(ões) falharam.`);
-process.exit(1);

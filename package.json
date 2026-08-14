@@ -8,7 +8,14 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "verificar": "node scripts/verificar-fundacao.mjs"
+    "supabase:migrar": "node scripts/aplicar-migracoes.mjs",
+    "supabase:auth": "node scripts/configurar-auth.mjs",
+    "verificar": "npm run verificar:fundacao && npm run verificar:supabase",
+    "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
+    "verificar:supabase": "node scripts/verificar-supabase.mjs"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",

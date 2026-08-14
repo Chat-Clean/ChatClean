@@ -1,0 +1,11 @@
+# Configuração do CLI do Supabase.
+#
+# `enable_signup = false` alinha o stack local ao que a Story 1.2 fecha no
+# projeto remoto (`disable_signup: true`): sem esta linha, `supabase start`
+# reabriria o registro público no desenvolvimento e a regra valeria só em
+# produção. Contas são criadas apenas pelo console — não há autosserviço.
+
+project_id = "blog-chatclean"
+
+[auth]
+enable_signup = false
