@@ -89,14 +89,40 @@ export function lerToken() {
 }
 
 /**
- * Remove qualquer eco do token de um texto antes de ele chegar ao console.
- * Segunda trava: nada aqui imprime o token de propósito, mas resposta de erro
- * de API às vezes devolve o cabeçalho que recebeu.
+ * Outros segredos que passam por estes scripts em tempo de execução.
+ *
+ * O token de conta não é o único: a criação de Conta interpola a SENHA num
+ * comando SQL, e erro de Postgres costuma ecoar um trecho do comando que
+ * falhou. Sem registrá-la aqui, uma falha de sintaxe imprimiria a senha da
+ * pessoa no console — e daí no histórico do terminal e no log de CI.
+ */
+const segredos = new Set();
+
+/**
+ * Passa a ocultar `valor` em toda saída sanitizada.
+ *
+ * O piso de comprimento não é zelo: registrar uma cadeia curta ou comum faria
+ * `sanitizar` mutilar mensagens legítimas, e uma saída ilegível é tão ruim
+ * quanto uma vazada.
+ */
+export function registrarSegredo(valor) {
+  const s = typeof valor === "string" ? valor : "";
+  if (s.length >= 6) segredos.add(s);
+}
+
+/**
+ * Remove qualquer eco de segredo de um texto antes de ele chegar ao console.
+ * Segunda trava: nada aqui imprime segredo de propósito, mas resposta de erro
+ * de API às vezes devolve o que recebeu.
  */
 export function sanitizar(texto) {
+  let s = String(texto ?? "");
   const token = lerToken();
-  const s = String(texto ?? "");
-  return token ? s.split(token).join("«token oculto»") : s;
+  if (token) s = s.split(token).join("«token oculto»");
+  for (const segredo of segredos) {
+    s = s.split(segredo).join("«segredo oculto»");
+  }
+  return s;
 }
 
 /* ─── Management API ─────────────────────────────────────────────────────── */

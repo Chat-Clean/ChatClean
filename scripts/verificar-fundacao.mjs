@@ -332,14 +332,43 @@ function declaracoesDe(css, alvo) {
 }
 
 /** Índice prelude → conjunto de "nome:valor", para diff estrutural. */
-function indice(css) {
-  // At-rules envelope (`@layer`, `@media`) entram pelas regras internas, que a
-  // varredura também enumera — o índice é achatado de propósito.
+/**
+ * Divide um prelude nos seletores que ele agrupa.
+ *
+ * A vírgula só separa no nível de fora: `:is(a, b)` é UM seletor, e prelude de
+ * at-rule (`@supports (color:color-mix(in lab,red,red))`) não se divide de
+ * jeito nenhum — quebrá-lo produziria chaves que não existem.
+ */
+function seletoresDo(prelude) {
+  if (prelude.startsWith("@")) return [prelude];
+  const partes = [];
+  let atual = "";
+  let profundidade = 0;
+  for (const ch of prelude) {
+    if (ch === "(" || ch === "[") profundidade += 1;
+    else if (ch === ")" || ch === "]") profundidade -= 1;
+    if (ch === "," && profundidade === 0) {
+      partes.push(atual.trim());
+      atual = "";
+      continue;
+    }
+    atual += ch;
+  }
+  partes.push(atual.trim());
+  return partes.filter(Boolean);
+}
+
+/** Como `indice`, mas com um seletor por chave — imune a agrupamento. */
+function indicePorSeletor(css) {
   const mapa = new Map();
   for (const { prelude, corpo } of regras(css)) {
-    const conjunto = mapa.get(prelude) ?? new Set();
-    for (const [nome, valor] of declaracoes(corpo)) conjunto.add(`${nome}:${valor}`);
-    if (conjunto.size > 0) mapa.set(prelude, conjunto);
+    const decls = [...declaracoes(corpo)].map(([nome, valor]) => `${nome}:${valor}`);
+    if (decls.length === 0) continue;
+    for (const seletor of seletoresDo(prelude)) {
+      const conjunto = mapa.get(seletor) ?? new Set();
+      for (const d of decls) conjunto.add(d);
+      mapa.set(seletor, conjunto);
+    }
   }
   return mapa;
 }
@@ -402,6 +431,33 @@ function arquivosJsx(dir) {
     const completo = path.join(dir, entrada.name);
     if (entrada.isDirectory()) achados.push(...arquivosJsx(completo));
     else if (entrada.name.endsWith(".jsx")) achados.push(completo);
+  }
+  return achados;
+}
+
+/**
+ * Toda fonte capaz de citar um nome de classe — não só JSX.
+ *
+ * `.css` importa porque `src/index.css` define classes autorais que nenhum
+ * `.jsx` menciona pelo nome; `.js` porque módulo utilitário monta className em
+ * string. Ignora `node_modules` e não segue além de `src/`.
+ */
+function arquivosDeClasse(dir) {
+  const achados = [];
+  let entradas;
+  try {
+    entradas = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return achados;
+  }
+  for (const entrada of entradas) {
+    const completo = path.join(dir, entrada.name);
+    if (entrada.isDirectory()) {
+      if (entrada.name === "node_modules") continue;
+      achados.push(...arquivosDeClasse(completo));
+    } else if (/\.(jsx|js|css|html)$/.test(entrada.name)) {
+      achados.push(completo);
+    }
   }
   return achados;
 }
@@ -572,15 +628,153 @@ if (temCss && temBaselineCss) {
       analisar(baselineCss).balanceada,
     );
 
-    const antes = indice(baselineCss);
-    const depois = indice(cssCompilado);
+    // Índice por SELETOR, não por prelude inteiro.
+    //
+    // O Tailwind agrupa seletores que compartilham declaração: ao surgir
+    // `.text-primary-foreground\/80`, a regra que era `.text-primary-foreground`
+    // vira `.text-primary-foreground,.text-primary-foreground\/80`. Comparar
+    // preludes crus leria isso como "a regra desapareceu" — falso positivo — e,
+    // pior, a asserção seguinte pularia as declarações dessa regra por não
+    // achar a chave, deixando de vigiar justamente o que ela existe para
+    // vigiar. Por seletor, agrupar deixa de mudar a resposta.
+    const antes = indicePorSeletor(baselineCss);
+    const depois = indicePorSeletor(cssCompilado);
+
+    // Uma regra do baseline pode sumir por dois motivos opostos:
+    //
+    //   1. Regressão: alguém quebrou algo que ainda é usado. Intolerável.
+    //   2. Consequência legítima: o código que usava aquela classe foi
+    //      removido, e o Tailwind deixou de compilar o utilitário.
+    //
+    // A diferença é observável — basta perguntar se a classe ainda aparece na
+    // fonte. Sem essa distinção, a única forma de uma story que remove UI
+    // passar seria editar o baseline, e um baseline editável para acomodar o
+    // código deixa de ser evidência de coisa alguma.
+    // O corpus precisa ser TODA fonte que pode citar uma classe, não só `.jsx`.
+    // As classes autorais de `src/index.css` (`glow-ring`, `link-underline`,
+    // `bg-dot`, `shimmer`, `pulse-ring`, `border-gradient`, `animate-float`)
+    // não aparecem em JSX nenhum: com o corpus só de `.jsx`, apagar qualquer
+    // uma delas contaria como "perda justificada" e o site público perderia
+    // efeito visual com a verificação verde.
+    const fontesDeClasse = arquivosDeClasse(path.join(raiz, "src"));
+    const caminhosExtras = [path.join(raiz, "index.html")].filter((f) =>
+      existsSync(f),
+    );
+    const corpus = [...fontesDeClasse, ...caminhosExtras];
+    const textoDasFontes = corpus
+      .map((f) => {
+        try {
+          return readFileSync(f, "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .join("\n");
+
+    // Piso: corpus vazio (diretório renomeado, erro de leitura) faria NENHUMA
+    // classe parecer citada e, com isso, TODA perda viraria justificada — a
+    // asserção passaria exatamente no pior cenário.
+    afirmar(
+      "há fonte suficiente para julgar as perdas do baseline",
+      corpus.length > 0 && textoDasFontes.length > 0,
+      "sem corpus, toda regra perdida seria absolvida por vacuidade",
+    );
+
+    /** Classes citadas no prelude de uma regra CSS, sem escapes do Tailwind. */
+    const classesDe = (prelude) =>
+      [...prelude.matchAll(/\.((?:\\.|[\w-])+)/g)]
+        .map((m) => m[1].replace(/\\/g, ""))
+        .filter(Boolean);
+
+    /**
+     * A classe é citada na fonte?
+     *
+     * Por limite de palavra, não por substring: `includes("flex")` casa dentro
+     * de `flex-col`, e assim a perda de `.flex` seria absolvida por uma classe
+     * que nada tem a ver com ela. `-` e `/` contam como fronteira porque é
+     * assim que o Tailwind compõe nome de utilitário.
+     */
+    const citada = (classe, texto) => {
+      const escapada = classe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^\\w-])${escapada}($|[^\\w-])`).test(texto);
+    };
+
+    /**
+     * Separa as perdas em injustificadas (regressão) e justificadas (o markup
+     * que usava a classe saiu junto). Devolvida como função para que o
+     * autoteste abaixo a exercite com fontes sintéticas.
+     */
+    const julgarPerdas = (perdidos, texto) => {
+      const injustificadas = [];
+      const justificadas = [];
+      // Corpus vazio não absolve NADA. Sem esta guarda, um diretório renomeado
+      // ou um erro de leitura faria nenhuma classe parecer citada e toda perda
+      // viraria justificada — a asserção passaria no pior cenário possível.
+      const semCorpus = texto.trim() === "";
+      for (const p of perdidos) {
+        const classes = classesDe(p);
+        // Regra sem classe (elemento, `:root`, pseudo) nunca some por remoção
+        // de markup: se sumiu, é regressão.
+        const semExplicacao =
+          semCorpus || classes.length === 0 || classes.some((c) => citada(c, texto));
+        (semExplicacao ? injustificadas : justificadas).push(p);
+      }
+      return { injustificadas, justificadas };
+    };
+
+    // Antes de confiar no filtro, exercitá-lo: perdas que ele DEVE acusar e
+    // perdas que ele DEVE absolver. Sem isto, "nenhuma perda injustificada"
+    // seria uma promessa, não uma verificação.
+    {
+      const fonteFalsa = 'className="flex-col rounded-cartao"';
+      const julgado = julgarPerdas(
+        [".flex", ".rounded-cartao", ".border-red-500", "*"],
+        fonteFalsa,
+      );
+      afirmar(
+        "filtro de perdas: acusa classe ainda citada e regra sem classe",
+        julgado.injustificadas.length === 2 &&
+          julgado.injustificadas.includes(".rounded-cartao") &&
+          julgado.injustificadas.includes("*"),
+        `acusou: ${julgado.injustificadas.join(", ") || "nada"}`,
+      );
+      afirmar(
+        "filtro de perdas: `flex-col` na fonte não absolve a perda de `.flex`",
+        // Este é o furo do casamento por substring: `includes("flex")` casaria
+        // dentro de `flex-col` e a perda de `.flex` seria ABSOLVIDA por uma
+        // classe que nada tem a ver com ela.
+        julgado.justificadas.includes(".flex"),
+        `justificadas: ${julgado.justificadas.join(", ") || "nada"}`,
+      );
+      afirmar(
+        "filtro de perdas: absolve classe que saiu da fonte junto com o markup",
+        julgado.justificadas.includes(".border-red-500"),
+        `justificadas: ${julgado.justificadas.join(", ") || "nada"}`,
+      );
+      afirmar(
+        "filtro de perdas: corpus vazio não absolve nada",
+        julgarPerdas([".border-red-500", ".flex"], "").injustificadas.length === 2,
+      );
+    }
 
     const preludesPerdidos = [...antes.keys()].filter((p) => !depois.has(p));
-    afirmar(
-      "nenhuma regra do baseline desapareceu do CSS compilado",
-      preludesPerdidos.length === 0,
-      preludesPerdidos.slice(0, 5).join(" | "),
+    const { injustificadas, justificadas } = julgarPerdas(
+      preludesPerdidos,
+      textoDasFontes,
     );
+    afirmar(
+      "nenhuma regra do baseline desapareceu sem que sua classe saísse da fonte",
+      injustificadas.length === 0,
+      injustificadas.slice(0, 5).join(" | "),
+    );
+    if (justificadas.length > 0) {
+      // Nomeadas, não contadas: um número solto não é auditável, e é
+      // justamente aqui que uma remoção indevida se esconderia.
+      console.log(
+        `        ${justificadas.length} regra(s) saíram junto com o markup que as usava:`,
+      );
+      for (const p of justificadas) console.log(`          ${p}`);
+    }
 
     const declaracoesPerdidas = [];
     for (const [prelude, conjunto] of antes) {

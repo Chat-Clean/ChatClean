@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
-  Plus, Pencil, Trash2, Eye, LogOut, RotateCcw,
+  Plus, Pencil, Trash2, Eye, RotateCcw,
   Save, X, Star, StarOff,
   ChevronLeft, Search, AlertTriangle, Check,
   Upload, ExternalLink, FileText, Briefcase,
@@ -9,12 +9,16 @@ import {
   MapPin,
 } from "lucide-react";
 
+import MenuDoAutor from "@/admin/shell/MenuDoAutor";
 import { getPosts, savePost, deletePost, resetPosts } from "@/lib/blogStore";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
 
-/* ─── Senha de acesso ──────────────────────────────────────────────── */
-const ADMIN_PASSWORD = "chatclean@admin";
-const AUTH_KEY = "cc_admin_auth";
+/* ─── Acesso ───────────────────────────────────────────────────────────
+   Esta página não decide mais nada sobre acesso. A senha em texto claro, a
+   chave gravada no armazenamento do navegador e a tela de login artesanal
+   saíram daqui: quem decide é `PortaoDeSessao`, acima da rota, contra a sessão
+   do Supabase. Se este componente está renderizando, a sessão já foi
+   verificada no servidor. */
 
 /* ─── Categorias do blog ──────────────────────────────────────────── */
 const CATEGORIAS = ["Tecnologia", "Estratégia", "Analytics", "Automação", "Tendências", "Novidades"];
@@ -96,64 +100,6 @@ function slugify(text) {
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-");
-}
-
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  TELA DE LOGIN                                                       */
-/* ═══════════════════════════════════════════════════════════════════ */
-function LoginScreen({ onLogin }) {
-  const [pwd, setPwd] = useState("");
-  const [error, setError] = useState(false);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (pwd === ADMIN_PASSWORD) {
-      sessionStorage.setItem(AUTH_KEY, "1");
-      onLogin();
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
-            <span className="text-2xl font-black text-white">CC</span>
-          </div>
-          <h1 className="text-2xl font-black text-white">Admin ChatClean</h1>
-          <p className="text-zinc-500 text-sm mt-1">Blog &amp; Carreiras</p>
-        </div>
-        <form onSubmit={handleSubmit} className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1.5">Senha</label>
-            <input
-              type="password"
-              value={pwd}
-              onChange={(e) => setPwd(e.target.value)}
-              placeholder="••••••••••••"
-              className={`w-full bg-zinc-800 border rounded-xl px-4 py-2.5 text-white outline-none transition-colors text-sm ${
-                error ? "border-red-500 focus:border-red-500" : "border-zinc-700 focus:border-emerald-500"
-              }`}
-              autoFocus
-            />
-            {error && <p className="text-red-400 text-xs mt-1.5">Senha incorreta.</p>}
-          </div>
-          <button
-            type="submit"
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-colors text-sm"
-          >
-            Entrar
-          </button>
-        </form>
-        <p className="text-center text-zinc-600 text-xs mt-4">
-          Senha padrão: <code className="text-zinc-400">chatclean@admin</code>
-        </p>
-      </div>
-    </div>
-  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
@@ -524,8 +470,6 @@ function VagaForm({ vaga: initialVaga, onSave, onCancel }) {
 /*  COMPONENTE PRINCIPAL                                                */
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function AdminBlog() {
-  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem(AUTH_KEY));
-
   /* ── Aba ativa ────────────────────────────────────────────────── */
   const [activeTab, setActiveTab] = useState("blog"); // "blog" | "carreiras"
 
@@ -545,13 +489,12 @@ export default function AdminBlog() {
   const [deleteTarget, setDeleteTarget] = useState(null); // { type: "blog"|"vaga", item }
   const [confirmReset, setConfirmReset] = useState(false);
 
-  /* Carrega dados ao autenticar */
+  /* Carrega dados na montagem. A página só é montada com sessão verificada —
+     o portão está acima da rota —, então não há mais condição a checar aqui. */
   useEffect(() => {
-    if (authed) {
-      setPosts(getPosts());
-      setVagas(getVagas());
-    }
-  }, [authed]);
+    setPosts(getPosts());
+    setVagas(getVagas());
+  }, []);
 
   /* ── Ações — Blog ─────────────────────────────────────────────── */
   const handleSavePost = () => { setPosts(getPosts()); setBlogView("list"); setEditingPost(null); };
@@ -562,12 +505,6 @@ export default function AdminBlog() {
   const handleSaveVaga = () => { setVagas(getVagas()); setVagasView("list"); setEditingVaga(null); };
   const handleDeleteVaga = (id) => { setVagas(deleteVaga(id)); setDeleteTarget(null); };
   const handleResetVagas = () => { setVagas(resetVagas()); setConfirmReset(false); };
-
-  /* ── Logout ────────────────────────────────────────────────────── */
-  const handleLogout = () => { sessionStorage.removeItem(AUTH_KEY); setAuthed(false); };
-
-  /* ── Não autenticado ──────────────────────────────────────────── */
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
 
   /* ── Formulário de post (tela cheia) ──────────────────────────── */
   if (blogView === "form") {
@@ -698,13 +635,9 @@ export default function AdminBlog() {
             <RotateCcw className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Restaurar</span>
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sair</span>
-          </button>
+          {/* Sair vive sob o nome do Autor (AC). O menu é da casca — a página
+              não sabe mais encerrar sessão, porque não é ela quem a abre. */}
+          <MenuDoAutor />
         </div>
       </div>
 
