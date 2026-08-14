@@ -9,6 +9,8 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 
+import LimiteDeErro from "./LimiteDeErro";
+import Notificacoes from "./Notificacoes";
 import TelaDeEntrada from "./TelaDeEntrada";
 import { useSessao } from "./useSessao";
 
@@ -40,12 +42,37 @@ function EsqueletoDoPainel() {
 export default function PortaoDeSessao({ children }) {
   const { estado } = useSessao();
 
-  if (estado === "carregando") return <EsqueletoDoPainel />;
+  /*
+   * O `Toaster` do `sonner` fica ACIMA dos três ramos, e fora da página.
+   *
+   * Fora da página porque notificação é da casca — Carreiras e as telas do
+   * Épico 2 usam a mesma — e porque a página troca de tela cheia ao abrir um
+   * formulário: um `Toaster` montado lá dentro sairia junto, levando embora a
+   * mensagem da operação que acabou de terminar.
+   *
+   * Acima dos três ramos porque erro de rede na validação da sessão e recusa de
+   * credencial acontecem em "carregando" e em "anônimo" — montado só no ramo
+   * autenticado, o aviso dessas horas não teria onde aparecer. Continua sendo
+   * UMA montagem: duas produzem duas pilhas e a mesma mensagem em dobro.
+   */
+  const conteudo =
+    estado === "carregando" ? (
+      <EsqueletoDoPainel />
+    ) : // Qualquer estado que não seja explicitamente "autenticado" cai na tela
+    // de entrada. A comparação é positiva de propósito: um estado novo
+    // introduzido no futuro nasce fechado, não aberto.
+    estado !== "autenticado" ? (
+      <TelaDeEntrada />
+    ) : (
+      // O limite de erro envolve só o Painel: uma exceção lá dentro passa a
+      // custar uma tela de recuperação, não a tela branca que custava antes.
+      <LimiteDeErro>{children}</LimiteDeErro>
+    );
 
-  // Qualquer estado que não seja explicitamente "autenticado" cai na tela de
-  // entrada. A comparação é positiva de propósito: um estado novo introduzido
-  // no futuro nasce fechado, não aberto.
-  if (estado !== "autenticado") return <TelaDeEntrada />;
-
-  return children;
+  return (
+    <>
+      {conteudo}
+      <Notificacoes />
+    </>
+  );
 }

@@ -28,6 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { ANEL_DE_FOCO } from "./foco";
 import { useSessao } from "./useSessao";
 
 export default function MenuDoAutor({ className }) {
@@ -65,7 +66,9 @@ export default function MenuDoAutor({ className }) {
           "flex items-center gap-2 min-h-10 px-3 py-2 rounded-controle text-xs font-semibold",
           "text-primary-foreground/80 hover:text-primary-foreground",
           "hover:bg-primary-foreground/10 transition-colors",
-          "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          // O anel vem do módulo compartilhado (Story 1.5): sobre a cromia da
+          // barra, o `ring-ring/50` que estava aqui ficava perto do invisível.
+          ANEL_DE_FOCO,
           className,
         )}
       >

@@ -687,16 +687,31 @@ if (temCss && temBaselineCss) {
         .filter(Boolean);
 
     /**
-     * A classe é citada na fonte?
+     * A fonte ainda pede ESTE seletor?
      *
-     * Por limite de palavra, não por substring: `includes("flex")` casa dentro
+     * Não basta a classe aparecer em algum lugar: precisa aparecer numa forma
+     * que faça o Tailwind emitir exatamente o seletor que sumiu.
+     *
+     * Por limite de palavra, não por substring — `includes("flex")` casa dentro
      * de `flex-col`, e assim a perda de `.flex` seria absolvida por uma classe
-     * que nada tem a ver com ela. `-` e `/` contam como fronteira porque é
-     * assim que o Tailwind compõe nome de utilitário.
+     * que nada tem a ver com ela; `-` nunca é fronteira, por isso.
+     *
+     * E sem variante nem modificador: `hover:text-red-400` compila para
+     * `.hover\:text-red-400:hover`, e `bg-red-500/10` para
+     * `.bg-red-500\/10` — dois seletores DIFERENTES do `.text-red-400` e do
+     * `.bg-red-500` nus. Contar essas formas como citação marcava como
+     * regressão a consequência normal de remover o único markup que usava a
+     * forma nua, e a única saída seria regravar o baseline. `:` e `/` entram
+     * na fronteira justamente para separar as três formas.
+     *
+     * A fronteira é SIMÉTRICA. Enquanto `:` valia só à esquerda, `dark:bg-x` na
+     * fonte fazia a perda de `.dark` ser acusada como regressão — e `dark:bg-x`
+     * compila para `.dark\:bg-x`, que nunca emitiu `.dark`. Um lado sozinho
+     * pega metade dos casos e inventa a outra metade.
      */
     const citada = (classe, texto) => {
       const escapada = classe.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`(^|[^\\w-])${escapada}($|[^\\w-])`).test(texto);
+      return new RegExp(`(^|[^\\w\\-:/])${escapada}($|[^\\w\\-:/])`).test(texto);
     };
 
     /**
@@ -755,6 +770,42 @@ if (temCss && temBaselineCss) {
         "filtro de perdas: corpus vazio não absolve nada",
         julgarPerdas([".border-red-500", ".flex"], "").injustificadas.length === 2,
       );
+
+      // Variante e modificador compilam para OUTRO seletor. A forma nua que
+      // sumiu foi mesmo removida; a forma que restou nunca a produziu.
+      const soComVariante = 'className="hover:text-red-400 hover:bg-red-500/10"';
+      const comVariante = julgarPerdas(
+        [".text-red-400", ".bg-red-500", ".hover\\:text-red-400"],
+        soComVariante,
+      );
+      afirmar(
+        "filtro de perdas: `hover:text-red-400` na fonte não absolve… nem acusa `.text-red-400`",
+        comVariante.justificadas.includes(".text-red-400") &&
+          comVariante.justificadas.includes(".bg-red-500"),
+        `injustificadas: ${comVariante.injustificadas.join(", ") || "nenhuma"}`,
+      );
+      afirmar(
+        "filtro de perdas: a forma COM variante, essa sim, continua sendo acusada",
+        comVariante.injustificadas.includes(".hover\\:text-red-400"),
+        `justificadas: ${comVariante.justificadas.join(", ") || "nenhuma"}`,
+      );
+      // E o contrário: a classe nua escrita na fonte acusa como sempre acusou.
+      afirmar(
+        "filtro de perdas: classe nua na fonte continua acusando a perda",
+        julgarPerdas([".text-red-400"], 'className="text-red-400"').injustificadas
+          .length === 1,
+      );
+      // Fronteira DIREITA: `dark:bg-x` compila para `.dark\:bg-x` e nunca
+      // emitiu `.dark`. Enquanto `:` valia só à esquerda, a perda de `.dark`
+      // era acusada como regressão por causa de uma classe sem relação com ela.
+      afirmar(
+        "filtro de perdas: `dark:bg-x` na fonte não faz `.dark` parecer citada",
+        julgarPerdas([".dark"], 'className="dark:bg-x"').justificadas.includes(".dark"),
+      );
+      afirmar(
+        "filtro de perdas: mas `.dark` escrita de fato continua acusando",
+        julgarPerdas([".dark"], '<div class="dark">').injustificadas.includes(".dark"),
+      );
     }
 
     const preludesPerdidos = [...antes.keys()].filter((p) => !depois.has(p));
@@ -776,12 +827,90 @@ if (temCss && temBaselineCss) {
       for (const p of justificadas) console.log(`          ${p}`);
     }
 
+    /**
+     * A variável ainda é lida por alguma regra do CSS compilado?
+     *
+     * O Tailwind só emite a variável do tema que algum utilitário consome:
+     * `--color-red-600` existe porque existia `.hover\:bg-red-600`. Removido o
+     * último markup que a usava, a variável some junto — e uma variável que
+     * NINGUÉM referencia não pinta pixel nenhum. Essa é a única forma de perda
+     * de declaração que pode ser absolvida, e é absolvida por prova, não por
+     * suposição: se qualquer regra ainda escreve `var(--x)`, a perda continua
+     * sendo regressão, porque aquela regra ficou sem valor.
+     */
+    const referenciada = (nome, texto) => {
+      const escapada = nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`var\\(\\s*${escapada}\\s*[,)]`).test(texto);
+    };
+
+    /*
+     * O corpus da prova é o CSS compilado MAIS a fonte JS/JSX.
+     *
+     * Nem todo `var(--x)` está no CSS: esta entrega introduziu tokens lidos
+     * **só do JavaScript** — `--state-*` chega à pílula de Estado por `style`,
+     * e `--popover`/`--border` chegam ao `Toaster` do mesmo jeito. Olhando só o
+     * CSS compilado, no dia em que esses tokens saíssem de `:root` seriam
+     * absolvidos como órfãos, e as pílulas renderizariam sem cor com a
+     * verificação verde.
+     */
+    const corpusDeReferencias = `${cssCompilado}\n${textoDasFontes}`;
+
+    {
+      const amostraCss = ".a{color:var(--viva)}:root{--viva:red;--morta:blue}";
+      afirmar(
+        "detector de variável órfã: acusa a que é lida e absolve a que ninguém lê",
+        referenciada("--viva", amostraCss) && !referenciada("--morta", amostraCss),
+      );
+      afirmar(
+        "detector de variável órfã: não casa por prefixo (`--viva` vs `--viva-escura`)",
+        !referenciada("--viva-escura", amostraCss),
+      );
+      const amostraJs = 'style={{ backgroundColor: "var(--state-publicado-bg)" }}';
+      afirmar(
+        "detector de variável órfã: enxerga `var()` escrito em JavaScript",
+        referenciada("--state-publicado-bg", amostraJs),
+      );
+      // E, no repositório de verdade: os tokens que só o JS lê precisam contar
+      // como referenciados. Se esta asserção falhar, o corpus voltou a ser só
+      // o CSS e os pares de Estado ficaram desprotegidos.
+      const soNoJs = ["--state-publicado-bg", "--state-arquivado-ink"].filter(
+        (t) => !referenciada(t, corpusDeReferencias),
+      );
+      afirmar(
+        "os tokens lidos apenas pelo JavaScript contam como referenciados",
+        soNoJs.length === 0,
+        soNoJs.join(", "),
+      );
+    }
+
+    /* `indexOf` devolvendo -1 faria `slice(0, -1)` cortar o último caractere e
+       devolver quase-a-declaração-inteira como se fosse o nome. Funcionava por
+       acidente: o nome errado nunca começa com `--`, então a órfã não era
+       absolvida — mas o acidente não é contrato. */
+    const nomeDa = (decl) => {
+      const corte = decl.indexOf(":");
+      return corte === -1 ? decl : decl.slice(0, corte);
+    };
+
     const declaracoesPerdidas = [];
+    const variaveisOrfas = [];
     for (const [prelude, conjunto] of antes) {
       const agora = depois.get(prelude);
       if (!agora) continue;
+      const nomesAgora = new Set([...agora].map(nomeDa));
       for (const decl of conjunto) {
-        if (!agora.has(decl)) declaracoesPerdidas.push(`${prelude} { ${decl} }`);
+        if (agora.has(decl)) continue;
+        const nome = nomeDa(decl);
+        // Sumiu de vez (não é mudança de valor) E ninguém mais a lê.
+        if (
+          nome.startsWith("--") &&
+          !nomesAgora.has(nome) &&
+          !referenciada(nome, corpusDeReferencias)
+        ) {
+          variaveisOrfas.push(`${prelude} { ${decl} }`);
+          continue;
+        }
+        declaracoesPerdidas.push(`${prelude} { ${decl} }`);
       }
     }
     afirmar(
@@ -789,6 +918,13 @@ if (temCss && temBaselineCss) {
       declaracoesPerdidas.length === 0,
       declaracoesPerdidas.slice(0, 8).join(" | "),
     );
+    if (variaveisOrfas.length > 0) {
+      // Nomeadas, não contadas: é aqui que uma remoção indevida se esconderia.
+      console.log(
+        `        ${variaveisOrfas.length} variável(is) do tema saíram por não ter mais quem as leia:`,
+      );
+      for (const v of variaveisOrfas) console.log(`          ${v}`);
+    }
 
     // A camada base é o vetor de regressão: aplica borda e contorno a tudo.
     const regraCoringa = (css) =>
@@ -804,7 +940,16 @@ if (temCss && temBaselineCss) {
 
     const rootAntes = declaracoesDe(baselineCss, ":root");
     const divergentes = [...rootAntes.entries()].filter(
-      ([nome, valor]) => rootAtual.get(nome) !== valor,
+      ([nome, valor]) =>
+        rootAtual.get(nome) !== valor &&
+        // Mesma regra da asserção acima: variável do tema que sumiu inteira e
+        // que nenhuma regra lê mais não muda pixel algum. Valor ALTERADO, ou
+        // variável que alguém ainda lê, continua sendo divergência.
+        !(
+          nome.startsWith("--") &&
+          rootAtual.get(nome) === undefined &&
+          !referenciada(nome, corpusDeReferencias)
+        ),
     );
     afirmar(
       "toda declaração de `:root` do baseline chega intacta",

@@ -3,15 +3,45 @@ import { Link } from "react-router-dom";
 import {
   Plus, Pencil, Trash2, Eye, RotateCcw,
   Save, X, Star, StarOff,
-  ChevronLeft, Search, AlertTriangle, Check,
-  Upload, ExternalLink, FileText, Briefcase,
+  ChevronLeft, Search, Check,
+  Upload, FileText, Briefcase,
   Cpu, Target, BarChart2, Bot, TrendingUp, Newspaper,
   MapPin,
 } from "lucide-react";
 
-import MenuDoAutor from "@/admin/shell/MenuDoAutor";
-import { getPosts, savePost, deletePost, resetPosts } from "@/lib/blogStore";
+import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
+import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
+import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
+import { formatarNumero } from "@/domain/blog/formato";
+import { getPosts, savePost, deletePost } from "@/lib/blogStore";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
+
+/* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
+const ID_DO_CONTEUDO = "conteudo-do-painel";
+
+/* ─── Falha de gravação: dizer o que houve, sem inventar a causa ─────────
+   O armazenamento do navegador falha por mais de um motivo, e a mensagem que
+   servia para todos ("libere espaço") só é verdadeira para um deles. Cota
+   estourada é a causa provável ao SALVAR um post com imagem embutida em
+   base64; excluir e restaurar gravam menos do que havia antes e praticamente
+   não estouram cota — quando falham, é outra coisa. Afirmar cota sempre manda
+   a pessoa limpar espaço por um defeito que espaço nenhum resolve. */
+function ehCotaEstourada(erro) {
+  if (!erro) return false;
+  return (
+    erro.name === "QuotaExceededError" ||
+    erro.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    erro.code === 22 ||
+    erro.code === 1014
+  );
+}
+
+/** O que fazer, conforme a causa real. */
+function comoResolver(erro, acaoNoInfinitivo) {
+  return ehCotaEstourada(erro)
+    ? `O armazenamento do navegador está cheio. Libere espaço e tente ${acaoNoInfinitivo} de novo.`
+    : `Recarregue o Painel e tente ${acaoNoInfinitivo} de novo. O detalhe do erro está no console.`;
+}
 
 /* ─── Acesso ───────────────────────────────────────────────────────────
    Esta página não decide mais nada sobre acesso. A senha em texto claro, a
@@ -102,36 +132,11 @@ function slugify(text) {
     .replace(/\s+/g, "-");
 }
 
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  MODAL DE CONFIRMAÇÃO                                                */
-/* ═══════════════════════════════════════════════════════════════════ */
-function ConfirmModal({ title, message, onConfirm, onCancel, confirmLabel = "Excluir", confirmClass = "bg-red-500 hover:bg-red-600" }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-        <div className="flex items-center gap-3 mb-3">
-          <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-          <h3 className="text-white font-bold">{title}</h3>
-        </div>
-        <p className="text-zinc-400 text-sm mb-6">{message}</p>
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 rounded-xl border border-zinc-600 text-zinc-300 hover:border-zinc-400 transition-colors text-sm font-medium"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`flex-1 py-2 rounded-xl text-white transition-colors text-sm font-bold ${confirmClass}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* O modal de confirmação artesanal que vivia aqui SAIU do repositório.
+   Era um `div` fixo sem `role`, sem armadilha de foco, sem `Esc`, sem devolver
+   o foco a quem o abriu, e com o botão destrutivo alcançável antes do Cancelar.
+   Quem confirma agora é `DialogoDeConfirmacao`, sobre o `alert-dialog` do
+   shadcn (Story 1.6). */
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /*  FORMULÁRIO DE POST (criar / editar)                                 */
@@ -161,11 +166,26 @@ function PostForm({ post: initialPost, onSave, onCancel }) {
     reader.readAsDataURL(file);
   };
 
+  /* Salvar é a operação que de fato estoura: o post carrega a imagem de capa
+     embutida em base64, e é ela que enche a cota do `localStorage`. Antes,
+     `setSaved(true)` era incondicional — a tela dizia "Salvo!" e voltava para a
+     listagem mesmo quando a gravação tinha lançado, e o post sumia no
+     recarregamento seguinte sem que nada explicasse por quê. */
   const handleSubmit = (e) => {
     e.preventDefault();
     const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-    savePost({ ...post, tags });
+    try {
+      savePost({ ...post, tags });
+    } catch (erro) {
+      console.error("[Painel] falha ao salvar post", erro);
+      notificarErro(
+        "Não deu para salvar o post",
+        comoResolver(erro, "salvar"),
+      );
+      return;
+    }
     setSaved(true);
+    notificarSucesso("Post salvo", post.titulo);
     setTimeout(() => { setSaved(false); onSave(); }, 800);
   };
 
@@ -188,7 +208,10 @@ function PostForm({ post: initialPost, onSave, onCancel }) {
           </button>
           <div>
             <h2 className="text-white font-black text-lg">{isNew ? "Novo Post" : "Editar Post"}</h2>
-            <p className="text-zinc-500 text-xs">{isNew ? "Criando um novo artigo" : `Editando: ${post.slug}`}</p>
+            {/* Slug é dado, não prosa: só ele vai em `.dado`, não a frase toda. */}
+            <p className="text-zinc-500 text-xs">
+              {isNew ? "Criando um novo artigo" : <>Editando: <span className="dado">{post.slug}</span></>}
+            </p>
           </div>
         </div>
         <button
@@ -208,7 +231,7 @@ function PostForm({ post: initialPost, onSave, onCancel }) {
 
         <div className="grid grid-cols-2 gap-4">
           {field("Slug (URL)",
-            <input className={inputCls} value={post.slug} onChange={(e) => setPost((p) => ({ ...p, slug: e.target.value }))} placeholder="meu-artigo-slug" />
+            <input className={`${inputCls} dado`} value={post.slug} onChange={(e) => setPost((p) => ({ ...p, slug: e.target.value }))} placeholder="meu-artigo-slug" />
           )}
           {field("Destaque",
             <button
@@ -239,7 +262,7 @@ function PostForm({ post: initialPost, onSave, onCancel }) {
 
         <div className="grid grid-cols-2 gap-4">
           {field("Data",
-            <input className={inputCls} value={post.data} onChange={(e) => setPost((p) => ({ ...p, data: e.target.value }))} placeholder="15 Jan 2024" />
+            <input className={`${inputCls} dado`} value={post.data} onChange={(e) => setPost((p) => ({ ...p, data: e.target.value }))} placeholder="15 Jan 2024" />
           )}
           {field("Tempo de leitura",
             <input className={inputCls} value={post.tempo} onChange={(e) => setPost((p) => ({ ...p, tempo: e.target.value }))} placeholder="5 min" />
@@ -299,7 +322,7 @@ function PostForm({ post: initialPost, onSave, onCancel }) {
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Conteúdo (Markdown) *</label>
-            <span className="text-xs text-zinc-600">{post.conteudo.length} caracteres</span>
+            <span className="dado text-xs text-zinc-600">{post.conteudo.length} caracteres</span>
           </div>
           <textarea
             required
@@ -329,10 +352,22 @@ function VagaForm({ vaga: initialVaga, onSave, onCancel }) {
     setVaga((v) => ({ ...v, accent: color.accent, bg: color.bg }));
   };
 
+  /* Mesma correção do formulário de post: sucesso declarado só depois de a
+     gravação ter acontecido de verdade. */
   const handleSubmit = (e) => {
     e.preventDefault();
-    saveVaga(vaga);
+    try {
+      saveVaga(vaga);
+    } catch (erro) {
+      console.error("[Painel] falha ao salvar vaga", erro);
+      notificarErro(
+        "Não deu para salvar a vaga",
+        comoResolver(erro, "salvar"),
+      );
+      return;
+    }
     setSaved(true);
+    notificarSucesso("Vaga salva", vaga.titulo);
     setTimeout(() => { setSaved(false); onSave(); }, 800);
   };
 
@@ -498,13 +533,92 @@ export default function AdminBlog() {
 
   /* ── Ações — Blog ─────────────────────────────────────────────── */
   const handleSavePost = () => { setPosts(getPosts()); setBlogView("list"); setEditingPost(null); };
-  const handleDeletePost = (id) => { setPosts(deletePost(id)); setDeleteTarget(null); };
-  const handleResetPosts = () => { setPosts(resetPosts()); setConfirmReset(false); };
+
+  /* Excluir e restaurar também gravam, e também podem falhar — por motivo que
+     raramente é cota, já que ambas escrevem menos do que havia antes. O erro é
+     capturado e registrado, e a mensagem só fala em espaço quando o erro é
+     mesmo de cota: mandar limpar espaço por um defeito que espaço nenhum
+     resolve é pior que não dizer nada. */
+  const handleDeletePost = (id) => {
+    try {
+      setPosts(deletePost(id));
+      setDeleteTarget(null);
+      notificarSucesso("Post excluído");
+    } catch (erro) {
+      console.error("[Painel] falha ao excluir post", erro);
+      notificarErro("Não deu para excluir o post", comoResolver(erro, "excluir"));
+    }
+  };
+
+  /* Não existe `handleResetPosts`: Restaurar só é oferecida na aba Carreiras
+     (Story 1.5), então o caminho de restaurar posts não tem como ser acionado.
+     Deixá-lo escrito seria código morto se passando por funcionalidade — e um
+     dia alguém religaria o botão confiando num caminho que ninguém exercitou.
+     A restauração de posts volta quando o Épico 2 decidir se ela deve existir. */
 
   /* ── Ações — Carreiras ────────────────────────────────────────── */
   const handleSaveVaga = () => { setVagas(getVagas()); setVagasView("list"); setEditingVaga(null); };
-  const handleDeleteVaga = (id) => { setVagas(deleteVaga(id)); setDeleteTarget(null); };
-  const handleResetVagas = () => { setVagas(resetVagas()); setConfirmReset(false); };
+
+  const handleDeleteVaga = (id) => {
+    try {
+      setVagas(deleteVaga(id));
+      setDeleteTarget(null);
+      notificarSucesso("Vaga excluída");
+    } catch (erro) {
+      console.error("[Painel] falha ao excluir vaga", erro);
+      notificarErro("Não deu para excluir a vaga", comoResolver(erro, "excluir"));
+    }
+  };
+
+  const handleResetVagas = () => {
+    try {
+      setVagas(resetVagas());
+      setConfirmReset(false);
+      notificarSucesso("Vagas originais restauradas");
+    } catch (erro) {
+      console.error("[Painel] falha ao restaurar vagas", erro);
+      notificarErro("Não deu para restaurar as vagas", comoResolver(erro, "restaurar"));
+    }
+  };
+
+  /* ── A barra: abas e ações da aba ativa ───────────────────────── */
+
+  /* A casca não conhece Post nem Vaga (AD-15) — as abas chegam nela como dados.
+     A contagem vai formatada: número é dado, e a barra o exibe em `.dado`. */
+  const abas = [
+    {
+      id: "blog",
+      rotulo: "Blog",
+      Icone: FileText,
+      contagem: formatarNumero(posts.length),
+      href: "/blog",
+      rotuloDoLink: "Abrir o blog publicado em nova aba",
+    },
+    {
+      id: "carreiras",
+      rotulo: "Carreiras",
+      Icone: Briefcase,
+      contagem: formatarNumero(vagas.length),
+      href: "/carreiras",
+      rotuloDoLink: "Abrir a página de carreiras em nova aba",
+    },
+  ];
+
+  /* Restaurar é global e destrutiva, e some da aba Blog — é lá que ela nunca
+     pertenceu. Em Carreiras continua exatamente como hoje: o módulo está fora
+     de escopo e não pode regredir (AD-15). Passar a ação em vez de escrevê-la
+     na barra é o que permite as duas coisas ao mesmo tempo. */
+  const acoesDaAba =
+    activeTab === "carreiras"
+      ? [
+          {
+            id: "restaurar",
+            rotulo: "Restaurar",
+            Icone: RotateCcw,
+            aoAcionar: () => setConfirmReset(true),
+          },
+        ]
+      : [];
 
   /* ── Formulário de post (tela cheia) ──────────────────────────── */
   if (blogView === "form") {
@@ -546,100 +660,26 @@ export default function AdminBlog() {
       v.localizacao.toLowerCase().includes(vagasSearch.toLowerCase()),
   );
 
+  /* O rótulo do diálogo de exclusão precisa existir mesmo com ele fechado —
+     agora que a montagem é permanente, não condicional. */
+  const tipoDoAlvo = deleteTarget?.type === "vaga" ? "vaga" : "post";
+
   /* ── Render principal ─────────────────────────────────────────── */
   return (
     <div className="painel h-screen flex flex-col bg-zinc-950 text-white overflow-hidden">
 
-      {/* ────── Topbar ─────────────────────────────────────────── */}
-      <div className="shrink-0 border-b border-zinc-800 px-6 py-3.5 flex items-center justify-between gap-4">
-
-        {/* Lado esquerdo: logo + tabs */}
-        <div className="flex items-center gap-5">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-              <span className="text-xs font-black text-white">CC</span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="font-black text-white text-sm leading-none">Admin ChatClean</p>
-              <p className="text-zinc-500 text-[11px] mt-0.5">
-                {activeTab === "blog"
-                  ? `${posts.length} post${posts.length !== 1 ? "s" : ""}`
-                  : `${vagas.length} vaga${vagas.length !== 1 ? "s" : ""}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Pills de aba */}
-          <div className="flex gap-1 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
-            <button
-              onClick={() => setActiveTab("blog")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "blog"
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Blog
-              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === "blog" ? "bg-emerald-500/25 text-emerald-300" : "bg-zinc-800 text-zinc-500"
-              }`}>
-                {posts.length}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("carreiras")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "carreiras"
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <Briefcase className="w-3.5 h-3.5" />
-              Carreiras
-              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === "carreiras" ? "bg-emerald-500/25 text-emerald-300" : "bg-zinc-800 text-zinc-500"
-              }`}>
-                {vagas.length}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Lado direito: ações */}
-        <div className="flex items-center gap-2">
-          {activeTab === "blog" ? (
-            <Link
-              to="/blog"
-              target="_blank"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ver Blog</span>
-            </Link>
-          ) : (
-            <Link
-              to="/carreiras"
-              target="_blank"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ver Carreiras</span>
-            </Link>
-          )}
-          <button
-            onClick={() => setConfirmReset(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-amber-400 border border-zinc-700 hover:border-amber-500/50 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Restaurar</span>
-          </button>
-          {/* Sair vive sob o nome do Autor (AC). O menu é da casca — a página
-              não sabe mais encerrar sessão, porque não é ela quem a abre. */}
-          <MenuDoAutor />
-        </div>
-      </div>
+      {/* ────── Barra superior ─────────────────────────────────────
+          Vive na casca (`admin/shell`), não mais aqui: é compartilhada com
+          Carreiras. A página só diz quais abas existem e quais ações a aba
+          ativa oferece. */}
+      <BarraSuperior
+        titulo="Painel de conteúdo — ChatClean"
+        abas={abas}
+        abaAtiva={activeTab}
+        aoTrocarAba={setActiveTab}
+        idDoConteudo={ID_DO_CONTEUDO}
+        acoesDaAba={acoesDaAba}
+      />
 
       {/* ────── Toolbar: busca + novo ──────────────────────────── */}
       <div className="shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3">
@@ -666,8 +706,16 @@ export default function AdminBlog() {
         </button>
       </div>
 
-      {/* ────── Lista ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* ────── Lista ───────────────────────────────────────────
+          É o painel que as abas controlam: sem `tabpanel` associado, o
+          `role="tab"` da barra apontaria para lugar nenhum. */}
+      <div
+        id={ID_DO_CONTEUDO}
+        role="tabpanel"
+        aria-labelledby={idDaAba(activeTab)}
+        tabIndex={-1}
+        className="flex-1 overflow-y-auto p-6"
+      >
 
         {/* ── POSTS ─────────────────────────────────────────────── */}
         {activeTab === "blog" && (
@@ -706,8 +754,10 @@ export default function AdminBlog() {
                     <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                       <span className="bg-zinc-800 px-2 py-0.5 rounded-full">{post.categoria}</span>
                       {post.autor && <span>{post.autor}</span>}
-                      <span>{post.data}</span>
-                      <span>{post.tempo}</span>
+                      {/* Data e tempo de leitura são dados: alinham em coluna
+                          entre as linhas da listagem, com numeral tabular. */}
+                      <span className="dado">{post.data}</span>
+                      <span className="dado">{post.tempo}</span>
                     </div>
                   </div>
 
@@ -816,32 +866,41 @@ export default function AdminBlog() {
         )}
       </div>
 
-      {/* ────── Modais ────────────────────────────────────────── */}
-      {deleteTarget && (
-        <ConfirmModal
-          title={`Excluir ${deleteTarget.type === "blog" ? "post" : "vaga"}?`}
-          message={`"${deleteTarget.item.titulo}" será removido permanentemente.`}
-          onConfirm={() => {
-            if (deleteTarget.type === "blog") handleDeletePost(deleteTarget.item.id);
-            else handleDeleteVaga(deleteTarget.item.id);
-          }}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      {/* ────── Diálogos ──────────────────────────────────────────
+          Montados SEMPRE, controlados por `open`. Montagem condicional
+          (`{alvo && <Dialogo …>}`) nunca transita de aberto para fechado: o
+          componente desmonta, e com ele o `onCloseAutoFocus` do Radix, que é
+          quem devolve o foco ao botão que abriu o diálogo. Quem fecha por `Esc`
+          ou por Cancelar perdia o foco no `body` e recomeçava a tabulação do
+          topo da página.
 
-      {confirmReset && (
-        <ConfirmModal
-          title={`Restaurar ${activeTab === "blog" ? "posts" : "vagas"} originais?`}
-          message={`Todas as alterações em ${activeTab === "blog" ? "posts" : "vagas"} serão perdidas e os dados padrão serão restaurados.`}
-          confirmLabel="Restaurar"
-          confirmClass="bg-amber-500 hover:bg-amber-600"
-          onConfirm={() => {
-            if (activeTab === "blog") handleResetPosts();
-            else handleResetVagas();
-          }}
-          onCancel={() => setConfirmReset(false)}
-        />
-      )}
+          O rótulo do botão diz o que ele faz — "Excluir post", não
+          "Confirmar" —, e Cancelar é o foco inicial. */}
+      <DialogoDeConfirmacao
+        aberto={Boolean(deleteTarget)}
+        aoMudarAbertura={(aberto) => { if (!aberto) setDeleteTarget(null); }}
+        titulo={`Excluir ${tipoDoAlvo}?`}
+        descricao={`"${deleteTarget?.item?.titulo ?? ""}" será removido permanentemente.`}
+        rotuloDeConfirmacao={`Excluir ${tipoDoAlvo}`}
+        aoConfirmar={() => {
+          if (!deleteTarget) return;
+          if (deleteTarget.type === "blog") handleDeletePost(deleteTarget.item.id);
+          else handleDeleteVaga(deleteTarget.item.id);
+        }}
+      />
+
+      {/* Restaurar não é excluir. O modal artesanal distinguia — âmbar para
+          restaurar, vermelho para excluir — e a distinção de gravidade não
+          pode se perder na troca: `perigo={false}`. */}
+      <DialogoDeConfirmacao
+        aberto={confirmReset}
+        aoMudarAbertura={(aberto) => { if (!aberto) setConfirmReset(false); }}
+        titulo="Restaurar vagas originais?"
+        descricao="Todas as alterações em vagas serão perdidas e os dados padrão serão restaurados."
+        rotuloDeConfirmacao="Restaurar vagas originais"
+        perigo={false}
+        aoConfirmar={handleResetVagas}
+      />
     </div>
   );
 }

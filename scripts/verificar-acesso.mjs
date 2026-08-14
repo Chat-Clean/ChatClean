@@ -407,9 +407,32 @@ if (pagina !== null) {
     !/\bauthed\b/.test(pagina) && !/LoginScreen/.test(pagina),
     "estado de autenticação dentro da página é o defeito original em outra forma",
   );
+  /*
+   * Sair continua no menu sob o nome do Autor — o que mudou na Story 1.5 é por
+   * onde o menu chega à tela: a barra saiu da página para a casca, e é ela que
+   * monta o menu agora. Verificar a corrente inteira (página → barra → menu →
+   * `sair()`) é mais forte que procurar o nome do componente na página: cortar
+   * qualquer elo derruba a asserção.
+   */
+  const barraDaCasca = lerOuFalhar(
+    path.join(DIR_SRC, "admin", "shell", "BarraSuperior.jsx"),
+    "src/admin/shell/BarraSuperior.jsx existe",
+  );
   afirmar(
-    "Sair vive no menu sob o nome do Autor",
-    /MenuDoAutor/.test(pagina),
+    "Sair vive no menu sob o nome do Autor, montado pela barra da casca",
+    /<BarraSuperior\b/.test(pagina) &&
+      barraDaCasca !== null &&
+      /<MenuDoAutor\b/.test(barraDaCasca),
+  );
+  const menuDoAutor = lerOuFalhar(
+    path.join(DIR_SRC, "admin", "shell", "MenuDoAutor.jsx"),
+    "src/admin/shell/MenuDoAutor.jsx existe",
+  );
+  afirmar(
+    "e o menu de fato encerra a sessão",
+    menuDoAutor !== null &&
+      /useSessao\(\)/.test(menuDoAutor) &&
+      /await sair\(\)/.test(menuDoAutor),
   );
   afirmar(
     "Restaurar continua intocado na página (é de Carreiras, AD-15)",

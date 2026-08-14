@@ -12,10 +12,11 @@
     "supabase:auth": "node scripts/configurar-auth.mjs",
     "conta:criar": "node scripts/criar-conta.mjs",
     "conta:remover": "node scripts/criar-conta.mjs --remover",
-    "verificar": "npm run verificar:fundacao && npm run verificar:supabase && npm run verificar:acesso",
+    "verificar": "npm run verificar:fundacao && npm run verificar:supabase && npm run verificar:acesso && npm run verificar:interface",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:supabase": "node scripts/verificar-supabase.mjs",
-    "verificar:acesso": "node scripts/verificar-acesso.mjs"
+    "verificar:acesso": "node scripts/verificar-acesso.mjs",
+    "verificar:interface": "node scripts/verificar-interface.mjs"
   },
   "engines": {
     "node": ">=22"
