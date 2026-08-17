@@ -47,3 +47,7 @@ _bmad-output/
 .claude/settings.local.json
 .agents/
 skills-lock.json
+
+# Ferramental local do assistente (nao versionar, por decisao)
+CLAUDE.md
+.rtk/

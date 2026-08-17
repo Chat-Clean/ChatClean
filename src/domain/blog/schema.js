@@ -241,6 +241,15 @@ export const NOS_ESTRUTURAIS = Object.freeze([
   "hardBreak",
 ]);
 
+/**
+ * Os cinco valores que o HTML define para `type` de lista ordenada.
+ *
+ * Exportado, e não escrito dentro do validador, porque o renderizador único da
+ * Story 2.5 precisa da MESMA lista para decidir se emite o atributo. Uma
+ * segunda cópia lá seria a divergência que este arquivo existe para eliminar.
+ */
+export const TIPOS_DE_LISTA_ORDENADA = Object.freeze(["1", "a", "A", "i", "I"]);
+
 /** Os nós que podem aparecer onde um bloco cabe. */
 const BLOCOS = Object.freeze([
   "paragraph",
@@ -316,12 +325,12 @@ export const NOS = Object.freeze({
   orderedList: Object.freeze({
     atributos: Object.freeze({
       start: inteiroEntre(0, 1e6),
-      // Os cinco valores que o HTML define para `type` de lista ordenada.
-      // String livre aqui vira atributo no HTML derivado da Story 2.5.
+      // String livre aqui vira atributo no HTML derivado da Story 2.5, e é
+      // por isso que a lista é fechada — e declarada uma vez, acima.
       type: (valor) =>
         valor === null || valor === undefined
           ? null
-          : ["1", "a", "A", "i", "I"].includes(valor)
+          : TIPOS_DE_LISTA_ORDENADA.includes(valor)
             ? valor
             : undefined,
     }),
@@ -373,16 +382,158 @@ export const PROTOCOLOS_DE_LINK = Object.freeze([
 ]);
 
 /**
+ * As referências de caractere nomeadas que resolvem para ASCII.
+ *
+ * Só estas importam, e a razão é decisiva: **nenhuma referência nomeada do HTML
+ * resolve para uma letra ou um dígito ASCII**. As letras de `javascript` só
+ * podem vir de referência NUMÉRICA, que é decodificada por inteiro logo abaixo.
+ * O que as nomeadas conseguem produzir é a pontuação e o espaço em branco — e é
+ * exatamente aí que mora a evasão: `javascript&colon;alert(1)` e
+ * `java&Tab;script:` são lidos pelo navegador como `javascript:`.
+ *
+ * A lista é o conjunto ASCII do HTML5, com os sinônimos. Errar por excesso aqui
+ * é inofensivo: decodificar a mais no pior caso recusa um endereço estranho.
+ * Errar por falta é abrir uma porta.
+ */
+export const ENTIDADES_ASCII = Object.freeze({
+  Tab: "\t",
+  NewLine: "\n",
+  excl: "!",
+  quot: '"',
+  QUOT: '"',
+  num: "#",
+  dollar: "$",
+  percnt: "%",
+  amp: "&",
+  AMP: "&",
+  apos: "'",
+  lpar: "(",
+  rpar: ")",
+  ast: "*",
+  midast: "*",
+  plus: "+",
+  comma: ",",
+  period: ".",
+  sol: "/",
+  colon: ":",
+  semi: ";",
+  lt: "<",
+  LT: "<",
+  equals: "=",
+  gt: ">",
+  GT: ">",
+  quest: "?",
+  commat: "@",
+  lsqb: "[",
+  lbrack: "[",
+  bsol: "\\",
+  rsqb: "]",
+  rbrack: "]",
+  Hat: "^",
+  lowbar: "_",
+  UnderBar: "_",
+  grave: "`",
+  DiacriticalGrave: "`",
+  lcub: "{",
+  lbrace: "{",
+  verbar: "|",
+  vert: "|",
+  VerticalLine: "|",
+  rcub: "}",
+  rbrace: "}",
+  /* `&nbsp;` resolve para ESPAÇO COMUM aqui, e não para U+00A0.
+     Duas razões, e a segunda é a que decide. A primeira: o que importa desta
+     entidade é que ela é espaço em branco, e é a conferência de espaço que
+     recusa o endereço. A segunda: o espelho em SQL precisa produzir a MESMA
+     string, e `[[:space:]]` do Postgres depende da localidade do banco para
+     reconhecer U+00A0 — mapear para U+0020 faz os dois lados recusarem sem
+     depender de configuração. Escrito como espaço literal de propósito: um
+     U+00A0 aqui seria invisível na revisão, e foi o que aconteceu na primeira
+     versão deste arquivo. */
+  nbsp: " ",
+  NonBreakingSpace: " ",
+});
+
+/**
+ * O caractere de um ponto de código, ou um caractere de CONTROLE quando ele não
+ * é representável.
+ *
+ * Ponto de código zero, substituto isolado (`0xD800`–`0xDFFF`) e valor acima do
+ * teto do Unicode não têm caractere; devolver **nada** faz o endereço ser
+ * recusado pela conferência de controle logo abaixo, em vez de a decodificação
+ * lançar ou devolver algo que passe. Falhar fechado.
+ */
+function caractereDoPonto(ponto) {
+  if (!Number.isInteger(ponto) || ponto <= 0 || ponto > 0x10ffff) return "";
+  if (ponto >= 0xd800 && ponto <= 0xdfff) return "";
+  try {
+    return String.fromCodePoint(ponto);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Decodifica referências de caractere HTML, UMA vez, como o navegador faz.
+ *
+ * **Por que isto existe.** O navegador decodifica o valor de um atributo ANTES
+ * de resolver o esquema do endereço. Então `href="&#106;avascript:alert(1)"` é
+ * `javascript:alert(1)` para ele — e era `&#106;avascript:…` para nós, um
+ * caminho relativo inofensivo. Seis formas atravessavam a validação e o banco:
+ * decimal, decimal com zeros à esquerda, hexadecimal, qualquer uma delas SEM o
+ * ponto e vírgula (o navegador aceita), tabulação codificada no meio do nome do
+ * esquema, e a nomeada `&colon;`.
+ *
+ * **Uma passagem, não repetida até estabilizar.** O navegador também decodifica
+ * uma vez: `&amp;#106;` é o TEXTO `&#106;`, e não a letra `j`. Decodificar em
+ * laço aqui recusaria endereço legítimo que o navegador nunca interpretaria.
+ *
+ * O resultado serve para DECIDIR, nunca para gravar: quem chama continua
+ * guardando o valor original, senão a gravação passaria a alterar o endereço que
+ * o Autor escreveu.
+ */
+export function decodificarEntidades(texto) {
+  if (typeof texto !== "string") return "";
+  return texto.replace(
+    /* O teto de dígitos é largo de propósito: `&#00000000000106;` — onze zeros à
+       esquerda — é decodificado pelo navegador como `j`, e um limite curto aqui
+       faria a referência não casar, ficar intacta, e o endereço passar como
+       caminho relativo. Ponto de código fora da faixa do Unicode cai em
+       `caractereDoPonto`, que devolve nada. */
+    /&(?:#([0-9]{1,32});?|#[xX]([0-9a-fA-F]{1,32});?|([a-zA-Z][a-zA-Z0-9]{0,31});?)/g,
+    (inteiro, decimal, hexadecimal, nome) => {
+      if (decimal !== undefined) return caractereDoPonto(Number.parseInt(decimal, 10));
+      if (hexadecimal !== undefined) {
+        return caractereDoPonto(Number.parseInt(hexadecimal, 16));
+      }
+      if (nome !== undefined && Object.hasOwn(ENTIDADES_ASCII, nome)) {
+        return ENTIDADES_ASCII[nome];
+      }
+      // Nome desconhecido fica como está: `?a=1&bloco=2` não é entidade.
+      return inteiro;
+    },
+  );
+}
+
+/**
  * O endereço é aceitável? Relativo (`/algo`, `#ancora`) sempre; absoluto só
  * com protocolo da lista. Qualquer outra coisa é recusada — inclusive o que
  * não é string.
  *
  * Esta função é chamada pelo servidor na Story 2.5, sobre conteúdo que vem de
  * fora. Ela é o único lugar do projeto que decide se um endereço pode existir.
+ *
+ * A DECODIFICAÇÃO VEM PRIMEIRO, e a ordem é o ponto: decodificar depois de
+ * cortar espaços, ou depois de testar o esquema, deixaria `&#9;` e `&#106;`
+ * atravessarem exatamente como atravessavam antes.
  */
 export function enderecoPermitido(valor) {
   if (typeof valor !== "string") return false;
-  const limpo = valor.trim();
+  /* O valor DECODIFICADO é o que o navegador vai resolver, e por isso é sobre ele
+     que toda conferência abaixo decide. O valor original não é tocado: quem
+     chama grava o que o Autor escreveu, e `&amp;` num endereço com parâmetros
+     (`/x?a=1&amp;b=2`) continua passando porque decodifica para `&`. */
+  const limpo = decodificarEntidades(valor).trim();
   if (limpo === "") return false;
 
   /* Barra invertida não existe em endereço legítimo e existe em quase toda

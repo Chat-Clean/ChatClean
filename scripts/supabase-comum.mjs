@@ -239,6 +239,30 @@ export function executarSql(token, sql) {
   });
 }
 
+/**
+ * Revela as chaves de API do projeto — inclusive a de SERVIÇO.
+ *
+ * Existe porque a chave de serviço não está no ambiente e não deve estar: ela é
+ * segredo de escrita, e colocá-la numa variável de sessão do desenvolvedor a
+ * espalharia pelo histórico do shell e pelo log de CI. A Management API a revela
+ * sob demanda, com o token de conta que o ambiente já tem, e quem chama a mantém
+ * **em memória** — registrada como segredo antes de qualquer uso.
+ *
+ * Devolve `{ ok: true, publicavel, servico }`. `servico` prefere a chave
+ * `secret` (formato novo, `sb_secret_…`) e recai na `service_role` legada
+ * (JWT), porque projetos criados em épocas diferentes têm uma ou outra.
+ */
+export async function revelarChaves(token) {
+  const r = await chamar(token, `/projects/${REF_PROJETO}/api-keys?reveal=true`);
+  if (!r.ok) return r;
+  const lista = Array.isArray(r.dados) ? r.dados : [];
+  const de = (predicado) => lista.find(predicado)?.api_key ?? null;
+  const publicavel = de((k) => k.type === "publishable") ?? de((k) => k.id === "anon");
+  const servico = de((k) => k.type === "secret") ?? de((k) => k.id === "service_role");
+  for (const chave of [publicavel, servico]) registrarSegredo(chave ?? "");
+  return { ok: true, status: r.status, publicavel, servico };
+}
+
 export function lerConfigAuth(token) {
   return chamar(token, `/projects/${REF_PROJETO}/config/auth`);
 }

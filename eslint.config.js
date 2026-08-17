@@ -63,8 +63,16 @@ export default [
     languageOptions: { globals: globals.browser },
   },
   {
-    // Ferramentas e configuração rodam no Node.
-    files: ["scripts/**/*.{js,mjs}", "*.config.js", "*.config.mjs"],
+    // Ferramentas, funções de servidor e configuração rodam no Node.
+    // `api/**` é a função de escrita da Story 2.5: ela lê `process.env` e usa o
+    // `fetch` global do runtime, e sem os globais de Node o lint a reprovaria
+    // por `no-undef` em cima de código correto.
+    files: [
+      "scripts/**/*.{js,mjs}",
+      "api/**/*.{js,mjs}",
+      "*.config.js",
+      "*.config.mjs",
+    ],
     languageOptions: { globals: globals.node },
   },
   {
