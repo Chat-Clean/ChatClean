@@ -9,7 +9,11 @@
  * React nenhum, que é a única forma de provar a regra do Slug em vez de a ler.
  */
 
-import { deCampoDeInstante, paraCampoDeInstante } from "@/domain/blog/formato";
+import {
+  deCampoDeInstante,
+  formatarDataEHoraPorExtenso,
+  paraCampoDeInstante,
+} from "@/domain/blog/formato";
 
 /**
  * Os sete campos da gaveta, na ordem em que ela os oferece.
@@ -51,6 +55,12 @@ export const FRASES_DE_FALTA = Object.freeze({
   resumo: "O resumo é obrigatório: é ele que aparece no cartão da listagem e na busca.",
   slug: "O endereço é obrigatório: é por ele que o post é encontrado no site.",
   conteudo: "O post precisa de conteúdo antes de ser salvo.",
+  /* Agendar sem data é o único caso em que a gaveta marca este campo, e até a
+     Story 2.9 a marca apontava, por `aria-describedby`, para um parágrafo que
+     não existia: quem usa leitor de tela ouvia o campo ser inválido e não
+     recebia motivo nenhum. */
+  publicado_em:
+    "Para agendar, informe o dia e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
 });
 
 /** A gaveta de um Post que ainda não existe. */
@@ -159,6 +169,37 @@ export function corpoDoPedido({ id = null, valores, documento, estado = null }) 
 export function faltandoNaGaveta(valores) {
   const v = valores ?? {};
   return CAMPOS_OBRIGATORIOS.filter((campo) => String(v[campo] ?? "").trim() === "");
+}
+
+/**
+ * A frase que CONFIRMA um agendamento, com a data por extenso.
+ *
+ * Recebe a linha que o servidor **gravou**, e não o que a gaveta tinha: o
+ * instante gravado é o que decide quando o Post aparece, e é ele que precisa
+ * ser lido de volta. Devolve `null` para qualquer coisa que não seja um Post
+ * agendado com data — quem chama cai na confirmação comum, sem inventar frase.
+ *
+ * A data sai por extenso, com dia da semana, porque é aqui que um erro de fuso
+ * fica visível ANTES de o Post ir ao ar: quem digitou 00h30 esperando terça e
+ * lê "segunda-feira" vê o engano enquanto ainda dá para corrigir.
+ *
+ * Nunca lança: uma data que não dá para formatar vira `null`, e uma confirmação
+ * sem detalhe é melhor que uma exceção logo depois de uma gravação bem
+ * sucedida.
+ */
+export function confirmacaoDoAgendamento(post, titulo = "") {
+  if (post === null || typeof post !== "object") return null;
+  if (post.estado !== "agendado" || !post.publicado_em) return null;
+  let porExtenso;
+  try {
+    porExtenso = formatarDataEHoraPorExtenso(post.publicado_em);
+  } catch {
+    return null;
+  }
+  const nome = String(titulo ?? "").trim();
+  return nome === ""
+    ? `Vai ao ar ${porExtenso}.`
+    : `${nome} vai ao ar ${porExtenso}.`;
 }
 
 /**

@@ -64,6 +64,22 @@ export const ENFASE_PRINCIPAL = "principal";
 export const ENFASE_SECUNDARIA = "secundaria";
 
 /**
+ * A chave da ação que põe o Post no ar imediatamente.
+ *
+ * Está nomeada — e não escrita à mão nas duas linhas da tabela — porque ela
+ * viaja: quando o servidor recusa um agendamento para o passado, a recusa
+ * carrega esta chave como **saída oferecida**, e a tela a procura na tabela
+ * do Estado atual para desenhar o botão com o rótulo que já está aqui. É o que
+ * impede a alternativa de virar uma string solta escrita duas vezes, uma em
+ * `api/` e outra na tela, que divergem na primeira revisão de redação.
+ *
+ * A busca na tabela também é a LISTA DE PERMISSÃO da oferta: o servidor não
+ * consegue mandar a tela executar nada que a máquina não declare para o Estado
+ * em que o Post está.
+ */
+export const ACAO_PUBLICAR = "publicar";
+
+/**
  * A tabela. Para cada Estado, as ações **na ordem em que a tela as oferece**.
  *
  * `chave`     identifica a ação no código e na verificação;
@@ -99,7 +115,7 @@ const MAQUINA = Object.freeze({
       enfase: ENFASE_SECUNDARIA,
     }),
     Object.freeze({
-      chave: "publicar",
+      chave: ACAO_PUBLICAR,
       rotulo: "Publicar agora",
       confirmacao: "Post publicado",
       destino: "publicado",
@@ -138,7 +154,7 @@ const MAQUINA = Object.freeze({
       enfase: ENFASE_SECUNDARIA,
     }),
     Object.freeze({
-      chave: "publicar",
+      chave: ACAO_PUBLICAR,
       rotulo: "Publicar agora",
       confirmacao: "Post publicado",
       destino: "publicado",

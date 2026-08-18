@@ -123,11 +123,21 @@ import {
    faria a comparação ser entre duas cópias do mesmo engano. */
 import { ESTADOS } from "../src/domain/blog/estados.js";
 import {
+  ACAO_PUBLICAR,
   acoesDoEstado,
   ESTADO_INICIAL,
   EXIGE_DATA_DE_PUBLICACAO,
   transicaoPermitida,
 } from "../src/domain/blog/transicoes.js";
+/* O fuso do negócio vem do DOMÍNIO, e as conversões da Story 2.9 são feitas por
+   ele — escrever `-03:00` aqui produziria uma asserção que aprova o dia em que
+   a regra de fuso mudar e o produto quebrar. */
+import {
+  deCampoDeInstante,
+  formatarDataEHoraPorExtenso,
+  FUSO_DE_APRESENTACAO,
+  paraCampoDeInstante,
+} from "../src/domain/blog/formato.js";
 
 let falhas = 0;
 let adiadas = 0;
@@ -1640,6 +1650,26 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
       );
     })(),
   );
+  /* A SAÍDA ATRAVESSA O INVÓLUCRO (Story 2.9). `detalhe` fica no log porque é
+     diagnóstico; `alternativa` sai porque é para a TELA agir. Se ela ficasse
+     pelo caminho, a recusa chegaria como uma frase que menciona publicar agora
+     e um botão que não existe — o beco de volta, pela porta de trás. */
+  afirmar(
+    "a saída oferecida (`alternativa`) atravessa o invólucro, e só aparece quando existe",
+    (() => {
+      const com = respostaDeErro({
+        tipo: ERRO_DADOS_INVALIDOS,
+        mensagem: "frase",
+        detalhe: "d",
+        alternativa: ACAO_PUBLICAR,
+      });
+      const sem = respostaDeErro({ tipo: ERRO_PERMISSAO, mensagem: "frase", detalhe: "d" });
+      return (
+        com.erro.alternativa === ACAO_PUBLICAR &&
+        !Object.hasOwn(sem.erro, "alternativa")
+      );
+    })(),
+  );
 
   // O classificador, exercitado: é ele que decide se a tela pede para tentar de
   // novo, para consertar um campo ou para entrar outra vez.
@@ -2938,6 +2968,165 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
     );
   }
 
+  /* ── AGENDAR PARA TRÁS: RECUSADO, E COM SAÍDA (Story 2.9) ─────────────
+     Agendar para hoje mais cedo é erro de digitação comum. Gravar isso
+     publicaria o Post na hora, pela política de leitura, com o Estado dizendo
+     "agendado" — e o Autor descobriria pelo leitor. A recusa é a metade fácil;
+     o que a story pede é que ela não seja um beco. */
+  const VENCIDA = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  {
+    const acesso = acessoDeTeste({ post: base("rascunho", null) });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "agendado", publicado_em: VENCIDA }),
+      acesso,
+    });
+    afirmar(
+      "agendar para um instante JÁ VENCIDO é recusado",
+      r.ok === false && r.erro.tipo === ERRO_DADOS_INVALIDOS,
+      r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem.slice(0, 120)}`,
+    );
+    afirmar(
+      "e NADA foi gravado por ela — recusa é comportamento, não texto",
+      acesso.escritas().length === 0,
+      `escritas: ${acesso.escritas().map((e) => e.nome).join(", ") || "nenhuma"}`,
+    );
+    /* A SAÍDA vem como CHAVE DE AÇÃO, e a chave é conferida contra a máquina:
+       uma alternativa que a máquina não declare para o Estado de partida seria
+       um botão que a tela oferece e o servidor recusa em seguida. */
+    afirmar(
+      "a recusa NOMEIA a saída — a chave da ação que publica agora, declarada pela máquina para este Estado",
+      r.ok === false &&
+        r.erro.alternativa === ACAO_PUBLICAR &&
+        acoesDoEstado("rascunho").some((a) => a.chave === r.erro.alternativa),
+      r.ok ? "ACEITOU" : `alternativa: ${JSON.stringify(r.erro?.alternativa)}`,
+    );
+    afirmar(
+      "e a frase devolve a data POR EXTENSO, no fuso de apresentação — é ali que um erro de fuso aparece",
+      r.ok === false && r.erro.mensagem.includes(formatarDataEHoraPorExtenso(VENCIDA)),
+      r.ok ? "ACEITOU" : `${r.erro.mensagem} | esperado conter: ${formatarDataEHoraPorExtenso(VENCIDA)}`,
+    );
+
+    /* AS DUAS RECUSAS DE AGENDAMENTO SÃO DISTINTAS.
+       "Faltou data" pede que se preencha um campo e o NOMEIA; "data vencida"
+       pede uma escolha e NOMEIA a alternativa. Fundi-las daria à tela o
+       conselho errado num dos dois casos — marcar um campo já preenchido, ou
+       oferecer publicar agora a quem só esqueceu de digitar a hora. */
+    const semData = await salvarPost({
+      token: "bom",
+      corpo: { id: ID, titulo: "T", conteudo: DOCUMENTO_COMPLETO, estado: "agendado" },
+      acesso: acessoDeTeste({ post: base("rascunho", null) }),
+    });
+    afirmar(
+      "a recusa por data vencida é DISTINTA da recusa por falta de data — outra frase, e saída no lugar de campo faltante",
+      r.ok === false &&
+        semData.ok === false &&
+        r.erro.mensagem !== semData.erro.mensagem &&
+        r.erro.alternativa === ACAO_PUBLICAR &&
+        semData.erro.alternativa === undefined &&
+        (semData.erro.faltando ?? []).includes("publicado_em") &&
+        (r.erro.faltando ?? []).length === 0,
+      `vencida: alternativa=${JSON.stringify(r.erro?.alternativa)} faltando=${JSON.stringify(r.erro?.faltando ?? [])} | ` +
+        `sem data: alternativa=${JSON.stringify(semData.erro?.alternativa)} faltando=${JSON.stringify(semData.erro?.faltando ?? [])}`,
+    );
+  }
+
+  {
+    /* O AGENDADO VENCIDO CONTINUA SALVÁVEL, e isto não é frouxidão.
+       Nada troca `agendado` por `publicado` quando a hora chega — o Estado
+       guarda a intenção do Autor e quem mostra o Post é a política. Então
+       "agendado com data no passado" é o estado FINAL de todo agendamento que
+       deu certo, e o Post já está no ar. Recusar esse salvamento impediria a
+       correção de uma vírgula num Post que o leitor já está lendo. */
+    const acesso = acessoDeTeste({ post: base("agendado", VENCIDA) });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "agendado", publicado_em: VENCIDA }),
+      acesso,
+    });
+    afirmar(
+      "salvar um Post agendado cuja hora JÁ PASSOU continua permitido — ele está no ar, e a recusa impediria corrigi-lo",
+      r.ok === true,
+      r.ok ? "" : `${r.erro.tipo}: ${r.erro.mensagem.slice(0, 140)}`,
+    );
+
+    /* E a ida e volta pelo campo de data e hora, que não tem segundos, não
+       pode contar como "mexeu na hora": o mesmo minuto é a mesma escolha. */
+    const comSegundos = new Date(Date.parse(VENCIDA) + 37_000).toISOString();
+    const semSegundos = acessoDeTeste({ post: base("agendado", comSegundos) });
+    const volta = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({
+        id: ID,
+        estado: "agendado",
+        publicado_em: deCampoDeInstante(paraCampoDeInstante(comSegundos)),
+      }),
+      acesso: semSegundos,
+    });
+    afirmar(
+      "e a ida e volta pelo campo de data e hora (que não tem segundos) não conta como mudança de horário",
+      volta.ok === true,
+      volta.ok ? "" : `${volta.erro.tipo}: ${volta.erro.mensagem.slice(0, 140)}`,
+    );
+
+    /* Mas MUDAR a hora de um agendado vencido para outra hora vencida é
+       agendar para trás de novo, e é recusado como tal. Sem esta asserção, a
+       exceção acima poderia ter aberto a porta inteira. */
+    const outroVencido = acessoDeTeste({ post: base("agendado", VENCIDA) });
+    const remarcou = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({
+        id: ID,
+        estado: "agendado",
+        publicado_em: new Date(Date.parse(VENCIDA) - 86_400_000).toISOString(),
+      }),
+      acesso: outroVencido,
+    });
+    afirmar(
+      "mas REMARCAR um agendado para outra hora já vencida é recusado, com a mesma saída",
+      remarcou.ok === false &&
+        remarcou.erro.alternativa === ACAO_PUBLICAR &&
+        outroVencido.escritas().length === 0,
+      remarcou.ok ? "ACEITOU" : `${remarcou.erro.tipo} | escritas: ${outroVencido.escritas().length}`,
+    );
+  }
+
+  {
+    /* E o FUTURO continua passando. Sem esta, todas as asserções acima
+       estariam satisfeitas por um servidor que simplesmente nunca agenda. */
+    const acesso = acessoDeTeste({ post: base("rascunho", null) });
+    const daquiAPouco = new Date(Date.now() + 5_000).toISOString();
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "agendado", publicado_em: daquiAPouco }),
+      acesso,
+    });
+    const enviado = acesso.escritas()[0]?.argumentos[0] ?? {};
+    afirmar(
+      "agendar para POUCOS SEGUNDOS à frente é aceito — a folga do relógio não vira exigência de antecedência",
+      r.ok === true &&
+        enviado.estado === "agendado" &&
+        Date.parse(String(enviado.publicado_em)) === Date.parse(daquiAPouco),
+      r.ok ? `publicado_em: ${enviado.publicado_em}` : `${r.erro.tipo}: ${r.erro.mensagem.slice(0, 140)}`,
+    );
+    /* E a margem de relógio é aplicada do lado PERMISSIVO: um instante alguns
+       segundos atrás — deriva de relógio, não intenção — ainda passa. Aplicá-la
+       do outro lado exigiria um minuto de antecedência para agendar, e a prova
+       do agendamento autônomo (poucos segundos à frente) seria impossível. */
+    const quaseAgora = new Date(Date.now() - MARGEM_DE_RELOGIO_MS / 2).toISOString();
+    const tolerante = acessoDeTeste({ post: base("rascunho", null) });
+    const r2 = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "agendado", publicado_em: quaseAgora }),
+      acesso: tolerante,
+    });
+    afirmar(
+      "e a margem de relógio vale do lado PERMISSIVO: agendar dentro dela não é recusado por deriva de relógio",
+      r2.ok === true,
+      r2.ok ? "" : `${r2.erro.tipo}: ${r2.erro.mensagem.slice(0, 140)}`,
+    );
+  }
+
   {
     // Estado fora do vocabulário: recusado na leitura do corpo, antes de tudo.
     for (const valor of ["no ar", "PUBLICADO", "", null, 3]) {
@@ -3209,6 +3398,39 @@ if (!temToken) {
 
       const MOTIVO_SEM_SESSAO = "a sessão real não pôde ser aberta (ver a asserção acima)";
 
+      /**
+       * O Post de endereço `endereco` é visível para quem NÃO tem sessão?
+       *
+       * Pergunta como o visitante pergunta: a chave PUBLICÁVEL e nenhum
+       * `Authorization`, que é exatamente o que o navegador dele manda. Quem
+       * responde é a política de leitura anônima da Story 2.1 — nenhuma consulta
+       * daqui repete o filtro dela, porque repeti-lo seria verificar a cópia.
+       *
+       * É uma LEITURA, e é por isso que ela serve de instrumento na prova do
+       * agendamento autônomo: perguntar não escreve.
+       */
+      const visivelSemSessao = async (endereco) => {
+        try {
+          const r = await fetch(
+            `${URL_PROJETO}/rest/v1/posts?select=id,slug&slug=eq.${encodeURIComponent(endereco)}`,
+            {
+              signal: AbortSignal.timeout(TIMEOUT_MS),
+              headers: { apikey: chaves.publicavel, Accept: "application/json" },
+            },
+          );
+          const corpo = await r.json().catch(() => null);
+          return { ok: r.ok, quantos: Array.isArray(corpo) ? corpo.length : -1 };
+        } catch (erro) {
+          return { ok: false, quantos: -1, erro: String(erro?.message ?? erro) };
+        }
+      };
+
+      /** Espera passiva. Não escreve, não consulta: só deixa o tempo passar. */
+      const dormir = (ms) =>
+        new Promise((resolver) => {
+          setTimeout(resolver, Math.max(0, ms));
+        });
+
       /* — O token forjado, contra o Supabase de verdade — */
 
       if (contas[0].jwt) {
@@ -3397,25 +3619,6 @@ if (!temToken) {
           return r.ok ? (r.dados?.[0] ?? null) : null;
         };
 
-        /** O Post é visível para quem NÃO tem sessão? Pergunta como o visitante. */
-        const visivelSemSessao = async () => {
-          try {
-            const r = await fetch(
-              `${URL_PROJETO}/rest/v1/posts?select=id,slug&slug=eq.${encodeURIComponent(enderecoDoCiclo)}`,
-              {
-                signal: AbortSignal.timeout(TIMEOUT_MS),
-                // A chave PUBLICÁVEL e nenhum `Authorization`: é exatamente o
-                // que o navegador de um visitante manda.
-                headers: { apikey: chaves.publicavel, Accept: "application/json" },
-              },
-            );
-            const corpo = await r.json().catch(() => null);
-            return { ok: r.ok, quantos: Array.isArray(corpo) ? corpo.length : -1 };
-          } catch (erro) {
-            return { ok: false, quantos: -1, erro: String(erro?.message ?? erro) };
-          }
-        };
-
         const pedir = (extra) =>
           salvarPost({
             token: contas[0].jwt,
@@ -3467,7 +3670,7 @@ if (!temToken) {
                 Date.parse(String(linha?.publicado_em)) === Date.parse(DATA_AGENDADA),
               r.ok ? `estado: ${linha?.estado} | data: ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
             );
-            const anonimo = await visivelSemSessao();
+            const anonimo = await visivelSemSessao(enderecoDoCiclo);
             afirmar(
               "e um agendado com data FUTURA continua invisível para quem não tem sessão",
               anonimo.ok && anonimo.quantos === 0,
@@ -3488,7 +3691,7 @@ if (!temToken) {
                 quando <= Date.now(),
               r.ok ? `estado: ${linha?.estado} | data: ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
             );
-            const anonimo = await visivelSemSessao();
+            const anonimo = await visivelSemSessao(enderecoDoCiclo);
             afirmar(
               "e o Post publicado passa a ser VISÍVEL para quem não tem sessão",
               anonimo.ok && anonimo.quantos === 1,
@@ -3563,7 +3766,7 @@ if (!temToken) {
               Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
               `${dataPublicada} → ${linha?.publicado_em}`,
             );
-            const anonimo = await visivelSemSessao();
+            const anonimo = await visivelSemSessao(enderecoDoCiclo);
             afirmar(
               "arquivar TIRA DO BLOG PÚBLICO: quem não tem sessão deixa de ver o Post",
               anonimo.ok && anonimo.quantos === 0,
@@ -3582,7 +3785,7 @@ if (!temToken) {
                 Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
               r.ok ? `estado: ${linha?.estado} | ${dataPublicada} → ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
             );
-            const anonimo = await visivelSemSessao();
+            const anonimo = await visivelSemSessao(enderecoDoCiclo);
             afirmar(
               "e ele volta a ser visível para quem não tem sessão",
               anonimo.ok && anonimo.quantos === 1,
@@ -3605,6 +3808,273 @@ if (!temToken) {
         }
       } else {
         adiar("o ciclo de vida do Post é percorrido com sessão real", MOTIVO_SEM_SESSAO);
+      }
+
+      /* — O AGENDAMENTO AUTÔNOMO, OBSERVADO ACONTECENDO (Story 2.9) — */
+      //
+      // A promessa central do épico: um Post agendado fica visível na hora
+      // marcada SEM QUE NINGUÉM ABRA O PAINEL. Ela é decorrência da política de
+      // leitura da Story 2.1 — `estado in ('publicado','agendado') and
+      // publicado_em <= now()` — e de mais nada: não há cron, gatilho nem
+      // processo que troque o Estado quando a hora chega.
+      //
+      // Ler a política e concluir que funciona é exatamente o que este projeto
+      // não aceita. Aqui a coisa é observada: um Post é agendado para poucos
+      // segundos à frente, o leitor anônimo é consultado antes, A ESPERA É
+      // PASSIVA — entre uma consulta e a outra não há UMA escrita, nem desta
+      // ferramenta nem de ninguém — e a visibilidade é perguntada de novo.
+      //
+      // "Nada escreveu" não é confiança na ferramenta: é medido. `atualizado_em`
+      // é mantido por gatilho a cada `update`, então uma escrita no meio — de um
+      // cron que alguém acrescentasse, de um gatilho, de outra execução — moveria
+      // a coluna, e a asserção acusa.
+
+      if (contas[0].jwt) {
+        const enderecoAutonomo = slug("autonomo");
+        const SEGUNDOS_A_FRENTE = 8;
+        /* Os 60 segundos são do critério de aceite do épico, e não uma folga
+           escolhida aqui: "um post agendado cuja hora chegou é visível em até
+           60 segundos, sem ninguém abrir o Painel". */
+        const FOLGA_DO_CRITERIO_MS = 60_000;
+
+        /* O RELÓGIO QUE DECIDE É O DO BANCO.
+           A política compara `publicado_em <= now()`, e `now()` é o relógio do
+           Postgres. Marcar a hora pelo relógio desta máquina faria a asserção
+           medir deriva de NTP em vez de agendamento — e falharia, ou passaria,
+           por motivo nenhum. O deslocamento entre os dois relógios é medido uma
+           vez, com a viagem de ida e volta descontada pelo ponto médio. */
+        const antesDoRelogio = Date.now();
+        const relogio = await executarSql(
+          token,
+          "select (extract(epoch from now()) * 1000)::bigint::text as ms",
+        );
+        const depoisDoRelogio = Date.now();
+        const agoraNoBanco = Number(relogio.ok ? (relogio.dados?.[0]?.ms ?? Number.NaN) : Number.NaN);
+        const deslocamento = agoraNoBanco - (antesDoRelogio + depoisDoRelogio) / 2;
+        const temRelogio = afirmar(
+          "o relógio do banco foi lido — é ele que a política de leitura consulta, não o desta máquina",
+          Number.isFinite(agoraNoBanco) && Math.abs(deslocamento) < 5 * 60_000,
+          relogio.ok
+            ? `deslocamento banco − máquina: ${Math.round(deslocamento)}ms`
+            : (relogio.erro ?? ""),
+        );
+
+        if (temRelogio) {
+          const marcadoNoBanco = agoraNoBanco + SEGUNDOS_A_FRENTE * 1000;
+          const marcadoAqui = marcadoNoBanco - deslocamento;
+          const marcado = new Date(marcadoNoBanco).toISOString();
+
+          const nasceu = await salvarPost({
+            token: contas[0].jwt,
+            corpo: {
+              slug: enderecoAutonomo,
+              titulo: "O post que aparece sozinho",
+              resumo: "Agendado para daqui a alguns segundos, sem ninguém para virar a chave.",
+              conteudo: {
+                type: "doc",
+                content: [
+                  { type: "paragraph", content: [{ type: "text", text: "agendamento autônomo" }] },
+                ],
+              },
+              estado: "agendado",
+              publicado_em: marcado,
+            },
+            acesso: acessoReal(),
+          });
+          const agendou = afirmar(
+            `o Post foi agendado para ${SEGUNDOS_A_FRENTE}s à frente, e nasceu no Estado agendado`,
+            nasceu.ok === true && nasceu.dados.post?.estado === "agendado",
+            nasceu.ok
+              ? `estado: ${nasceu.dados.post?.estado} | ${nasceu.dados.post?.publicado_em}`
+              : `${nasceu.erro.tipo}: ${nasceu.erro.detalhe.slice(0, 160)}`,
+          );
+
+          /** O retrato da linha, como o banco a tem. */
+          const retrato = async () => {
+            const r = await executarSql(
+              token,
+              `select estado::text as estado,
+                      publicado_em::text as publicado_em,
+                      atualizado_em::text as atualizado_em
+                 from public.posts where slug = ${literal(enderecoAutonomo)}`,
+            );
+            return r.ok ? (r.dados?.[0] ?? null) : null;
+          };
+
+          if (agendou) {
+            const antesDaHora = await visivelSemSessao(enderecoAutonomo);
+            afirmar(
+              "ANTES da hora marcada, o leitor anônimo não vê o Post — agendado não é publicado",
+              antesDaHora.ok && antesDaHora.quantos === 0,
+              `visíveis: ${antesDaHora.quantos}${antesDaHora.erro ? ` | ${antesDaHora.erro}` : ""}`,
+            );
+            const antes = await retrato();
+
+            /* ── A ESPERA. Daqui até a asserção seguinte, NADA ESCREVE. ──
+               O que roda entre uma coisa e outra é `setTimeout` e o mesmo GET
+               anônimo que o navegador de um visitante faz. Nenhuma sessão é
+               usada, nenhuma função de escrita é chamada, o Painel continua
+               fechado. É essa ausência que é a prova. */
+            await dormir(marcadoAqui - Date.now() + 250);
+
+            const limite = marcadoAqui + FOLGA_DO_CRITERIO_MS;
+            let visivelEm = null;
+            let consultas = 0;
+            while (visivelEm === null && Date.now() <= limite) {
+              consultas += 1;
+              const olhada = await visivelSemSessao(enderecoAutonomo);
+              if (olhada.ok && olhada.quantos === 1) {
+                visivelEm = Date.now();
+                break;
+              }
+              await dormir(1500);
+            }
+            const atrasoMs = visivelEm === null ? null : Math.round(visivelEm - marcadoAqui);
+
+            afirmar(
+              "PASSADA A HORA, o Post agendado ficou visível para o leitor anônimo SOZINHO — ninguém abriu o Painel",
+              visivelEm !== null,
+              visivelEm === null
+                ? `não apareceu em ${FOLGA_DO_CRITERIO_MS / 1000}s depois da hora marcada, após ${consultas} consulta(s) anônima(s)`
+                : "",
+            );
+            afirmar(
+              `e apareceu DENTRO DOS ${FOLGA_DO_CRITERIO_MS / 1000}s do critério, contados da hora marcada`,
+              atrasoMs !== null && atrasoMs <= FOLGA_DO_CRITERIO_MS,
+              `atraso medido: ${atrasoMs === null ? "não apareceu" : `${atrasoMs}ms`}`,
+            );
+            if (atrasoMs !== null) {
+              nota(
+                `a hora chegou e o Post apareceu ${atrasoMs}ms depois, em ${consultas} consulta(s) — a espera foi passiva.`,
+              );
+            }
+
+            const depois = await retrato();
+            afirmar(
+              "e NADA ESCREVEU no meio: `atualizado_em` é o mesmo instante de antes da espera",
+              antes !== null &&
+                depois !== null &&
+                depois.atualizado_em === antes.atualizado_em,
+              `${antes?.atualizado_em} → ${depois?.atualizado_em}`,
+            );
+            /* O ESTADO NÃO MUDA. É a regra que a story marca como "nunca": o
+               Estado descreve a INTENÇÃO do Autor, e a visibilidade é da
+               política. Um processo que trocasse `agendado` por `publicado` na
+               hora marcada acrescentaria uma peça que pode falhar, atrasar ou
+               rodar duas vezes para produzir o mesmo resultado que a comparação
+               de data já produz. */
+            afirmar(
+              "o Estado continua `agendado` depois de o Post estar no ar — quem publica é a política, não um processo",
+              depois?.estado === "agendado" && depois?.publicado_em === antes?.publicado_em,
+              `estado: ${depois?.estado} | data: ${antes?.publicado_em} → ${depois?.publicado_em}`,
+            );
+
+            /* CANCELAR O AGENDAMENTO É TRANSIÇÃO EXPLÍCITA.
+               Este Post está no ar agora — foi a política que o pôs lá —, e
+               cancelar o tira, sem apagar nada: a máquina declara
+               `cancelar_agendamento` levando a `rascunho`, e rascunho é
+               invisível por construção. Não existe "desagendar" implícito, do
+               mesmo jeito que não existe "publicar" implícito. */
+            const cancelou = await salvarPost({
+              token: contas[0].jwt,
+              corpo: {
+                id: nasceu.dados.post.id,
+                titulo: "O post que aparece sozinho",
+                conteudo: {
+                  type: "doc",
+                  content: [
+                    { type: "paragraph", content: [{ type: "text", text: "agendamento autônomo" }] },
+                  ],
+                },
+                estado: "rascunho",
+              },
+              acesso: acessoReal(),
+            });
+            const depoisDoCancelamento = await retrato();
+            afirmar(
+              "cancelar o agendamento leva o Post de volta a rascunho, por transição explícita",
+              cancelou.ok === true && depoisDoCancelamento?.estado === "rascunho",
+              cancelou.ok
+                ? `estado: ${depoisDoCancelamento?.estado}`
+                : `${cancelou.erro.tipo}: ${cancelou.erro.detalhe.slice(0, 160)}`,
+            );
+            const semAgendamento = await visivelSemSessao(enderecoAutonomo);
+            afirmar(
+              "e ele sai do ar na hora — rascunho é invisível para quem não tem sessão, mesmo com a data já vencida",
+              semAgendamento.ok && semAgendamento.quantos === 0,
+              `visíveis: ${semAgendamento.quantos}${semAgendamento.erro ? ` | ${semAgendamento.erro}` : ""}`,
+            );
+          }
+        }
+      } else {
+        adiar("o Post agendado aparece sozinho quando a hora chega", MOTIVO_SEM_SESSAO);
+      }
+
+      /* — MEIA-NOITE E MEIA EM SÃO PAULO (Story 2.9) — */
+      //
+      // O erro de fuso mais provável, e o mais silencioso: `new Date("…T00:30")`
+      // é meia-noite e meia NO FUSO DA MÁQUINA de quem digita, e num servidor em
+      // UTC isso é 21h30 do dia ANTERIOR em São Paulo — o Post sai um dia antes
+      // do combinado e ninguém percebe até alguém reclamar.
+      //
+      // A conversão é do domínio, e quem a confere é o PRÓPRIO BANCO: a hora de
+      // parede é relida pelo Postgres, no fuso do negócio. Comparar a conversão
+      // do domínio com ela mesma não verificaria nada.
+
+      if (contas[0].jwt) {
+        const enderecoDaMeiaNoite = slug("meia-noite");
+
+        /* O dia de hoje EM SÃO PAULO, lido pelo domínio — nunca por `getDate()`,
+           que responde no fuso da máquina que roda esta ferramenta. */
+        const hojeEmSaoPaulo = paraCampoDeInstante(Date.now()).slice(0, 10);
+        const diaSeguinte = new Date(`${hojeEmSaoPaulo}T00:00:00Z`);
+        diaSeguinte.setUTCDate(diaSeguinte.getUTCDate() + 1);
+        const amanha = diaSeguinte.toISOString().slice(0, 10);
+        const marcado = deCampoDeInstante(`${amanha}T00:30`);
+
+        const r = await salvarPost({
+          token: contas[0].jwt,
+          corpo: {
+            slug: enderecoDaMeiaNoite,
+            titulo: "Agendado para meia-noite e meia",
+            resumo: "O caso de fuso que sai um dia antes quando alguém erra a conversão.",
+            conteudo: {
+              type: "doc",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "00h30" }] }],
+            },
+            estado: "agendado",
+            publicado_em: marcado,
+          },
+          acesso: acessoReal(),
+        });
+        const marcou = afirmar(
+          "um Post agendado para 00h30 de amanhã em São Paulo é aceito",
+          r.ok === true && r.dados.post?.estado === "agendado",
+          r.ok ? `data: ${r.dados.post?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+        );
+
+        if (marcou) {
+          const parede = await executarSql(
+            token,
+            `select to_char(publicado_em at time zone ${literal(FUSO_DE_APRESENTACAO)},
+                            'YYYY-MM-DD HH24:MI') as parede
+               from public.posts where slug = ${literal(enderecoDaMeiaNoite)}`,
+          );
+          const lido = parede.ok ? (parede.dados?.[0]?.parede ?? null) : null;
+          afirmar(
+            "o PRÓPRIO BANCO relê o instante gravado como 00:30 do dia marcado, no fuso de São Paulo",
+            lido === `${amanha} 00:30`,
+            `esperado ${amanha} 00:30, o banco leu ${JSON.stringify(lido)}${parede.ok ? "" : ` | ${parede.erro}`}`,
+          );
+          const anonimo = await visivelSemSessao(enderecoDaMeiaNoite);
+          afirmar(
+            `e NO DIA ANTERIOR — que é hoje, ${hojeEmSaoPaulo} em São Paulo — ele não aparece para o leitor anônimo`,
+            anonimo.ok && anonimo.quantos === 0,
+            `visíveis: ${anonimo.quantos}${anonimo.erro ? ` | ${anonimo.erro}` : ""}`,
+          );
+        }
+      } else {
+        adiar("agendar para 00h30 em São Paulo não aparece no dia anterior", MOTIVO_SEM_SESSAO);
       }
 
       /* — Conteúdo perigoso PELA FUNÇÃO — */

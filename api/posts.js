@@ -99,11 +99,23 @@ export function corpoComoObjeto(corpo) {
   }
 }
 
-/** O corpo da resposta: tipo e frase. `detalhe` NUNCA sai daqui. */
+/**
+ * O corpo da resposta: tipo e frase. `detalhe` NUNCA sai daqui.
+ *
+ * `faltando` e `alternativa` saem porque as duas são para a TELA agir, não para
+ * diagnóstico: uma diz qual campo marcar, a outra diz qual saída oferecer. Sem
+ * a segunda, a recusa de um agendamento no passado chegaria como uma frase que
+ * menciona publicar agora e um botão que não existe.
+ */
 export function respostaDeErro(erro) {
   return {
     ok: false,
-    erro: { tipo: erro.tipo, mensagem: erro.mensagem, ...(erro.faltando ? { faltando: erro.faltando } : {}) },
+    erro: {
+      tipo: erro.tipo,
+      mensagem: erro.mensagem,
+      ...(erro.faltando ? { faltando: erro.faltando } : {}),
+      ...(erro.alternativa ? { alternativa: erro.alternativa } : {}),
+    },
   };
 }
 

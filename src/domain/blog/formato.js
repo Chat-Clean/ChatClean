@@ -153,6 +153,34 @@ export function formatarDataEHora(valor) {
   return `${formatadorDeData.format(data)} ${formatadorDeHora.format(data)}`;
 }
 
+/**
+ * `sexta-feira, 14 de agosto de 2026, às 10:27` — a data POR EXTENSO.
+ *
+ * Existe para a confirmação de um agendamento, e o dia da semana está aí de
+ * propósito: é o único ponto do fluxo em que um erro de fuso fica visível
+ * ANTES de o Post sair no ar. `01/09/2026 00:30` e `31/08/2026 21:30` são
+ * quase o mesmo texto e diferem em um dia inteiro; "terça-feira, 1º de
+ * setembro" e "segunda-feira, 31 de agosto" ninguém confunde.
+ *
+ * A vírgula antes de "às" não é enfeite: sem ela, `pt-BR` produz
+ * "…de 2026 às 10:27", e o número cola visualmente no ano.
+ *
+ * Data civil (`2026-08-14`) é recusada como em todo o resto do módulo — sem
+ * hora não há instante, e um agendamento sem hora não é agendamento.
+ */
+const formatadorPorExtenso = new Intl.DateTimeFormat(LOCALIDADE, {
+  timeZone: FUSO_DE_APRESENTACAO,
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+export function formatarDataEHoraPorExtenso(valor) {
+  const data = paraInstante(valor);
+  return `${formatadorPorExtenso.format(data)}, às ${formatadorDeHora.format(data)}`;
+}
+
 /* ─── Instante ↔ campo de data e hora ────────────────────────────────────── */
 
 /**

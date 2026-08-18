@@ -90,7 +90,7 @@ function tipoDoStatus(status) {
  * distingue "escolha outro endereço" de "tente de novo". Por isso o objeto é
  * montado aqui quando o tipo é um dos dois novos, com a MESMA forma.
  */
-function falhaDeEscrita(tipo, { operacao = "", mensagem = "", detalhe = "", faltando = null, status = null, codigo = "" } = {}) {
+function falhaDeEscrita(tipo, { operacao = "", mensagem = "", detalhe = "", faltando = null, status = null, codigo = "", alternativa = null } = {}) {
   if (ehTipoDeErro(tipo)) {
     return falha(tipo, { operacao, mensagem, detalhe, faltando, status, codigo });
   }
@@ -109,6 +109,13 @@ function falhaDeEscrita(tipo, { operacao = "", mensagem = "", detalhe = "", falt
     status: Number.isFinite(Number(status)) && status !== null ? Number(status) : null,
   };
   if (Array.isArray(faltando)) erro.faltando = Object.freeze([...faltando]);
+  /* A SAÍDA que o servidor nomeou (Story 2.9): a chave de uma ação da máquina
+     de transições. Ela atravessa a camada como texto e nada mais — quem decide
+     se aquela ação existe no Estado em que o Post está é a tela, consultando a
+     máquina. Uma chave que a máquina não declare simplesmente não vira botão. */
+  if (typeof alternativa === "string" && alternativa.trim() !== "") {
+    erro.alternativa = alternativa.trim();
+  }
   return Object.freeze({ ok: false, erro: Object.freeze(erro) });
 }
 
@@ -192,6 +199,8 @@ export async function salvarPost(corpo, { buscar = globalThis.fetch } = {}) {
     // o que se registra aqui é o que dá para saber daqui.
     detalhe: `HTTP ${resposta.status} em ${ROTA_DE_ESCRITA}`,
     faltando: Array.isArray(doServidor?.faltando) ? doServidor.faltando : null,
+    alternativa:
+      typeof doServidor?.alternativa === "string" ? doServidor.alternativa : null,
     status: resposta.status,
   });
 }

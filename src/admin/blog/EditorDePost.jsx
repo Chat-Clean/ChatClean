@@ -57,6 +57,25 @@
  * para ver no site. Voltar para a listagem sem confirmação visível seria pedir
  * que a pessoa fosse conferir se deu certo.
  *
+ * ─── AGENDAR: A CONFIRMAÇÃO DIZ A DATA, E A RECUSA TEM SAÍDA ────────────────
+ *
+ * Confirmar um agendamento repetindo o texto do campo não confirma nada — é o
+ * que a pessoa acabou de digitar. A confirmação lê o instante que o SERVIDOR
+ * gravou e o escreve por extenso, no fuso de apresentação: "quinta-feira, 3 de
+ * setembro de 2026, às 09:00". É o único ponto do fluxo em que um erro de fuso
+ * aparece antes de o Post ir ao ar — se a pessoa digita 9h e a tela confirma
+ * 06:00, o engano aparece ali, e não três horas depois, para o leitor.
+ *
+ * Do outro lado, a recusa de uma data já vencida chega do servidor com a saída
+ * NOMEADA, pela chave de uma ação da máquina. A tela procura essa chave na
+ * tabela do Estado atual e oferece o botão na própria notificação: quem errou o
+ * dia quase sempre queria publicar agora, e a diferença entre um beco e uma
+ * bifurcação é justamente esse botão.
+ *
+ * O que esta tela **não** faz é publicar o Post na hora marcada. Não há nada
+ * aqui esperando relógio: um Post agendado fica visível porque a política de
+ * leitura o inclui quando `publicado_em` chega, com o Painel fechado.
+ *
  * ─── O que esta tela NÃO faz ────────────────────────────────────────────────
  *
  * Não grava direto no banco: nenhum cliente escreve, e o único caminho é
@@ -74,6 +93,7 @@ import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
 import { larguraDaGaveta, nasceAberta } from "@/admin/blog/gaveta";
 import {
+  confirmacaoDoAgendamento,
   corpoDoPedido,
   faltandoNaGaveta,
   valoresDoPost,
@@ -99,6 +119,7 @@ import { gerarSlug, problemaNoSlug } from "@/domain/blog/slug";
 import {
   ENFASE_PRINCIPAL,
   ESTADO_INICIAL,
+  acaoDoEstado,
   acoesDoEstado,
 } from "@/domain/blog/transicoes";
 import { Button } from "@/components/ui/button";
@@ -310,6 +331,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   /* ── Salvar ──────────────────────────────────────────────────────────── */
 
+  /* A saída oferecida na notificação de recusa precisa chamar `salvar` — que é
+     justamente quem monta a notificação. A referência quebra o laço sem
+     recriar a função a cada renderização: quando o Autor clica no botão da
+     notificação, ela já aponta para a versão mais recente, com os valores que
+     a tela tem naquele momento. */
+  const salvarDeNovo = useRef(null);
+
   const salvar = useCallback(async (acao) => {
     if (salvando) return;
 
@@ -384,27 +412,48 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         setFaltando([...erro.faltando]);
       }
       if (erro.tipo === ERRO_CONFLITO) setProblemaNoEndereco(erro.mensagem);
+      /* A RECUSA QUE TEM SAÍDA VIRA UMA BIFURCAÇÃO, E NÃO UM BECO.
+         O servidor nomeia a alternativa pela CHAVE de uma ação (hoje só
+         `publicar`, quando o agendamento é para o passado), e a tela a procura
+         na máquina, no Estado em que o Post está agora. É a máquina que decide
+         se o botão existe: chave que ela não declare para este Estado não vira
+         oferta nenhuma, e a tela nunca oferece um caminho que o servidor
+         recusaria em seguida. */
+      const saida = erro.alternativa ? acaoDoEstado(estado, erro.alternativa) : null;
       notificarErro(
         "Não deu para salvar o post",
         // A frase do servidor já diz o que houve E o que fazer; repetir uma
         // genérica por cima dela seria trocar informação por ruído.
         erro.mensagem,
+        saida
+          ? { rotulo: saida.rotulo, aoAcionar: () => salvarDeNovo.current?.(saida) }
+          : null,
       );
       return;
     }
 
     setFaltando([]);
     setProblemaNoEndereco(null);
+
+    const gravado = resultado.dados?.post ?? null;
+
+    /* A CONFIRMAÇÃO DE UM AGENDAMENTO DIZ A DATA, POR EXTENSO.
+       Devolver o texto cru do campo não confirma nada — ele é o que a pessoa
+       acabou de digitar. O que ela precisa ver é a data que o SISTEMA entendeu,
+       lida do instante que o servidor gravou e escrita no fuso de apresentação:
+       é o único ponto do fluxo em que um erro de fuso aparece antes de o Post
+       sair no ar, e o dia da semana por extenso é o que o torna óbvio. */
+    const detalheDaConfirmacao =
+      confirmacaoDoAgendamento(gravado, valores.titulo) ?? valores.titulo;
+
     notificarSucesso(
       /* A confirmação vem da AÇÃO, não do Estado: "Post publicado" é o que
          aconteceu, e "Post salvo" para tudo deixaria o Autor sem saber se a
          publicação foi mesmo pedida. A exceção é o Post que nasceu por um
          salvamento comum, em que "Post criado" diz mais que "Rascunho salvo". */
       resultado.dados?.criado && acao.chave === "salvar" ? "Post criado" : acao.confirmacao,
-      valores.titulo,
+      detalheDaConfirmacao,
     );
-
-    const gravado = resultado.dados?.post ?? null;
 
     /* O QUE A TELA MOSTRA PASSA A SER O QUE O SERVIDOR GRAVOU.
        O endereço pode ter sido aposentado e trocado lá; a data de publicação
@@ -437,7 +486,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     }
 
     aoSalvar?.(gravado);
-  }, [salvando, valores, documento, criando, id, aoSalvar]);
+  }, [salvando, valores, documento, criando, id, estado, aoSalvar]);
+
+  useEffect(() => {
+    salvarDeNovo.current = salvar;
+  }, [salvar]);
 
   /* ── Sair, nas três formas ───────────────────────────────────────────── */
 

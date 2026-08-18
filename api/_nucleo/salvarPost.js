@@ -53,6 +53,20 @@
  *     de leitura. Republicar um arquivado com data antiga **conserva** a data
  *     antiga, e é por isso que a regra olha o futuro, não a nulidade.
  *
+ * ─── O que a Story 2.9 acrescentou: AGENDAR PARA TRÁS NÃO COLA ──────────────
+ *
+ * Marcar um agendamento para um instante já vencido é recusado aqui, com erro
+ * próprio — distinto de "faltou data" — e com a saída nomeada: a recusa carrega
+ * `alternativa: "publicar"`, a chave da ação da máquina que põe o Post no ar
+ * agora, que é quase sempre o que a pessoa queria. Recusar sem dizer o que
+ * fazer em seguida é um beco.
+ *
+ * A publicação na hora marcada continua sendo **decorrência da política de
+ * leitura**, e não trabalho deste módulo: não há cron, gatilho nem processo que
+ * troque `agendado` por `publicado`. Um Post agendado cuja hora chegou é
+ * visível porque `estado in ('publicado','agendado') and publicado_em <= now()`
+ * o inclui — e é por isso que ele continua salvável depois de vencido.
+ *
  * ─── O que a Story 2.6 acrescentou ──────────────────────────────────────────
  *
  * Os metadados do Post (`categoria_id`, `tags`, `publicado_em`, `tempo_leitura`)
@@ -89,11 +103,16 @@ import {
    que a barra não oferece e o servidor aceita. */
 import { ESTADOS, ehEstado } from "../../src/domain/blog/estados.js";
 import {
+  ACAO_PUBLICAR,
   ESTADO_INICIAL,
   exigeDataDePublicacao,
   motivoDaRecusa,
   transicaoPermitida,
 } from "../../src/domain/blog/transicoes.js";
+/* O fuso vem do DOMÍNIO, e é o mesmo módulo que a gaveta usa. A recusa de uma
+   data passada devolve a data POR EXTENSO — é assim que quem digitou "hoje às
+   9h" por engano vê que o sistema entendeu hoje de manhã, e não amanhã. */
+import { formatarDataEHoraPorExtenso } from "../../src/domain/blog/formato.js";
 import { derivarHtml } from "../../src/render/blog/paraHtml.js";
 
 /* ─── O vocabulário de erro ──────────────────────────────────────────────── */
@@ -166,10 +185,24 @@ export function ehTipoDeErro(valor) {
  * `detalhe` existe para DIAGNÓSTICO e não para a tela: o invólucro registra e
  * não devolve. Tipo fora da lista não lança — vira `inesperado` com o valor
  * recebido no detalhe, pelo mesmo motivo que em `data/blog/resultado.js`.
+ *
+ * `alternativa` é a SAÍDA que a recusa oferece, e a única coisa deste objeto
+ * que a tela executa: a chave de uma ação da máquina de transições (hoje só
+ * `publicar`). Ela viaja pelo invólucro junto de `tipo` e `mensagem` porque uma
+ * recusa sem saída obriga a pessoa a adivinhar o próximo passo — e quem sabe
+ * qual é a saída é quem recusou. A tela a procura na tabela do Estado atual
+ * antes de desenhar botão nenhum, então este campo não manda nada: ele nomeia.
  */
 export function falha(
   tipo,
-  { mensagem = "", detalhe = "", faltando = null, codigo = "", status = null } = {},
+  {
+    mensagem = "",
+    detalhe = "",
+    faltando = null,
+    codigo = "",
+    status = null,
+    alternativa = null,
+  } = {},
 ) {
   const valido = ehTipoDeErro(tipo);
   const t = valido ? tipo : ERRO_INESPERADO;
@@ -184,6 +217,9 @@ export function falha(
     status: Number.isFinite(Number(status)) && status !== null ? Number(status) : null,
   };
   if (Array.isArray(faltando)) erro.faltando = Object.freeze([...faltando]);
+  if (typeof alternativa === "string" && alternativa.trim() !== "") {
+    erro.alternativa = alternativa.trim();
+  }
   return Object.freeze({ ok: false, erro: Object.freeze(erro) });
 }
 
@@ -1026,6 +1062,54 @@ function resolverTransicao({ estadoAtual, campos, dataAtual, agora = Date.now() 
         faltando: ["publicado_em"],
       }),
     };
+  }
+
+  /* ── AGENDAR PARA TRÁS É RECUSADO, E A RECUSA TEM SAÍDA ────────────────
+     Agendar para hoje mais cedo é erro de digitação comum — trocar o dia, ou
+     escolher 09:00 às onze da manhã. Gravar isso publicaria o Post na hora,
+     por decorrência da política de leitura, com o Estado dizendo "agendado":
+     ninguém entende o que aconteceu, e o Autor descobre pelo leitor.
+
+     A recusa é DISTINTA da de falta de data — outra frase, e `alternativa` no
+     lugar de `faltando` —, porque as duas pedem coisas diferentes de quem
+     tentou: uma pede que preencha, a outra pede que escolha entre uma data
+     futura e publicar agora. É esta última que a chave carrega.
+
+     "Passada" é passada com a MARGEM DE RELÓGIO inteira, o mesmo limite que
+     "publicar agora" usa acima. A margem entra do lado permissivo de
+     propósito: o relógio desta máquina pode estar adiantado em relação ao de
+     quem digitou, e recusar por engano um agendamento legítimo é pior que
+     aceitar um que vai ao ar um minuto antes.
+
+     ── E POR QUE UM AGENDADO VENCIDO CONTINUA SALVÁVEL ──
+     Um Post agendado NÃO vira publicado quando a hora chega: o Estado guarda a
+     intenção do Autor, e quem o mostra é a política. Então "agendado com data
+     no passado" não é anomalia — é o estado final normal de todo Post
+     agendado, já visível para o leitor. Recusar um salvamento desses seria
+     impedir a correção de uma vírgula num Post no ar. A recusa vale para quem
+     ESTÁ MEXENDO no agendamento: entrando nele, ou pedindo hora diferente da
+     gravada. A comparação é feita no MINUTO, que é a granularidade em que o
+     Autor escolhe — o campo de data e hora não tem segundos, e uma ida e volta
+     por ele não pode passar por "mudou a hora". */
+  if (alvo === "agendado") {
+    const instante = Date.parse(String(efetiva));
+    const limite = agora - MARGEM_DE_RELOGIO_MS;
+    const gravado = dataAtual === null || dataAtual === undefined ? Number.NaN : Date.parse(String(dataAtual));
+    const minuto = (ms) => (Number.isFinite(ms) ? Math.floor(ms / 60_000) : Number.NaN);
+    const mexeuNoAgendamento = mudouDeEstado || minuto(instante) !== minuto(gravado);
+
+    if (Number.isFinite(instante) && instante <= limite && mexeuNoAgendamento) {
+      return {
+        ok: false,
+        recusa: falha(ERRO_DADOS_INVALIDOS, {
+          mensagem:
+            `Esta data já passou: ${formatarDataEHoraPorExtenso(instante)}. ` +
+            "Escolha um momento futuro para agendar, ou publique agora.",
+          detalhe: `agendamento para ${new Date(instante).toISOString()}, já vencido`,
+          alternativa: ACAO_PUBLICAR,
+        }),
+      };
+    }
   }
 
   return {

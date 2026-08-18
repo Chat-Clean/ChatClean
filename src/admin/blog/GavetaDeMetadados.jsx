@@ -255,6 +255,12 @@ export default function GavetaDeMetadados({
             value={valores.publicado_em ?? ""}
             onChange={mudar("publicado_em")}
           />
+          {/* A marca de recusa precisa ter O QUE dizer: `aria-invalid` sozinho
+              anuncia "inválido" e nada mais, e o `aria-describedby` do campo
+              apontava para um parágrafo que não existia. */}
+          <Recusa id={idDoErro("publicado_em")} visivel={falta("publicado_em")}>
+            {FRASES_DE_FALTA.publicado_em}
+          </Recusa>
           {/* O instante é gravado em UTC; o que se lê e o que se digita é a hora de
               Brasília. Dizer o fuso por extenso é o que impede alguém de agendar
               00h30 achando que agendou no fuso do próprio navegador. */}

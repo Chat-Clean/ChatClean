@@ -3894,6 +3894,202 @@ if (janela && schema && configuracao && compilado) {
         await tela.desmontar();
       }
 
+      /* ─── (k) O agendamento, na tela (Story 2.9) ───────────────────── */
+
+      secao("(k) o agendamento na tela: a data confirmada, e a recusa com saída");
+
+      /* A hora de parede que o Autor digita, o instante que o servidor devolve
+         e o texto que a confirmação precisa mostrar. Os três estão escritos À
+         MÃO: derivar o esperado do próprio módulo de formatação faria a
+         asserção dizer que ele é igual a si mesmo, e é justamente a conversão
+         de fuso que se quer observar. 09:30 em São Paulo é 12:30Z, e 1º de
+         março de 2027 é uma segunda-feira. */
+      const HORA_DE_PAREDE = "2027-03-01T09:30";
+      const INSTANTE_AGENDADO = "2027-03-01T12:30:00.000Z";
+      const POR_EXTENSO = "segunda-feira, 1 de março de 2027, às 09:30";
+
+      /* ── A CONFIRMAÇÃO DIZ A DATA ESCOLHIDA, POR EXTENSO ────────────── */
+      {
+        modulo.controle.post = postNoEstado("rascunho", null);
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: true,
+          dados: {
+            criado: false,
+            post: {
+              id: ID_DO_CICLO,
+              slug: "ciclo-de-vida",
+              titulo: "Ciclo de vida",
+              estado: "agendado",
+              publicado_em: INSTANTE_AGENDADO,
+            },
+          },
+        };
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.digitar(tela.campo("publicado_em"), HORA_DE_PAREDE);
+        const historicoAntes = toast.getHistory().length;
+        await tela.clicar(tela.acaoPorChave("agendar"));
+        const novos = toast.getHistory().slice(historicoAntes);
+        const confirmacao = novos[novos.length - 1] ?? null;
+        const detalhe = String(confirmacao?.description ?? "");
+
+        afirmar(
+          "agendar confirma dizendo a DATA ESCOLHIDA por extenso, no fuso de apresentação",
+          detalhe.includes(POR_EXTENSO),
+          `esperado conter "${POR_EXTENSO}" | veio "${detalhe}"`,
+        );
+        /* Devolver o que a pessoa acabou de digitar não confirma nada. O que
+           precisa aparecer é a data que o SISTEMA entendeu — é o único ponto do
+           fluxo em que um erro de fuso fica visível antes de o Post ir ao ar. */
+        afirmar(
+          "e não devolve o texto cru do campo — é a data entendida que confirma, não a digitada",
+          !detalhe.includes(HORA_DE_PAREDE) && !detalhe.includes(INSTANTE_AGENDADO),
+          detalhe,
+        );
+        if (voz) {
+          afirmar(
+            "e a confirmação nomeia o que aconteceu — passa pelas guardas de voz do Painel",
+            confirmacao !== null &&
+              voz.diagnosticarMensagem("o que aconteceu", String(confirmacao.title)) === null,
+            `${confirmacao?.title} / ${detalhe}`,
+          );
+        }
+        afirmar(
+          "o React não reclamou ao confirmar o agendamento",
+          tela.reclamacoes.length === 0,
+          tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+        );
+        await tela.desmontar();
+      }
+
+      /* ── A RECUSA POR DATA VENCIDA OFERECE PUBLICAR AGORA ───────────── */
+      //
+      // É a diferença entre um beco e uma bifurcação. O servidor recusa e NOMEIA
+      // a saída pela chave de uma ação; a tela procura essa chave na máquina, no
+      // Estado em que o Post está, e transforma em botão o que a máquina
+      // declarar — com o rótulo que já está lá.
+      {
+        const RECUSA_VENCIDA =
+          "Esta data já passou: quinta-feira, 1 de janeiro de 2026, às 09:00. " +
+          "Escolha um momento futuro para agendar, ou publique agora.";
+        modulo.controle.post = postNoEstado("rascunho", null);
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: false,
+          erro: {
+            tipo: "dados_invalidos",
+            mensagem: RECUSA_VENCIDA,
+            alternativa: transicoes.ACAO_PUBLICAR,
+          },
+        };
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.digitar(tela.campo("publicado_em"), "2026-01-01T09:00");
+        const historicoAntes = toast.getHistory().length;
+        await tela.clicar(tela.acaoPorChave("agendar"));
+        const novos = toast.getHistory().slice(historicoAntes);
+        const recusa =
+          novos.find((t) => String(t.description ?? "") === RECUSA_VENCIDA) ?? null;
+
+        afirmar(
+          "a recusa por data vencida chega INTEIRA à tela, com a frase do servidor",
+          recusa !== null,
+          novos.map((t) => `${t.title} / ${t.description}`).join(" | ").slice(0, 220),
+        );
+        const doDominio = transicoes.acaoDoEstado("rascunho", transicoes.ACAO_PUBLICAR);
+        afirmar(
+          "e a recusa OFERECE PUBLICAR AGORA: a saída vira botão, com o rótulo que a máquina declara",
+          recusa?.action?.label === doDominio.rotulo,
+          `rótulo na notificação: ${JSON.stringify(recusa?.action?.label)} | na máquina: ${JSON.stringify(doDominio.rotulo)}`,
+        );
+        if (voz && recusa) {
+          afirmar(
+            "as duas metades da recusa e o rótulo da saída passam pelas guardas de voz",
+            voz.diagnosticarMensagem("o que houve", String(recusa.title)) === null &&
+              voz.diagnosticarMensagem("o que fazer", String(recusa.description)) === null &&
+              voz.diagnosticarRotuloDeAcao(String(recusa.action?.label)) === null,
+            `${recusa.title} / ${recusa.description} / ${recusa.action?.label}`,
+          );
+        }
+        afirmar(
+          "e o conteúdo continua intacto: uma recusa não descarta o que foi escrito",
+          tela.campo("publicado_em")?.value === "2026-01-01T09:00" &&
+            tela.gaveta() !== null,
+          `campo: ${tela.campo("publicado_em")?.value}`,
+        );
+
+        /* A OFERTA FUNCIONA. Um botão que não faz nada seria pior que nenhum
+           botão: a pessoa clicaria e continuaria sem entender por que o Post
+           não saiu. */
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: true,
+          dados: {
+            criado: false,
+            post: {
+              id: ID_DO_CICLO,
+              slug: "ciclo-de-vida",
+              estado: "publicado",
+              publicado_em: new Date(Date.now() - 60_000).toISOString(),
+            },
+          },
+        };
+        if (recusa?.action?.onClick) {
+          await act(async () => {
+            await recusa.action.onClick();
+          });
+        }
+        afirmar(
+          "acionar a saída PUBLICA de verdade: o pedido viaja com destino `publicado`",
+          modulo.controle.pedidos.length === 1 &&
+            modulo.controle.pedidos[0]?.estado === "publicado",
+          `pedidos: ${modulo.controle.pedidos.length} | destino: ${JSON.stringify(
+            modulo.controle.pedidos[0]?.estado,
+          )}`,
+        );
+        afirmar(
+          "e a tela passa a mostrar publicado, sem tirar o Autor do Editor",
+          tela.pilula()?.getAttribute("data-estado") === "publicado" &&
+            tela.gaveta() !== null,
+          `pílula: ${tela.pilula()?.getAttribute("data-estado")}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ── SAÍDA QUE A MÁQUINA NÃO DECLARA NÃO VIRA BOTÃO ─────────────── */
+      //
+      // A busca na máquina é a LISTA DE PERMISSÃO da oferta. Sem ela, uma
+      // resposta de servidor (ou um intermediário) poderia mandar a tela
+      // oferecer um caminho que ela não tem — e o botão levaria a uma segunda
+      // recusa, agora sem explicação nenhuma. `publicado` não tem ação
+      // `publicar`: de lá só se sai arquivando.
+      {
+        modulo.controle.post = postNoEstado("publicado", NO_PASSADO);
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: false,
+          erro: {
+            tipo: "dados_invalidos",
+            mensagem: "Não deu para gravar este post agora. Confira os campos e salve de novo.",
+            alternativa: transicoes.ACAO_PUBLICAR,
+          },
+        };
+        afirmar(
+          "a máquina não declara `publicar` para um Post publicado — é o que torna a asserção seguinte possível",
+          transicoes.acaoDoEstado("publicado", transicoes.ACAO_PUBLICAR) === null,
+        );
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        const historicoAntes = toast.getHistory().length;
+        await tela.clicar(tela.acaoPorChave("salvar"));
+        const novos = toast.getHistory().slice(historicoAntes);
+        const recusa = novos[novos.length - 1] ?? null;
+        afirmar(
+          "uma saída que a máquina não declara para este Estado NÃO vira botão — a oferta é lista de permissão",
+          recusa !== null && recusa.action === undefined,
+          `ação na notificação: ${JSON.stringify(recusa?.action?.label ?? null)}`,
+        );
+        await tela.desmontar();
+      }
+
       /* ── SALVAR UM POST PUBLICADO CONTINUA PUBLICADO ────────────────── */
       {
         modulo.controle.post = postNoEstado("publicado", NO_PASSADO);

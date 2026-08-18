@@ -27,7 +27,7 @@
 
 import { Toaster, toast } from "sonner";
 
-import { diagnosticarMensagem, exigir } from "./voz";
+import { diagnosticarMensagem, diagnosticarRotuloDeAcao, exigir } from "./voz";
 
 /**
  * Operação concluída. `oQueAconteceu` nomeia o fato: "Post salvo",
@@ -45,12 +45,24 @@ export function notificarSucesso(oQueAconteceu, detalhe) {
  *   `oQueFazer`  — "Confira a conexão e tente salvar de novo."
  *
  * Exigir as duas é o que impede a notificação de virar um beco sem saída.
+ *
+ * `saida` é opcional e vai um passo além da frase: `{ rotulo, aoAcionar }` vira
+ * um botão na própria notificação. Ele existe para a recusa cuja alternativa é
+ * conhecida — agendar para o passado, cuja saída é publicar agora —, e o
+ * rótulo passa pela MESMA guarda do botão de diálogo (`diagnosticarRotuloDeAcao`)
+ * porque é a mesma situação: a pessoa lê o botão, não o parágrafo, antes de
+ * clicar, e aqui ela está prestes a pôr um Post no ar.
  */
 // eslint-disable-next-line react-refresh/only-export-components -- idem: a regra de voz e o transporte da mensagem não se separam sem convidar a divergência.
-export function notificarErro(oQueHouve, oQueFazer) {
+export function notificarErro(oQueHouve, oQueFazer, saida = null) {
   exigir(diagnosticarMensagem("o que houve", oQueHouve));
   exigir(diagnosticarMensagem("o que fazer", oQueFazer));
-  return toast.error(oQueHouve, { description: oQueFazer });
+  const opcoes = { description: oQueFazer };
+  if (saida) {
+    exigir(diagnosticarRotuloDeAcao(saida.rotulo));
+    opcoes.action = { label: saida.rotulo, onClick: saida.aoAcionar };
+  }
+  return toast.error(oQueHouve, opcoes);
 }
 
 /**

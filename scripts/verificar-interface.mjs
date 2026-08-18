@@ -865,9 +865,27 @@ if (notificacoes) {
   );
   afirmar(
     "erro exige as DUAS metades: o que houve e o que fazer",
-    /notificarErro\(oQueHouve,\s*oQueFazer\)/.test(codigo) &&
+    // As duas continuam POSICIONAIS E SEM PADRÃO: um valor padrão em qualquer
+    // uma delas permitiria a chamada com uma metade só, que é o beco que a
+    // assinatura existe para impedir. O que veio depois delas é opcional.
+    /notificarErro\(oQueHouve,\s*oQueFazer\s*[,)]/.test(codigo) &&
+      !/notificarErro\(oQueHouve\s*=/.test(codigo) &&
+      !/notificarErro\(oQueHouve,\s*oQueFazer\s*=/.test(codigo) &&
       /diagnosticarMensagem\("o que houve"/.test(codigo) &&
       /diagnosticarMensagem\("o que fazer"/.test(codigo),
+  );
+  /*
+   * A SAÍDA OPCIONAL (Story 2.9). Quando a recusa tem alternativa conhecida —
+   * agendar para o passado, cuja saída é publicar agora —, ela vira um botão na
+   * própria notificação. O rótulo passa pela guarda de RÓTULO DE AÇÃO, e não
+   * pela de mensagem: a pessoa lê o botão antes de clicar, e aqui ela está
+   * prestes a pôr um post no ar.
+   */
+  afirmar(
+    "a saída opcional do erro vira botão, com o rótulo passando pela guarda de rótulo de ação",
+    /notificarErro\(oQueHouve,\s*oQueFazer,\s*saida\s*=\s*null\)/.test(codigo) &&
+      /exigir\(diagnosticarRotuloDeAcao\(saida\.rotulo\)\)/.test(codigo) &&
+      /action\s*=\s*\{\s*label:\s*saida\.rotulo|action:\s*\{\s*label:\s*saida\.rotulo/.test(codigo),
   );
   afirmar(
     "a notificação sai mesmo quando a guarda reprova o texto",
@@ -1621,8 +1639,14 @@ try {
 }
 
 if (formato) {
-  const { formatarData, formatarHora, formatarDataEHora, formatarNumero, FUSO_DE_APRESENTACAO } =
-    formato;
+  const {
+    formatarData,
+    formatarHora,
+    formatarDataEHora,
+    formatarDataEHoraPorExtenso,
+    formatarNumero,
+    FUSO_DE_APRESENTACAO,
+  } = formato;
 
   afirmar(
     "o fuso de apresentação é America/Sao_Paulo",
@@ -1659,6 +1683,36 @@ if (formato) {
     formatarDataEHora("2026-08-14T12:00:00Z") === "14/08/2026 09:00",
     formatarDataEHora("2026-08-14T12:00:00Z"),
   );
+  /*
+   * A DATA POR EXTENSO (Story 2.9). É o texto com que o Painel confirma um
+   * agendamento, e o dia da semana está nele de propósito: é o que torna um
+   * erro de fuso legível ANTES de o post ir ao ar.
+   *
+   * O par abaixo é o caso da meia-noite e meia, o erro de fuso mais silencioso
+   * que existe aqui. Uma hora de diferença no instante muda o dia, o mês E o
+   * dia da semana no texto — "terça-feira, 1º de setembro" contra
+   * "segunda-feira, 31 de agosto". Ninguém confunde os dois; `01/09` e `31/08`,
+   * de relance, sim.
+   */
+  afirmar(
+    "data por extenso, com dia da semana, no fuso do negócio",
+    formatarDataEHoraPorExtenso("2026-08-14T12:00:00Z") ===
+      "sexta-feira, 14 de agosto de 2026, às 09:00",
+    formatarDataEHoraPorExtenso("2026-08-14T12:00:00Z"),
+  );
+  afirmar(
+    "00h30 em São Paulo é lido como o dia marcado, e não como o anterior",
+    formatarDataEHoraPorExtenso("2026-09-01T03:30:00Z") ===
+      "terça-feira, 1 de setembro de 2026, às 00:30" &&
+      formatarDataEHoraPorExtenso("2026-09-01T02:30:00Z") ===
+        "segunda-feira, 31 de agosto de 2026, às 23:30",
+    `${formatarDataEHoraPorExtenso("2026-09-01T03:30:00Z")} | ${formatarDataEHoraPorExtenso("2026-09-01T02:30:00Z")}`,
+  );
+  afirmarQueLanca(
+    "data civil não vira agendamento por extenso: sem hora não há instante",
+    () => formatarDataEHoraPorExtenso("2026-08-14"),
+  );
+
   afirmar(
     "número em formato brasileiro",
     formatarNumero(1234567) === "1.234.567" && formatarNumero(0) === "0",
@@ -1746,19 +1800,36 @@ if (formato) {
    * que simplesmente não declara fuso nenhum.
    */
   const roteiro = `
-    import { formatarData, formatarDataEHora } from ${JSON.stringify(
-      pathToFileURL(path.join(raiz, CAMINHO_FORMATO)).href,
-    )};
+    import {
+      formatarData,
+      formatarDataEHora,
+      formatarDataEHoraPorExtenso,
+      deCampoDeInstante,
+    } from ${JSON.stringify(pathToFileURL(path.join(raiz, CAMINHO_FORMATO)).href)};
     process.stdout.write([
       formatarDataEHora("2026-01-01T02:00:00Z"),
       formatarData("2026-08-14"),
       formatarData("2026-01-01"),
+      formatarDataEHoraPorExtenso("2026-09-01T03:30:00Z"),
+      deCampoDeInstante("2026-09-01T00:30"),
     ].join("|"));
   `;
-  // A data civil entra aqui de propósito: é justamente sob TZ diferente do
-  // negócio que ela perderia o dia, e a máquina de quem roda a verificação pode
-  // estar em São Paulo — onde o defeito não apareceria.
-  const ESPERADO = "31/12/2025 23:00|14/08/2026|01/01/2026";
+  /*
+   * A data civil entra aqui de propósito: é justamente sob TZ diferente do
+   * negócio que ela perderia o dia, e a máquina de quem roda a verificação pode
+   * estar em São Paulo — onde o defeito não apareceria. A data por extenso entra
+   * pelo mesmo motivo e diz mais: sob TZ errado, o dia da SEMANA muda junto.
+   *
+   * `deCampoDeInstante` é o SENTIDO CONTRÁRIO, e é o que faltava aqui — o
+   * caminho por onde o agendamento entra. `new Date("2026-09-01T00:30")` é
+   * meia-noite e meia no fuso da MÁQUINA: numa máquina em São Paulo ele produz
+   * exatamente o valor certo, e uma substituição ingênua passaria despercebida
+   * por quem desenvolve daqui. Sob `Asia/Tokyo` ela erra por doze horas.
+   */
+  const ESPERADO =
+    "31/12/2025 23:00|14/08/2026|01/01/2026|" +
+    "terça-feira, 1 de setembro de 2026, às 00:30|" +
+    "2026-09-01T03:30:00.000Z";
   for (const fusoDaMaquina of ["UTC", "Asia/Tokyo", "America/Los_Angeles", "Pacific/Kiritimati"]) {
     let saida = null;
     try {
