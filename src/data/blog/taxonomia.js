@@ -13,8 +13,10 @@
  */
 
 import {
+  clienteDoPainelOuFalha,
   clientePublicoOuFalha,
   deslocamentoValido,
+  ehUuid,
   limiteValido,
 } from "./comum.js";
 import {
@@ -22,6 +24,7 @@ import {
   descrever,
   ehFaixaAlemDoFim,
   exigirLista,
+  naoEncontrado,
   sinalDePrazo,
   sucesso,
 } from "./resultado.js";
@@ -95,4 +98,49 @@ export function listarTags({ limite, deslocamento } = {}) {
     limite,
     deslocamento,
   });
+}
+
+/**
+ * As Tags de um Post, do lado do PAINEL.
+ *
+ * Pelo cliente autenticado, e não pelo público como as duas de cima: a política
+ * anônima de `posts_tags` deriva da visibilidade do Post, então as tags de um
+ * rascunho não voltariam — e é justamente o rascunho que o Editor abre. Ler o
+ * subconjunto anônimo aqui faria a gaveta abrir com nenhuma tag marcada e o
+ * primeiro salvamento APAGAR as que existiam.
+ *
+ * Devolve a lista de `{ id }` das tags associadas, para casar com o formato que
+ * a gaveta e a gravação usam.
+ */
+export async function listarTagsDoPostNoPainel(postId) {
+  const operacao = "listarTagsDoPostNoPainel";
+  if (!ehUuid(postId)) {
+    return naoEncontrado({
+      operacao,
+      detalhe: "identificador de post ausente ou fora do formato uuid",
+    });
+  }
+
+  const cliente = await clienteDoPainelOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  const resposta = await consultar(operacao, () =>
+    cliente.dados
+      .from("posts_tags")
+      .select("tag_id")
+      .eq("post_id", postId.trim())
+      .abortSignal(sinalDePrazo()),
+  );
+  if (!resposta.ok) return resposta;
+
+  const lista = exigirLista(resposta.dados, {
+    operacao,
+    validarItem: (linha) =>
+      linha !== null && typeof linha === "object" && typeof linha.tag_id === "string"
+        ? null
+        : `esperava { tag_id } e veio ${descrever(linha)}`,
+  });
+  if (!lista.ok) return lista;
+
+  return sucesso(lista.dados.map((linha) => ({ id: linha.tag_id })));
 }

@@ -29,9 +29,23 @@
  * Ele não aceita `estado` do cliente — nem na criação, nem na edição. Post novo
  * nasce `rascunho` pelo padrão da coluna; Post existente conserva o estado que
  * tinha. As transições explícitas (publicar, agendar, arquivar) são da Story
- * 2.8, e vão passar por aqui quando chegarem. Também não aceita metadado
- * (categoria, tags, capa, SEO): é da 2.6 e da 2.14. A lista de campos aceitos é
- * FECHADA, e o que vem fora dela é ignorado e relatado — nunca gravado.
+ * 2.8, e vão passar por aqui quando chegarem. A capa e o SEO continuam de fora,
+ * dos Épicos 3 e 4. A lista de campos aceitos é FECHADA, e o que vem fora dela
+ * é ignorado e relatado — nunca gravado.
+ *
+ * ─── O que a Story 2.6 acrescentou ──────────────────────────────────────────
+ *
+ * Os metadados do Post (`categoria_id`, `tags`, `publicado_em`, `tempo_leitura`)
+ * passaram a ser aceitos, e o ciclo de vida do endereço passou a existir por
+ * inteiro:
+ *
+ *   * colisão de Slug é detectada **antes de gravar**, contra Post ativo e
+ *     contra Slug aposentado — com a exceção deliberada do Post que retoma um
+ *     endereço que já foi dele;
+ *   * trocar o Slug de um Post que já esteve no ar **aposenta o anterior**, na
+ *     mesma transação, pela função de banco `aposentar_slug_do_post`. A 2.5
+ *     recusava essa troca porque o PostgREST não escreve em duas tabelas
+ *     atomicamente; a função de banco é o que faltava.
  */
 
 import {
@@ -41,6 +55,14 @@ import {
   ERRO_PERMISSAO,
   ERRO_REDE,
 } from "../../src/data/blog/resultado.js";
+/* O formato do endereço vem do DOMÍNIO, não de uma quarta cópia da expressão
+   regular escrita aqui. A tela gera o Slug com `gerarSlug`, este módulo o
+   valida com o mesmo formato, e o banco o impõe em `posts_slug_formato`: os
+   três precisam concordar, e a única forma de garantir isso é não haver três. */
+import {
+  FORMATO_DE_SLUG,
+  TAMANHO_MAXIMO_DO_SLUG,
+} from "../../src/domain/blog/slug.js";
 import { derivarHtml } from "../../src/render/blog/paraHtml.js";
 
 /* ─── O vocabulário de erro ──────────────────────────────────────────────── */
@@ -147,6 +169,12 @@ export const CAMPOS_ACEITOS = Object.freeze([
   "titulo",
   "resumo",
   "conteudo",
+  // Os quatro metadados da Story 2.6. `tags` é o único que não é coluna de
+  // `posts`: ele vira associação em `posts_tags`, por uma função de banco.
+  "categoria_id",
+  "tags",
+  "publicado_em",
+  "tempo_leitura",
 ]);
 
 /**
@@ -156,21 +184,21 @@ export const CAMPOS_ACEITOS = Object.freeze([
  * tentativa com significado próprio, e a resposta diz qual foi descartada:
  *
  *   `conteudo_html` — HTML nunca é entrada; o gravado é o derivado.
- *   `estado`        — Post novo nasce `rascunho`; transição é da Story 2.8.
- *   `publicado_em`  — o par estado + data é da 2.8 e da 2.9.
+ *   `estado`        — Post novo nasce `rascunho`; transição é da Story 2.8, e a
+ *                     função a recusa de propósito até lá.
  *   `autor_id`, `autor_nome` — o Autor é resolvido no servidor, sempre.
+ *
+ * `publicado_em` SAIU desta lista na Story 2.6: a Data de Publicação é dado que
+ * o Autor preenche na gaveta. O que continua fora é `estado` — a transição, e
+ * não a data, é o que a 2.8 governa.
  */
 export const CAMPOS_IGNORADOS = Object.freeze([
   "conteudo_html",
   "estado",
-  "publicado_em",
   "autor_id",
   "autor_nome",
 ]);
 
-/** O formato de slug que o banco impõe em `posts_slug_formato`. */
-const FORMATO_DE_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const TAMANHO_MAXIMO_DO_SLUG = 200;
 const TAMANHO_MAXIMO_DO_TITULO = 300;
 
 /**
@@ -195,6 +223,22 @@ const TAMANHO_MAXIMO_DO_TITULO = 300;
 const TAMANHO_MAXIMO_DO_RESUMO = 600;
 export const TAMANHO_MAXIMO_DO_CONTEUDO = 1_000_000;
 export const LIMITE_DE_IGNORADOS = 40;
+
+/**
+ * Tetos dos metadados da Story 2.6, pela mesma razão dos de cima: o banco não
+ * os impõe, e sem teto uma lista de cem mil tags vira uma transação que não
+ * termina.
+ *
+ *   `tags`          30 por Post. Acima disso a lista deixou de classificar e
+ *                   passou a ser texto livre com vírgulas.
+ *   `tempo_leitura` 1.000 minutos, dezesseis horas de leitura. Não é limite de
+ *                   produto: é o que impede um inteiro absurdo (ou negativo,
+ *                   que a restrição `posts_tempo_leitura_nao_negativo` já
+ *                   recusa no banco) de chegar lá para ser recusado como erro
+ *                   de banco em vez de como campo mal preenchido.
+ */
+export const LIMITE_DE_TAGS = 30;
+const TEMPO_DE_LEITURA_MAXIMO = 1000;
 
 const PADRAO_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -262,6 +306,63 @@ function mensagemDeRecusaDoBanco(resultado) {
 
 function texto(valor) {
   return typeof valor === "string" ? valor.trim() : null;
+}
+
+/** O que veio, em uma frase, para o detalhe do log. */
+function descreverValor(valor) {
+  if (valor === null) return "null";
+  if (Array.isArray(valor)) return `lista de ${valor.length}`;
+  return typeof valor;
+}
+
+/**
+ * Um instante COMPLETO — dia, hora e deslocamento —, normalizado em ISO 8601.
+ *
+ * Devolve `null` para tudo o que não é instante, e a exigência do deslocamento
+ * é o ponto: `"2026-08-17"` é aceito por `Date.parse` como meia-noite em UTC,
+ * que é 21h do dia ANTERIOR em São Paulo. Uma data civil que atravessasse aqui
+ * publicaria o Post um dia antes do combinado, e ninguém veria a conversão
+ * acontecer. `"2026-08-17T00:30"`, sem deslocamento, é pior ainda: o
+ * comportamento passa a depender do fuso da máquina que interpretar.
+ *
+ * A tela converte a hora de parede de São Paulo em instante antes de enviar —
+ * é o que `deCampoDeInstante`, em `domain/blog/formato.js`, faz.
+ */
+const INSTANTE_COMPLETO =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,9})?(Z|z|[+-]\d{2}:?\d{2})$/;
+
+function comoInstante(valor) {
+  if (typeof valor !== "string") return null;
+  const limpo = valor.trim();
+  const casou = INSTANTE_COMPLETO.exec(limpo);
+  if (!casou) return null;
+
+  /* O CALENDÁRIO É CONFERIDO AQUI, e não deixado para `Date.parse`.
+     Medido: `Date.parse("2026-02-31T10:00:00Z")` NÃO devolve `NaN` no V8 — ele
+     cai no analisador legado e responde 3 de março. Um dia que não existe
+     atravessaria como uma data silenciosamente diferente da que foi digitada, e
+     a única pista seria o Post publicar no dia errado. */
+  const ano = Number(casou[1]);
+  const mes = Number(casou[2]);
+  const dia = Number(casou[3]);
+  const hora = Number(casou[4]);
+  const minuto = Number(casou[5]);
+  const segundo = Number(casou[6] ?? 0);
+  if (mes < 1 || mes > 12 || dia < 1 || hora > 23 || minuto > 59 || segundo > 59) {
+    return null;
+  }
+  const redondo = new Date(Date.UTC(ano, mes - 1, dia));
+  if (
+    redondo.getUTCFullYear() !== ano ||
+    redondo.getUTCMonth() !== mes - 1 ||
+    redondo.getUTCDate() !== dia
+  ) {
+    return null;
+  }
+
+  const ms = Date.parse(limpo);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
 /** O tamanho do documento em caracteres de JSON, ou `null` se não serializa. */
@@ -335,14 +436,22 @@ export function lerCorpo(corpo, { criando }) {
     campos.slug = slug;
   }
 
-  if (corpo.resumo !== undefined) {
-    /* `null` LIMPA o resumo, e não é erro de tipo: sem isso não havia como
-       apagar um resumo já gravado — enviar vazio era recusado e omitir o campo
-       preservava o antigo. */
+  /* O RESUMO É OBRIGATÓRIO (Story 2.6), com a mesma forma do slug: exigido
+     para NASCER, opcional na edição no sentido de "omitir preserva o que já
+     está gravado". O que mudou em relação à 2.5 é que ele não pode mais ser
+     APAGADO: enviar `null` ou vazio deixou de limpar o campo e passou a ser
+     "falta preencher", porque o critério de aceite diz que Título e Resumo são
+     obrigatórios e o campo que falta é indicado. Limpar um resumo já gravado
+     deixaria o Post num estado que a tela não permite criar. */
+  if (corpo.resumo === undefined) {
+    if (criando) faltando.push("resumo");
+  } else {
     const resumo = corpo.resumo === null ? "" : texto(corpo.resumo);
     if (resumo === null) {
       problemas.push("O resumo do post precisa ser texto.");
       detalhes.push(`resumo veio ${typeof corpo.resumo}`);
+    } else if (resumo === "") {
+      faltando.push("resumo");
     } else if (resumo.length > TAMANHO_MAXIMO_DO_RESUMO) {
       problemas.push(
         `O resumo passa de ${TAMANHO_MAXIMO_DO_RESUMO} caracteres. Encurte antes de salvar.`,
@@ -350,6 +459,89 @@ export function lerCorpo(corpo, { criando }) {
       detalhes.push(`resumo com ${resumo.length} caracteres`);
     } else {
       campos.resumo = resumo;
+    }
+  }
+
+  /* ── Os metadados da gaveta ─────────────────────────────────────────────
+     Os quatro seguem a mesma convenção: ausente preserva, `null` limpa, valor
+     fora de forma é problema NOMEADO — nunca descartado em silêncio, porque um
+     metadado que some sem aviso é descoberto quando o Post já está no ar. */
+
+  if (corpo.categoria_id !== undefined) {
+    if (corpo.categoria_id === null || corpo.categoria_id === "") {
+      campos.categoria_id = null;
+    } else {
+      const categoria = texto(corpo.categoria_id);
+      if (categoria === null || !PADRAO_UUID.test(categoria)) {
+        problemas.push("Não reconhecemos a categoria escolhida. Escolha uma da lista.");
+        detalhes.push(
+          `categoria_id fora do formato de identificador: ${JSON.stringify(String(corpo.categoria_id).slice(0, 60))}`,
+        );
+      } else {
+        campos.categoria_id = categoria;
+      }
+    }
+  }
+
+  if (corpo.tags !== undefined) {
+    if (corpo.tags === null) {
+      campos.tags = [];
+    } else if (!Array.isArray(corpo.tags)) {
+      problemas.push("As tags do post precisam vir como uma lista.");
+      detalhes.push(`tags veio ${descreverValor(corpo.tags)}`);
+    } else if (corpo.tags.length > LIMITE_DE_TAGS) {
+      problemas.push(
+        `Um post aceita no máximo ${LIMITE_DE_TAGS} tags. Escolha as que classificam de verdade.`,
+      );
+      detalhes.push(`tags com ${corpo.tags.length} itens`);
+    } else {
+      const invalida = corpo.tags.find(
+        (t) => typeof t !== "string" || !PADRAO_UUID.test(t.trim()),
+      );
+      if (invalida !== undefined) {
+        problemas.push("Não reconhecemos uma das tags escolhidas. Escolha-as da lista.");
+        detalhes.push(`tag fora do formato: ${JSON.stringify(String(invalida).slice(0, 60))}`);
+      } else {
+        // Repetida é a mesma tag: o par (post, tag) é chave primária, e mandar
+        // duas iguais transformaria uma escolha inofensiva em erro de banco.
+        campos.tags = [...new Set(corpo.tags.map((t) => t.trim()))];
+      }
+    }
+  }
+
+  if (corpo.publicado_em !== undefined) {
+    if (corpo.publicado_em === null || corpo.publicado_em === "") {
+      campos.publicado_em = null;
+    } else {
+      const instante = comoInstante(corpo.publicado_em);
+      if (instante === null) {
+        problemas.push(
+          "A data de publicação não é um momento válido. Informe dia e hora — o horário é o de Brasília.",
+        );
+        detalhes.push(
+          `publicado_em não é instante: ${JSON.stringify(String(corpo.publicado_em).slice(0, 60))}`,
+        );
+      } else {
+        campos.publicado_em = instante;
+      }
+    }
+  }
+
+  if (corpo.tempo_leitura !== undefined) {
+    if (corpo.tempo_leitura === null || corpo.tempo_leitura === "") {
+      campos.tempo_leitura = 0;
+    } else {
+      const minutos = Number(corpo.tempo_leitura);
+      if (!Number.isInteger(minutos) || minutos < 0 || minutos > TEMPO_DE_LEITURA_MAXIMO) {
+        problemas.push(
+          `O tempo de leitura é um número inteiro de minutos, de 0 a ${TEMPO_DE_LEITURA_MAXIMO}.`,
+        );
+        detalhes.push(
+          `tempo_leitura fora da faixa: ${JSON.stringify(String(corpo.tempo_leitura).slice(0, 60))}`,
+        );
+      } else {
+        campos.tempo_leitura = minutos;
+      }
     }
   }
 
@@ -520,18 +712,28 @@ async function gravar({ token, corpo, acesso }) {
   /* ── 4. Gravar ─────────────────────────────────────────────────────────── */
 
   if (criando) {
+    /* A COLISÃO É VERIFICADA ANTES DE GRAVAR, e não descoberta pela violação
+       de unicidade. A restrição existe e vai barrar de qualquer forma — mas aí
+       a pessoa recebe um erro de banco depois de escrever o Post inteiro.
+       Verificar antes é o que transforma isso num aviso enquanto ainda dá para
+       escolher outro endereço. O banco continua sendo a última linha, não a
+       primeira. */
+    const livre = await enderecoLivre({ acesso, slug: lido.campos.slug, id: null });
+    if (!livre.ok) return livre;
+
     const autor = await resolverAutor({ acesso, conta });
     if (!autor.ok) return autor;
 
     /* `estado` fica FORA do comando de propósito: o padrão da coluna é
        `rascunho`, e o cliente não tem voz aqui. Post que nasce publicado por
        causa de um campo no corpo do pedido é o defeito que esta ausência
-       impede. */
+       impede. `tags` também fica de fora — ela não é coluna de `posts`. */
     const escrita = await acesso.inserirPost({
       slug: lido.campos.slug,
       titulo: lido.campos.titulo,
       resumo: lido.campos.resumo ?? "",
       ...conteudo,
+      ...colunasDeMetadado(lido.campos),
       autor_id: autor.autor_id,
       autor_nome: autor.autor_nome,
     });
@@ -541,7 +743,9 @@ async function gravar({ token, corpo, acesso }) {
         detalhe: "a criação não devolveu a linha gravada",
       });
     }
-    return sucesso({ post: escrita.dados, criado: true, lido, derivado });
+    const tags = await gravarTags({ acesso, id: escrita.dados.id, lido });
+    if (!tags.ok) return tags;
+    return sucesso({ post: escrita.dados, criado: true, lido, derivado, tags: tags.tags });
   }
 
   const existente = await acesso.lerPost(id);
@@ -552,35 +756,47 @@ async function gravar({ token, corpo, acesso }) {
     });
   }
 
-  /* ── O ENDEREÇO DE UM POST QUE JÁ ESTEVE NO AR NÃO MUDA POR AQUI ────────── */
+  /* ── O ENDEREÇO DE UM POST QUE JÁ ESTEVE NO AR MUDA APOSENTANDO O ANTERIOR ─ */
   //
   // `slugs_antigos` existe como base do redirecionamento permanente (301), e
-  // esta função é o único caminho de escrita — então trocar o slug aqui sem
-  // aposentar o anterior quebraria, em silêncio, toda URL já publicada.
+  // esta função é o único caminho de escrita — então trocar o slug sem aposentar
+  // o anterior quebraria, em silêncio, toda URL já publicada.
   //
-  // Aposentar o slug na MESMA operação que grava o Post exige escrever em duas
-  // tabelas atomicamente, o que o PostgREST não faz: precisaria de uma função no
-  // banco, e o ciclo de vida do slug (geração, edição, colisão com aposentado) é
-  // da Story 2.6, que é quem tem o desenho inteiro. Fazer metade aqui produziria
-  // exatamente o "gravado pela metade" que a story proíbe.
-  //
-  // Então a escolha é recusar em vez de quebrar: rascunho troca de endereço à
-  // vontade — nunca teve URL —, e Post que já esteve no ar recusa. A Story 2.6
-  // substitui esta recusa pelo caminho completo, com aposentadoria.
-  const jaTeveUrl =
-    existente.dados.estado !== "rascunho" || existente.dados.publicado_em !== null;
-  if (
-    lido.campos.slug !== undefined &&
-    lido.campos.slug !== existente.dados.slug &&
-    jaTeveUrl
-  ) {
-    return falha(ERRO_CONFLITO, {
-      mensagem:
-        "Este post já esteve no ar com outro endereço, e trocá-lo agora quebraria os links que apontam para ele. Salve o texto mantendo o endereço atual.",
-      detalhe:
-        `troca de slug recusada em post com estado ${existente.dados.estado} ` +
-        `(${existente.dados.slug} → ${lido.campos.slug}); a aposentadoria em slugs_antigos é da Story 2.6`,
-    });
+  // A Story 2.5 RECUSAVA a troca, porque aposentar exige escrever em duas
+  // tabelas atomicamente e o PostgREST faz uma por chamada. A função de banco
+  // `aposentar_slug_do_post` é o que faltava: uma chamada, uma transação, as
+  // duas escritas juntas ou nenhuma.
+
+  const trocandoEndereco =
+    lido.campos.slug !== undefined && lido.campos.slug !== existente.dados.slug;
+  /* O endereço já foi trocado pela função de banco? É esta pergunta, e não "o
+     endereço mudou?", que decide se o comando comum ainda precisa carregá-lo. */
+  let enderecoJaAplicado = false;
+
+  if (trocandoEndereco) {
+    const livre = await enderecoLivre({ acesso, slug: lido.campos.slug, id });
+    if (!livre.ok) return livre;
+
+    /* Duas razões para o endereço ser trocado pela função de banco em vez de
+       pelo comando comum:
+
+         * o Post JÁ ESTEVE NO AR — há links a preservar, e o anterior precisa
+           virar destino de redirecionamento;
+         * ou o endereço novo é um endereço APOSENTADO DESTE MESMO POST — é o
+           desfazer de uma renomeação, e a linha de aposentadoria precisa sair
+           junto, senão o mesmo endereço ficaria ativo e aposentado ao mesmo
+           tempo.
+
+       Fora desses dois casos é rascunho estreando endereço: nunca teve URL, não
+       há nada a aposentar, e criar uma linha em `slugs_antigos` para um endereço
+       que ninguém viu só bloquearia o reúso dele por outro Post. */
+    const precisaAposentar = jaEsteveNoAr(existente.dados) || livre.retomadoDoProprioPost;
+
+    if (precisaAposentar) {
+      const troca = await acesso.aposentarSlug(id, lido.campos.slug);
+      if (!troca.ok) return falhaDaEscrita(troca, "aposentadoria do endereço anterior");
+      enderecoJaAplicado = true;
+    }
   }
 
   /* O AUTOR NÃO ENTRA NO COMANDO DE ATUALIZAÇÃO.
@@ -590,8 +806,15 @@ async function gravar({ token, corpo, acesso }) {
      ausência é a forma mais forte de "não muda", porque não há valor a
      calcular errado. `estado` fica fora pelo mesmo mecanismo: salvar não é
      transição, e transição é da Story 2.8. */
-  const alteracao = { titulo: lido.campos.titulo, ...conteudo };
-  if (lido.campos.slug !== undefined) alteracao.slug = lido.campos.slug;
+  const alteracao = { titulo: lido.campos.titulo, ...conteudo, ...colunasDeMetadado(lido.campos) };
+  /* O `slug` só fica de fora quando a função de banco JÁ o aplicou: mandá-lo de
+     novo seria uma segunda escrita do mesmo valor, e um `update` de slug dispara
+     o gatilho de unicidade contra a linha de aposentadoria que a função acabou
+     de criar. Quando não houve aposentadoria — rascunho estreando endereço —, é
+     este comando que troca o endereço, e omiti-lo faria a troca sumir. */
+  if (lido.campos.slug !== undefined && !enderecoJaAplicado) {
+    alteracao.slug = lido.campos.slug;
+  }
   if (lido.campos.resumo !== undefined) alteracao.resumo = lido.campos.resumo;
 
   const escrita = await acesso.atualizarPost(id, alteracao);
@@ -603,7 +826,121 @@ async function gravar({ token, corpo, acesso }) {
       detalhe: `o post ${id} desapareceu entre a leitura e a gravação`,
     });
   }
-  return sucesso({ post: escrita.dados, criado: false, lido, derivado });
+  const tags = await gravarTags({ acesso, id, lido });
+  if (!tags.ok) return tags;
+  return sucesso({ post: escrita.dados, criado: false, lido, derivado, tags: tags.tags });
+}
+
+/**
+ * O Post já esteve visível para quem não tem sessão?
+ *
+ * É a pergunta que decide se existe link a preservar, e ela é respondida pela
+ * MESMA regra da política de leitura anônima: estado publicável e data de
+ * publicação já atingida. Ler `publicado_em !== null` sozinho, como a 2.5 fazia,
+ * deixou de servir na 2.6 — agora a gaveta preenche a data, e um rascunho com
+ * data futura passaria a ser tratado como Post no ar, aposentando endereços que
+ * ninguém nunca viu.
+ *
+ * Rascunho é `false` sempre: rascunho é invisível por construção. Arquivado com
+ * data no passado é `true`: ele esteve no ar, e o link continua na mão de quem
+ * o guardou.
+ */
+function jaEsteveNoAr(post) {
+  if (post?.estado === "rascunho") return false;
+  const quando = post?.publicado_em ? Date.parse(post.publicado_em) : Number.NaN;
+  return Number.isFinite(quando) && quando <= Date.now();
+}
+
+/**
+ * Este endereço pode pertencer a este Post?
+ *
+ * Devolve `{ ok: true, retomadoDoProprioPost }` ou uma falha de conflito. A
+ * consulta é contra os DOIS lugares em que um endereço existe:
+ *
+ *   * `posts` — outro Post ativo com o mesmo endereço;
+ *   * `slugs_antigos` — endereço aposentado, que ainda resolve por
+ *     redirecionamento e por isso não pode ser dado a outro Post.
+ *
+ * A exceção deliberada, que a Story 2.1 registrou no gatilho: um Post pode
+ * retomar um endereço aposentado que aponta para ELE MESMO. É o desfazer de uma
+ * renomeação, e o resolvedor consulta o endereço ativo antes do aposentado —
+ * então não há ambiguidade.
+ */
+async function enderecoLivre({ acesso, slug, id }) {
+  if (slug === undefined || slug === null || slug === "") {
+    return { ok: true, retomadoDoProprioPost: false };
+  }
+
+  const ativo = await acesso.postPorSlug(slug);
+  if (!ativo.ok) return falhaDaEscrita(ativo, "conferência do endereço entre os posts");
+  if (ativo.dados !== null && ativo.dados.id !== id) {
+    return falha(ERRO_CONFLITO, {
+      mensagem: `Já existe um post no endereço "${slug}". Escolha outro antes de salvar.`,
+      detalhe: `slug ${slug} já pertence ao post ${ativo.dados.id}`,
+    });
+  }
+
+  const aposentado = await acesso.slugAposentado(slug);
+  if (!aposentado.ok) {
+    return falhaDaEscrita(aposentado, "conferência do endereço entre os aposentados");
+  }
+  if (aposentado.dados !== null) {
+    if (aposentado.dados.post_id !== id) {
+      return falha(ERRO_CONFLITO, {
+        mensagem:
+          `O endereço "${slug}" já foi de outro post e continua redirecionando para ele. ` +
+          "Escolha outro antes de salvar.",
+        detalhe: `slug ${slug} está aposentado apontando para o post ${aposentado.dados.post_id}`,
+      });
+    }
+    return { ok: true, retomadoDoProprioPost: true };
+  }
+
+  return { ok: true, retomadoDoProprioPost: false };
+}
+
+/** Os metadados que são COLUNA de `posts`. `tags` não é, e por isso fica fora. */
+function colunasDeMetadado(campos) {
+  const saida = {};
+  for (const nome of ["categoria_id", "publicado_em", "tempo_leitura"]) {
+    if (campos[nome] !== undefined) saida[nome] = campos[nome];
+  }
+  return saida;
+}
+
+/**
+ * O conjunto de Tags do Post, gravado pela função de banco.
+ *
+ * ─── O que esta escrita NÃO garante, e por quê ──────────────────────────────
+ *
+ * O conjunto de tags entra ou não entra por inteiro — a função de banco troca as
+ * associações numa transação só. O que ela não faz é entrar na MESMA transação
+ * que o texto do Post: são duas chamadas, e o PostgREST não as junta. Se a
+ * segunda falhar, o texto está salvo e as tags não — e a frase de erro diz
+ * exatamente isso, para que a pessoa saiba que reabrir e salvar de novo conserta
+ * em vez de duplicar.
+ *
+ * A escolha é deliberada: amarrar as duas exigiria mover a gravação inteira para
+ * dentro de uma função de banco, o que faria a validação do documento e a
+ * derivação do HTML terem de existir em SQL — a terceira implementação do
+ * renderizador que a arquitetura proíbe. Endereço quebrado é dano permanente e
+ * silencioso; tag faltando é visível na volta ao Editor.
+ */
+async function gravarTags({ acesso, id, lido }) {
+  if (lido.campos.tags === undefined) return { ok: true, tags: null };
+
+  const resposta = await acesso.definirTags(id, lido.campos.tags);
+  if (!resposta.ok) {
+    const tipo = classificar(resposta);
+    return falha(tipo, {
+      mensagem:
+        "O texto do post foi salvo, mas as tags não. Abra o post e salve de novo para aplicá-las.",
+      detalhe: detalhar(resposta, "gravação das tags do post"),
+      codigo: resposta.codigo,
+      status: resposta.status,
+    });
+  }
+  return { ok: true, tags: [...lido.campos.tags] };
 }
 
 /** Falha de uma chamada de escrita, já classificada e com frase certa. */
@@ -674,12 +1011,16 @@ async function resolverAutor({ acesso, conta }) {
  * poder dizer "o que você mandou em `conteudo_html` foi ignorado" e "a tabela
  * colada foi removida" — conteúdo que some sem aviso vira perda permanente.
  */
-function sucesso({ post, criado, lido, derivado }) {
+function sucesso({ post, criado, lido, derivado, tags = null }) {
   return Object.freeze({
     ok: true,
     dados: Object.freeze({
       post,
       criado,
+      // `null` significa "o pedido não falou de tags", que é diferente de `[]`,
+      // que significa "o pedido pediu nenhuma tag". A tela precisa distinguir os
+      // dois para não apagar o que não tocou.
+      tags: tags === null ? null : Object.freeze([...tags]),
       ignorados: Object.freeze([...lido.ignorados]),
       totalIgnorado: lido.totalIgnorado,
       ignoradosTruncados: lido.ignoradosTruncados,

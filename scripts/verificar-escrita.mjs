@@ -754,6 +754,12 @@ function acessoDeTeste({
   post = null,
   respostaDoToken = null,
   respostaDaEscrita = null,
+  // Story 2.6: quem é o dono do endereço, entre os ativos e entre os
+  // aposentados. `null` significa "ninguém", que é o caso comum.
+  donoAtivo = null,
+  donoAposentado = null,
+  respostaDaAposentadoria = null,
+  respostaDasTags = null,
 } = {}) {
   const chamadas = [];
   const reg = (nome, argumentos) => chamadas.push({ nome, argumentos });
@@ -769,7 +775,14 @@ function acessoDeTeste({
   };
   return {
     chamadas,
-    escritas: () => chamadas.filter((c) => c.nome === "inserirPost" || c.nome === "atualizarPost"),
+    /* As ESCRITAS incluem a aposentadoria e as tags: as duas gravam, e uma
+       recusa que chamasse qualquer uma delas teria gravado. Contar só o
+       `insert` e o `update` deixaria a asserção "nada foi gravado" verdadeira
+       sobre uma linha nova em `slugs_antigos`. */
+    escritas: () =>
+      chamadas.filter((c) =>
+        ["inserirPost", "atualizarPost", "aposentarSlug", "definirTags"].includes(c.nome),
+      ),
     contaDoToken(token) {
       reg("contaDoToken", [token]);
       if (respostaDoToken) return respostaDoToken;
@@ -782,6 +795,25 @@ function acessoDeTeste({
     lerPost(id) {
       reg("lerPost", [id]);
       return { ok: true, status: 200, dados: post };
+    },
+    postPorSlug(slug) {
+      reg("postPorSlug", [slug]);
+      const achou = donoAtivo !== null && donoAtivo.slug === slug ? donoAtivo : null;
+      return { ok: true, status: 200, dados: achou };
+    },
+    slugAposentado(slug) {
+      reg("slugAposentado", [slug]);
+      const achou =
+        donoAposentado !== null && donoAposentado.slug === slug ? donoAposentado : null;
+      return { ok: true, status: 200, dados: achou };
+    },
+    aposentarSlug(id, slugNovo) {
+      reg("aposentarSlug", [{ id, slugNovo }]);
+      return respostaDaAposentadoria ?? { ok: true, status: 200, dados: post?.slug ?? null };
+    },
+    definirTags(id, tags) {
+      reg("definirTags", [{ id, tags }]);
+      return respostaDasTags ?? { ok: true, status: 200, dados: tags.length };
     },
     inserirPost(campos) {
       return escrever("inserirPost", campos);
@@ -1404,13 +1436,29 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
     !CAMPOS_ACEITOS.includes("conteudo_html"),
     CAMPOS_ACEITOS.join(", "),
   );
-  for (const campo of ["conteudo_html", "estado", "autor_id", "autor_nome", "publicado_em"]) {
+  for (const campo of ["conteudo_html", "estado", "autor_id", "autor_nome"]) {
     afirmar(
       `\`${campo}\` está declarado como ignorado, com nome`,
       CAMPOS_IGNORADOS.includes(campo),
       CAMPOS_IGNORADOS.join(", "),
     );
   }
+  /* `publicado_em` SAIU dos ignorados na Story 2.6: a Data de Publicação é dado
+     que o Autor preenche na gaveta. O que continua fora é `estado` — a
+     TRANSIÇÃO, e não a data, é o que a Story 2.8 governa. As duas metades são
+     afirmadas juntas para que ninguém "destrave" a segunda ao ler a primeira. */
+  for (const campo of ["categoria_id", "tags", "publicado_em", "tempo_leitura"]) {
+    afirmar(
+      `\`${campo}\` é ACEITO — é metadado da gaveta da Story 2.6`,
+      CAMPOS_ACEITOS.includes(campo) && !CAMPOS_IGNORADOS.includes(campo),
+      CAMPOS_ACEITOS.join(", "),
+    );
+  }
+  afirmar(
+    "`estado` continua RECUSADO, e a fronteira com a Story 2.8 continua onde estava",
+    CAMPOS_IGNORADOS.includes("estado") && !CAMPOS_ACEITOS.includes("estado"),
+    CAMPOS_IGNORADOS.join(", "),
+  );
   afirmar(
     "nenhum campo aparece nas duas listas ao mesmo tempo",
     !CAMPOS_ACEITOS.some((c) => CAMPOS_IGNORADOS.includes(c)),
@@ -1789,14 +1837,12 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
 
   const tudoAusente = lerCorpo({}, { criando: true });
   afirmar(
-    "criação sem nada reporta os três campos obrigatórios de uma vez",
+    "criação sem nada reporta os QUATRO campos obrigatórios de uma vez",
     tudoAusente.ok === false &&
-      mesmoConjunto(tudoAusente.faltando, ["titulo", "slug", "conteudo"]),
+      mesmoConjunto(tudoAusente.faltando, ["titulo", "slug", "resumo", "conteudo"]),
     JSON.stringify(tudoAusente.faltando),
   );
 
-  // `resumo` não tinha teto (título e slug tinham) e não havia como limpá-lo:
-  // enviar nulo era recusado como erro de tipo.
   const resumoLongo = lerCorpo(
     { titulo: "t", slug: "s", resumo: "x".repeat(5000), conteudo: DOCUMENTO_COMPLETO },
     { criando: true },
@@ -1806,14 +1852,37 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
     resumoLongo.ok === false && /resumo passa de/i.test(resumoLongo.mensagem),
     resumoLongo.ok ? "passou" : resumoLongo.mensagem,
   );
-  const resumoLimpo = lerCorpo(
-    { titulo: "t", slug: "s", resumo: null, conteudo: DOCUMENTO_COMPLETO },
-    { criando: true },
-  );
+
+  /* O RESUMO PASSOU A SER OBRIGATÓRIO (Story 2.6), e isso REVERTE o
+     comportamento que a 2.5 tinha acabado de introduzir: lá, `resumo: null`
+     limpava o campo. O critério de aceite desta story diz que Título e Resumo
+     são obrigatórios e que o campo que falta é INDICADO — então apagar o resumo
+     deixaria o Post num estado que a tela não consegue criar. As três formas de
+     "vazio" caem no mesmo lugar, e todas nomeiam o campo. */
+  for (const [comoVeio, valor] of [
+    ["nulo", null],
+    ["string vazia", ""],
+    ["só espaços", "   "],
+  ]) {
+    const r = lerCorpo(
+      { titulo: "t", slug: "s", resumo: valor, conteudo: DOCUMENTO_COMPLETO },
+      { criando: true },
+    );
+    afirmar(
+      `resumo ${comoVeio} é "falta preencher", e a resposta NOMEIA o campo`,
+      r.ok === false && mesmoConjunto(r.faltando, ["resumo"]),
+      r.ok ? "passou" : JSON.stringify(r.faltando),
+    );
+  }
   afirmar(
-    "resumo nulo LIMPA o campo em vez de ser erro de tipo",
-    resumoLimpo.ok === true && resumoLimpo.campos.resumo === "",
-    JSON.stringify(resumoLimpo).slice(0, 160),
+    "resumo AUSENTE na edição preserva o que está gravado (não é falta)",
+    (() => {
+      const r = lerCorpo(
+        { titulo: "t", conteudo: DOCUMENTO_COMPLETO },
+        { criando: false },
+      );
+      return r.ok === true && !Object.hasOwn(r.campos, "resumo");
+    })(),
   );
 
   // Teto de tamanho: é ele que limita também a LARGURA do documento, e é o que
@@ -1828,7 +1897,10 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
       })),
     };
     const tamanho = JSON.stringify(largo).length;
-    const r = lerCorpo({ titulo: "t", slug: "s", conteudo: largo }, { criando: true });
+    const r = lerCorpo(
+      { titulo: "t", slug: "s", resumo: "r", conteudo: largo },
+      { criando: true },
+    );
     afirmar(
       `documento de ${tamanho} caracteres de JSON é recusado pelo teto de ${TAMANHO_MAXIMO_DO_CONTEUDO}`,
       tamanho > TAMANHO_MAXIMO_DO_CONTEUDO &&
@@ -1841,7 +1913,7 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
   // `ignorados` não tinha teto enquanto o relatório de descartes do schema tinha:
   // dez mil chaves inventadas no corpo voltavam como dez mil strings.
   {
-    const corpo = { titulo: "t", slug: "s", conteudo: DOCUMENTO_COMPLETO };
+    const corpo = { titulo: "t", slug: "s", resumo: "r", conteudo: DOCUMENTO_COMPLETO };
     for (let i = 0; i < 5000; i += 1) corpo[`inventado_${i}`] = 1;
     const r = lerCorpo(corpo, { criando: true });
     afirmar(
@@ -2071,9 +2143,13 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       !Object.hasOwn(enviado, "estado"),
       Object.keys(enviado).join(", "),
     );
+    /* `publicado_em` DEIXOU de ser ignorado na Story 2.6 — e aqui ele veio no
+       corpo, então tem de chegar ao banco, normalizado em UTC. É a metade que
+       mudou; a metade que NÃO mudou é `estado`, afirmada logo acima. */
     afirmar(
-      "`publicado_em` não é enviado ao banco",
-      !Object.hasOwn(enviado, "publicado_em"),
+      "`publicado_em` é enviado ao banco, normalizado em UTC",
+      enviado.publicado_em === "2000-01-01T00:00:00.000Z",
+      String(enviado.publicado_em),
     );
     afirmar(
       "o Autor gravado é o do PERFIL da Conta autenticada, não o enviado",
@@ -2090,7 +2166,6 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       mesmoConjunto(r.dados.ignorados, [
         "conteudo_html",
         "estado",
-        "publicado_em",
         "autor_id",
         "autor_nome",
         "campo_inventado",
@@ -2132,64 +2207,377 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
   );
 }
 
-/* O ENDEREÇO DE UM POST QUE JÁ ESTEVE NO AR NÃO MUDA POR AQUI.
-   `slugs_antigos` é a base do 301 e esta função é o único caminho de escrita:
-   trocar o slug sem aposentar o anterior quebraria toda URL publicada, em
-   silêncio. Aposentar exige escrever em duas tabelas atomicamente — função no
-   banco — e o ciclo de vida do slug é da Story 2.6. Recusar é o que não quebra
-   nada enquanto isso. */
+/* ─── O CICLO DE VIDA DO ENDEREÇO (Story 2.6) ─────────────────────────────
+   A Story 2.5 RECUSAVA trocar o endereço de um Post que já esteve no ar, porque
+   aposentar o anterior exige escrever em duas tabelas atomicamente e o PostgREST
+   faz uma por chamada. A função de banco `aposentar_slug_do_post` é o que
+   faltava — e a recusa vira o caminho completo. */
 {
-  const publicado = {
+  const PUBLICADO = Object.freeze({
     id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     slug: "endereco-antigo",
     estado: "publicado",
+    // No PASSADO: é o que faz o Post já ter estado visível sob a política de
+    // leitura anônima, e portanto ter link a preservar.
     publicado_em: "2026-01-01T00:00:00Z",
     autor_id: "99999999-9999-9999-9999-999999999999",
     autor_nome: "Autor Original",
-  };
-  const acesso = acessoDeTeste({ post: publicado });
-  const r = await salvarPost({
-    token: "bom",
-    corpo: corpoValido({ id: publicado.id, slug: "endereco-novo" }),
-    acesso,
   });
-  afirmar(
-    "trocar o endereço de um Post que já esteve no ar é RECUSADO, não gravado em silêncio",
-    r.ok === false && r.erro.tipo === ERRO_CONFLITO,
-    r.ok ? "GRAVOU e quebrou a URL antiga" : `tipo ${r.erro.tipo}`,
-  );
-  afirmar(
-    "e nada foi gravado",
-    acesso.escritas().length === 0,
-    `escritas: ${acesso.escritas().length}`,
-  );
 
-  // Rascunho nunca teve URL: troca de endereço à vontade.
-  const rascunho = { ...publicado, estado: "rascunho", publicado_em: null };
-  const acessoRascunho = acessoDeTeste({ post: rascunho });
-  const rr = await salvarPost({
-    token: "bom",
-    corpo: corpoValido({ id: rascunho.id, slug: "endereco-novo" }),
-    acesso: acessoRascunho,
-  });
-  afirmar(
-    "rascunho troca de endereço à vontade — nunca teve URL para quebrar",
-    rr.ok === true && acessoRascunho.escritas()[0]?.argumentos[0]?.slug === "endereco-novo",
-    rr.ok ? JSON.stringify(acessoRascunho.escritas()[0]?.argumentos[0]?.slug) : `${rr.erro.tipo}`,
-  );
+  /* Troca de endereço de Post no ar: aposenta o anterior, PELA FUNÇÃO DE BANCO,
+     e o comando comum não repete o slug — mandá-lo de novo dispararia o gatilho
+     de unicidade contra a linha de aposentadoria recém-criada. */
+  {
+    const acesso = acessoDeTeste({ post: PUBLICADO });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: PUBLICADO.id, slug: "endereco-novo" }),
+      acesso,
+    });
+    const aposentadoria = acesso.chamadas.find((c) => c.nome === "aposentarSlug");
+    const atualizacao = acesso.chamadas.find((c) => c.nome === "atualizarPost");
+    afirmar(
+      "trocar o endereço de um Post que já esteve no ar é ACEITO",
+      r.ok === true,
+      r.ok ? "" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+    afirmar(
+      "e a troca passa pela função de banco que aposenta o anterior na mesma transação",
+      aposentadoria?.argumentos[0]?.id === PUBLICADO.id &&
+        aposentadoria?.argumentos[0]?.slugNovo === "endereco-novo",
+      JSON.stringify(aposentadoria?.argumentos[0] ?? null),
+    );
+    afirmar(
+      "o comando comum de atualização NÃO repete o slug já trocado pela função",
+      atualizacao !== undefined && !Object.hasOwn(atualizacao.argumentos[0], "slug"),
+      Object.keys(atualizacao?.argumentos[0] ?? {}).join(", "),
+    );
+  }
+
+  /* FALHA EM UMA DESFAZ A OUTRA. A atomicidade real é do Postgres — o corpo de
+     uma função é uma transação —, e o que se prova aqui é a outra metade: se a
+     aposentadoria falhar, o núcleo NÃO segue gravando. Sem esta guarda, o Post
+     receberia o endereço novo pelo comando comum e o antigo ficaria sem
+     destino. */
+  {
+    const acesso = acessoDeTeste({
+      post: PUBLICADO,
+      respostaDaAposentadoria: {
+        ok: false,
+        status: 409,
+        codigo: "23505",
+        mensagem: "slug já está em uso",
+      },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: PUBLICADO.id, slug: "endereco-novo" }),
+      acesso,
+    });
+    afirmar(
+      "aposentadoria que falha interrompe a gravação — a metade que sobrou não é gravada",
+      r.ok === false && r.erro.tipo === ERRO_CONFLITO,
+      r.ok ? "GRAVOU MESMO ASSIM" : `tipo ${r.erro.tipo}`,
+    );
+    afirmar(
+      "e o comando comum de atualização não chegou a ser chamado",
+      !acesso.chamadas.some((c) => c.nome === "atualizarPost"),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+  }
+
+  /* Rascunho nunca esteve visível: troca de endereço à vontade, e SEM criar uma
+     linha de aposentadoria para um endereço que ninguém viu — ela só bloquearia
+     o reúso daquele endereço por outro Post. */
+  {
+    const rascunho = { ...PUBLICADO, estado: "rascunho", publicado_em: null };
+    const acesso = acessoDeTeste({ post: rascunho });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: rascunho.id, slug: "endereco-novo" }),
+      acesso,
+    });
+    afirmar(
+      "rascunho troca de endereço à vontade — nunca teve URL para quebrar",
+      r.ok === true &&
+        acesso.chamadas.find((c) => c.nome === "atualizarPost")?.argumentos[0]?.slug ===
+          "endereco-novo",
+      r.ok ? "slug não veio no comando" : `${r.erro.tipo}`,
+    );
+    afirmar(
+      "e nenhum endereço é aposentado por um rascunho que nunca esteve no ar",
+      !acesso.chamadas.some((c) => c.nome === "aposentarSlug"),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+  }
+
+  /* RASCUNHO COM DATA FUTURA continua sendo rascunho. A 2.5 lia
+     `publicado_em !== null` como "já esteve no ar", e isso deixou de servir
+     quando a gaveta passou a preencher a data: um rascunho agendado para o mês
+     que vem aposentaria endereços que ninguém nunca viu. */
+  {
+    const futuro = {
+      ...PUBLICADO,
+      estado: "rascunho",
+      publicado_em: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const acesso = acessoDeTeste({ post: futuro });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: futuro.id, slug: "endereco-novo" }),
+      acesso,
+    });
+    afirmar(
+      "rascunho com data de publicação FUTURA não aposenta endereço — ele nunca esteve visível",
+      r.ok === true && !acesso.chamadas.some((c) => c.nome === "aposentarSlug"),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+  }
 
   // Salvar o texto SEM mexer no endereço continua funcionando num publicado —
-  // senão a recusa acima teria travado o caso comum.
-  const acessoMesmoSlug = acessoDeTeste({ post: publicado });
-  const rm = await salvarPost({
+  // e sem aposentar nada, senão o caso comum criaria lixo a cada salvamento.
+  {
+    const acesso = acessoDeTeste({ post: PUBLICADO });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: PUBLICADO.id, slug: PUBLICADO.slug }),
+      acesso,
+    });
+    afirmar(
+      "salvar um Post publicado mantendo o endereço continua funcionando, sem aposentar nada",
+      r.ok === true && !acesso.chamadas.some((c) => c.nome === "aposentarSlug"),
+      r.ok ? acesso.chamadas.map((c) => c.nome).join(", ") : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+  }
+
+  /* ── A COLISÃO É SINALIZADA ANTES DE GRAVAR ─────────────────────────────
+     Contra Post ativo e contra endereço aposentado — e o "antes" importa:
+     descobrir pela violação de unicidade transforma um aviso em erro de banco,
+     depois de a pessoa ter escrito o artigo inteiro. */
+  {
+    const acesso = acessoDeTeste({
+      donoAtivo: { id: "cccccccc-cccc-cccc-cccc-cccccccccccc", slug: "ja-existe" },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ slug: "ja-existe" }),
+      acesso,
+    });
+    afirmar(
+      "endereço em uso por Post ATIVO é conflito, sinalizado antes de gravar",
+      r.ok === false && r.erro.tipo === ERRO_CONFLITO,
+      r.ok ? "GRAVOU" : `tipo ${r.erro.tipo}`,
+    );
+    afirmar(
+      "e nada foi gravado — nem o insert, nem a leitura do perfil do Autor",
+      acesso.escritas().length === 0 &&
+        !acesso.chamadas.some((c) => c.nome === "perfilDaConta"),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+  }
+  {
+    const acesso = acessoDeTeste({
+      donoAposentado: {
+        slug: "endereco-de-outro",
+        post_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ slug: "endereco-de-outro" }),
+      acesso,
+    });
+    afirmar(
+      "endereço APOSENTADO por outro Post também é conflito, e também antes de gravar",
+      r.ok === false && r.erro.tipo === ERRO_CONFLITO,
+      r.ok ? "GRAVOU" : `tipo ${r.erro.tipo}`,
+    );
+    afirmar(
+      "a frase explica que o endereço redireciona para outro post",
+      r.ok === false && /redirecionando/i.test(r.erro.mensagem),
+      r.ok ? "" : r.erro.mensagem,
+    );
+    afirmar("e nada foi gravado", acesso.escritas().length === 0);
+  }
+
+  /* A EXCEÇÃO DELIBERADA: o Post retoma um endereço que já foi DELE. É o
+     desfazer de uma renomeação, e a linha de aposentadoria precisa sair junto —
+     senão o mesmo endereço ficaria ativo e aposentado ao mesmo tempo. */
+  {
+    const acesso = acessoDeTeste({
+      post: PUBLICADO,
+      donoAposentado: { slug: "endereco-de-antes", post_id: PUBLICADO.id },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: PUBLICADO.id, slug: "endereco-de-antes" }),
+      acesso,
+    });
+    afirmar(
+      "o Post pode RETOMAR um endereço aposentado que é dele mesmo",
+      r.ok === true,
+      r.ok ? "" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+    afirmar(
+      "e a retomada passa pela função de banco, que é quem apaga a linha de aposentadoria",
+      acesso.chamadas.some(
+        (c) => c.nome === "aposentarSlug" && c.argumentos[0].slugNovo === "endereco-de-antes",
+      ),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+  }
+
+  /* Um rascunho que nunca esteve no ar retomando o PRÓPRIO endereço aposentado
+     também precisa da função: a linha de aposentadoria existe e tem de sair.
+     Este é o caso que uma leitura apressada ("rascunho não aposenta") deixaria
+     passar, e o resultado seria o mesmo endereço em duas tabelas. */
+  {
+    const rascunho = { ...PUBLICADO, estado: "rascunho", publicado_em: null };
+    const acesso = acessoDeTeste({
+      post: rascunho,
+      donoAposentado: { slug: "endereco-de-antes", post_id: rascunho.id },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: rascunho.id, slug: "endereco-de-antes" }),
+      acesso,
+    });
+    afirmar(
+      "rascunho que retoma o PRÓPRIO endereço aposentado também passa pela função de banco",
+      r.ok === true && acesso.chamadas.some((c) => c.nome === "aposentarSlug"),
+      r.ok ? acesso.chamadas.map((c) => c.nome).join(", ") : `${r.erro.tipo}`,
+    );
+  }
+}
+
+/* ─── Os metadados da gaveta, no comando de escrita ───────────────────────── */
+{
+  const acesso = acessoDeTeste();
+  const r = await salvarPost({
     token: "bom",
-    corpo: corpoValido({ id: publicado.id, slug: publicado.slug }),
-    acesso: acessoMesmoSlug,
+    corpo: corpoValido({
+      categoria_id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+      tags: ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"],
+      publicado_em: "2026-08-17T03:30:00Z",
+      tempo_leitura: 7,
+      estado: "publicado",
+    }),
+    acesso,
   });
+  const enviado = acesso.chamadas.find((c) => c.nome === "inserirPost")?.argumentos[0] ?? {};
+  afirmar("a gravação com metadados é aceita", r.ok === true, r.ok ? "" : JSON.stringify(r.erro));
   afirmar(
-    "salvar um Post publicado mantendo o endereço continua funcionando",
-    rm.ok === true,
-    rm.ok ? "" : `${rm.erro.tipo}: ${rm.erro.mensagem}`,
+    "`categoria_id`, `publicado_em` e `tempo_leitura` chegam ao banco como colunas",
+    enviado.categoria_id === "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" &&
+      enviado.publicado_em === "2026-08-17T03:30:00.000Z" &&
+      enviado.tempo_leitura === 7,
+    JSON.stringify({
+      categoria_id: enviado.categoria_id,
+      publicado_em: enviado.publicado_em,
+      tempo_leitura: enviado.tempo_leitura,
+    }),
+  );
+  afirmar(
+    "`tags` NÃO vai no comando de `posts` — ela é associação, e vai pela função de banco",
+    !Object.hasOwn(enviado, "tags") &&
+      acesso.chamadas.some((c) => c.nome === "definirTags" && c.argumentos[0].tags.length === 2),
+    Object.keys(enviado).join(", "),
+  );
+  afirmar(
+    "`estado` continua fora do comando, mesmo com os metadados aceitos",
+    !Object.hasOwn(enviado, "estado") && r.dados.ignorados.includes("estado"),
+    Object.keys(enviado).join(", "),
+  );
+}
+
+/* A data de publicação exige INSTANTE completo. Data civil (`2026-08-17`) é
+   meia-noite em UTC para o `Date.parse`, e meia-noite UTC é 21h do dia anterior
+   em São Paulo: aceitá-la publicaria o Post um dia antes do combinado, sem
+   ninguém ver a conversão acontecer. */
+{
+  for (const [nome, valor] of [
+    ["data civil sem hora", "2026-08-17"],
+    ["hora sem deslocamento", "2026-08-17T00:30"],
+    ["texto qualquer", "amanhã de manhã"],
+    ["dia que não existe", "2026-02-31T10:00:00Z"],
+  ]) {
+    const r = lerCorpo(
+      { titulo: "t", slug: "s", resumo: "r", conteudo: DOCUMENTO_COMPLETO, publicado_em: valor },
+      { criando: true },
+    );
+    afirmar(
+      `data de publicação como ${nome} é recusada, com o motivo`,
+      r.ok === false && /data de publicação/i.test(r.mensagem),
+      r.ok ? "ACEITOU" : r.mensagem,
+    );
+  }
+  const bom = lerCorpo(
+    {
+      titulo: "t",
+      slug: "s",
+      resumo: "r",
+      conteudo: DOCUMENTO_COMPLETO,
+      // 00h30 em São Paulo, escrito com o deslocamento explícito.
+      publicado_em: "2026-08-17T00:30:00-03:00",
+    },
+    { criando: true },
+  );
+  afirmar(
+    "instante com deslocamento é aceito e normalizado em UTC",
+    bom.ok === true && bom.campos.publicado_em === "2026-08-17T03:30:00.000Z",
+    bom.ok ? bom.campos.publicado_em : bom.mensagem,
+  );
+  const limpa = lerCorpo(
+    { titulo: "t", conteudo: DOCUMENTO_COMPLETO, publicado_em: null },
+    { criando: false },
+  );
+  afirmar(
+    "data de publicação nula LIMPA o campo — tirar a data é ação legítima",
+    limpa.ok === true && limpa.campos.publicado_em === null,
+    JSON.stringify(limpa).slice(0, 140),
+  );
+}
+
+/* Tags e tempo de leitura: forma conferida antes de virar erro de banco. */
+{
+  const casos = [
+    ["tags que não são lista", { tags: "a,b" }, /lista/i],
+    ["tag fora do formato de identificador", { tags: ["nao-e-uuid"] }, /tags/i],
+    [
+      "mais tags que o teto",
+      { tags: Array.from({ length: 40 }, () => randomUUID()) },
+      /no máximo/i,
+    ],
+    ["tempo de leitura negativo", { tempo_leitura: -3 }, /tempo de leitura/i],
+    ["tempo de leitura fracionário", { tempo_leitura: 2.5 }, /tempo de leitura/i],
+    ["categoria fora do formato", { categoria_id: "tecnologia" }, /categoria/i],
+  ];
+  for (const [nome, extra, padrao] of casos) {
+    const r = lerCorpo(
+      { titulo: "t", slug: "s", resumo: "r", conteudo: DOCUMENTO_COMPLETO, ...extra },
+      { criando: true },
+    );
+    afirmar(
+      `${nome} é recusado com a frase que nomeia o campo`,
+      r.ok === false && padrao.test(r.mensagem),
+      r.ok ? "ACEITOU" : r.mensagem,
+    );
+  }
+  const repetidas = randomUUID();
+  const dedup = lerCorpo(
+    {
+      titulo: "t",
+      slug: "s",
+      resumo: "r",
+      conteudo: DOCUMENTO_COMPLETO,
+      tags: [repetidas, repetidas],
+    },
+    { criando: true },
+  );
+  afirmar(
+    "tag repetida vira uma só — o par (post, tag) é chave primária, e duas iguais seriam erro de banco",
+    dedup.ok === true && dedup.campos.tags.length === 1,
+    JSON.stringify(dedup.campos?.tags ?? null),
   );
 }
 

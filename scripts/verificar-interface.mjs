@@ -325,6 +325,7 @@ const CAMINHO_FOCO = "src/admin/shell/foco.js";
 const CAMINHO_NOTIFICACOES = "src/admin/shell/Notificacoes.jsx";
 const CAMINHO_DIALOGO = "src/admin/shell/DialogoDeConfirmacao.jsx";
 const CAMINHO_MENU = "src/admin/shell/MenuDoAutor.jsx";
+const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
 const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 const CAMINHO_FORMATO = "src/domain/blog/formato.js";
@@ -366,6 +367,7 @@ const pagina = lerOuFalhar(CAMINHO_PAGINA);
 const notificacoes = lerOuFalhar(CAMINHO_NOTIFICACOES);
 const dialogo = lerOuFalhar(CAMINHO_DIALOGO);
 const menu = lerOuFalhar(CAMINHO_MENU);
+const gaveta = lerOuFalhar(CAMINHO_GAVETA);
 const pilula = lerOuFalhar(CAMINHO_PILULA);
 const appCss = lerOuFalhar(CAMINHO_APP_CSS);
 const indexCss = lerOuFalhar(CAMINHO_INDEX_CSS);
@@ -411,13 +413,16 @@ secao("(a0) a ferramenta antes do que ela audita");
      arquivo mutilado — e passando por isso. */
   if (pagina) {
     const limpaPagina = semComentarios(pagina);
+    /* A Story 2.6 trocou o formulario de Post pela tela nova, entao as ancoras
+       que citavam `savePost(` e o contador de caracteres deixaram de existir
+       AQUI. As de agora sao o que a pagina tem hoje: a casca, o dialogo, as
+       abas e a porta para a tela de edicao. */
     const ANCORAS = [
-      "} caracteres",
-      "savePost(",
       "saveVaga(",
       'role="tabpanel"',
       "<BarraSuperior",
       "<DialogoDeConfirmacao",
+      "<EditorDePost",
     ];
     const sumiram = ANCORAS.filter((a) => !limpaPagina.includes(a));
     afirmar(
@@ -1535,12 +1540,14 @@ if (cssCompilado) {
  */
 if (pagina) {
   const codigo = semComentarios(pagina);
+  /* Onde cada dado vive DEPOIS da Story 2.6. O formulario de Post saiu da
+     pagina e virou `EditorDePost` + `GavetaDeMetadados`; o que sobrou aqui e a
+     listagem. O contador de caracteres saiu junto com o formulario antigo e
+     NAO foi reposto — esta registrado como pendencia da 2.6, e nao some daqui
+     em silencio: a linha continua na lista, apontando para a gaveta, e falha
+     se alguem repuser o contador sem `.dado`. */
   const DADOS_NOMEADOS = [
     ["data, no cartão da listagem", ">{post.data}<"],
-    ["data, no campo do formulário", "value={post.data}"],
-    ["slug, no campo do formulário", "value={post.slug}"],
-    ["slug, no subtítulo do formulário", ">{post.slug}<"],
-    ["contador de caracteres", "} caracteres"],
   ];
 
   const semDado = [];
@@ -1559,6 +1566,33 @@ if (pagina) {
     semDado.length === 0,
     semDado.join(" | "),
   );
+
+  /* O dado migrou de casa na Story 2.6: slug, Data de Publicacao e tempo de
+     leitura agora vivem na gaveta. A regra da Story 1.6 continua valendo, e
+     precisa de guardiao no lugar novo — senao trocar de arquivo teria sido o
+     jeito de perder a cobertura sem ninguem notar. */
+  if (gaveta) {
+    const codigoDaGaveta = semComentarios(gaveta);
+    const NA_GAVETA = ["slug", "publicado_em", "tempo_leitura"];
+    const semDadoNaGaveta = NA_GAVETA.filter((campo) => {
+      const i = codigoDaGaveta.indexOf('campo("' + campo + '"');
+      if (i === -1) return true;
+      // A chamada declara `extra: "dado"` no proprio argumento do campo.
+      const trecho = codigoDaGaveta.slice(i, i + 240);
+      return !trecho.includes("dado");
+    });
+    afirmar(
+      "na gaveta, slug, Data de Publicação e tempo de leitura usam `.dado`",
+      semDadoNaGaveta.length === 0,
+      semDadoNaGaveta.join(", "),
+    );
+    afirmar(
+      "a data exibida em São Paulo também é dado, não prosa",
+      /data-papel="data-em-sao-paulo"/.test(codigoDaGaveta) &&
+        /className="dado"[^>]*data-papel="data-em-sao-paulo"|data-papel="data-em-sao-paulo"[^>]*className="dado"|className="dado"[sS]{0,80}data-papel="data-em-sao-paulo"/.test(codigoDaGaveta),
+      "a exibição da data precisa da pilha monoespaçada",
+    );
+  }
 
   /* Autoteste do localizador: um bug que devolvesse sempre a tag do `<div>`
      raiz faria os cinco parecerem cobertos. */

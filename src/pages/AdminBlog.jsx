@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus, Pencil, Trash2, Eye, RotateCcw,
-  Save, X, Star, StarOff,
+  Save, Star,
   ChevronLeft, Search, Check,
-  Upload, FileText, Briefcase,
+  FileText, Briefcase,
   Cpu, Target, BarChart2, Bot, TrendingUp, Newspaper,
   MapPin,
 } from "lucide-react";
@@ -12,8 +12,9 @@ import {
 import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
 import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
+import EditorDePost from "@/admin/blog/EditorDePost";
 import { formatarNumero } from "@/domain/blog/formato";
-import { getPosts, savePost, deletePost } from "@/lib/blogStore";
+import { getPosts, deletePost } from "@/lib/blogStore";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
 
 /* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
@@ -50,8 +51,10 @@ function comoResolver(erro, acaoNoInfinitivo) {
    do Supabase. Se este componente está renderizando, a sessão já foi
    verificada no servidor. */
 
-/* ─── Categorias do blog ──────────────────────────────────────────── */
-const CATEGORIAS = ["Tecnologia", "Estratégia", "Analytics", "Automação", "Tendências", "Novidades"];
+/* A lista fixa de Categorias que vivia aqui SAIU: Categoria vem de dado, não de
+   constante no código (`categorias` no Supabase), e a gaveta de metadados da
+   Story 2.6 lê a lista pela camada de dados. O que sobra abaixo é o mapa de
+   ÍCONE por nome, que a listagem em `localStorage` ainda usa até a Story 2.10. */
 
 /* ─── Ícone por categoria ──────────────────────────────────────────── */
 const CATEGORY_ICON = {
@@ -92,22 +95,6 @@ const NIVEL_COLORS = {
   "Sênior": "bg-purple-500/15 text-purple-400 border-purple-500/30",
 };
 
-/* ─── Post vazio ──────────────────────────────────────────────────── */
-const EMPTY_POST = {
-  id: null,
-  slug: "",
-  titulo: "",
-  resumo: "",
-  categoria: "Tecnologia",
-  autor: "",
-  data: new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }),
-  tempo: "5 min",
-  destaque: false,
-  imagem: "",
-  conteudo: "",
-  tags: [],
-};
-
 /* ─── Vaga vazia ──────────────────────────────────────────────────── */
 const EMPTY_VAGA = {
   id: null,
@@ -122,222 +109,18 @@ const EMPTY_VAGA = {
   ativa: true,
 };
 
-/* ─── Gera slug ───────────────────────────────────────────────────── */
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-}
+/* O `slugify` artesanal que vivia aqui SAIU. A geração de endereço é domínio
+   puro agora (`src/domain/blog/slug.js`), pela razão de sempre: a tela, a função
+   de escrita e a verificação precisam concordar sobre o que é um endereço
+   válido, e a única forma de garantir isso é não haver três cópias da regra. A
+   versão daqui, além do mais, deixava passar hífen no começo e no fim — o que o
+   banco recusa em `posts_slug_formato`. */
 
 /* O modal de confirmação artesanal que vivia aqui SAIU do repositório.
    Era um `div` fixo sem `role`, sem armadilha de foco, sem `Esc`, sem devolver
    o foco a quem o abriu, e com o botão destrutivo alcançável antes do Cancelar.
    Quem confirma agora é `DialogoDeConfirmacao`, sobre o `alert-dialog` do
    shadcn (Story 1.6). */
-
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  FORMULÁRIO DE POST (criar / editar)                                 */
-/* ═══════════════════════════════════════════════════════════════════ */
-function PostForm({ post: initialPost, onSave, onCancel }) {
-  const [post, setPost] = useState({ ...EMPTY_POST, ...initialPost });
-  const [tagsInput, setTagsInput] = useState((initialPost?.tags || []).join(", "));
-  const [imgMode, setImgMode] = useState("url");
-  const [saved, setSaved] = useState(false);
-  const fileRef = useRef(null);
-
-  const isNew = !post.id;
-
-  const handleTituloChange = (value) => {
-    setPost((p) => ({
-      ...p,
-      titulo: value,
-      slug: isNew ? slugify(value) : p.slug,
-    }));
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPost((p) => ({ ...p, imagem: reader.result }));
-    reader.readAsDataURL(file);
-  };
-
-  /* Salvar é a operação que de fato estoura: o post carrega a imagem de capa
-     embutida em base64, e é ela que enche a cota do `localStorage`. Antes,
-     `setSaved(true)` era incondicional — a tela dizia "Salvo!" e voltava para a
-     listagem mesmo quando a gravação tinha lançado, e o post sumia no
-     recarregamento seguinte sem que nada explicasse por quê. */
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-    try {
-      savePost({ ...post, tags });
-    } catch (erro) {
-      console.error("[Painel] falha ao salvar post", erro);
-      notificarErro(
-        "Não deu para salvar o post",
-        comoResolver(erro, "salvar"),
-      );
-      return;
-    }
-    setSaved(true);
-    notificarSucesso("Post salvo", post.titulo);
-    setTimeout(() => { setSaved(false); onSave(); }, 800);
-  };
-
-  const field = (label, node) => (
-    <div>
-      <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">{label}</label>
-      {node}
-    </div>
-  );
-
-  const inputCls = "w-full bg-zinc-800 border border-zinc-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-zinc-600";
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col min-h-screen bg-zinc-950">
-      {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={onCancel} className="p-2 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h2 className="text-white font-black text-lg">{isNew ? "Novo Post" : "Editar Post"}</h2>
-            {/* Slug é dado, não prosa: só ele vai em `.dado`, não a frase toda. */}
-            <p className="text-zinc-500 text-xs">
-              {isNew ? "Criando um novo artigo" : <>Editando: <span className="dado">{post.slug}</span></>}
-            </p>
-          </div>
-        </div>
-        <button
-          type="submit"
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-emerald-500 hover:bg-emerald-600 text-white transition-all"
-        >
-          {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-          {saved ? "Salvo!" : "Salvar"}
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 p-6 space-y-5 pb-16">
-        {field("Título *",
-          <input required className={inputCls} value={post.titulo} onChange={(e) => handleTituloChange(e.target.value)} placeholder="Título do artigo" />
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Slug (URL)",
-            <input className={`${inputCls} dado`} value={post.slug} onChange={(e) => setPost((p) => ({ ...p, slug: e.target.value }))} placeholder="meu-artigo-slug" />
-          )}
-          {field("Destaque",
-            <button
-              type="button"
-              onClick={() => setPost((p) => ({ ...p, destaque: !p.destaque }))}
-              className={`flex items-center gap-2 w-full px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-                post.destaque
-                  ? "bg-amber-500/10 border-amber-500/50 text-amber-400"
-                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500"
-              }`}
-            >
-              {post.destaque ? <Star className="w-4 h-4" /> : <StarOff className="w-4 h-4" />}
-              {post.destaque ? "Post em destaque" : "Marcar destaque"}
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Categoria",
-            <select className={inputCls} value={post.categoria} onChange={(e) => setPost((p) => ({ ...p, categoria: e.target.value }))}>
-              {CATEGORIAS.map((c) => <option key={c} value={c} className="bg-zinc-900">{c}</option>)}
-            </select>
-          )}
-          {field("Autor",
-            <input className={inputCls} value={post.autor} onChange={(e) => setPost((p) => ({ ...p, autor: e.target.value }))} placeholder="Nome do autor" />
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Data",
-            <input className={`${inputCls} dado`} value={post.data} onChange={(e) => setPost((p) => ({ ...p, data: e.target.value }))} placeholder="15 Jan 2024" />
-          )}
-          {field("Tempo de leitura",
-            <input className={inputCls} value={post.tempo} onChange={(e) => setPost((p) => ({ ...p, tempo: e.target.value }))} placeholder="5 min" />
-          )}
-        </div>
-
-        {/* Imagem */}
-        <div>
-          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">Imagem de capa</label>
-          <div className="flex gap-1 mb-3 p-1 bg-zinc-800 rounded-xl w-fit">
-            {["url", "upload"].map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setImgMode(mode)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors capitalize ${
-                  imgMode === mode ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {mode === "url" ? "URL" : "Upload"}
-              </button>
-            ))}
-          </div>
-          {imgMode === "url" ? (
-            <input className={inputCls} value={post.imagem} onChange={(e) => setPost((p) => ({ ...p, imagem: e.target.value }))} placeholder="https://exemplo.com/imagem.jpg" />
-          ) : (
-            <div>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-2 w-full border-2 border-dashed border-zinc-700 hover:border-emerald-500 rounded-xl p-4 text-zinc-400 hover:text-emerald-400 transition-colors text-sm"
-              >
-                <Upload className="w-5 h-5" />
-                Clique para selecionar uma imagem
-              </button>
-            </div>
-          )}
-          {post.imagem && (
-            <div className="mt-3 relative">
-              <img src={post.imagem} alt="Preview" className="w-full h-40 object-cover rounded-xl border border-zinc-700" onError={(e) => { e.target.style.display = "none"; }} />
-              <button type="button" onClick={() => setPost((p) => ({ ...p, imagem: "" }))} className="absolute top-2 right-2 p-1 bg-zinc-900/80 rounded-full text-zinc-400 hover:text-red-400 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {field("Resumo (meta descrição) *",
-          <textarea required className={`${inputCls} resize-none`} rows={3} value={post.resumo} onChange={(e) => setPost((p) => ({ ...p, resumo: e.target.value }))} placeholder="Breve descrição do artigo (exibida na listagem e no SEO)" />
-        )}
-
-        {field("Tags (separadas por vírgula)",
-          <input className={inputCls} value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="WhatsApp, CRM, Automação" />
-        )}
-
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Conteúdo (Markdown) *</label>
-            <span className="dado text-xs text-zinc-600">{post.conteudo.length} caracteres</span>
-          </div>
-          <textarea
-            required
-            className={`${inputCls} resize-y font-mono text-xs leading-relaxed`}
-            rows={20}
-            value={post.conteudo}
-            onChange={(e) => setPost((p) => ({ ...p, conteudo: e.target.value }))}
-            placeholder={`# Título do Artigo\n\nEscreva seu conteúdo em Markdown aqui...\n\n## Seção\n\nTexto com **negrito** e *itálico*.\n\n- Item 1\n- Item 2`}
-          />
-          <p className="text-zinc-600 text-xs mt-1.5">Suporte a Markdown: **negrito**, *itálico*, ## títulos, - listas, `código`</p>
-        </div>
-      </div>
-    </form>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /*  FORMULÁRIO DE VAGA (criar / editar)                                 */
@@ -532,7 +315,13 @@ export default function AdminBlog() {
   }, []);
 
   /* ── Ações — Blog ─────────────────────────────────────────────── */
-  const handleSavePost = () => { setPosts(getPosts()); setBlogView("list"); setEditingPost(null); };
+  /* Salvar NÃO fecha o Editor. A regra do épico é explícita — publicar não tira
+     o Autor do Editor —, e o mesmo vale para salvar: quem acabou de gravar
+     costuma continuar escrevendo. Quem sai é o botão de voltar, e só ele.
+     A listagem continua vindo do armazenamento do navegador até a Story 2.10;
+     recarregá-la aqui mantém o comportamento de hoje sem fingir que ela já
+     enxerga o que foi gravado no servidor. */
+  const handleSavePost = () => { setPosts(getPosts()); };
 
   /* Excluir e restaurar também gravam, e também podem falhar — por motivo que
      raramente é cota, já que ambas escrevem menos do que havia antes. O erro é
@@ -620,13 +409,18 @@ export default function AdminBlog() {
         ]
       : [];
 
-  /* ── Formulário de post (tela cheia) ──────────────────────────── */
+  /* ── Editor de post (tela cheia) ──────────────────────────────────
+     O formulário de `localStorage` com campo de Autor digitável e caixa de
+     Markdown SAIU: quem edita post agora é o Editor visual da Story 2.4 com a
+     gaveta de metadados da 2.6, e quem grava é a função de servidor da 2.5. A
+     LISTAGEM continua exatamente como está — ela é da Story 2.10 —, então o
+     que mudou aqui é só para onde "editar" e "novo" levam. */
   if (blogView === "form") {
     return (
-      <PostForm
-        post={editingPost}
-        onSave={handleSavePost}
-        onCancel={() => { setBlogView("list"); setEditingPost(null); }}
+      <EditorDePost
+        postId={editingPost?.id ?? null}
+        aoSalvar={handleSavePost}
+        aoSair={() => { setBlogView("list"); setEditingPost(null); }}
       />
     );
   }

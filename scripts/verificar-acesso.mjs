@@ -129,7 +129,10 @@ function arquivosDe(dir, extensoes) {
 const rel = (p) => path.relative(raiz, p).split(path.sep).join("/");
 
 /** Linhas que casam com um padrão, no formato `arquivo:linha`. */
-function ocorrencias(arquivos, padrao) {
+/** Leitura padrao: o texto inteiro, comentario incluido. */
+const padraoDeLinhas = (t) => t.split(/\r?\n/);
+
+function ocorrencias(arquivos, padrao, emLinhas = padraoDeLinhas) {
   const achados = [];
   for (const arquivo of arquivos) {
     let texto;
@@ -138,7 +141,12 @@ function ocorrencias(arquivos, padrao) {
     } catch {
       continue;
     }
-    texto.split(/\r?\n/).forEach((linha, i) => {
+    // `emLinhas` decide se a leitura e sobre o texto BRUTO ou so sobre o
+    // CODIGO. Prosa que EXPLICA a regra ja acusou o proprio arquivo que a
+    // cumpre, e uma assercao que acusa a documentacao da regra acaba
+    // desligada por incomodo. Varredura de SEGREDO continua no bruto:
+    // segredo em comentario e segredo vazado do mesmo jeito.
+    emLinhas(texto).forEach((linha, i) => {
       if (padrao.test(linha)) achados.push(`${rel(arquivo)}:${i + 1}`);
     });
   }
@@ -303,6 +311,10 @@ function linhasSuspeitas(texto) {
   const naCasca = ocorrencias(
     arquivosDe(path.join(DIR_SRC, "admin"), [".js", ".jsx"]),
     /\b(sessionStorage|localStorage)\b/,
+    // Sobre o CODIGO: o proprio arquivo que CUMPRE a regra a explica em
+    // prosa, e citar o nome do armazenamento para dizer que ele NAO se
+    // reproduz aqui nao pode acusar quem escreveu a explicacao.
+    linhasDeCodigo,
   );
   afirmar(
     "src/admin/ não toca sessionStorage nem localStorage",

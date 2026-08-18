@@ -328,8 +328,8 @@ export function criarAcesso({
      * O Post que já existe, ou `null`.
      *
      * `publicado_em` entra porque é ele, junto de `estado`, que diz se o Post já
-     * teve URL pública — e o núcleo recusa trocar o endereço de um Post que já
-     * esteve no ar.
+     * teve URL pública — e é isso que decide se trocar o endereço exige aposentar
+     * o anterior.
      */
     async lerPost(id) {
       return primeira(
@@ -337,6 +337,72 @@ export function criarAcesso({
           `/rest/v1/posts?select=id,slug,estado,publicado_em,autor_id,autor_nome&id=eq.${encodeURIComponent(id)}&limit=1`,
           { cabecalhos: comServico() },
         ),
+      );
+    },
+
+    /**
+     * Quem é o dono deste endereço hoje, entre os Posts ativos — ou `null`.
+     *
+     * Existe para que a colisão seja detectada ANTES de gravar. A restrição de
+     * unicidade continua sendo a última linha; o que ela não sabe fazer é avisar
+     * enquanto ainda dá para escolher outro endereço.
+     */
+    async postPorSlug(slug) {
+      return primeira(
+        await pedir(
+          `/rest/v1/posts?select=id,slug&slug=eq.${encodeURIComponent(slug)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /**
+     * O registro de aposentadoria deste endereço, ou `null`.
+     *
+     * Consultado junto do ativo porque a colisão é contra os DOIS: um endereço
+     * aposentado ainda resolve, e dá-lo a outro Post quebraria o
+     * redirecionamento em vez de um link.
+     */
+    async slugAposentado(slug) {
+      return primeira(
+        await pedir(
+          `/rest/v1/slugs_antigos?select=slug,post_id&slug=eq.${encodeURIComponent(slug)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /**
+     * Troca o endereço do Post e aposenta o anterior — **uma chamada, uma
+     * transação**, porque as duas escritas são em tabelas diferentes e o
+     * PostgREST faz uma tabela por vez.
+     *
+     * A função de banco (`aposentar_slug_do_post`) é `security definer`, com
+     * `execute` revogado de `anon` e de `authenticated`: ela existe para ser
+     * chamada daqui, com a chave de serviço, e de nenhum outro lugar.
+     */
+    async aposentarSlug(id, slugNovo) {
+      return pedir("/rest/v1/rpc/aposentar_slug_do_post", {
+        metodo: "POST",
+        corpo: { p_id: id, p_slug_novo: slugNovo },
+        cabecalhos: comServico(),
+      });
+    },
+
+    /** Substitui o conjunto de Tags do Post, também numa transação só. */
+    async definirTags(id, tags) {
+      return pedir("/rest/v1/rpc/definir_tags_do_post", {
+        metodo: "POST",
+        corpo: { p_id: id, p_tags: tags },
+        cabecalhos: comServico(),
+      });
+    },
+
+    /** As Tags associadas ao Post hoje, para a resposta refletir o gravado. */
+    async tagsDoPost(id) {
+      return pedir(
+        `/rest/v1/posts_tags?select=tag_id&post_id=eq.${encodeURIComponent(id)}`,
+        { cabecalhos: comServico() },
       );
     },
 

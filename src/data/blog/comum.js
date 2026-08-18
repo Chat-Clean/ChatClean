@@ -120,3 +120,45 @@ export async function clienteDoPainelOuFalha(operacao) {
     return deExcecao(excecao, operacao);
   }
 }
+
+/**
+ * O token da sessão atual, ou uma falha tipada.
+ *
+ * Mora aqui, e não no módulo de escrita, porque este é o único lugar da camada
+ * que obtém cliente — a asserção de fronteira cobra isso, e cobrou: a primeira
+ * versão da escrita chamava `clienteAutenticado()` direto e a verificação
+ * acusou. Obter cliente em dois lugares é como a pergunta "quem está logado?"
+ * passa a ter duas respostas.
+ *
+ * O token existe porque a gravação NÃO usa o PostgREST: ela chama a função de
+ * servidor, que confere o token por conta própria. Aqui ele é apenas
+ * transportado — quem concede continua sendo o servidor.
+ */
+export async function tokenDoPainelOuFalha(operacao) {
+  let cliente;
+  try {
+    cliente = clienteAutenticado();
+  } catch (excecao) {
+    return deExcecao(excecao, operacao);
+  }
+  try {
+    const { data, error } = await cliente.auth.getSession();
+    if (error) {
+      return falha(ERRO_PERMISSAO, {
+        operacao,
+        detalhe: String(error?.message ?? error),
+        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null,
+      });
+    }
+    const token = data?.session?.access_token ?? "";
+    if (typeof token !== "string" || token === "") {
+      return falha(ERRO_PERMISSAO, {
+        operacao,
+        detalhe: "não há sessão ativa — a gravação exige uma",
+      });
+    }
+    return sucesso(token);
+  } catch (excecao) {
+    return deExcecao(excecao, operacao);
+  }
+}

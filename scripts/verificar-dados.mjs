@@ -92,17 +92,54 @@ function adiar(descricao, motivo) {
   console.log(`  ADIADA ${descricao} — ${sanitizar(motivo)}`);
 }
 
+/**
+ * O servidor esteve indisponivel, em vez de ter respondido errado?
+ *
+ * Observado tres vezes em execucoes diferentes: a API respondeu 502 com pagina
+ * HTML, e a execucao seguinte passou sem nenhuma alteracao no codigo. Tratar
+ * isso como defeito e pior do que parece — falha que nao e falha ensina a
+ * pessoa a ignorar falhas, e a suite inteira depende de verde significar algo.
+ *
+ * O criterio e ESTREITO de proposito: so indisponibilidade declarada pelo
+ * transporte. Erro de dados, recusa por permissao e resultado errado continuam
+ * sendo falha, porque sao exatamente o que estas assercoes existem para pegar.
+ */
+const MARCAS_DE_INDISPONIBILIDADE = [
+  "502",
+  "503",
+  "504",
+  "Bad Gateway",
+  "Service Unavailable",
+  "Gateway Timeout",
+  "upstream connect error",
+];
+
+function indisponivel(detalhe) {
+  const t = String(detalhe ?? "");
+  if (!t.includes('"tipo":"rede"') && !t.includes("HTTP 5")) return false;
+  return MARCAS_DE_INDISPONIBILIDADE.some((m) => t.includes(m));
+}
+
 function afirmar(descricao, condicao, detalhe = "") {
   emitidas += 1;
   if (condicao) {
     console.log(`  OK    ${descricao}`);
-  } else {
-    falhas += 1;
-    console.log(
-      `  FALHA ${descricao}${detalhe ? ` — ${sanitizar(detalhe)}` : ""}`,
-    );
+    return true;
   }
-  return Boolean(condicao);
+  // Indisponibilidade nao e defeito — mas tambem NAO e sucesso: vai para o
+  // mesmo balde das adiadas, que o veredito final cobra.
+  if (indisponivel(detalhe)) {
+    adiadas += 1;
+    console.log(
+      `  ADIADA ${descricao} — servidor indisponivel agora, nao defeito: ${sanitizar(String(detalhe).slice(0, 120))}`,
+    );
+    return false;
+  }
+  falhas += 1;
+  console.log(
+    `  FALHA ${descricao}${detalhe ? ` — ${sanitizar(detalhe)}` : ""}`,
+  );
+  return false;
 }
 
 /* ─── Ambiente do navegador, reproduzido aqui ────────────────────────────── */
