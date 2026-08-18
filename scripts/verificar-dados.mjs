@@ -1118,6 +1118,32 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "deslocamento além do fim devolve lista VAZIA, não erro",
   "o limite pedido é respeitado",
   "a janela de visibilidade foi fechada",
+  // A busca da Story 2.11: cada campo do critério, o acento nas duas direções,
+  // o caractere especial e a combinação com o filtro de Estado.
+  "os sete posts da prova de busca foram semeados",
+  "a busca acha o Post cujo termo só existe no título",
+  "a busca acha o Post cujo termo só existe no nome da Categoria",
+  "a busca acha o Post cujo termo só existe no nome do Autor",
+  "a busca acha o Post cujo termo só existe numa Tag",
+  "termo de duas palavras acha o Post mesmo fora de ordem e com palavra no meio",
+  "e as palavras podem estar em CAMPOS diferentes — uma no Autor, outra no título",
+  "acrescentar uma palavra que não existe ESTREITA até zero — é conjunção, não união",
+  "termo SEM acento acha o texto acentuado — “estrategia” encontra “Estratégia”",
+  "e o inverso vale: termo COM acento acha o texto sem acento",
+  "maiúsculas dão o mesmo resultado que minúsculas, com ou sem acento",
+  "termo com %, _, parêntese, vírgula e aspas é achado como TEXTO, sem erro de consulta",
+  "`%` sozinho NÃO é curinga: acha só o Post que tem um `%` escrito",
+  "`_` também não é curinga de um caractere — “achado _or” não acha “Achado por”",
+  "termo sem correspondência devolve lista VAZIA com sucesso — não é erro",
+  "o filtro de Estado restringe pela coluna `estado`",
+  "e aceita mais de um Estado ao mesmo tempo",
+  "busca e filtro COMBINAM: as duas restrições valem ao mesmo tempo",
+  "e a combinação é conjunção, não união: o mesmo termo em outro Estado não volta",
+  "Estado fora do vocabulário fechado é RECUSADO, não ignorado em silêncio",
+  "lista de Estados VAZIA é ausência de filtro, não “nenhum Estado”",
+  "termo só de espaços é ausência de busca: a listagem inteira volta",
+  "com busca aplicada, a ordem continua sendo `COALESCE(publicado_em, atualizado_em)` DESC",
+  "o visitante anônimo não extrai rascunho pela função de busca",
 ]);
 
 const token = lerToken();
@@ -1790,6 +1816,364 @@ if (temToken && ambienteCompleto) {
               fechar.ok,
               fechar.erro ?? "",
             );
+          }
+
+          /* ── A BUSCA, contra o projeto de verdade (Story 2.11) ────────
+             É a prova que justifica ter posto a busca no banco: cada campo
+             que o critério nomeia ganha um Post em que o termo aparece SÓ
+             ali, e a asserção diz qual Post voltou — não quantos.
+
+             Os marcadores carregam o nonce da execução, então nenhum deles
+             pode casar com dado real do projeto nem com outra execução
+             simultânea. */
+
+          const n8 = nonce.slice(0, 8);
+          const mTitulo = `tit${n8}`;
+          const mCategoria = `cat${n8}`;
+          const mAutor = `aut${n8}`;
+          const mTag = `tag${n8}`;
+          const ESPECIAL = `50%_(esp${n8}) "a,b"`;
+
+          const semeaduraDaBusca = await executarSql(
+            token,
+            `insert into public.categorias (slug, nome, icone, cor, ordem) values
+               (${literal(slug("categoria-de-busca"))}, ${literal(`Categoria ${mCategoria}`)}, 'flask', 'oklch(0.7 0.1 200)', 98);
+
+             insert into public.tags (slug, nome) values
+               (${literal(slug("tag-de-busca"))}, ${literal(`Tag ${mTag}`)});
+
+             insert into public.posts
+               (slug, titulo, resumo, autor_nome, estado, publicado_em, atualizado_em, categoria_id)
+             select v.slug, v.titulo, 'Resumo da busca', v.autor,
+                    v.estado::public.estado_post, v.publicado_em, v.atualizado_em,
+                    case when v.com_categoria then c.id else null end
+               from (values
+                 (${literal(slug("busca-titulo"))}, ${literal(`Achado por titulo ${mTitulo}`)},
+                  '', 'rascunho', null, now() - interval '11 days', false),
+                 (${literal(slug("busca-categoria"))}, 'Achado por categoria',
+                  '', 'publicado', ${LONGE}, now() - interval '12 days', true),
+                 (${literal(slug("busca-autor"))}, 'Achado por autor',
+                  ${literal(`Autor ${mAutor}`)}, 'rascunho', null, now() - interval '13 days', false),
+                 (${literal(slug("busca-tag"))}, 'Achado por tag',
+                  '', 'rascunho', null, now() - interval '14 days', false),
+                 (${literal(slug("busca-acentuada"))}, ${literal(`Estratégia ${n8}`)},
+                  '', 'rascunho', null, now() - interval '15 days', false),
+                 (${literal(slug("busca-sem-acento"))}, ${literal(`Automacao ${n8}`)},
+                  '', 'rascunho', null, now() - interval '16 days', false),
+                 (${literal(slug("busca-especial"))}, ${literal(`Promocao ${ESPECIAL} hoje`)},
+                  '', 'rascunho', null, now() - interval '17 days', false)
+               ) as v(slug, titulo, autor, estado, publicado_em, atualizado_em, com_categoria)
+               cross join public.categorias c
+              where c.slug = ${literal(slug("categoria-de-busca"))};
+
+             insert into public.posts_tags (post_id, tag_id)
+             select p.id, t.id from public.posts p, public.tags t
+              where p.slug = ${literal(slug("busca-tag"))}
+                and t.slug = ${literal(slug("tag-de-busca"))};`,
+          );
+          const semeouBusca = afirmar(
+            "os sete posts da prova de busca foram semeados",
+            semeaduraDaBusca.ok,
+            semeaduraDaBusca.erro ?? "",
+          );
+
+          if (semeouBusca) {
+            const novosIds = await executarSql(
+              token,
+              `select id::text as id from public.posts
+                where slug like ${literal(marca)} and slug not in (
+                  ${[literal(slug("publico")), literal(slug("agendado-futuro")), literal(slug("rascunho")), literal(slug("arquivado"))].join(", ")}
+                )`,
+            );
+            // Os ids entram na lista de resíduo: sem eles, a associação de tag
+            // do post de busca sairia do projeto sem ninguém CONFERIR que saiu.
+            idsSemeados.push(
+              ...((novosIds.ok && Array.isArray(novosIds.dados) ? novosIds.dados : []).map(
+                (l) => l.id,
+              )),
+            );
+          }
+
+          /** O que a busca devolveu, restrito à semeadura desta execução. */
+          const buscar = async (rotulo, pedido) => {
+            const r = await chamar(`listarPostsDoPainel (${rotulo})`, () =>
+              listarPostsDoPainel(pedido),
+            );
+            return {
+              resultado: r,
+              sufixos: (r?.dados ?? [])
+                .map((p) => String(p?.slug ?? ""))
+                .filter((s) => s.startsWith(prefixo))
+                .map((s) => s.slice(prefixo.length))
+                .sort(),
+            };
+          };
+
+          if (semeouBusca) {
+            /* — Cada campo do critério, isolado — */
+            for (const [onde, termo, esperado] of [
+              ["no título", mTitulo, "busca-titulo"],
+              ["no nome da Categoria", mCategoria, "busca-categoria"],
+              ["no nome do Autor", mAutor, "busca-autor"],
+              ["numa Tag", mTag, "busca-tag"],
+            ]) {
+              const { resultado, sufixos } = await buscar(onde, { termo });
+              afirmar(
+                `a busca acha o Post cujo termo só existe ${onde}`,
+                resultado?.ok === true &&
+                  sufixos.length === 1 &&
+                  sufixos[0] === esperado,
+                `voltaram: ${sufixos.join(", ") || "nenhum"} ${JSON.stringify(resultado?.erro ?? "").slice(0, 140)}`,
+              );
+            }
+
+            /* — Duas palavras: todas precisam aparecer, em qualquer ordem — */
+            //
+            // É o que separa uma busca de uma comparação de frase. "guia
+            // atalhos" precisa achar "Guia de atalhos": o "de" no meio quebra a
+            // contiguidade, e uma busca que exige a frase inteira responde que
+            // o Post não existe — a conclusão errada que esta story impede.
+            {
+              const duas = await buscar("duas palavras fora de ordem", {
+                termo: `titulo achado`,
+              });
+              afirmar(
+                "termo de duas palavras acha o Post mesmo fora de ordem e com palavra no meio",
+                duas.resultado?.ok === true &&
+                  duas.sufixos.length === 1 &&
+                  duas.sufixos[0] === "busca-titulo",
+                `voltaram: ${duas.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const cruzada = await buscar("palavras em campos diferentes", {
+                termo: `${mAutor} achado`,
+              });
+              afirmar(
+                "e as palavras podem estar em CAMPOS diferentes — uma no Autor, outra no título",
+                cruzada.resultado?.ok === true &&
+                  cruzada.sufixos.length === 1 &&
+                  cruzada.sufixos[0] === "busca-autor",
+                `voltaram: ${cruzada.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              // Conjunção, não união: acrescentar palavra ESTREITA o resultado.
+              // Uma busca que devolvesse mais linhas a cada palavra digitada
+              // seria o oposto de buscar.
+              const estreita = await buscar("palavra a mais", {
+                termo: `achado ${mAutor} inexistente${n8}`,
+              });
+              afirmar(
+                "acrescentar uma palavra que não existe ESTREITA até zero — é conjunção, não união",
+                estreita.resultado?.ok === true && estreita.sufixos.length === 0,
+                `voltaram: ${estreita.sufixos.join(", ") || "nenhum"}`,
+              );
+            }
+
+            /* — Acento, nas DUAS direções, e caixa — */
+            {
+              const semAcento = await buscar("sem acento", { termo: `estrategia ${n8}` });
+              afirmar(
+                "termo SEM acento acha o texto acentuado — “estrategia” encontra “Estratégia”",
+                semAcento.resultado?.ok === true &&
+                  semAcento.sufixos.length === 1 &&
+                  semAcento.sufixos[0] === "busca-acentuada",
+                `voltaram: ${semAcento.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const comAcento = await buscar("com acento", { termo: `automação ${n8}` });
+              afirmar(
+                "e o inverso vale: termo COM acento acha o texto sem acento",
+                comAcento.resultado?.ok === true &&
+                  comAcento.sufixos.length === 1 &&
+                  comAcento.sufixos[0] === "busca-sem-acento",
+                `voltaram: ${comAcento.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const gritando = await buscar("caixa alta", { termo: `ESTRATÉGIA ${n8}` });
+              afirmar(
+                "maiúsculas dão o mesmo resultado que minúsculas, com ou sem acento",
+                gritando.resultado?.ok === true &&
+                  gritando.sufixos.length === 1 &&
+                  gritando.sufixos[0] === "busca-acentuada",
+                `voltaram: ${gritando.sufixos.join(", ") || "nenhum"}`,
+              );
+            }
+
+            /* — Caractere especial é TEXTO, nunca padrão nem sintaxe — */
+            {
+              const especial = await buscar("especial", { termo: ESPECIAL });
+              afirmar(
+                "termo com %, _, parêntese, vírgula e aspas é achado como TEXTO, sem erro de consulta",
+                especial.resultado?.ok === true &&
+                  especial.sufixos.length === 1 &&
+                  especial.sufixos[0] === "busca-especial",
+                `voltaram: ${especial.sufixos.join(", ") || "nenhum"} ${JSON.stringify(especial.resultado?.erro ?? "").slice(0, 200)}`,
+              );
+
+              // A prova de que não é `like`: sozinho, `%` casaria TUDO se o
+              // termo virasse padrão. Aqui ele só acha quem tem um `%` escrito.
+              const curinga = await buscar("só o curinga", { termo: "%" });
+              afirmar(
+                "`%` sozinho NÃO é curinga: acha só o Post que tem um `%` escrito",
+                curinga.resultado?.ok === true &&
+                  curinga.sufixos.length === 1 &&
+                  curinga.sufixos[0] === "busca-especial",
+                `voltaram: ${curinga.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const sublinhado = await buscar("sublinhado", { termo: "achado _or" });
+              afirmar(
+                "`_` também não é curinga de um caractere — “achado _or” não acha “Achado por”",
+                sublinhado.resultado?.ok === true && sublinhado.sufixos.length === 0,
+                `voltaram: ${sublinhado.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const nada = await buscar("sem correspondência", {
+                termo: `nao-existe-${n8}`,
+              });
+              afirmar(
+                "termo sem correspondência devolve lista VAZIA com sucesso — não é erro",
+                nada.resultado?.ok === true &&
+                  Array.isArray(nada.resultado.dados) &&
+                  nada.sufixos.length === 0,
+                JSON.stringify(nada.resultado).slice(0, 200),
+              );
+            }
+
+            /* — O filtro de Estado lê a coluna, e combina com a busca — */
+            {
+              const arquivados = await buscar("estado arquivado", {
+                estados: ["arquivado"],
+              });
+              afirmar(
+                "o filtro de Estado restringe pela coluna `estado`",
+                arquivados.resultado?.ok === true &&
+                  arquivados.sufixos.length === 1 &&
+                  arquivados.sufixos[0] === "arquivado",
+                `voltaram: ${arquivados.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const dois = await buscar("dois estados", {
+                estados: ["agendado", "arquivado"],
+              });
+              afirmar(
+                "e aceita mais de um Estado ao mesmo tempo",
+                dois.resultado?.ok === true &&
+                  dois.sufixos.length === 2 &&
+                  dois.sufixos[0] === "agendado-futuro" &&
+                  dois.sufixos[1] === "arquivado",
+                `voltaram: ${dois.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const combinado = await buscar("busca + estado que casa", {
+                termo: mTitulo,
+                estados: ["rascunho"],
+              });
+              afirmar(
+                "busca e filtro COMBINAM: as duas restrições valem ao mesmo tempo",
+                combinado.resultado?.ok === true &&
+                  combinado.sufixos.length === 1 &&
+                  combinado.sufixos[0] === "busca-titulo",
+                `voltaram: ${combinado.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const excludente = await buscar("busca + estado que não casa", {
+                termo: mTitulo,
+                estados: ["publicado"],
+              });
+              afirmar(
+                "e a combinação é conjunção, não união: o mesmo termo em outro Estado não volta",
+                excludente.resultado?.ok === true && excludente.sufixos.length === 0,
+                `voltaram: ${excludente.sufixos.join(", ") || "nenhum"}`,
+              );
+
+              const inventado = await chamar("listarPostsDoPainel (estado inventado)", () =>
+                listarPostsDoPainel({ estados: ["publicada"] }),
+              );
+              afirmar(
+                "Estado fora do vocabulário fechado é RECUSADO, não ignorado em silêncio",
+                inventado?.ok === false &&
+                  inventado?.erro?.tipo === ERRO_INESPERADO &&
+                  String(inventado?.erro?.detalhe ?? "").includes("publicada"),
+                JSON.stringify(inventado).slice(0, 220),
+              );
+
+              const listaVazia = await buscar("lista de estados vazia", { estados: [] });
+              afirmar(
+                "lista de Estados VAZIA é ausência de filtro, não “nenhum Estado”",
+                listaVazia.resultado?.ok === true && listaVazia.sufixos.length === 11,
+                `voltaram ${listaVazia.sufixos.length}: ${listaVazia.sufixos.join(", ") || "nenhum"}`,
+              );
+            }
+
+            /* — Campo limpo volta à listagem inteira — */
+            {
+              const limpo = await buscar("campo limpo", { termo: "   " });
+              afirmar(
+                "termo só de espaços é ausência de busca: a listagem inteira volta",
+                limpo.resultado?.ok === true && limpo.sufixos.length === 11,
+                `voltaram ${limpo.sufixos.length}: ${limpo.sufixos.join(", ") || "nenhum"}`,
+              );
+            }
+
+            /* — A ordem continua sendo a da camada, com busca aplicada — */
+            {
+              const { resultado } = await buscar("ordem sob busca", { termo: n8 });
+              const daBusca = (resultado?.dados ?? []).filter((p) =>
+                String(p?.slug ?? "").startsWith(prefixo),
+              );
+              const esperada = [...daBusca]
+                .sort((a, b) => {
+                  const ka = Date.parse(a.publicado_em ?? a.atualizado_em);
+                  const kb = Date.parse(b.publicado_em ?? b.atualizado_em);
+                  return kb - ka || String(a.id).localeCompare(String(b.id));
+                })
+                .map((p) => p.slug);
+              afirmar(
+                "com busca aplicada, a ordem continua sendo `COALESCE(publicado_em, atualizado_em)` DESC",
+                daBusca.length >= 2 &&
+                  esperada.every((s, i) => s === daBusca[i].slug),
+                `obtida: ${daBusca.map((p) => p.slug.slice(prefixo.length)).join(" > ")}`,
+              );
+            }
+
+            /* — A busca NÃO empresta visibilidade a quem não tem — */
+            //
+            // A função é `security invoker` justamente para isto: um termo que
+            // casa com um rascunho, buscado sem sessão, não pode devolver o
+            // rascunho. Aqui a prova é do outro lado da mesma moeda — a camada
+            // pública não tem busca, e a do Painel exige sessão; o que se
+            // afirma é que a RLS continua sendo a guardiã, com a leitura
+            // anônima crua contra a função.
+            {
+              const r = await fetch(
+                `${URL_PROJETO}/rest/v1/rpc/buscar_posts_do_painel?select=slug`,
+                {
+                  method: "POST",
+                  signal: AbortSignal.timeout(TIMEOUT_MS),
+                  headers: {
+                    apikey: chavePublicavel,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ p_termo: mTitulo, p_estados: null }),
+                },
+              );
+              const corpo = await r.text();
+              let vazamento = true;
+              try {
+                const v = JSON.parse(corpo);
+                vazamento = Array.isArray(v)
+                  ? v.some((l) => String(l?.slug ?? "").startsWith(prefixo))
+                  : false;
+              } catch {
+                vazamento = false;
+              }
+              afirmar(
+                "o visitante anônimo não extrai rascunho pela função de busca",
+                !vazamento,
+                `HTTP ${r.status} — ${corpo.slice(0, 200)}`,
+              );
+            }
           }
 
           // A trava que mantém a lista de adiamento honesta: acrescentar uma

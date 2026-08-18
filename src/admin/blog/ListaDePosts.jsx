@@ -10,10 +10,10 @@
  * origem: manter a leitura antiga "por segurança" é exatamente como o Painel
  * chegou a mostrar de uma fonte e escrever noutra.
  *
- * ─── QUATRO TELAS, E TRÊS DELAS NÃO TÊM LINHA NENHUMA ───────────────────────
+ * ─── CINCO TELAS, E QUATRO DELAS NÃO TÊM LINHA NENHUMA ──────────────────────
  *
- * Carregando, erro, vazio e lista. As três primeiras são fáceis de colapsar numa
- * só, e colapsá-las é o defeito:
+ * Carregando, erro, vazio inicial, vazio de busca e lista. As quatro primeiras
+ * são fáceis de colapsar numa só, e colapsá-las é o defeito:
  *
  *   - **carregando** mostra esqueleto, nunca tela em branco — branco é
  *     indistinguível de "não há nada", e a pessoa vai embora achando que perdeu
@@ -21,11 +21,29 @@
  *   - **erro** diz o que houve e o que fazer, com a frase do erro TIPADO que a
  *     camada devolve: sessão expirada pede entrar de novo, rede pede tentar de
  *     novo, e as duas oferecem o botão;
- *   - **vazio** é superfície de primeira classe — a primeira tela que um Autor
- *     novo vê — e leva ao primeiro Post.
+ *   - **vazio inicial** é superfície de primeira classe — a primeira tela que um
+ *     Autor novo vê — e leva ao primeiro Post;
+ *   - **vazio de busca** diz que não há correspondência para AQUELE termo, e
+ *     oferece limpar. É o único dos três que alguém causou, e o único com
+ *     desfazer.
  *
- * Erro e vazio mostram, os dois, uma lista sem linhas, e é só isso que têm em
- * comum. Trocar um pelo outro é como um Autor conclui que o que escreveu sumiu.
+ * Os quatro mostram uma lista sem linhas, e é só isso que têm em comum. Trocar
+ * um pelo outro é como um Autor conclui que o que escreveu sumiu — quem
+ * procurou "estratégia" e recebeu o convite de escrever o primeiro post não tem
+ * como saber que o arquivo continua lá.
+ *
+ * ─── A BUSCA ACONTECE NO BANCO ──────────────────────────────────────────────
+ *
+ * Esta tela não filtra nada: ela PEDE o recorte à camada, que pede ao Postgres.
+ * Filtrar aqui a lista já carregada funcionaria enquanto houvesse poucos Posts
+ * e passaria a mentir exatamente quando a busca ficasse necessária. O termo
+ * chega por propriedade e sai por argumento; quem tira acento e caixa é o banco.
+ *
+ * E digitação é RAJADA: uma consulta por tecla castiga o banco e faz respostas
+ * chegarem fora de ordem. O termo espera a digitação parar, e toda resposta
+ * carrega o número do pedido — a que chega tarde é descartada em vez de
+ * sobrescrever a mais nova, que é o defeito clássico de busca enquanto se
+ * digita e aparece como resultado de um termo que já não está no campo.
  *
  * ─── O ESTADO APARECE POR PONTO **E** PALAVRA ───────────────────────────────
  *
@@ -45,20 +63,25 @@
  *
  * ─── O QUE ESTA TELA NÃO FAZ ────────────────────────────────────────────────
  *
- * Não busca e não filtra (Story 2.11). Não oferece ações por linha além de abrir
- * o Post (Story 2.12). E não escreve nada: nenhum cliente escreve no banco.
+ * Não filtra em memória o que veio do recorte. Não oferece ações por linha além
+ * de abrir o Post (Story 2.12). E não escreve nada: nenhum cliente escreve no
+ * banco.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, FileText, Star } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, FileText, SearchX, Star } from "lucide-react";
 
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
 import {
   DESCRICAO_DO_VAZIO,
+  ROTULO_DE_LIMPAR_BUSCA,
   ROTULO_DE_RECARREGAR,
   ROTULO_DO_PRIMEIRO_POST,
   TITULO_DO_ERRO,
   TITULO_DO_VAZIO,
+  TITULO_DO_VAZIO_DE_BUSCA,
+  descricaoDoVazioDeBusca,
+  haBuscaAtiva,
   monogramaDaCategoria,
   nomeDaCategoria,
   rotuloParaAbrir,
@@ -75,10 +98,25 @@ import { cn } from "@/lib/utils";
 /** Quantas linhas fantasma o esqueleto desenha enquanto os dados vêm. */
 const LINHAS_DO_ESQUELETO = 4;
 
+/**
+ * Quanto a listagem espera a digitação parar antes de consultar o banco.
+ *
+ * Exportado porque a verificação precisa do número DE VERDADE: uma espera
+ * escrita à mão na ferramenta e outra aqui divergem no dia em que uma das duas
+ * mudar, e a asserção passaria a provar outra coisa.
+ *
+ * Curto o bastante para não parecer travado, longo o bastante para uma palavra
+ * inteira digitada em rajada virar UMA consulta.
+ */
+export const ESPERA_DA_BUSCA_MS = 250;
+
 export default function ListaDePosts({
   aoAbrirPost,
   aoCriarPost,
   aoContar,
+  aoLimparBusca,
+  termo = "",
+  estados = [],
   recarregarEm = 0,
 }) {
   const [carregando, setCarregando] = useState(true);
@@ -89,6 +127,22 @@ export default function ListaDePosts({
      vira enfeite. */
   const [tentativa, setTentativa] = useState(0);
 
+  /* O termo APLICADO: o que já virou consulta, que é diferente do que está no
+     campo enquanto a pessoa digita. Ele NASCE igual ao da tela para que o
+     primeiro carregamento seja imediato — atrasar a primeira leitura por causa
+     da espera de digitação faria o Painel abrir devendo um quarto de segundo
+     sem motivo nenhum. */
+  const [termoAplicado, setTermoAplicado] = useState(termo);
+
+  /* A lista de Estados chega como propriedade, e um vetor novo a cada
+     renderização da página faria o efeito rodar em laço. A CHAVE é o dado: uma
+     string derivada dela, estável enquanto o conjunto for o mesmo. */
+  const chaveDosEstados = (Array.isArray(estados) ? estados : []).join(",");
+  const estadosAplicados = useMemo(
+    () => (chaveDosEstados === "" ? [] : chaveDosEstados.split(",")),
+    [chaveDosEstados],
+  );
+
   /* `aoContar` viaja por referência para ficar FORA das dependências do efeito.
      Uma função recriada a cada renderização da página — que é o caso normal —
      faria a listagem recarregar em laço, e o laço só apareceria em produção,
@@ -98,14 +152,36 @@ export default function ListaDePosts({
     contar.current = aoContar;
   }, [aoContar]);
 
+  /* ── A espera da digitação ──────────────────────────────────────────────
+     Enquanto as teclas chegam, o relógio é reiniciado e nenhuma consulta sai.
+     Sem isto, "atendimento" seriam onze idas ao banco, dez delas descartadas —
+     e a décima primeira poderia chegar antes da sétima. */
   useEffect(() => {
-    let vivo = true;
+    if (termo === termoAplicado) return undefined;
+    const relogio = setTimeout(() => setTermoAplicado(termo), ESPERA_DA_BUSCA_MS);
+    return () => clearTimeout(relogio);
+  }, [termo, termoAplicado]);
+
+  /* ── O pedido em curso ──────────────────────────────────────────────────
+     Cada leitura leva um número. Quando a resposta volta, ela só é aplicada se
+     ainda for a mais nova — é assim que uma resposta atrasada deixa de
+     sobrescrever um resultado mais recente. A limpeza do efeito também avança o
+     número, então nada aplicado depois de desmontar. */
+  const ultimoPedido = useRef(0);
+
+  useEffect(() => {
+    ultimoPedido.current += 1;
+    const pedido = ultimoPedido.current;
     setCarregando(true);
     setErro(null);
 
     (async () => {
-      const resultado = await listarPostsDoPainel();
-      if (!vivo) return;
+      const resultado = await listarPostsDoPainel({
+        termo: termoAplicado,
+        estados: estadosAplicados,
+      });
+      if (ultimoPedido.current !== pedido) return;
+
       if (!resultado.ok) {
         /* ERRO NÃO É VAZIO. A lista anterior é descartada junto: mostrar linhas
            velhas embaixo de uma mensagem de falha diz que elas ainda valem. */
@@ -119,15 +195,28 @@ export default function ListaDePosts({
       setPosts(ordenados);
       setErro(null);
       setCarregando(false);
-      contar.current?.(ordenados.length);
+      /* A contagem da aba é quantos Posts EXISTEM, não quantos sobraram do
+         filtro. Anunciar o recorte faria a aba dizer "3" para quem tem doze — e
+         o número mudaria a cada tecla, sem que nada tivesse sido apagado. */
+      if (!haBuscaAtiva({ termo: termoAplicado, estados: estadosAplicados })) {
+        contar.current?.(ordenados.length);
+      }
     })();
 
     return () => {
-      vivo = false;
+      ultimoPedido.current += 1;
     };
-  }, [recarregarEm, tentativa]);
+  }, [recarregarEm, tentativa, termoAplicado, estadosAplicados]);
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
+
+  /* A pergunta é sobre o que foi PEDIDO, e sobre o pedido que produziu ESTAS
+     linhas — não sobre o que está no campo neste instante. Usar o termo ainda
+     não aplicado piscaria a tela errada no meio da digitação. */
+  const buscando = haBuscaAtiva({
+    termo: termoAplicado,
+    estados: estadosAplicados,
+  });
 
   /* ── Carregando ────────────────────────────────────────────────────────
      O esqueleto é decorativo para quem ouve a tela: quatro vultos anunciados um
@@ -177,6 +266,39 @@ export default function ListaDePosts({
           className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "mt-4")}
         >
           {ROTULO_DE_RECARREGAR}
+        </Button>
+      </div>
+    );
+  }
+
+  /* ── Vazio de BUSCA ───────────────────────────────────────────────────
+     Vem ANTES do vazio inicial de propósito: as duas telas mostram uma lista
+     sem linhas, e só o que foi pedido as distingue. Quem procurou algo precisa
+     ler que não houve correspondência — e não o convite de escrever o primeiro
+     post, que diria que o arquivo inteiro sumiu. */
+  if (posts.length === 0 && buscando) {
+    return (
+      <div
+        data-estado-da-lista="vazio-de-busca"
+        className="mx-auto max-w-xl rounded-cartao border border-border-soft bg-surface p-8 text-center"
+      >
+        <SearchX aria-hidden="true" className="mx-auto size-10 text-ink-muted" />
+        <h3 className="mt-3 text-base font-semibold text-ink">
+          {TITULO_DO_VAZIO_DE_BUSCA}
+        </h3>
+        <p className="mt-2 text-sm text-ink-secondary">
+          {descricaoDoVazioDeBusca({
+            termo: termoAplicado,
+            estados: estadosAplicados,
+          })}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => aoLimparBusca?.()}
+          className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "mt-4")}
+        >
+          {ROTULO_DE_LIMPAR_BUSCA}
         </Button>
       </div>
     );

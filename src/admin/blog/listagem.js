@@ -24,7 +24,9 @@
  * (`ordenarListagem`). Escrever uma segunda comparação aqui criaria duas ordens
  * que divergem no primeiro empate — o instante em que ninguém está olhando.
  *
- * Não busca e não filtra: isso é da Story 2.11.
+ * Não ordena, e não consulta: a busca e o filtro acontecem no BANCO (Story
+ * 2.11). O que mora aqui é o vocabulário de quem pediu a busca e a frase de
+ * quando ela não acha nada — regra pura, não consulta.
  */
 
 import {
@@ -32,6 +34,7 @@ import {
   formatarDataEHora,
   formatarNumero,
 } from "@/domain/blog/formato";
+import { ehEstado, ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
 
 /* ─── A voz das duas telas sem linha ─────────────────────────────────────── */
 
@@ -51,6 +54,95 @@ export const ROTULO_DO_PRIMEIRO_POST = "Escrever o primeiro post";
 /** A falha de leitura. O "o que fazer" vem do erro tipado da camada de dados. */
 export const TITULO_DO_ERRO = "Não deu para carregar os posts";
 export const ROTULO_DE_RECARREGAR = "Tentar carregar os posts de novo";
+
+/* ─── O TERCEIRO vazio: o que a pessoa causou ────────────────────────────── */
+
+/**
+ * "Nenhum post ainda" convida a escrever; "não consegui carregar" pede outra
+ * ação; este pede para trocar o termo. São três situações e três saídas, e usar
+ * a mesma tela para duas delas manda a pessoa para o lugar errado — quem
+ * procurou "estratégia" e viu o convite de escrever o primeiro post conclui que
+ * o arquivo inteiro sumiu.
+ *
+ * É também o único dos três com desfazer, porque é o único que alguém causou.
+ */
+export const TITULO_DO_VAZIO_DE_BUSCA = "Nenhum post corresponde a essa busca";
+export const ROTULO_DE_LIMPAR_BUSCA = "Limpar a busca e os filtros";
+
+/**
+ * Os Estados marcados, por extenso e na ordem do ciclo de vida — nunca na
+ * ordem em que a pessoa foi clicando, que é aleatória e mudaria a frase a cada
+ * leitura.
+ *
+ * As palavras vêm do vocabulário fechado. Escrevê-las à mão aqui criaria o
+ * sinônimo que o domínio existe para impedir.
+ */
+export function palavrasDosEstados(estados) {
+  const marcados = Array.isArray(estados) ? estados : [];
+  const validos = ESTADOS.filter((e) => marcados.includes(e));
+  const palavras = validos.map((e) => rotuloDoEstado(e));
+  if (palavras.length === 0) return "";
+  if (palavras.length === 1) return palavras[0];
+  return `${palavras.slice(0, -1).join(", ")} ou ${palavras[palavras.length - 1]}`;
+}
+
+/**
+ * A frase do vazio de busca: **diz o que não foi encontrado**, com o termo e os
+ * Estados que a pessoa de fato pediu. Um "nada encontrado" genérico deixa quem
+ * lê sem saber se o problema foi o termo, o filtro esquecido numa aba anterior,
+ * ou o post que realmente não existe.
+ *
+ * O termo aparece entre aspas para que espaço no fim e caractere estranho
+ * fiquem visíveis — é assim que a pessoa descobre que colou algo a mais.
+ */
+export function descricaoDoVazioDeBusca({ termo = "", estados = [] } = {}) {
+  const alvo = typeof termo === "string" ? termo.trim() : "";
+  const palavras = palavrasDosEstados(estados);
+  const onde = "no título, na categoria, no autor ou nas tags";
+
+  if (alvo !== "" && palavras !== "") {
+    return `Nenhum post em ${palavras} tem “${alvo}” ${onde}.`;
+  }
+  if (alvo !== "") {
+    return `Nenhum post tem “${alvo}” ${onde}.`;
+  }
+  if (palavras !== "") {
+    return `Nenhum post está em ${palavras}.`;
+  }
+  return "Nenhum post atende ao que foi pedido.";
+}
+
+/* ─── O que a pessoa pediu ───────────────────────────────────────────────── */
+
+/**
+ * Há busca em curso? É o que separa o vazio de busca do vazio inicial — e a
+ * pergunta precisa ser feita sobre o que foi PEDIDO, não sobre o que voltou:
+ * uma lista de tamanho zero é a mesma lista nos dois casos.
+ */
+export function haBuscaAtiva({ termo = "", estados = [] } = {}) {
+  const alvo = typeof termo === "string" ? termo.trim() : "";
+  const marcados = Array.isArray(estados) ? estados : [];
+  return alvo !== "" || marcados.some((e) => ehEstado(e));
+}
+
+/**
+ * Marca ou desmarca um Estado no filtro, devolvendo lista nova na ordem do
+ * ciclo de vida.
+ *
+ * A ordem canônica não é capricho: ela é o que faz a frase do vazio de busca e
+ * o pedido à camada de dados serem os mesmos para o mesmo conjunto de caixas
+ * marcadas, independentemente da sequência de cliques.
+ *
+ * Estado fora do vocabulário não entra — o filtro nunca inventa texto solto.
+ */
+export function alternarEstado(estados, estado) {
+  const marcados = Array.isArray(estados) ? estados.filter(ehEstado) : [];
+  if (!ehEstado(estado)) return ESTADOS.filter((e) => marcados.includes(e));
+  const desejados = marcados.includes(estado)
+    ? marcados.filter((e) => e !== estado)
+    : [...marcados, estado];
+  return ESTADOS.filter((e) => desejados.includes(e));
+}
 
 /* ─── Categoria ──────────────────────────────────────────────────────────── */
 

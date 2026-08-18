@@ -10,6 +10,7 @@
  * anônimo achando que está completo.
  */
 
+import { ehEstado } from "../../domain/blog/estados.js";
 import { clienteAutenticado, clientePublico } from "../supabase/clientes.js";
 import { deExcecao, ERRO_PERMISSAO, falha, sucesso } from "./resultado.js";
 
@@ -62,6 +63,73 @@ export function deslocamentoValido(valor) {
   const n = Number(valor);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.floor(n);
+}
+
+/* ─── O que se pede a uma busca ──────────────────────────────────────────── */
+
+/**
+ * Teto do termo de busca. Um campo de texto aceita colar um documento
+ * inteiro, e mandar um megabyte por tecla digitada ao banco é o mesmo
+ * problema da listagem sem limite: varredura sem limite.
+ */
+export const TAMANHO_MAXIMO_DO_TERMO = 200;
+
+/**
+ * O termo, pronto para viajar como ARGUMENTO da busca — nunca como pedaço de
+ * um padrão nem de uma expressão de filtro.
+ *
+ * O que esta função faz é só aparar e truncar. **Ela não normaliza acento nem
+ * caixa**, e isso é regra do épico, não esquecimento: normalizar no cliente
+ * daria duas normalizações — a do navegador e a do banco — que divergiriam na
+ * primeira diferença de versão de dicionário, e "estrategia" acharia
+ * "Estratégia" numa máquina e não na outra. Quem normaliza é o Postgres, dos
+ * dois lados da comparação, pela mesma função.
+ *
+ * Nenhum caractere é removido nem escapado: `%`, `_`, aspas e parêntese são
+ * TEXTO, e continuam sendo, porque a comparação lá no banco é de contenção
+ * literal e não de padrão. Escapar aqui faria a pessoa que busca "50%"
+ * encontrar outra coisa.
+ *
+ * O corte é por ponto de código, e não por índice de unidade: cortar
+ * "automação" ao meio de um par substituto viraria um caractere de reposição
+ * no meio do termo.
+ */
+export function termoValido(valor) {
+  if (typeof valor !== "string") return "";
+  const aparado = valor.trim();
+  if (aparado === "") return "";
+  const pontos = [...aparado];
+  return pontos.length <= TAMANHO_MAXIMO_DO_TERMO
+    ? aparado
+    : pontos.slice(0, TAMANHO_MAXIMO_DO_TERMO).join("");
+}
+
+/**
+ * Separa os Estados pedidos entre os que existem e os que não existem.
+ *
+ * O vocabulário é fechado (`domain/blog/estados.js`), e valor fora dele é
+ * **recusado, não ignorado**: descartar em silêncio faria o Painel mostrar uma
+ * lista mais larga do que o filtro na tela diz, e ninguém saberia por quê.
+ * Quem chama transforma `recusados` em erro tipado — e o banco recusa outra
+ * vez, na conversão para o enum, porque o que vem da tela chega à consulta.
+ *
+ * Lista ausente ou vazia é "sem filtro", que é diferente de "nenhum Estado".
+ * Repetição é colapsada: marcar duas vezes o mesmo Estado é a mesma pergunta.
+ */
+export function separarEstados(valor) {
+  if (valor === null || valor === undefined) return { pedidos: [], recusados: [] };
+  const bruta = Array.isArray(valor) ? valor : [valor];
+  const pedidos = [];
+  const recusados = [];
+  for (const item of bruta) {
+    const texto = typeof item === "string" ? item.trim() : "";
+    if (ehEstado(texto)) {
+      if (!pedidos.includes(texto)) pedidos.push(texto);
+    } else {
+      recusados.push(JSON.stringify(item));
+    }
+  }
+  return { pedidos, recusados };
 }
 
 /* ─── Clientes ───────────────────────────────────────────────────────────── */

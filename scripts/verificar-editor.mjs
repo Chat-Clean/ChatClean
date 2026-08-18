@@ -1710,6 +1710,10 @@ async function compilarComponentes() {
       "  listagem: { ok: true, dados: [] },\n" +
       "  aoListar: null,\n" +
       "  listagens: 0,\n" +
+      /* O que a listagem PEDIU, ida a ida. É por aqui que se prova que o termo
+         e os Estados chegam à camada — e que uma rajada de teclas não vira uma
+         ida por tecla (Story 2.11). */
+      "  pedidos_da_listagem: [],\n" +
       "};\n",
   );
 
@@ -1732,9 +1736,10 @@ async function compilarComponentes() {
       "export async function lerPostDoPainelPorId() {\n" +
       "  return controle.post;\n" +
       "}\n" +
-      "export async function listarPostsDoPainel() {\n" +
+      "export async function listarPostsDoPainel(pedido) {\n" +
       "  controle.listagens += 1;\n" +
-      "  if (typeof controle.aoListar === 'function') return controle.aoListar();\n" +
+      "  controle.pedidos_da_listagem.push(pedido ?? null);\n" +
+      "  if (typeof controle.aoListar === 'function') return controle.aoListar(pedido);\n" +
       "  return controle.listagem;\n" +
       "}\n",
   );
@@ -1765,6 +1770,10 @@ async function compilarComponentes() {
       `export { controlesDaBarra } from ${JSON.stringify(alvoDaConfiguracao)};\n` +
       `export { default as EditorDePost } from ${caminhoReal(CAMINHO_TELA)};\n` +
       `export { default as ListaDePosts } from ${caminhoReal(CAMINHO_LISTA)};\n` +
+      /* A espera da digitação vem DO COMPONENTE, não de um número escrito na
+         ferramenta: dois números divergem no dia em que um deles mudar, e a
+         asserção passaria a provar outra coisa. */
+      `export { ESPERA_DA_BUSCA_MS } from ${caminhoReal(CAMINHO_LISTA)};\n` +
       `export * as regrasDaListagem from ${caminhoReal(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
       `export * as escritaReal from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
@@ -4216,7 +4225,76 @@ if (janela && schema && configuracao && compilado) {
             voz.diagnosticarRotuloDeAcao(regras.ROTULO_DE_RECARREGAR) === null,
           `${regras.TITULO_DO_VAZIO} | ${regras.TITULO_DO_ERRO}`,
         );
+        afirmar(
+          "o TERCEIRO vazio — o de busca — tem título próprio, distinto dos outros dois, e passa pelas mesmas guardas",
+          regras.TITULO_DO_VAZIO_DE_BUSCA !== regras.TITULO_DO_VAZIO &&
+            regras.TITULO_DO_VAZIO_DE_BUSCA !== regras.TITULO_DO_ERRO &&
+            voz.diagnosticarMensagem(
+              "o que aconteceu",
+              regras.TITULO_DO_VAZIO_DE_BUSCA,
+            ) === null &&
+            voz.diagnosticarRotuloDeAcao(regras.ROTULO_DE_LIMPAR_BUSCA) === null,
+          `${regras.TITULO_DO_VAZIO_DE_BUSCA} | ${regras.ROTULO_DE_LIMPAR_BUSCA}`,
+        );
       }
+
+      /* ── As regras do PEDIDO de busca, executadas (Story 2.11) ─────── */
+      afirmar(
+        "“há busca em curso?” se responde sobre o que foi PEDIDO — e espaço em branco não é pedido",
+        regras.haBuscaAtiva({}) === false &&
+          regras.haBuscaAtiva({ termo: "   " }) === false &&
+          regras.haBuscaAtiva({ termo: "estrategia" }) === true &&
+          regras.haBuscaAtiva({ estados: ["rascunho"] }) === true &&
+          regras.haBuscaAtiva({ estados: [] }) === false &&
+          regras.haBuscaAtiva({ estados: ["publicada"] }) === false,
+        `com estado inventado: ${regras.haBuscaAtiva({ estados: ["publicada"] })}`,
+      );
+      afirmar(
+        "marcar e desmarcar Estado devolve sempre a ORDEM DO CICLO DE VIDA, não a ordem dos cliques",
+        igual(regras.alternarEstado([], "publicado"), ["publicado"]) &&
+          igual(regras.alternarEstado(["publicado"], "rascunho"), [
+            "rascunho",
+            "publicado",
+          ]) &&
+          igual(regras.alternarEstado(["rascunho", "publicado"], "publicado"), [
+            "rascunho",
+          ]),
+        JSON.stringify(regras.alternarEstado(["publicado"], "rascunho")),
+      );
+      afirmar(
+        "e texto solto nunca entra no filtro — o vocabulário é fechado dos dois lados",
+        igual(regras.alternarEstado([], "no ar"), []) &&
+          igual(regras.alternarEstado(["rascunho", "draft"], "no ar"), ["rascunho"]),
+        JSON.stringify(regras.alternarEstado(["rascunho", "draft"], "no ar")),
+      );
+      if (estadosDoDominio) {
+        afirmar(
+          "as palavras do filtro saem do VOCABULÁRIO, na ordem do ciclo de vida, com “ou” antes da última",
+          regras.palavrasDosEstados(["publicado", "rascunho"]) ===
+            `${estadosDoDominio.rotuloDoEstado("rascunho")} ou ${estadosDoDominio.rotuloDoEstado("publicado")}` &&
+            regras.palavrasDosEstados([]) === "" &&
+            regras.palavrasDosEstados(["arquivado"]) ===
+              estadosDoDominio.rotuloDoEstado("arquivado"),
+          regras.palavrasDosEstados(["publicado", "rascunho"]),
+        );
+      }
+      afirmar(
+        "a frase do vazio de busca NOMEIA o que não foi encontrado — termo e Estados, e não um “nada encontrado” genérico",
+        regras
+          .descricaoDoVazioDeBusca({ termo: "automação" })
+          .includes("automação") &&
+          regras
+            .descricaoDoVazioDeBusca({ termo: "automação", estados: ["rascunho"] })
+            .includes("automação") &&
+          regras.descricaoDoVazioDeBusca({ termo: "automação" }) !==
+            regras.descricaoDoVazioDeBusca({
+              termo: "automação",
+              estados: ["rascunho"],
+            }) &&
+          regras.descricaoDoVazioDeBusca({ estados: ["rascunho"] }) !==
+            regras.descricaoDoVazioDeBusca({ termo: "automação" }),
+        regras.descricaoDoVazioDeBusca({ termo: "automação", estados: ["rascunho"] }),
+      );
     }
 
     /** Monta `ListaDePosts` e devolve as ferramentas para mexer nela. */
@@ -4620,6 +4698,158 @@ if (janela && schema && configuracao && compilado) {
         tela.reclamacoes.length === 0,
         tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
       );
+      await tela.desmontar();
+    }
+
+    /* ── O VAZIO DE BUSCA: o terceiro, e o único com desfazer ─────────── */
+    if (regras) {
+      const limpezas = [];
+      modulo.controle.aoListar = null;
+      modulo.controle.listagens = 0;
+      modulo.controle.pedidos_da_listagem = [];
+      modulo.controle.listagem = { ok: true, dados: [] };
+      const tela = await montarLista({
+        termo: "automação",
+        estados: ["rascunho", "agendado"],
+        aoLimparBusca: () => limpezas.push(1),
+        aoCriarPost: () => limpezas.push("criar"),
+      });
+
+      afirmar(
+        "sem correspondência, a tela é o VAZIO DE BUSCA — e não o vazio inicial nem um alerta de falha",
+        tela.situacao() === "vazio-de-busca" &&
+          tela.alvo.querySelector('[data-estado-da-lista="vazio"]') === null &&
+          tela.alvo.querySelector('[role="alert"]') === null,
+        `situação: ${tela.situacao()}`,
+      );
+      afirmar(
+        "ele diz o que NÃO foi encontrado — o termo à vista — e não convida a escrever o primeiro post",
+        (tela.regiao()?.textContent ?? "").includes(regras.TITULO_DO_VAZIO_DE_BUSCA) &&
+          (tela.regiao()?.textContent ?? "").includes("automação") &&
+          !(tela.regiao()?.textContent ?? "").includes(regras.TITULO_DO_VAZIO) &&
+          !(tela.regiao()?.textContent ?? "").includes(regras.ROTULO_DO_PRIMEIRO_POST),
+        (tela.regiao()?.textContent ?? "").slice(0, 200),
+      );
+      afirmar(
+        "o termo e os Estados chegam à CAMADA — a tela pede o recorte, não filtra o que já tem",
+        modulo.controle.pedidos_da_listagem.length === 1 &&
+          modulo.controle.pedidos_da_listagem[0]?.termo === "automação" &&
+          igual(modulo.controle.pedidos_da_listagem[0]?.estados, [
+            "rascunho",
+            "agendado",
+          ]),
+        JSON.stringify(modulo.controle.pedidos_da_listagem),
+      );
+
+      const botao = tela.botaoPorTexto(regras.ROTULO_DE_LIMPAR_BUSCA);
+      afirmar(
+        "e é o único dos três vazios com desfazer: ele oferece limpar a busca",
+        botao !== null,
+      );
+      if (botao) {
+        await tela.clicar(botao);
+        afirmar(
+          "que LIMPA de verdade — o convite sem destino é pior que nenhum convite",
+          igual(limpezas, [1]),
+          `chamadas: ${JSON.stringify(limpezas)}`,
+        );
+      }
+      await tela.desmontar();
+    }
+
+    /* ── DIGITAÇÃO É RAJADA: uma consulta, não uma por tecla ──────────── */
+    if (regras) {
+      const espera = modulo.ESPERA_DA_BUSCA_MS;
+      afirmar(
+        "a listagem declara a espera da digitação, e a ferramenta usa o número DELA",
+        Number.isFinite(espera) && espera > 0,
+        `espera: ${JSON.stringify(espera)}`,
+      );
+
+      /** Deixa o relógio de verdade correr, dentro do `act`. */
+      const respirar = async (ms) => {
+        await act(async () => {
+          await new Promise((resolver) => setTimeout(resolver, ms));
+        });
+      };
+
+      modulo.controle.aoListar = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      const tela = await montarLista({ termo: "" });
+      modulo.controle.listagens = 0;
+      modulo.controle.pedidos_da_listagem = [];
+
+      // Onze teclas de "atendimento", em rajada — que é como se digita.
+      const PALAVRA = "atendimento";
+      for (let i = 1; i <= PALAVRA.length; i += 1) {
+        await tela.reRenderizar({ termo: PALAVRA.slice(0, i) });
+      }
+      afirmar(
+        `as ${PALAVRA.length} teclas em rajada NÃO produziram consulta nenhuma ainda`,
+        modulo.controle.listagens === 0,
+        `idas à camada: ${modulo.controle.listagens}`,
+      );
+
+      await respirar(espera * 3);
+      afirmar(
+        "parada a digitação, sai UMA consulta — e com a palavra inteira, não com um prefixo",
+        modulo.controle.listagens === 1 &&
+          modulo.controle.pedidos_da_listagem[0]?.termo === PALAVRA,
+        `idas: ${modulo.controle.listagens} | pedidos: ${JSON.stringify(modulo.controle.pedidos_da_listagem)}`,
+      );
+      await tela.desmontar();
+    }
+
+    /* ── RESPOSTA ATRASADA NÃO SOBRESCREVE A MAIS NOVA ────────────────── */
+    //
+    // O defeito clássico da busca enquanto se digita, e ele aparece como
+    // resultado de um termo que já não está no campo. Aqui as duas respostas
+    // são seguradas e devolvidas FORA DE ORDEM: a nova primeiro, a velha
+    // depois. Sem a guarda, a velha ganharia por chegar por último.
+    if (regras) {
+      const espera = modulo.ESPERA_DA_BUSCA_MS;
+      const respirar = async (ms) => {
+        await act(async () => {
+          await new Promise((resolver) => setTimeout(resolver, ms));
+        });
+      };
+
+      const seguradas = new Map();
+      modulo.controle.listagens = 0;
+      modulo.controle.pedidos_da_listagem = [];
+      modulo.controle.aoListar = (pedido) =>
+        new Promise((resolver) =>
+          seguradas.set(String(pedido?.termo ?? ""), resolver),
+        );
+
+      const tela = await montarLista({ termo: "velho" });
+      await tela.reRenderizar({ termo: "novo" });
+      await respirar(espera * 3);
+
+      const temAsDuas = afirmar(
+        "as duas consultas estão em voo ao mesmo tempo — é a situação que produz o defeito",
+        seguradas.has("velho") && seguradas.has("novo"),
+        `em voo: ${[...seguradas.keys()].join(", ")}`,
+      );
+
+      if (temAsDuas) {
+        // A NOVA responde primeiro…
+        await act(async () => {
+          seguradas.get("novo")({ ok: true, dados: [POSTS_DE_PROVA[3]] });
+        });
+        // …e a VELHA chega atrasada, com quatro linhas.
+        await act(async () => {
+          seguradas.get("velho")({ ok: true, dados: POSTS_DE_PROVA });
+        });
+
+        afirmar(
+          "a resposta ATRASADA é descartada: a tela continua mostrando o resultado do termo atual",
+          tela.linhas().length === 1 &&
+            tela.linhas()[0]?.getAttribute("data-post") === POSTS_DE_PROVA[3].id,
+          `linhas: ${tela.linhas().length} | ${tela.linhas().map((l) => l.getAttribute("data-post")?.slice(0, 4)).join(", ")}`,
+        );
+      }
+      modulo.controle.aoListar = null;
       await tela.desmontar();
     }
 

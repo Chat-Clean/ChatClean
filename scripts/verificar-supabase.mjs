@@ -1140,6 +1140,73 @@ if (!temToken) {
       `funções encontradas: ${(execucao.linhas ?? []).length}`,
   );
 
+  /* — A busca da Story 2.11: o objeto novo, sob as mesmas regras — */
+  //
+  // O risco desta função é específico e vale nomear: uma busca que alcança
+  // Categoria e Tags precisa de junção, e a tentação é resolvê-la com
+  // `security definer` — que executaria com os privilégios de quem criou a
+  // função e faria a RLS da Story 2.1 deixar de valer para quem chama. Seria
+  // um segundo caminho de leitura ao lado da política. `prosecdef` é onde essa
+  // troca apareceria, e é por isso que ela é lida do REMOTO, e não do arquivo.
+
+  const FUNCOES_DA_BUSCA = ["normalizar_busca", "buscar_posts_do_painel"];
+  const busca = await uma(
+    `select p.proname as nome,
+            p.prosecdef as definer,
+            p.provolatile as volatilidade,
+            coalesce(array_to_string(p.proconfig, ','), '') as cfg,
+            has_function_privilege('anon', p.oid, 'execute') as anon,
+            has_function_privilege('authenticated', p.oid, 'execute') as auth
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in (${FUNCOES_DA_BUSCA.map(literal).join(", ")})`,
+    "as funções da busca de posts",
+  );
+  const porNome = new Map((busca.linhas ?? []).map((f) => [f.nome, f]));
+  afirmar(
+    "as duas funções da busca existem em public",
+    !busca.falhou && FUNCOES_DA_BUSCA.every((n) => porNome.has(n)),
+    `encontradas: ${[...porNome.keys()].join(", ") || "nenhuma"}`,
+  );
+  afirmar(
+    "a busca é `security invoker` — a RLS continua sendo a única guardiã da visibilidade",
+    FUNCOES_DA_BUSCA.every((n) => porNome.get(n)?.definer === false),
+    FUNCOES_DA_BUSCA.map((n) => `${n}: definer=${porNome.get(n)?.definer ?? "—"}`).join(" | "),
+  );
+  FUNCOES_DA_BUSCA.forEach((n) =>
+    afirmar(
+      `${n} fixa search_path`,
+      /search_path=/.test(porNome.get(n)?.cfg ?? ""),
+      `proconfig: ${porNome.get(n)?.cfg || "vazio"}`,
+    ),
+  );
+  // `i` é IMMUTABLE. É a resposta explícita à armadilha registrada na Story
+  // 2.1: `unaccent(text)` é STABLE e o Postgres recusa índice de expressão
+  // sobre ela; o invólucro fixa o dicionário e por isso pode ser imutável.
+  // Perder essa marca fecharia de novo a porta que a migração abriu.
+  afirmar(
+    "`normalizar_busca` é IMMUTABLE — é ela que resolve o `unaccent` STABLE",
+    porNome.get("normalizar_busca")?.volatilidade === "i",
+    `volatilidade: ${porNome.get("normalizar_busca")?.volatilidade ?? "—"}`,
+  );
+  afirmar(
+    "só `authenticated` executa a busca do Painel; `anon` não",
+    porNome.get("buscar_posts_do_painel")?.auth === true &&
+      porNome.get("buscar_posts_do_painel")?.anon === false,
+    `authenticated: ${porNome.get("buscar_posts_do_painel")?.auth ?? "—"} | anon: ${porNome.get("buscar_posts_do_painel")?.anon ?? "—"}`,
+  );
+  // `normalizar_busca` PRECISA ser executável por `authenticated`, e a razão é
+  // a mesma que torna a busca segura: uma função `security invoker` executa com
+  // o papel de quem chamou, então quem paga o privilégio da chamada interna é o
+  // chamador. Revogá-la derruba a busca inteira com 42501 — foi medido. O que
+  // não pode acontecer é `anon` ganhar o mesmo, e é isso que a asserção guarda.
+  afirmar(
+    "`normalizar_busca` é executável por authenticated (a busca é invoker) e nunca por anon",
+    porNome.get("normalizar_busca")?.auth === true &&
+      porNome.get("normalizar_busca")?.anon === false,
+    `anon: ${porNome.get("normalizar_busca")?.anon ?? "—"} | authenticated: ${porNome.get("normalizar_busca")?.auth ?? "—"}`,
+  );
+
   /* — Nenhuma política de escrita no remoto, nas cinco tabelas — */
 
   const politicasConteudo = await uma(

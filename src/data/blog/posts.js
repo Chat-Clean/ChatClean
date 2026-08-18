@@ -20,7 +20,7 @@
  * componente, não sabe que existe tela.
  */
 
-import { ehEstado } from "../../domain/blog/estados.js";
+import { ehEstado, ESTADOS } from "../../domain/blog/estados.js";
 import {
   clienteDoPainelOuFalha,
   clientePublicoOuFalha,
@@ -28,19 +28,23 @@ import {
   ehSlug,
   ehUuid,
   limiteValido,
+  separarEstados,
+  termoValido,
 } from "./comum.js";
 import {
   consultar,
   descrever,
   ehFaixaAlemDoFim,
+  ERRO_INESPERADO,
   exigirLista,
   exigirRegistro,
+  falha,
   naoEncontrado,
   sinalDePrazo,
   sucesso,
 } from "./resultado.js";
 
-export { LIMITE_MAXIMO, LIMITE_PADRAO } from "./comum.js";
+export { LIMITE_MAXIMO, LIMITE_PADRAO, TAMANHO_MAXIMO_DO_TERMO } from "./comum.js";
 
 /* ─── O que se lê de um Post ─────────────────────────────────────────────── */
 
@@ -174,18 +178,11 @@ function ordenarNoServidor(consulta) {
 }
 
 /**
- * A listagem, comum aos dois lados menos pelo cliente que a executa. É onde a
- * página vazia além do fim deixa de ser 416 e vira lista vazia.
+ * O que se faz com a resposta de qualquer listagem: página vazia além do fim
+ * deixa de ser 416 e vira lista vazia, a forma de cada linha é conferida, e a
+ * ordem final é a da camada.
  */
-async function listar(operacao, cliente, { limite, deslocamento }) {
-  const tamanho = limiteValido(limite);
-  const inicio = deslocamentoValido(deslocamento);
-
-  const resposta = await consultar(operacao, () =>
-    ordenarNoServidor(cliente.from("posts").select(SELECAO_DA_LISTAGEM))
-      .range(inicio, inicio + tamanho - 1)
-      .abortSignal(sinalDePrazo()),
-  );
+function concluirListagem(operacao, resposta) {
   if (!resposta.ok) {
     return ehFaixaAlemDoFim(resposta) ? sucesso([]) : resposta;
   }
@@ -197,6 +194,21 @@ async function listar(operacao, cliente, { limite, deslocamento }) {
   if (!lista.ok) return lista;
 
   return sucesso(ordenarListagem(lista.dados));
+}
+
+/** A listagem pública, direto da tabela — sem busca e sem filtro de Estado. */
+async function listar(operacao, cliente, { limite, deslocamento }) {
+  const tamanho = limiteValido(limite);
+  const inicio = deslocamentoValido(deslocamento);
+
+  return concluirListagem(
+    operacao,
+    await consultar(operacao, () =>
+      ordenarNoServidor(cliente.from("posts").select(SELECAO_DA_LISTAGEM))
+        .range(inicio, inicio + tamanho - 1)
+        .abortSignal(sinalDePrazo()),
+    ),
+  );
 }
 
 /* ─── Leituras públicas ──────────────────────────────────────────────────── */
@@ -263,15 +275,89 @@ export async function lerPostPublicoPorSlug(slug) {
 /* ─── Leituras do Painel ─────────────────────────────────────────────────── */
 
 /**
- * A listagem do Painel: todos os Posts, inclusive rascunho e arquivado.
+ * A função de banco que a listagem do Painel chama. Nome numa constante
+ * porque ele aparece em dois lugares — aqui e na verificação —, e um nome
+ * escrito duas vezes é um nome que diverge na primeira renomeação.
+ */
+export const FUNCAO_DE_BUSCA = "buscar_posts_do_painel";
+
+/**
+ * A listagem do Painel: todos os Posts, inclusive rascunho e arquivado, com
+ * busca e filtro de Estado opcionais.
  *
  * O que devolve tudo é a política de leitura autenticada, não um filtro daqui.
+ *
+ * ─── POR QUE PASSA POR UMA FUNÇÃO DO BANCO ─────────────────────────────────
+ *
+ * A busca cobre título, Autor, Categoria e Tags. Os dois últimos vivem em
+ * outras tabelas, e o filtro do PostgREST não faz junção. A função
+ * `buscar_posts_do_painel` faz — e é `security invoker`, então a RLS da Story
+ * 2.1 continua sendo a única guardiã da visibilidade; a função não empresta
+ * acesso a ninguém.
+ *
+ * **É o caminho ÚNICO, com ou sem termo.** Manter a consulta antiga para o
+ * caso sem busca daria duas listagens que precisariam concordar — e elas
+ * divergiriam na primeira vez que uma fosse ajustada. Sem termo e sem Estado,
+ * a função devolve exatamente o que a tabela devolvia.
+ *
+ * ─── O TERMO É ARGUMENTO, NÃO PADRÃO ───────────────────────────────────────
+ *
+ * Ele viaja como argumento nomeado. No banco é quebrado em palavras, e cada
+ * palavra é procurada por contenção literal: `%`, `_`, aspas e parêntese são
+ * texto — não há padrão para escapar nem sintaxe de filtro para quebrar, e
+ * nenhuma consulta pode falhar por causa do que a pessoa digitou. Todas as
+ * palavras precisam aparecer, em qualquer ordem e em qualquer um dos quatro
+ * campos, e quem tira o acento e a caixa é o Postgres — dos dois lados da
+ * comparação, pela mesma função —, nunca o navegador.
+ *
+ * ─── ESTADO FORA DO VOCABULÁRIO É RECUSADO ─────────────────────────────────
+ *
+ * Antes de qualquer rede. Ignorar em silêncio mostraria uma lista mais larga
+ * do que o filtro na tela diz — e o banco recusa outra vez, na conversão para
+ * o enum, porque o que vem da tela chega à consulta.
  */
-export async function listarPostsDoPainel({ limite, deslocamento } = {}) {
+export async function listarPostsDoPainel({
+  limite,
+  deslocamento,
+  termo,
+  estados,
+} = {}) {
   const operacao = "listarPostsDoPainel";
+
+  const { pedidos, recusados } = separarEstados(estados);
+  if (recusados.length > 0) {
+    return falha(ERRO_INESPERADO, {
+      operacao,
+      mensagem:
+        "O filtro de estado recebeu um valor que não existe. Recarregue o Painel e tente de novo.",
+      detalhe:
+        `fora do vocabulário fechado (${ESTADOS.join(", ")}): ` +
+        recusados.join(", "),
+    });
+  }
+
   const cliente = await clienteDoPainelOuFalha(operacao);
   if (!cliente.ok) return cliente;
-  return listar(operacao, cliente.dados, { limite, deslocamento });
+
+  const tamanho = limiteValido(limite);
+  const inicio = deslocamentoValido(deslocamento);
+  const busca = termoValido(termo);
+
+  return concluirListagem(
+    operacao,
+    await consultar(operacao, () =>
+      ordenarNoServidor(
+        cliente.dados
+          .rpc(FUNCAO_DE_BUSCA, {
+            p_termo: busca === "" ? null : busca,
+            p_estados: pedidos.length === 0 ? null : pedidos,
+          })
+          .select(SELECAO_DA_LISTAGEM),
+      )
+        .range(inicio, inicio + tamanho - 1)
+        .abortSignal(sinalDePrazo()),
+    ),
+  );
 }
 
 /**

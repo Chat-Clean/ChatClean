@@ -13,6 +13,8 @@ import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import EditorDePost from "@/admin/blog/EditorDePost";
 import ListaDePosts from "@/admin/blog/ListaDePosts";
+import { alternarEstado } from "@/admin/blog/listagem";
+import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
 import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
 
@@ -291,6 +293,20 @@ export default function AdminBlog() {
   const [blogView, setBlogView] = useState("list"); // "list" | "form"
   const [editingPost, setEditingPost] = useState(null);
 
+  /* ── O que se pede à busca ────────────────────────────────────────────
+     A página só GUARDA o pedido: o termo digitado e os Estados marcados. Quem
+     consulta é a listagem, pela camada de dados, e quem busca de verdade é o
+     Postgres — insensível a maiúsculas e a acento, sobre título, Categoria,
+     Autor e Tags. Filtrar aqui a lista já carregada é o que a Story 2.10
+     removeu de propósito: funciona enquanto há poucos Posts e passa a mentir
+     exatamente quando a busca fica necessária. */
+  const [buscaDePosts, setBuscaDePosts] = useState("");
+  const [estadosDoFiltro, setEstadosDoFiltro] = useState([]);
+  const limparBuscaDePosts = () => {
+    setBuscaDePosts("");
+    setEstadosDoFiltro([]);
+  };
+
   /* ── Estado — Carreiras ───────────────────────────────────────── */
   const [vagas, setVagas] = useState([]);
   const [vagasView, setVagasView] = useState("list");
@@ -430,13 +446,12 @@ export default function AdminBlog() {
   }
 
   /* ── Filtros ──────────────────────────────────────────────────────
-     O filtro de POST saiu daqui e ainda não voltou: buscar e filtrar a listagem
-     do Blog é a Story 2.11, e ela busca no Postgres — insensível a maiúsculas e
-     a acentos, sobre título, Categoria, Autor e Tags. Um `includes` de
-     minúsculas sobre a lista carregada não é nada disso, e mantê-lo aqui
-     deixaria uma busca que erra em "automação" fingindo que o assunto está
-     resolvido. Enquanto isso, o campo de busca não é oferecido na aba Blog:
-     controle que não faz o que promete é pior que controle ausente. */
+     Só Carreiras filtra aqui, sobre o que já está na memória. O Blog NÃO tem
+     equivalente nesta página, e a ausência é a entrega: a busca de Post
+     acontece no Postgres — insensível a maiúsculas e a acento, sobre título,
+     Categoria, Autor e Tags —, e um `includes` de minúsculas sobre a lista
+     carregada não é nada disso. Reintroduzi-lo aqui daria duas buscas com
+     resultados diferentes para a mesma pergunta. */
   const filteredVagas = vagas.filter(
     (v) =>
       v.titulo.toLowerCase().includes(vagasSearch.toLowerCase()) ||
@@ -466,13 +481,71 @@ export default function AdminBlog() {
         acoesDaAba={acoesDaAba}
       />
 
-      {/* ────── Toolbar: busca + novo ────────────────────────────
-          A busca é oferecida SÓ na aba Carreiras. Na aba Blog ela some até a
-          Story 2.11 — a que busca de verdade, no banco, sem acento e sobre
-          Tags. Deixar o campo aqui digitando no vazio seria uma promessa que a
-          tela não cumpre, e a pessoa concluiria que o post sumiu. */}
-      <div className="shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3">
-        {activeTab === "carreiras" ? (
+      {/* ────── Toolbar: busca + filtros + novo ──────────────────
+          A faixa é COMPARTILHADA com Carreiras, e a fronteira é o que não pode
+          escorregar: cada aba tem a sua busca, e a de Carreiras continua
+          filtrando o que já está na memória do navegador — módulo fora de
+          escopo, que não pode regredir. A do Blog é outra coisa: ela vai ao
+          banco, e o campo aqui só guarda o que foi digitado. */}
+      {/* A quebra de linha entra SÓ na aba Blog: ela é que ganhou quatro
+          filtros ao lado do campo. Ligá-la nas duas mudaria como a faixa de
+          Carreiras se comporta em tela estreita, e Carreiras não pode
+          regredir. */}
+      <div
+        className={`shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3 ${
+          activeTab === "blog" ? "flex-wrap" : ""
+        }`}
+      >
+        {activeTab === "blog" ? (
+          <>
+            <div className="relative flex-1 min-w-[14rem] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input
+                value={buscaDePosts}
+                onChange={(e) => setBuscaDePosts(e.target.value)}
+                placeholder="Buscar por título, categoria, autor ou tag..."
+                aria-label="Buscar posts por título, categoria, autor ou tag"
+                data-busca="posts"
+                className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+              />
+            </div>
+            {/* Os filtros de Estado. As palavras vêm do vocabulário fechado do
+                domínio — escrevê-las aqui criaria o sinônimo que ele existe
+                para impedir —, e cada botão diz se está marcado por `aria-
+                pressed`, não só pela cor. */}
+            <div
+              role="group"
+              aria-label="Filtrar posts por estado"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              {ESTADOS.map((estado) => {
+                const marcado = estadosDoFiltro.includes(estado);
+                return (
+                  <button
+                    key={estado}
+                    type="button"
+                    data-filtro-de-estado={estado}
+                    aria-pressed={marcado}
+                    onClick={() =>
+                      setEstadosDoFiltro((atuais) => alternarEstado(atuais, estado))
+                    }
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                      marcado
+                        ? "bg-emerald-500/15 border-emerald-500 text-emerald-300"
+                        : "bg-zinc-800/60 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600"
+                    }`}
+                  >
+                    {rotuloDoEstado(estado)}
+                  </button>
+                );
+              })}
+            </div>
+            {/* O vão que empurra "Novo Post" para a borda. Ele é da aba Blog e
+                só dela: em Carreiras o botão sempre veio logo depois do campo,
+                e mover um controle de módulo fora de escopo é regressão. */}
+            <div className="flex-1" />
+          </>
+        ) : (
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
             <input
@@ -482,8 +555,6 @@ export default function AdminBlog() {
               className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
             />
           </div>
-        ) : (
-          <div className="flex-1" />
         )}
         <button
           onClick={() => {
@@ -528,9 +599,12 @@ export default function AdminBlog() {
         {activeTab === "blog" && (
           <ListaDePosts
             recarregarEm={versaoDaLista}
+            termo={buscaDePosts}
+            estados={estadosDoFiltro}
             aoContar={setContagemDePosts}
             aoAbrirPost={(post) => { setEditingPost(post); setBlogView("form"); }}
             aoCriarPost={() => { setEditingPost(null); setBlogView("form"); }}
+            aoLimparBusca={limparBuscaDePosts}
           />
         )}
 
