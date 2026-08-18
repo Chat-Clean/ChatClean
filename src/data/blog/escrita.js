@@ -172,9 +172,22 @@ export async function salvarPost(corpo, { buscar = globalThis.fetch } = {}) {
     ? doServidor.tipo
     : tipoDoStatus(resposta.status);
 
+  /* Rota inexistente e ambiente mal configurado são o MESMO tipo e problemas
+     bem diferentes, e a frase genérica mandava procurar no lugar errado:
+     alguém salvando um post lia "a configuração do Supabase está incompleta" e
+     ia conferir chave e URL, que estavam certas. O 404 sem corpo do servidor
+     só acontece quando a função não existe naquele ambiente — em `vite dev`,
+     por exemplo, onde quem serve `api/` é o plugin de desenvolvimento. */
+  const rotaAusente = resposta.status === 404 && doServidor === null;
+
   return falhaDeEscrita(tipo, {
     operacao,
-    mensagem: typeof doServidor?.mensagem === "string" ? doServidor.mensagem : "",
+    mensagem:
+      typeof doServidor?.mensagem === "string"
+        ? doServidor.mensagem
+        : rotaAusente
+          ? `A função de servidor (${ROTA_DE_ESCRITA}) não respondeu neste ambiente. Em desenvolvimento ela é servida pelo Vite; se você acabou de mexer na configuração, reinicie o \`npm run dev\`.`
+          : "",
     // `detalhe` do servidor nunca chega ao cliente — é decisão do invólucro, e
     // o que se registra aqui é o que dá para saber daqui.
     detalhe: `HTTP ${resposta.status} em ${ROTA_DE_ESCRITA}`,
