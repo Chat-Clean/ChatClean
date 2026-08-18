@@ -76,6 +76,9 @@ const CAMINHO_PENDENCIA = "src/admin/blog/pendencia.js";
 const CAMINHO_FOCO = "src/admin/shell/foco.js";
 const CAMINHO_VOZ = "src/admin/shell/voz.js";
 
+/* A máquina de estados da Story 2.8 — a mesma que o servidor consulta. */
+const CAMINHO_TRANSICOES = "src/domain/blog/transicoes.js";
+
 /* A fronteira de dados que a tela consome. Ela é DUBLADA na montagem — ver o
    comentário de `compilarComponentes` — e os módulos reais entram junto para
    que a forma dos dublês seja comparada com a deles, executando. */
@@ -3293,6 +3296,13 @@ if (janela && schema && configuracao && compilado) {
         involucroDoTexto: () => gaveta()?.previousElementSibling ?? null,
         campo: (nome) => alvo.querySelector(`[data-campo="${nome}"]`),
         voltar: () => alvo.querySelector('button[aria-label="Voltar para a listagem"]'),
+        /* As ações da Story 2.8, lidas pelo DADO que cada botão carrega — não
+           pelo texto: casar rótulo traduzido faria a asserção mudar de assunto
+           na primeira revisão de redação. */
+        acoes: () => [...alvo.querySelectorAll("button[data-acao]")],
+        acaoPorChave: (chave) => alvo.querySelector(`button[data-acao="${chave}"]`),
+        pilula: () => alvo.querySelector("[data-estado]"),
+        verNoSite: () => alvo.querySelector('a[href^="/blog/"]'),
         salvar: () =>
           [...alvo.querySelectorAll("button")].find((b) =>
             (b.textContent ?? "").includes("Salvar"),
@@ -3505,6 +3515,11 @@ if (janela && schema && configuracao && compilado) {
           categoria_id: null,
           publicado_em: null,
           tempo_leitura: 0,
+          /* O Estado vem SEMPRE na linha: a camada de dados o confere contra o
+             vocabulário fechado e devolve erro tipado quando ele não bate, então
+             a tela pode contar com ele. Um dublê que o omitisse estaria
+             simulando uma linha que a camada real nunca entrega. */
+          estado: "rascunho",
         },
       };
 
@@ -3636,6 +3651,284 @@ if (janela && schema && configuracao && compilado) {
         ouvintesVivos === 0,
         `ouvintes vivos: ${ouvintesVivos}`,
       );
+    }
+
+    /* ─── (j) As ações por Estado (Story 2.8) ─────────────────────────── */
+
+    secao("(j) as ações por Estado: derivadas da máquina, e o Estado à vista");
+
+    const transicoes = await import(urlDe(CAMINHO_TRANSICOES)).catch(() => null);
+    afirmar(
+      "`transicoes.js` importa em Node — a máquina é executável fora do navegador, como o servidor a usa",
+      transicoes !== null,
+    );
+
+    if (transicoes) {
+      /* O CRITÉRIO DE ACEITE, transcrito à mão. É a fonte independente: ler a
+         lista do próprio módulo faria a asserção dizer que ele é igual a si
+         mesmo. Divergência entre esta tabela e a máquina é decisão de produto,
+         e a story diz para bloquear em vez de escolher. */
+      const ACOES_DO_CRITERIO = {
+        rascunho: ["salvar", "agendar", "publicar"],
+        agendado: ["salvar", "reagendar", "cancelar_agendamento", "publicar"],
+        publicado: ["salvar", "arquivar"],
+        arquivado: ["salvar", "republicar"],
+      };
+
+      for (const [estado, esperadas] of Object.entries(ACOES_DO_CRITERIO)) {
+        const declaradas = transicoes.acoesDoEstado(estado).map((a) => a.chave);
+        afirmar(
+          `em ${estado} a máquina declara exatamente as ações do critério, na ordem`,
+          igual(declaradas, esperadas),
+          `declaradas: ${declaradas.join(", ")} | critério: ${esperadas.join(", ")}`,
+        );
+      }
+
+      if (voz) {
+        const rotulos = [];
+        const confirmacoes = [];
+        for (const estado of Object.keys(ACOES_DO_CRITERIO)) {
+          for (const acao of transicoes.acoesDoEstado(estado)) {
+            rotulos.push(acao.rotulo);
+            confirmacoes.push(acao.confirmacao);
+          }
+        }
+        afirmar(
+          "todo rótulo de ação DIZ O QUE FARÁ — passa pelas guardas de voz do Painel",
+          rotulos.every((r) => voz.diagnosticarRotuloDeAcao(r) === null),
+          rotulos.filter((r) => voz.diagnosticarRotuloDeAcao(r) !== null).join(" | ") || "todos passam",
+        );
+        afirmar(
+          "e toda confirmação diz o que ACONTECEU, sem repetir o rótulo",
+          confirmacoes.every(
+            (c, i) => voz.diagnosticarMensagem("o que aconteceu", c) === null && c !== rotulos[i],
+          ),
+          confirmacoes.join(" | "),
+        );
+      }
+
+      /* ── A tela, montada em cada Estado ─────────────────────────────── */
+
+      const ID_DO_CICLO = "22222222-3333-4444-8555-666666666666";
+      const documentoDoCiclo = {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "texto do ciclo de vida" }] }],
+      };
+      const postNoEstado = (estado, publicado_em) => ({
+        ok: true,
+        dados: {
+          id: ID_DO_CICLO,
+          slug: "ciclo-de-vida",
+          titulo: "Ciclo de vida",
+          resumo: "Como um post sai do rascunho e vai ao ar.",
+          conteudo: documentoDoCiclo,
+          categoria_id: null,
+          publicado_em,
+          tempo_leitura: 3,
+          estado,
+        },
+      });
+
+      const NO_PASSADO = "2026-01-01T00:00:00+00:00";
+      for (const estado of Object.keys(ACOES_DO_CRITERIO)) {
+        modulo.controle.post = postNoEstado(estado, estado === "rascunho" ? null : NO_PASSADO);
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        const naTela = tela.acoes().map((b) => b.getAttribute("data-acao"));
+        afirmar(
+          `com o Post em ${estado}, a tela oferece exatamente essas ações — nem mais, nem menos`,
+          igual(naTela, ACOES_DO_CRITERIO[estado]),
+          `na tela: ${naTela.join(", ") || "nenhuma"}`,
+        );
+        afirmar(
+          `e os rótulos desenhados são os da máquina, na mesma ordem`,
+          igual(
+            tela.acoes().map((b) => (b.textContent ?? "").trim()),
+            transicoes.acoesDoEstado(estado).map((a) => a.rotulo),
+          ),
+          tela.acoes().map((b) => (b.textContent ?? "").trim()).join(" | "),
+        );
+        /* O Autor precisa saber ONDE está antes de escolher para onde vai. A
+           pílula traz o ponto e a palavra por extenso — a mesma palavra da
+           listagem e do filtro, porque vem do vocabulário fechado. */
+        afirmar(
+          `e a pílula mostra "${estado}" por extenso, ao lado das ações`,
+          tela.pilula()?.getAttribute("data-estado") === estado &&
+            (tela.pilula()?.textContent ?? "").trim() !== "",
+          `pílula: ${tela.pilula()?.getAttribute("data-estado")} / ${(tela.pilula()?.textContent ?? "").trim()}`,
+        );
+        if (estado === "publicado") {
+          afirmar(
+            "e um Post publicado NÃO oferece caminho de volta: nenhum botão leva a rascunho ou a agendado",
+            tela.acoes().every(
+              (b) => !["rascunho", "agendado"].includes(b.getAttribute("data-destino")),
+            ),
+            tela.acoes().map((b) => `${b.getAttribute("data-acao")}→${b.getAttribute("data-destino")}`).join(", "),
+          );
+          afirmar(
+            "e o link para ver no site aponta para o endereço público do Post, em aba nova",
+            tela.verNoSite()?.getAttribute("href") === "/blog/ciclo-de-vida" &&
+              tela.verNoSite()?.getAttribute("target") === "_blank" &&
+              /noopener/.test(tela.verNoSite()?.getAttribute("rel") ?? ""),
+            `${tela.verNoSite()?.getAttribute("href")} | ${tela.verNoSite()?.getAttribute("rel")}`,
+          );
+        }
+        if (estado === "rascunho") {
+          afirmar(
+            "um Post que não está no ar NÃO oferece link para o site — não há o que ver lá",
+            tela.verNoSite() === null,
+            String(tela.verNoSite()?.getAttribute("href")),
+          );
+        }
+        afirmar(
+          `o React não reclamou ao desenhar as ações de ${estado}`,
+          tela.reclamacoes.length === 0,
+          tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+        );
+        await tela.desmontar();
+      }
+
+      /* ── PUBLICAR MANTÉM O AUTOR NO EDITOR ──────────────────────────── */
+      {
+        modulo.controle.post = postNoEstado("rascunho", null);
+        modulo.controle.pedidos.length = 0;
+        const publicadoEm = new Date(Date.now() - 60_000).toISOString();
+        modulo.controle.resposta = {
+          ok: true,
+          dados: {
+            criado: false,
+            post: {
+              id: ID_DO_CICLO,
+              slug: "ciclo-de-vida",
+              estado: "publicado",
+              publicado_em: publicadoEm,
+            },
+          },
+        };
+
+        const saidas = [];
+        const tela = await montarTela({ postId: ID_DO_CICLO, aoSair: () => saidas.push(1) });
+        await tela.clicar(tela.acaoPorChave("publicar"));
+
+        afirmar(
+          "publicar manda o DESTINO no pedido — a tela informa, o servidor decide",
+          modulo.controle.pedidos.length === 1 &&
+            modulo.controle.pedidos[0]?.estado === "publicado",
+          `pedidos: ${modulo.controle.pedidos.length} | estado: ${modulo.controle.pedidos[0]?.estado}`,
+        );
+        afirmar(
+          "e o Autor PERMANECE no Editor: ninguém foi devolvido para a listagem",
+          saidas.length === 0 && tela.gaveta() !== null && tela.colunaDoTexto() !== null,
+          `saídas: ${saidas.length}`,
+        );
+        afirmar(
+          "o Estado mostrado muda para publicado, e as ações passam a ser as de publicado",
+          tela.pilula()?.getAttribute("data-estado") === "publicado" &&
+            igual(
+              tela.acoes().map((b) => b.getAttribute("data-acao")),
+              ACOES_DO_CRITERIO.publicado,
+            ),
+          `pílula: ${tela.pilula()?.getAttribute("data-estado")} | ações: ${tela
+            .acoes()
+            .map((b) => b.getAttribute("data-acao"))
+            .join(", ")}`,
+        );
+        afirmar(
+          "e aparece o link para ver no site — a confirmação de que o Post está no ar",
+          tela.verNoSite()?.getAttribute("href") === "/blog/ciclo-de-vida",
+          String(tela.verNoSite()?.getAttribute("href")),
+        );
+        /* A data que o SERVIDOR gravou volta para o campo. Sem isto, a gaveta
+           continuaria mostrando o vazio de antes de publicar — e, no caso de um
+           Post no ar, mostraria a data que o Autor digitou e o servidor
+           deliberadamente NÃO gravou. */
+        afirmar(
+          "a data de publicação na gaveta passa a ser a que o servidor gravou",
+          (tela.campo("publicado_em")?.value ?? "") !== "",
+          `campo: ${tela.campo("publicado_em")?.value}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ── AGENDAR SEM DATA É RECUSADO ANTES DE VIAJAR ────────────────── */
+      {
+        modulo.controle.post = postNoEstado("rascunho", null);
+        modulo.controle.pedidos.length = 0;
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        const historicoAntes = toast.getHistory().length;
+        await tela.clicar(tela.acaoPorChave("agendar"));
+        afirmar(
+          "agendar sem data NÃO chega a viajar: nenhum pedido é enviado",
+          modulo.controle.pedidos.length === 0,
+          `pedidos: ${modulo.controle.pedidos.length}`,
+        );
+        afirmar(
+          "e o campo de data é MARCADO na gaveta, em vez de uma frase solta no rodapé",
+          tela.campo("publicado_em")?.getAttribute("aria-invalid") === "true",
+          `aria-invalid: ${tela.campo("publicado_em")?.getAttribute("aria-invalid")}`,
+        );
+        {
+          const novos = toast.getHistory().slice(historicoAntes);
+          const aviso = novos[novos.length - 1] ?? null;
+          afirmar(
+            "a mensagem diz o que falta e o que fazer, e passa pelas guardas de voz",
+            aviso !== null &&
+              voz.diagnosticarMensagem("o que houve", String(aviso.title)) === null &&
+              voz.diagnosticarMensagem("o que fazer", String(aviso.description)) === null &&
+              /data/i.test(String(aviso.title) + String(aviso.description)),
+            aviso ? `${aviso.title} / ${aviso.description}` : "nenhuma notificação",
+          );
+        }
+        // Com data preenchida, a mesma ação passa — senão a asserção acima
+        // estaria satisfeita por um botão que nunca funciona.
+        await tela.digitar(tela.campo("publicado_em"), "2027-03-01T09:30");
+        await tela.clicar(tela.acaoPorChave("agendar"));
+        afirmar(
+          "com a data preenchida, agendar viaja com o destino `agendado`",
+          modulo.controle.pedidos.length === 1 &&
+            modulo.controle.pedidos[0]?.estado === "agendado" &&
+            typeof modulo.controle.pedidos[0]?.publicado_em === "string",
+          `pedidos: ${modulo.controle.pedidos.length} | ${JSON.stringify(
+            modulo.controle.pedidos[0]?.estado,
+          )} em ${JSON.stringify(modulo.controle.pedidos[0]?.publicado_em)}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ── SALVAR UM POST PUBLICADO CONTINUA PUBLICADO ────────────────── */
+      {
+        modulo.controle.post = postNoEstado("publicado", NO_PASSADO);
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: true,
+          dados: {
+            criado: false,
+            post: {
+              id: ID_DO_CICLO,
+              slug: "ciclo-de-vida",
+              estado: "publicado",
+              publicado_em: NO_PASSADO,
+            },
+          },
+        };
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        const dataAntes = tela.campo("publicado_em")?.value ?? "";
+        await tela.digitar(tela.campo("titulo"), "Ciclo de vida, revisado");
+        await tela.clicar(tela.acaoPorChave("salvar"));
+        afirmar(
+          "salvar um Post publicado pede o MESMO Estado — salvar não é transição",
+          modulo.controle.pedidos.length === 1 &&
+            modulo.controle.pedidos[0]?.estado === "publicado",
+          `estado pedido: ${modulo.controle.pedidos[0]?.estado}`,
+        );
+        afirmar(
+          "e a tela continua publicada, com a data de publicação onde estava",
+          tela.pilula()?.getAttribute("data-estado") === "publicado" &&
+            (tela.campo("publicado_em")?.value ?? "") === dataAntes &&
+            dataAntes !== "",
+          `${dataAntes} → ${tela.campo("publicado_em")?.value}`,
+        );
+        await tela.desmontar();
+      }
     }
 
     delete janela.addEventListener;

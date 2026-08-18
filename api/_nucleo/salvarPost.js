@@ -26,12 +26,32 @@
  *
  * ─── O que este módulo NÃO faz, de propósito ────────────────────────────────
  *
- * Ele não aceita `estado` do cliente — nem na criação, nem na edição. Post novo
- * nasce `rascunho` pelo padrão da coluna; Post existente conserva o estado que
- * tinha. As transições explícitas (publicar, agendar, arquivar) são da Story
- * 2.8, e vão passar por aqui quando chegarem. A capa e o SEO continuam de fora,
- * dos Épicos 3 e 4. A lista de campos aceitos é FECHADA, e o que vem fora dela
- * é ignorado e relatado — nunca gravado.
+ * A capa e o SEO continuam de fora, dos Épicos 3 e 4. A lista de campos aceitos
+ * é FECHADA, e o que vem fora dela é ignorado e relatado — nunca gravado. O
+ * Autor continua sendo resolvido aqui, e `autor_id`/`autor_nome` do cliente
+ * continuam ignorados.
+ *
+ * ─── O que a Story 2.8 acrescentou: a TRANSIÇÃO ─────────────────────────────
+ *
+ * `estado` passou a ser aceito — **validado contra a máquina de transições de
+ * `domain/blog/transicoes.js`**, a mesma que a tela consulta para desenhar os
+ * botões. O Estado de partida é o que está GRAVADO (ou `rascunho`, na criação),
+ * nunca o que o cliente diz que era, e transição fora da máquina é recusada com
+ * erro tipado, sem gravar nada. Validar só na tela deixaria a regra a um
+ * `fetch` de distância de ser contornada.
+ *
+ * Duas regras de data vêm junto, e as duas são sobre a listagem:
+ *
+ *   * salvar alterações de um Post **publicado** não escreve `publicado_em` —
+ *     a coluna nem entra no comando. A listagem ordena por essa data, e uma
+ *     correção de vírgula que reescrevesse a data faria o Post pular para o
+ *     topo do blog como se fosse novo;
+ *   * ir para **publicado** exige data no passado: se a efetiva for nula ou
+ *     recente demais, o instante vira agora menos a margem de relógio (ver
+ *     `MARGEM_DE_RELOGIO_MS`). "Publicar agora" que deixasse a data no futuro
+ *     gravaria um Post que se diz publicado e continua invisível pela política
+ *     de leitura. Republicar um arquivado com data antiga **conserva** a data
+ *     antiga, e é por isso que a regra olha o futuro, não a nulidade.
  *
  * ─── O que a Story 2.6 acrescentou ──────────────────────────────────────────
  *
@@ -63,6 +83,17 @@ import {
   FORMATO_DE_SLUG,
   TAMANHO_MAXIMO_DO_SLUG,
 } from "../../src/domain/blog/slug.js";
+/* A máquina de transições vem do DOMÍNIO, e é a MESMA que a tela consulta. Uma
+   segunda tabela escrita aqui divergiria da barra de ações na primeira mudança,
+   e a divergência apareceria como botão que falha — ou, pior, como transição
+   que a barra não oferece e o servidor aceita. */
+import { ESTADOS, ehEstado } from "../../src/domain/blog/estados.js";
+import {
+  ESTADO_INICIAL,
+  exigeDataDePublicacao,
+  motivoDaRecusa,
+  transicaoPermitida,
+} from "../../src/domain/blog/transicoes.js";
 import { derivarHtml } from "../../src/render/blog/paraHtml.js";
 
 /* ─── O vocabulário de erro ──────────────────────────────────────────────── */
@@ -175,6 +206,10 @@ export const CAMPOS_ACEITOS = Object.freeze([
   "tags",
   "publicado_em",
   "tempo_leitura",
+  /* Story 2.8. `estado` é aceito, e "aceito" aqui significa VALIDADO contra a
+     máquina de transições — não gravado como veio. É a única coisa do corpo
+     cujo valor é conferido contra o que já está no banco. */
+  "estado",
 ]);
 
 /**
@@ -184,17 +219,17 @@ export const CAMPOS_ACEITOS = Object.freeze([
  * tentativa com significado próprio, e a resposta diz qual foi descartada:
  *
  *   `conteudo_html` — HTML nunca é entrada; o gravado é o derivado.
- *   `estado`        — Post novo nasce `rascunho`; transição é da Story 2.8, e a
- *                     função a recusa de propósito até lá.
  *   `autor_id`, `autor_nome` — o Autor é resolvido no servidor, sempre.
  *
- * `publicado_em` SAIU desta lista na Story 2.6: a Data de Publicação é dado que
- * o Autor preenche na gaveta. O que continua fora é `estado` — a transição, e
- * não a data, é o que a 2.8 governa.
+ * `publicado_em` saiu desta lista na Story 2.6 e `estado` na 2.8 — mas as duas
+ * saídas são de naturezas diferentes, e confundi-las seria destravar a segunda
+ * pelo argumento da primeira. A data é dado que o Autor preenche na gaveta; o
+ * Estado é PEDIDO de transição, aceito só quando a máquina de `domain/blog`
+ * declara aquele caminho. Continuar na lista de ignorados seria dizer "o campo
+ * não existe"; o que ele é agora é "o campo é conferido".
  */
 export const CAMPOS_IGNORADOS = Object.freeze([
   "conteudo_html",
-  "estado",
   "autor_id",
   "autor_nome",
 ]);
@@ -242,6 +277,30 @@ const TEMPO_DE_LEITURA_MAXIMO = 1000;
 
 const PADRAO_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** O vocabulário, por extenso, para a frase de recusa. Vem do domínio. */
+const ESTADOS_DO_POST = ESTADOS.join(", ");
+
+/**
+ * A margem de relógio de "publicar agora".
+ *
+ * **Medido, não suposto**: o relógio da máquina que roda esta função e o do
+ * Postgres não são o mesmo relógio, e na medição desta story o do servidor
+ * estava dois segundos ADIANTADO. A política de leitura anônima compara
+ * `publicado_em <= now()` com o relógio DO BANCO — então gravar o instante do
+ * servidor como data de publicação deixava o Post publicado e invisível pelo
+ * tempo da diferença. É o defeito clássico "publiquei e não apareceu", que some
+ * sozinho antes de alguém conseguir investigar.
+ *
+ * Um minuto é folga de sobra para deriva de NTP e não significa nada
+ * editorialmente: a listagem ordena por dia e hora, e nenhum Post disputa
+ * posição com outro por sessenta segundos.
+ *
+ * O que ela NÃO resolve é o banco estar adiantado em relação ao servidor por
+ * mais de um minuto — nesse caso o Post continua invisível até a hora chegar, e
+ * quem acusa é a asserção de leitura anônima de `verificar:escrita`.
+ */
+export const MARGEM_DE_RELOGIO_MS = 60_000;
 
 /* ─── Classificação do que o banco e o GoTrue respondem ──────────────────── */
 
@@ -545,6 +604,26 @@ export function lerCorpo(corpo, { criando }) {
     }
   }
 
+  /* O ESTADO PEDIDO, conferido contra o vocabulário FECHADO.
+     Aqui só se decide se a palavra existe; se a MUDANÇA é permitida depende do
+     que está gravado, e isso é decidido em `gravar`, contra a máquina. Valor
+     fora da lista — inclusive `null`, que seria "apagar o estado" — é recusado
+     com o nome do campo: um Post sem Estado não é representável no banco, e
+     tratá-lo como limpeza produziria uma pílula em branco na listagem. */
+  if (corpo.estado !== undefined) {
+    const estado = texto(corpo.estado);
+    if (estado === null || !ehEstado(estado)) {
+      problemas.push(
+        `Não reconhecemos o estado pedido para o post. Os estados são: ${ESTADOS_DO_POST}.`,
+      );
+      detalhes.push(
+        `estado fora do vocabulário: ${JSON.stringify(String(corpo.estado).slice(0, 60))}`,
+      );
+    } else {
+      campos.estado = estado;
+    }
+  }
+
   if (corpo.conteudo === undefined) {
     faltando.push("conteudo");
   } else {
@@ -709,7 +788,47 @@ async function gravar({ token, corpo, acesso }) {
     conteudo_html: derivado.html,
   };
 
-  /* ── 4. Gravar ─────────────────────────────────────────────────────────── */
+  /* ── 4. A TRANSIÇÃO, contra o que está GRAVADO ─────────────────────────── */
+  //
+  // O Estado de partida vem do banco — ou é `rascunho`, quando o Post está
+  // nascendo. Nunca do corpo do pedido: quem manda o pedido também mandaria o
+  // Estado de partida que lhe fosse conveniente, e "de publicado para rascunho"
+  // viraria "de rascunho para rascunho" com uma linha a mais no JSON.
+  //
+  // A conferência acontece ANTES de qualquer escrita — inclusive antes da
+  // aposentadoria do endereço, que grava — para que "transição recusada, nada
+  // gravado" seja consequência da ordem e não de sorte.
+
+  const existente = criando ? null : await acesso.lerPost(id);
+  if (existente !== null) {
+    if (!existente.ok) return falhaDaEscrita(existente, "leitura do post a atualizar");
+    if (existente.dados === null) {
+      return falha(ERRO_NAO_ENCONTRADO, { detalhe: `nenhum post com id ${id}` });
+    }
+  }
+
+  const estadoAtual = criando ? ESTADO_INICIAL : existente.dados.estado;
+  const transicao = resolverTransicao({
+    estadoAtual,
+    campos: lido.campos,
+    dataAtual: criando ? null : (existente.dados.publicado_em ?? null),
+  });
+  if (!transicao.ok) return transicao.recusa;
+
+  /* As colunas de metadado, já com a decisão de data aplicada. `dataForcada`
+     preenche (publicar agora, republicar com data futura) e `preservarData`
+     RETIRA a coluna do comando — a data de um Post no ar não é reescrita por um
+     salvamento, e não escrevê-la é mais forte que escrever o mesmo valor. */
+  const metadados = colunasDeMetadado(lido.campos);
+  if (transicao.dataForcada !== undefined) metadados.publicado_em = transicao.dataForcada;
+  if (transicao.preservarData) delete metadados.publicado_em;
+  /* `estado` entra no comando SÓ quando muda. Salvar não é transição, e a
+     ausência da coluna é o que torna isso propriedade do comando em vez de
+     igualdade de valores. Na criação, ausente significa o padrão da coluna:
+     todo Post nasce rascunho. */
+  const colunaDeEstado = transicao.mudouDeEstado ? { estado: transicao.estado } : {};
+
+  /* ── 5. Gravar ─────────────────────────────────────────────────────────── */
 
   if (criando) {
     /* A COLISÃO É VERIFICADA ANTES DE GRAVAR, e não descoberta pela violação
@@ -724,16 +843,17 @@ async function gravar({ token, corpo, acesso }) {
     const autor = await resolverAutor({ acesso, conta });
     if (!autor.ok) return autor;
 
-    /* `estado` fica FORA do comando de propósito: o padrão da coluna é
-       `rascunho`, e o cliente não tem voz aqui. Post que nasce publicado por
-       causa de um campo no corpo do pedido é o defeito que esta ausência
-       impede. `tags` também fica de fora — ela não é coluna de `posts`. */
+    /* `tags` fica de fora — ela não é coluna de `posts`. `estado` só entra
+       quando o Autor pediu uma transição junto da criação ("Publicar agora"
+       num Post que ainda não existe): sem pedido, o padrão da coluna faz o
+       Post nascer rascunho, e é assim que ele nasce invisível por construção. */
     const escrita = await acesso.inserirPost({
       slug: lido.campos.slug,
       titulo: lido.campos.titulo,
       resumo: lido.campos.resumo ?? "",
       ...conteudo,
-      ...colunasDeMetadado(lido.campos),
+      ...metadados,
+      ...colunaDeEstado,
       autor_id: autor.autor_id,
       autor_nome: autor.autor_nome,
     });
@@ -746,14 +866,6 @@ async function gravar({ token, corpo, acesso }) {
     const tags = await gravarTags({ acesso, id: escrita.dados.id, lido });
     if (!tags.ok) return tags;
     return sucesso({ post: escrita.dados, criado: true, lido, derivado, tags: tags.tags });
-  }
-
-  const existente = await acesso.lerPost(id);
-  if (!existente.ok) return falhaDaEscrita(existente, "leitura do post a atualizar");
-  if (existente.dados === null) {
-    return falha(ERRO_NAO_ENCONTRADO, {
-      detalhe: `nenhum post com id ${id}`,
-    });
   }
 
   /* ── O ENDEREÇO DE UM POST QUE JÁ ESTEVE NO AR MUDA APOSENTANDO O ANTERIOR ─ */
@@ -804,9 +916,10 @@ async function gravar({ token, corpo, acesso }) {
      implementação distraída. Revisar o texto de alguém não pode transferir a
      autoria, então `autor_id` e `autor_nome` simplesmente não são tocados —
      ausência é a forma mais forte de "não muda", porque não há valor a
-     calcular errado. `estado` fica fora pelo mesmo mecanismo: salvar não é
-     transição, e transição é da Story 2.8. */
-  const alteracao = { titulo: lido.campos.titulo, ...conteudo, ...colunasDeMetadado(lido.campos) };
+     calcular errado. `estado` segue o mesmo mecanismo, com a diferença de que
+     ele PODE entrar: `colunaDeEstado` é vazio quando o destino é o Estado
+     atual, então salvar continua sem tocar a coluna. */
+  const alteracao = { titulo: lido.campos.titulo, ...conteudo, ...metadados, ...colunaDeEstado };
   /* O `slug` só fica de fora quando a função de banco JÁ o aplicou: mandá-lo de
      novo seria uma segunda escrita do mesmo valor, e um `update` de slug dispara
      o gatilho de unicidade contra a linha de aposentadoria que a função acabou
@@ -829,6 +942,99 @@ async function gravar({ token, corpo, acesso }) {
   const tags = await gravarTags({ acesso, id, lido });
   if (!tags.ok) return tags;
   return sucesso({ post: escrita.dados, criado: false, lido, derivado, tags: tags.tags });
+}
+
+/**
+ * A transição pedida, resolvida contra o que está gravado.
+ *
+ * Devolve `{ ok: true, estado, mudouDeEstado, dataForcada, preservarData }` ou
+ * `{ ok: false, recusa }` — com a recusa já tipada, para quem chama só repassar.
+ *
+ * `estado` ausente no corpo significa "fique onde está", e não "volte para
+ * rascunho": salvar sem falar de Estado é o caso comum, e transformá-lo em
+ * transição implícita despublicaria posts por omissão.
+ *
+ * As duas regras de data moram aqui porque são a MESMA decisão vista de dois
+ * lados — quem entra no ar precisa de um instante já passado, e quem já está no
+ * ar não tem esse instante reescrito. Ver o cabeçalho do módulo.
+ */
+function resolverTransicao({ estadoAtual, campos, dataAtual, agora = Date.now() }) {
+  const alvo = campos.estado === undefined ? estadoAtual : campos.estado;
+
+  if (!transicaoPermitida(estadoAtual, alvo)) {
+    return {
+      ok: false,
+      recusa: falha(ERRO_DADOS_INVALIDOS, {
+        mensagem: motivoDaRecusa(estadoAtual, alvo),
+        detalhe: `transição fora da máquina: ${estadoAtual} → ${alvo}`,
+      }),
+    };
+  }
+
+  const mudouDeEstado = alvo !== estadoAtual;
+  // `undefined` é "o pedido não falou de data"; `null` é "o pedido pediu sem
+  // data". A distinção decide se o que vale é o gravado ou a limpeza.
+  const efetiva = campos.publicado_em === undefined ? dataAtual : campos.publicado_em;
+
+  /* SALVAR ALTERAÇÕES DE UM POST NO AR NÃO MEXE NA DATA.
+     A listagem ordena por ela: corrigir uma vírgula não pode fazer o Post
+     pular para o topo do blog como se fosse novo. A coluna sai do comando —
+     não há valor a escrever, certo ou errado. */
+  if (alvo === "publicado" && estadoAtual === "publicado") {
+    return {
+      ok: true,
+      estado: alvo,
+      mudouDeEstado: false,
+      dataForcada: undefined,
+      preservarData: true,
+    };
+  }
+
+  if (alvo === "publicado") {
+    const instante = efetiva === null || efetiva === undefined ? Number.NaN : Date.parse(efetiva);
+    /* Data JÁ PASSADA fica como está — é o que faz republicar um arquivado
+       conservar a data original em vez de reaparecer como novidade. Nula ou
+       recente demais vira o limite: um Post publicado com data que o BANCO
+       ainda considera futura se diz no ar e continua invisível pela política de
+       leitura, que é o estado mais confuso que este código pode produzir.
+
+       "Passada" aqui é passada com a margem de relógio inteira — o mesmo
+       limite dos dois lados da comparação, para que não exista faixa em que a
+       data é aceita como passada e mesmo assim precise ser reescrita. */
+    const limite = agora - MARGEM_DE_RELOGIO_MS;
+    const jaPassou = Number.isFinite(instante) && instante <= limite;
+    return {
+      ok: true,
+      estado: alvo,
+      mudouDeEstado,
+      dataForcada: jaPassou ? undefined : new Date(limite).toISOString(),
+      preservarData: false,
+    };
+  }
+
+  /* Quem chega aqui precisando de data é `agendado` — `publicado` já saiu nas
+     duas cláusulas acima. A lista consultada é a do domínio, espelho da
+     restrição do banco: o banco recusaria de qualquer jeito, e o que se ganha
+     aqui é a frase que diz o que preencher em vez de um erro de restrição. */
+  if (exigeDataDePublicacao(alvo) && (efetiva === null || efetiva === undefined)) {
+    return {
+      ok: false,
+      recusa: falha(ERRO_DADOS_INVALIDOS, {
+        mensagem:
+          "Para agendar, informe a data e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
+        detalhe: `transição para ${alvo} sem publicado_em, no pedido e no que está gravado`,
+        faltando: ["publicado_em"],
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    estado: alvo,
+    mudouDeEstado,
+    dataForcada: undefined,
+    preservarData: false,
+  };
 }
 
 /**

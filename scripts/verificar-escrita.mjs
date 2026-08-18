@@ -80,6 +80,7 @@ import {
   ERRO_DADOS_INVALIDOS,
   lerCorpo,
   LIMITE_DE_IGNORADOS,
+  MARGEM_DE_RELOGIO_MS,
   salvarPost,
   TAMANHO_MAXIMO_DO_CONTEUDO,
   TIPOS_DE_ERRO,
@@ -117,6 +118,16 @@ import {
   ERRO_PERMISSAO,
   ERRO_REDE,
 } from "../src/data/blog/resultado.js";
+/* A máquina de transições da Story 2.8, IMPORTADA. As asserções de transição
+   comparam o que o núcleo faz com o que ela declara — reescrever a tabela aqui
+   faria a comparação ser entre duas cópias do mesmo engano. */
+import { ESTADOS } from "../src/domain/blog/estados.js";
+import {
+  acoesDoEstado,
+  ESTADO_INICIAL,
+  EXIGE_DATA_DE_PUBLICACAO,
+  transicaoPermitida,
+} from "../src/domain/blog/transicoes.js";
 
 let falhas = 0;
 let adiadas = 0;
@@ -1436,17 +1447,13 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
     !CAMPOS_ACEITOS.includes("conteudo_html"),
     CAMPOS_ACEITOS.join(", "),
   );
-  for (const campo of ["conteudo_html", "estado", "autor_id", "autor_nome"]) {
+  for (const campo of ["conteudo_html", "autor_id", "autor_nome"]) {
     afirmar(
       `\`${campo}\` está declarado como ignorado, com nome`,
       CAMPOS_IGNORADOS.includes(campo),
       CAMPOS_IGNORADOS.join(", "),
     );
   }
-  /* `publicado_em` SAIU dos ignorados na Story 2.6: a Data de Publicação é dado
-     que o Autor preenche na gaveta. O que continua fora é `estado` — a
-     TRANSIÇÃO, e não a data, é o que a Story 2.8 governa. As duas metades são
-     afirmadas juntas para que ninguém "destrave" a segunda ao ler a primeira. */
   for (const campo of ["categoria_id", "tags", "publicado_em", "tempo_leitura"]) {
     afirmar(
       `\`${campo}\` é ACEITO — é metadado da gaveta da Story 2.6`,
@@ -1454,23 +1461,36 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
       CAMPOS_ACEITOS.join(", "),
     );
   }
+  /* `estado` SAIU dos ignorados na Story 2.8 — e "aceito" aqui não é o mesmo
+     que aceito para os metadados da 2.6. A data é dado que o Autor preenche e
+     que o servidor grava como veio; o Estado é PEDIDO de transição, conferido
+     contra o que já está gravado. As asserções de comportamento adiante é que
+     provam a diferença; esta só registra que o campo deixou de ser ignorado em
+     um lugar e não no outro. */
   afirmar(
-    "`estado` continua RECUSADO, e a fronteira com a Story 2.8 continua onde estava",
-    CAMPOS_IGNORADOS.includes("estado") && !CAMPOS_ACEITOS.includes("estado"),
-    CAMPOS_IGNORADOS.join(", "),
+    "`estado` é ACEITO e não ignorado — a transição da Story 2.8 passa por aqui",
+    CAMPOS_ACEITOS.includes("estado") && !CAMPOS_IGNORADOS.includes("estado"),
+    `aceitos: ${CAMPOS_ACEITOS.join(", ")} | ignorados: ${CAMPOS_IGNORADOS.join(", ")}`,
   );
   afirmar(
     "nenhum campo aparece nas duas listas ao mesmo tempo",
     !CAMPOS_ACEITOS.some((c) => CAMPOS_IGNORADOS.includes(c)),
   );
 
-  // `estado` fora dos comandos de escrita: é o padrão da coluna que faz o Post
-  // nascer rascunho, e o cliente não pode ter voz aqui.
+  /* A TABELA DE TRANSIÇÕES NÃO É REESCRITA AQUI.
+     O núcleo consulta a máquina do domínio — a mesma que a tela consulta — e
+     não declara Estado como chave de objeto em lugar nenhum. Uma segunda tabela
+     no servidor divergiria da barra de ações na primeira mudança, e a
+     divergência apareceria como botão que falha ou como caminho que a barra
+     esconde e o servidor aceita. */
   const comandos = nucleo.slice(nucleo.indexOf("async function gravar"));
   afirmar(
-    "o núcleo nunca envia `estado` ao banco",
-    !/\bestado\s*:/.test(comandos),
-    (/\bestado\s*:[^,\n]*/.exec(comandos) ?? [])[0] ?? "",
+    "o núcleo importa a máquina de transições do domínio, e não tem tabela própria",
+    /from "\.\.\/\.\.\/src\/domain\/blog\/transicoes\.js"/.test(nucleo) &&
+      /transicaoPermitida\(/.test(comandos) &&
+      !ESTADOS.some((estado) => new RegExp(`["']${estado}["']\\s*:`).test(nucleo)),
+    ESTADOS.filter((estado) => new RegExp(`["']${estado}["']\\s*:`).test(nucleo)).join(", ") ||
+      "nenhum Estado usado como chave de objeto",
   );
   // O Autor NÃO entra no comando de atualização. É a metade do critério de
   // aceite que se perde em implementação distraída.
@@ -1927,6 +1947,106 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
   }
 }
 
+/* ─── (c4) A máquina de transições, executada ────────────────────────────── */
+
+secao("(c4) a máquina de transições: a tabela única que os dois lados consultam");
+
+{
+  /* A REGRA MAIS FORTE DA STORY, afirmada sobre a tabela executada.
+     Um Post publicado tem endereço divulgado: voltar para rascunho o faria
+     sumir sem deixar rastro para quem já tinha o link. A saída é arquivar, que
+     tira do ar preservando o registro. */
+  const dePublicado = acoesDoEstado("publicado");
+  afirmar(
+    "de `publicado` NENHUMA ação leva de volta a rascunho ou a agendado",
+    dePublicado.every((acao) => !["rascunho", "agendado"].includes(acao.destino)) &&
+      transicaoPermitida("publicado", "rascunho") === false &&
+      transicaoPermitida("publicado", "agendado") === false,
+    dePublicado.map((a) => `${a.chave}→${a.destino}`).join(", "),
+  );
+  afirmar(
+    "e de `publicado` só existem salvar e arquivar — nem mais, nem menos",
+    mesmoConjunto(
+      dePublicado.map((a) => a.chave),
+      ["salvar", "arquivar"],
+    ),
+    dePublicado.map((a) => a.chave).join(", "),
+  );
+
+  /* Todo Estado tem uma ação `salvar` cujo destino é ele mesmo: é o que faz
+     "salvar não é transição" ser propriedade da tabela, e não comentário. */
+  afirmar(
+    "todo Estado sabe salvar sem mudar de Estado",
+    ESTADOS.every((estado) => {
+      const salvar = acoesDoEstado(estado).find((a) => a.chave === "salvar");
+      return salvar !== undefined && salvar.destino === estado;
+    }),
+    ESTADOS.map((e) => `${e}: ${acoesDoEstado(e).find((a) => a.chave === "salvar")?.destino}`).join(", "),
+  );
+  afirmar(
+    "todo destino declarado é um Estado do vocabulário fechado",
+    ESTADOS.every((estado) =>
+      acoesDoEstado(estado).every((acao) => ESTADOS.includes(acao.destino)),
+    ),
+  );
+  afirmar(
+    "cancelar agendamento é a ÚNICA volta a rascunho, e ela vem de agendado",
+    ESTADOS.filter((estado) =>
+      acoesDoEstado(estado).some((a) => a.destino === "rascunho" && estado !== "rascunho"),
+    ).join(",") === "agendado",
+    ESTADOS.filter((estado) =>
+      acoesDoEstado(estado).some((a) => a.destino === "rascunho" && estado !== "rascunho"),
+    ).join(", ") || "nenhum",
+  );
+
+  // Estado desconhecido FALHA ALTO na consulta de ações — quem vai desenhar não
+  // pode receber lista vazia e mostrar uma barra sem botão nenhum.
+  afirmar(
+    "pedir as ações de um Estado inventado lança, em vez de devolver lista vazia",
+    (() => {
+      try {
+        acoesDoEstado("no ar");
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
+  /* E a PERGUNTA de transição não lança: quem pergunta é o servidor, sobre
+     valor que veio de fora, e exceção ali viraria 500 sem tipo. */
+  afirmar(
+    "perguntar se uma transição inventada é permitida responde `false`, sem lançar",
+    tentar(
+      "transicaoPermitida com lixo",
+      () =>
+        transicaoPermitida("no ar", "publicado") === false &&
+        transicaoPermitida("publicado", null) === false &&
+        transicaoPermitida(undefined, undefined) === false,
+      false,
+    ),
+  );
+  afirmar(
+    "o Estado inicial da máquina é o padrão da coluna: rascunho",
+    ESTADO_INICIAL === "rascunho",
+    ESTADO_INICIAL,
+  );
+
+  /* ARQUIVAR NÃO APAGA — e a prova mais forte disso é que o caminho de escrita
+     não sabe apagar. Não há verbo de remoção no núcleo nem no transporte. */
+  const acessoLido = mascararComentariosJs(tentar(`${CAMINHO_ACESSO} legível`, () => ler(CAMINHO_ACESSO), ""));
+  const nucleoLido = mascararComentariosJs(tentar(`${CAMINHO_NUCLEO} legível`, () => ler(CAMINHO_NUCLEO), ""));
+  const remocao = /"DELETE"|'DELETE'|apagarPost|excluirPost|removerPost|\/rest\/v1\/rpc\/apagar/;
+  afirmar(
+    "arquivar não pode apagar: o caminho de escrita não tem verbo de remoção",
+    !remocao.test(acessoLido) && !remocao.test(nucleoLido),
+    (remocao.exec(`${acessoLido}${nucleoLido}`) ?? [])[0] ?? "",
+  );
+  afirmar(
+    "e o detector de remoção acusa uma chamada real",
+    remocao.test(`metodo: ${'"DELETE"'}`),
+  );
+}
+
 /* ─── (d) O núcleo, executado sem rede ───────────────────────────────────── */
 
 secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
@@ -2107,9 +2227,10 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
   const r = await salvarPost({
     token: "bom",
     corpo: corpoValido({
-      // O cliente tenta ditar tudo o que não pode.
+      // O cliente tenta ditar tudo o que não pode. `estado` NÃO está aqui: sem
+      // pedido de transição, o Post nasce pelo padrão da coluna — é o caso que
+      // esta gravação exercita, e o pedido de transição tem bloco próprio.
       conteudo_html: "<script>alert(1)</script>",
-      estado: "publicado",
       publicado_em: "2000-01-01T00:00:00Z",
       autor_id: "99999999-9999-9999-9999-999999999999",
       autor_nome: "Nome de Outra Pessoa",
@@ -2139,13 +2260,14 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       String(enviado.conteudo_html).slice(0, 120),
     );
     afirmar(
-      "`estado` não é enviado ao banco (o padrão da coluna faz o Post nascer rascunho)",
+      "sem pedido de transição, `estado` não vai ao comando — o padrão da coluna faz o Post nascer rascunho",
       !Object.hasOwn(enviado, "estado"),
       Object.keys(enviado).join(", "),
     );
     /* `publicado_em` DEIXOU de ser ignorado na Story 2.6 — e aqui ele veio no
-       corpo, então tem de chegar ao banco, normalizado em UTC. É a metade que
-       mudou; a metade que NÃO mudou é `estado`, afirmada logo acima. */
+       corpo, então tem de chegar ao banco, normalizado em UTC. Ele não é
+       forçado para agora porque não houve transição para `publicado`: quem
+       decide a data é a transição, e aqui não há nenhuma. */
     afirmar(
       "`publicado_em` é enviado ao banco, normalizado em UTC",
       enviado.publicado_em === "2000-01-01T00:00:00.000Z",
@@ -2165,7 +2287,6 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       "a resposta relata o que foi ignorado, com nome",
       mesmoConjunto(r.dados.ignorados, [
         "conteudo_html",
-        "estado",
         "autor_id",
         "autor_nome",
         "campo_inventado",
@@ -2483,10 +2604,15 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       acesso.chamadas.some((c) => c.nome === "definirTags" && c.argumentos[0].tags.length === 2),
     Object.keys(enviado).join(", "),
   );
+  /* O Post NASCE PUBLICADO quando o Autor pede a transição junto da criação —
+     é o "Publicar agora" de um Post que ainda não existe. A partida é
+     `rascunho`, o padrão da coluna, e a máquina declara esse caminho. A data
+     enviada está no PASSADO, então ela é conservada: forçar "agora" aqui
+     reescreveria uma data que o Autor escolheu. */
   afirmar(
-    "`estado` continua fora do comando, mesmo com os metadados aceitos",
-    !Object.hasOwn(enviado, "estado") && r.dados.ignorados.includes("estado"),
-    Object.keys(enviado).join(", "),
+    "`estado` pedido na criação entra no comando, validado contra a máquina",
+    enviado.estado === "publicado" && !r.dados.ignorados.includes("estado"),
+    `estado: ${enviado.estado} | ignorados: ${(r.dados?.ignorados ?? []).join(", ")}`,
   );
 }
 
@@ -2611,8 +2737,12 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
     !Object.hasOwn(enviado, "autor_id") && !Object.hasOwn(enviado, "autor_nome"),
     Object.keys(enviado).join(", "),
   );
+  /* SALVAR NÃO É TRANSIÇÃO: o corpo não fala de Estado, e a coluna não entra
+     no comando. É a ausência que garante — escrever o mesmo valor de volta
+     daria o mesmo resultado hoje e deixaria a porta aberta para o dia em que o
+     valor lido estivesse velho. */
   afirmar(
-    "o comando de edição NÃO carrega estado",
+    "o comando de edição NÃO carrega estado quando o pedido não fala de transição",
     !Object.hasOwn(enviado, "estado"),
     Object.keys(enviado).join(", "),
   );
@@ -2621,6 +2751,216 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
     !acesso.chamadas.some((c) => c.nome === "perfilDaConta"),
     acesso.chamadas.map((c) => c.nome).join(", "),
   );
+}
+
+/* ─── A MATRIZ DE TRANSIÇÕES, executada contra o núcleo ───────────────────── */
+//
+// Dezesseis pedidos, um por par de Estados, e o veredito de cada um comparado
+// com o que a máquina do domínio declara. É esta comparação que torna "a tela e
+// o servidor saem da mesma tabela" observável: uma tabela paralela no servidor
+// apareceria aqui como divergência, e não como uma tela que continua bonita.
+//
+// A cada recusa, a contagem de escritas precisa ser ZERO — "recusado" e "nada
+// gravado" são duas afirmações, e a segunda é a que importa para quem já tinha
+// o link.
+
+{
+  const ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const NO_PASSADO = "2026-01-01T00:00:00Z";
+  const NO_FUTURO = new Date(Date.now() + 30 * 86_400_000).toISOString();
+
+  for (const de of ESTADOS) {
+    for (const para of ESTADOS) {
+      const acesso = acessoDeTeste({
+        post: {
+          id: ID,
+          slug: "um-post-de-teste",
+          estado: de,
+          // Rascunho é o único que pode não ter data; os publicáveis a exigem
+          // por restrição do banco desde a Story 2.1.
+          publicado_em: de === "rascunho" ? null : NO_PASSADO,
+          autor_id: "99999999-9999-9999-9999-999999999999",
+          autor_nome: "Autor Original",
+        },
+      });
+      const r = await salvarPost({
+        token: "bom",
+        // A data vai no corpo porque agendar exige uma: sem ela, a recusa
+        // seria pela falta de data e não pela transição, e o caso mediria
+        // outra coisa.
+        corpo: corpoValido({ id: ID, estado: para, publicado_em: NO_FUTURO }),
+        acesso,
+      });
+      const permitida = transicaoPermitida(de, para);
+      const escritas = acesso.escritas().length;
+      afirmar(
+        `${de} → ${para} ${permitida ? "é aceita" : "é RECUSADA"} pelo servidor, como a máquina declara`,
+        r.ok === permitida && (permitida ? escritas === 1 : escritas === 0),
+        r.ok
+          ? `gravou (${escritas} escrita(s))`
+          : `${r.erro.tipo}: ${r.erro.mensagem.slice(0, 90)} | escritas: ${escritas}`,
+      );
+    }
+  }
+}
+
+/* — Salvar um Post publicado: Estado intacto, data intacta — */
+{
+  const ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const acesso = acessoDeTeste({
+    post: {
+      id: ID,
+      slug: "um-post-de-teste",
+      estado: "publicado",
+      publicado_em: "2026-01-01T00:00:00+00:00",
+    },
+  });
+  const r = await salvarPost({
+    token: "bom",
+    corpo: corpoValido({
+      id: ID,
+      estado: "publicado",
+      // O cliente TENTA mudar a data de um Post que já está no ar.
+      publicado_em: "2026-08-01T12:00:00Z",
+    }),
+    acesso,
+  });
+  const enviado = acesso.escritas()[0]?.argumentos[0] ?? {};
+  afirmar("salvar alterações de um Post publicado é aceito", r.ok === true, r.ok ? "" : JSON.stringify(r.erro));
+  /* A COLUNA NEM ENTRA NO COMANDO. A listagem ordena por essa data: se salvar
+     uma correção de vírgula a reescrevesse, o Post pularia para o topo do blog
+     como se fosse novo, e o leitor recorrente veria o mesmo artigo voltando. */
+  afirmar(
+    "e o comando NÃO carrega `publicado_em` — a data de quem está no ar não é reescrita",
+    !Object.hasOwn(enviado, "publicado_em"),
+    `publicado_em no comando: ${JSON.stringify(enviado.publicado_em)}`,
+  );
+  afirmar(
+    "nem `estado`: continuar publicado não é transição",
+    !Object.hasOwn(enviado, "estado"),
+    Object.keys(enviado).join(", "),
+  );
+}
+
+/* — Publicar agora, republicar e agendar: as três regras de data — */
+{
+  const ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const base = (estado, publicado_em) => ({
+    id: ID,
+    slug: "um-post-de-teste",
+    estado,
+    publicado_em,
+  });
+
+  {
+    // Publicar um rascunho com data FUTURA na gaveta: "agora" é agora, senão o
+    // Post se diria publicado e continuaria invisível pela política de leitura.
+    const acesso = acessoDeTeste({ post: base("rascunho", null) });
+    const futuro = new Date(Date.now() + 86_400_000).toISOString();
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "publicado", publicado_em: futuro }),
+      acesso,
+    });
+    const enviado = acesso.escritas()[0]?.argumentos[0] ?? {};
+    const gravada = Date.parse(String(enviado.publicado_em));
+    afirmar(
+      "publicar agora grava estado publicado com data JÁ PASSADA, ainda que a gaveta trouxesse data futura",
+      r.ok === true &&
+        enviado.estado === "publicado" &&
+        Number.isFinite(gravada) &&
+        gravada <= Date.now(),
+      `estado: ${enviado.estado} | publicado_em: ${enviado.publicado_em}`,
+    );
+    /* E a data fica UM MINUTO no passado, não "agora".
+       O relógio desta máquina e o do Postgres não são o mesmo relógio — na
+       medição desta story o do servidor estava dois segundos adiantado —, e a
+       política de leitura compara com o relógio DO BANCO. Sem a margem, o Post
+       nasce publicado e invisível por alguns segundos: o defeito que some
+       sozinho antes de alguém conseguir investigar. */
+    afirmar(
+      "e a data fica ao menos um minuto atrás — a margem contra o relógio do servidor adiantado",
+      Number.isFinite(gravada) && Date.now() - gravada >= MARGEM_DE_RELOGIO_MS,
+      `atrás por ${Math.round((Date.now() - gravada) / 1000)}s | margem: ${MARGEM_DE_RELOGIO_MS / 1000}s`,
+    );
+  }
+
+  {
+    /* Republicar um arquivado CONSERVA a data original: ele já esteve no ar, e
+       reaparecer no topo da listagem como novidade seria mentira para o leitor
+       recorrente. É por isso que a regra olha "está no futuro?", e não "é
+       nula?". */
+    const acesso = acessoDeTeste({ post: base("arquivado", "2026-01-01T00:00:00+00:00") });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: ID, estado: "publicado" }),
+      acesso,
+    });
+    const enviado = acesso.escritas()[0]?.argumentos[0] ?? {};
+    afirmar(
+      "republicar um arquivado conserva a data original — não vira novidade na listagem",
+      r.ok === true &&
+        enviado.estado === "publicado" &&
+        !Object.hasOwn(enviado, "publicado_em"),
+      `estado: ${enviado.estado} | publicado_em: ${JSON.stringify(enviado.publicado_em)}`,
+    );
+  }
+
+  {
+    // Agendar sem data: recusado ANTES do banco, nomeando o campo que falta.
+    const acesso = acessoDeTeste({ post: base("rascunho", null) });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: { id: ID, titulo: "T", conteudo: DOCUMENTO_COMPLETO, estado: "agendado" },
+      acesso,
+    });
+    afirmar(
+      "agendar sem data de publicação é recusado, com o motivo e o nome do campo",
+      r.ok === false &&
+        r.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        /data e a hora/i.test(r.erro.mensagem) &&
+        (r.erro.faltando ?? []).includes("publicado_em"),
+      r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+    afirmar(
+      "e nada foi gravado por ela",
+      acesso.escritas().length === 0,
+      `escritas: ${acesso.escritas().length}`,
+    );
+  }
+
+  {
+    // O par estado+data do banco: a lista do domínio é a da restrição.
+    afirmar(
+      "os Estados que exigem data são exatamente os dois publicáveis",
+      mesmoConjunto(EXIGE_DATA_DE_PUBLICACAO, ["publicado", "agendado"]),
+      EXIGE_DATA_DE_PUBLICACAO.join(", "),
+    );
+  }
+
+  {
+    // Estado fora do vocabulário: recusado na leitura do corpo, antes de tudo.
+    for (const valor of ["no ar", "PUBLICADO", "", null, 3]) {
+      const r = lerCorpo(
+        { titulo: "t", slug: "s", resumo: "r", conteudo: DOCUMENTO_COMPLETO, estado: valor },
+        { criando: true },
+      );
+      afirmar(
+        `estado ${JSON.stringify(valor)} é recusado — o vocabulário é fechado`,
+        r.ok === false && /estado/i.test(r.mensagem),
+        r.ok ? "ACEITOU" : r.mensagem,
+      );
+    }
+    const bom = lerCorpo(
+      { titulo: "t", slug: "s", resumo: "r", conteudo: DOCUMENTO_COMPLETO, estado: " publicado " },
+      { criando: true },
+    );
+    afirmar(
+      "e um Estado do vocabulário é aceito, aparado",
+      bom.ok === true && bom.campos.estado === "publicado",
+      bom.ok ? bom.campos.estado : bom.mensagem,
+    );
+  }
 }
 
 /* ─── (e) e (f): o projeto real ──────────────────────────────────────────── */
@@ -2911,8 +3251,10 @@ if (!temToken) {
             titulo: "Post gravado pela função única",
             resumo: "Resumo do post de verificação",
             // Tudo o que o cliente não pode ditar, enviado de propósito.
+            // `estado` NÃO está aqui: o ciclo de vida tem bloco próprio, e este
+            // Post existe para provar que sem pedido de transição ele nasce
+            // invisível.
             conteudo_html: '<script>alert("html do cliente")</script>',
-            estado: "publicado",
             publicado_em: "2000-01-01T00:00:00Z",
             autor_nome: "Nome Inventado pelo Cliente",
             autor_id: contas[1].id,
@@ -2961,7 +3303,7 @@ if (!temToken) {
               String(gravada.conteudo).slice(0, 120),
             );
             afirmar(
-              "o Post NASCEU EM RASCUNHO, ainda que o cliente tenha pedido publicado",
+              "o Post NASCEU EM RASCUNHO — sem pedido de transição, ele nasce invisível",
               gravada.estado === "rascunho",
               `estado: ${gravada.estado}`,
             );
@@ -3028,6 +3370,241 @@ if (!temToken) {
         );
       } else if (!contas[1].jwt) {
         adiar("o Autor original não muda quando outra Conta edita", MOTIVO_SEM_SESSAO);
+      }
+
+      /* — O CICLO DE VIDA INTEIRO, com sessão real (Story 2.8) — */
+      //
+      // Um Post só, levado por todas as transições que a máquina declara, com o
+      // BANCO relido a cada passo. É a diferença entre "a função devolveu ok" e
+      // "a linha ficou como devia": o comando de atualização pode ter carregado
+      // a coluna certa e o banco ter recusado, ou pior, aceitado outra coisa.
+      //
+      // A leitura ANÔNIMA entra junto porque "arquivar tira do Blog Público" não
+      // é propriedade do Painel — é a política de leitura da Story 2.1 que a
+      // produz, e ela só se observa pedindo sem sessão.
+
+      if (contas[0].jwt) {
+        const enderecoDoCiclo = slug("ciclo");
+
+        /** A linha, como o banco a tem agora. */
+        const linhaDoCiclo = async () => {
+          const r = await executarSql(
+            token,
+            `select id::text as id, estado::text as estado, titulo,
+                    publicado_em::text as publicado_em
+               from public.posts where slug = ${literal(enderecoDoCiclo)}`,
+          );
+          return r.ok ? (r.dados?.[0] ?? null) : null;
+        };
+
+        /** O Post é visível para quem NÃO tem sessão? Pergunta como o visitante. */
+        const visivelSemSessao = async () => {
+          try {
+            const r = await fetch(
+              `${URL_PROJETO}/rest/v1/posts?select=id,slug&slug=eq.${encodeURIComponent(enderecoDoCiclo)}`,
+              {
+                signal: AbortSignal.timeout(TIMEOUT_MS),
+                // A chave PUBLICÁVEL e nenhum `Authorization`: é exatamente o
+                // que o navegador de um visitante manda.
+                headers: { apikey: chaves.publicavel, Accept: "application/json" },
+              },
+            );
+            const corpo = await r.json().catch(() => null);
+            return { ok: r.ok, quantos: Array.isArray(corpo) ? corpo.length : -1 };
+          } catch (erro) {
+            return { ok: false, quantos: -1, erro: String(erro?.message ?? erro) };
+          }
+        };
+
+        const pedir = (extra) =>
+          salvarPost({
+            token: contas[0].jwt,
+            corpo: {
+              titulo: "Ciclo de vida do post",
+              conteudo: {
+                type: "doc",
+                content: [{ type: "paragraph", content: [{ type: "text", text: "ciclo" }] }],
+              },
+              ...extra,
+            },
+            acesso: acessoReal(),
+          });
+
+        const nasceu = await pedir({
+          slug: enderecoDoCiclo,
+          resumo: "O post que percorre todas as transições da máquina.",
+        });
+        const idCiclo = nasceu.ok ? (nasceu.dados.post?.id ?? null) : null;
+        const temCiclo = afirmar(
+          "o Post do ciclo de vida nasceu, em rascunho",
+          nasceu.ok === true && nasceu.dados.post?.estado === "rascunho",
+          nasceu.ok ? `estado: ${nasceu.dados.post?.estado}` : `${nasceu.erro.tipo}: ${nasceu.erro.detalhe.slice(0, 160)}`,
+        );
+
+        if (temCiclo) {
+          /* 1. AGENDAR SEM DATA — recusado, e nada muda. */
+          {
+            const r = await pedir({ id: idCiclo, estado: "agendado" });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "agendar sem data é recusado pelo servidor, e o Post continua rascunho",
+              r.ok === false &&
+                r.erro.tipo === ERRO_DADOS_INVALIDOS &&
+                linha?.estado === "rascunho",
+              r.ok ? "ACEITOU" : `${r.erro.tipo} | estado no banco: ${linha?.estado}`,
+            );
+          }
+
+          /* 2. AGENDAR COM DATA — o par estado+data, como o banco exige. */
+          const DATA_AGENDADA = "2027-03-01T12:30:00-03:00";
+          {
+            const r = await pedir({ id: idCiclo, estado: "agendado", publicado_em: DATA_AGENDADA });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "agendar com data grava estado agendado e a data que veio da gaveta",
+              r.ok === true &&
+                linha?.estado === "agendado" &&
+                Date.parse(String(linha?.publicado_em)) === Date.parse(DATA_AGENDADA),
+              r.ok ? `estado: ${linha?.estado} | data: ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+            );
+            const anonimo = await visivelSemSessao();
+            afirmar(
+              "e um agendado com data FUTURA continua invisível para quem não tem sessão",
+              anonimo.ok && anonimo.quantos === 0,
+              `visíveis: ${anonimo.quantos}${anonimo.erro ? ` | ${anonimo.erro}` : ""}`,
+            );
+          }
+
+          /* 3. PUBLICAR AGORA — a data futura vira agora, e o Post aparece. */
+          {
+            const r = await pedir({ id: idCiclo, estado: "publicado" });
+            const linha = await linhaDoCiclo();
+            const quando = Date.parse(String(linha?.publicado_em));
+            afirmar(
+              "publicar agora troca a data futura do agendamento por um instante já passado",
+              r.ok === true &&
+                linha?.estado === "publicado" &&
+                Number.isFinite(quando) &&
+                quando <= Date.now(),
+              r.ok ? `estado: ${linha?.estado} | data: ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+            );
+            const anonimo = await visivelSemSessao();
+            afirmar(
+              "e o Post publicado passa a ser VISÍVEL para quem não tem sessão",
+              anonimo.ok && anonimo.quantos === 1,
+              `visíveis: ${anonimo.quantos}${anonimo.erro ? ` | ${anonimo.erro}` : ""}`,
+            );
+          }
+
+          /* 4. SALVAR ALTERAÇÕES — Estado e data intactos. */
+          const dataPublicada = (await linhaDoCiclo())?.publicado_em ?? null;
+          {
+            const r = await pedir({
+              id: idCiclo,
+              titulo: "Ciclo de vida do post, revisado",
+              estado: "publicado",
+              // O cliente TENTA mover a data de um Post que já está no ar.
+              publicado_em: "2026-08-01T09:00:00-03:00",
+            });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "salvar alterações de um Post publicado grava o texto novo",
+              r.ok === true && linha?.titulo === "Ciclo de vida do post, revisado",
+              r.ok ? `titulo: ${linha?.titulo}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+            );
+            afirmar(
+              "e o Estado continua publicado, com a data de publicação INTACTA — o lugar na listagem é o mesmo",
+              linha?.estado === "publicado" &&
+                Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
+              `estado: ${linha?.estado} | ${dataPublicada} → ${linha?.publicado_em}`,
+            );
+          }
+
+          /* 5. PUBLICADO → RASCUNHO — recusado por chamada direta ao núcleo. */
+          for (const proibido of ["rascunho", "agendado"]) {
+            const r = await pedir({
+              id: idCiclo,
+              estado: proibido,
+              publicado_em: "2027-05-05T10:00:00-03:00",
+            });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              `publicado → ${proibido} é RECUSADO pelo servidor, e o Post continua publicado`,
+              r.ok === false &&
+                r.erro.tipo === ERRO_DADOS_INVALIDOS &&
+                linha?.estado === "publicado" &&
+                Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
+              r.ok ? "ACEITOU" : `${r.erro.tipo} | estado no banco: ${linha?.estado}`,
+            );
+          }
+
+          /* 6. ARQUIVAR — sai do ar, e o registro fica. */
+          {
+            const r = await pedir({
+              id: idCiclo,
+              // O título revisado vai junto porque o corpo SEMPRE o carrega: a
+              // tela manda o que está na gaveta a cada gravação, e arquivar não
+              // é exceção. Mandar o título padrão aqui faria a asserção de
+              // "registro preservado" medir a própria distração.
+              titulo: "Ciclo de vida do post, revisado",
+              estado: "arquivado",
+            });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "arquivar grava estado arquivado e PRESERVA o registro — nada é apagado",
+              r.ok === true &&
+                linha !== null &&
+                linha.estado === "arquivado" &&
+                linha.titulo === "Ciclo de vida do post, revisado",
+              r.ok ? `estado: ${linha?.estado} | titulo: ${linha?.titulo}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+            );
+            afirmar(
+              "e a data de publicação continua lá — o Post esteve no ar, e o registro disso não se apaga",
+              Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
+              `${dataPublicada} → ${linha?.publicado_em}`,
+            );
+            const anonimo = await visivelSemSessao();
+            afirmar(
+              "arquivar TIRA DO BLOG PÚBLICO: quem não tem sessão deixa de ver o Post",
+              anonimo.ok && anonimo.quantos === 0,
+              `visíveis: ${anonimo.quantos}${anonimo.erro ? ` | ${anonimo.erro}` : ""}`,
+            );
+          }
+
+          /* 7. REPUBLICAR — volta ao ar com a MESMA data. */
+          {
+            const r = await pedir({ id: idCiclo, estado: "publicado" });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "republicar devolve o Post ao ar conservando a data original — ele não vira novidade",
+              r.ok === true &&
+                linha?.estado === "publicado" &&
+                Date.parse(String(linha?.publicado_em)) === Date.parse(String(dataPublicada)),
+              r.ok ? `estado: ${linha?.estado} | ${dataPublicada} → ${linha?.publicado_em}` : `${r.erro.tipo}: ${r.erro.detalhe.slice(0, 160)}`,
+            );
+            const anonimo = await visivelSemSessao();
+            afirmar(
+              "e ele volta a ser visível para quem não tem sessão",
+              anonimo.ok && anonimo.quantos === 1,
+              `visíveis: ${anonimo.quantos}${anonimo.erro ? ` | ${anonimo.erro}` : ""}`,
+            );
+          }
+
+          /* 8. ESTADO FORA DO VOCABULÁRIO, contra o projeto real. */
+          {
+            const r = await pedir({ id: idCiclo, estado: "no ar" });
+            const linha = await linhaDoCiclo();
+            afirmar(
+              "estado fora do vocabulário é recusado antes do banco, e nada muda",
+              r.ok === false &&
+                r.erro.tipo === ERRO_DADOS_INVALIDOS &&
+                linha?.estado === "publicado",
+              r.ok ? "ACEITOU" : `${r.erro.tipo} | estado no banco: ${linha?.estado}`,
+            );
+          }
+        }
+      } else {
+        adiar("o ciclo de vida do Post é percorrido com sessão real", MOTIVO_SEM_SESSAO);
       }
 
       /* — Conteúdo perigoso PELA FUNÇÃO — */
@@ -3577,6 +4154,36 @@ if (!temToken) {
           encontrado.includes("posts_conteudo_no_vocabulario:c") &&
             encontrado.includes("posts_conteudo_html_seguro:c"),
           encontrado || (catalogo.erro ?? "nenhuma"),
+        );
+      }
+
+      /* — O PAR estado+data: a lista do domínio é a da restrição do banco — */
+      //
+      // `EXIGE_DATA_DE_PUBLICACAO` existe para o servidor recusar antes do
+      // banco, com uma frase que diz o que preencher. Se as duas listas
+      // divergirem, o Autor volta a receber erro de restrição sobre uma coluna
+      // — ou, pior, o servidor exige data onde o banco não exige.
+
+      {
+        const definicao = await executarSql(
+          token,
+          `select pg_get_constraintdef(c.oid) as def
+             from pg_constraint c
+             join pg_class t on t.oid = c.conrelid
+             join pg_namespace n on n.oid = t.relnamespace
+            where n.nspname = 'public' and t.relname = 'posts'
+              and c.conname = 'posts_publicavel_exige_data'`,
+        );
+        const texto = String(definicao.dados?.[0]?.def ?? "");
+        const doSql = [...texto.matchAll(/'([a-z]+)'::public\.estado_post|'([a-z]+)'/g)]
+          .map((m) => m[1] ?? m[2])
+          .filter((v) => ESTADOS.includes(v));
+        afirmar(
+          "os Estados que exigem data no CÓDIGO são exatamente os da restrição do banco",
+          definicao.ok && doSql.length > 0 && mesmoConjunto(doSql, EXIGE_DATA_DE_PUBLICACAO),
+          definicao.ok
+            ? `no SQL: [${[...new Set(doSql)].sort().join(", ")}] | no código: [${[...EXIGE_DATA_DE_PUBLICACAO].sort().join(", ")}]`
+            : (definicao.erro ?? ""),
         );
       }
 

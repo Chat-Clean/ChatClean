@@ -43,6 +43,10 @@ export default function PilulaDeEstado({ estado, className }) {
 
   return (
     <span
+      /* O Estado também sai como DADO, e não só como palavra desenhada: é por
+         ele que a verificação lê o que a tela está mostrando sem casar texto
+         traduzido, e é ele que uma listagem pode usar para agrupar. */
+      data-estado={estado}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-pilula px-2.5 py-1",
         "text-xs font-semibold leading-none whitespace-nowrap",

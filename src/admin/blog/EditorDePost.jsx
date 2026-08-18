@@ -43,20 +43,35 @@
  * Em tela estreita ela nasce recolhida, pelo mesmo mecanismo — não há uma
  * segunda regra responsiva no CSS para divergir desta.
  *
+ * ─── As ações são DERIVADAS do Estado, nunca escritas à mão ─────────────────
+ *
+ * O botão único "Salvar" virou o conjunto que a máquina de
+ * `domain/blog/transicoes.js` declara para o Estado atual — a MESMA tabela que
+ * o servidor consulta para validar. Não há lista de botões neste arquivo: se
+ * houvesse, ela divergiria da regra gravada na primeira mudança, e a divergência
+ * apareceria como botão que falha ou, pior, como caminho que a barra esconde e
+ * o servidor aceita.
+ *
+ * A pílula mostra onde o Post está antes de o Autor escolher para onde vai, e
+ * publicar **não** tira ninguém daqui: o Estado muda na tela e aparece o link
+ * para ver no site. Voltar para a listagem sem confirmação visível seria pedir
+ * que a pessoa fosse conferir se deu certo.
+ *
  * ─── O que esta tela NÃO faz ────────────────────────────────────────────────
  *
  * Não grava direto no banco: nenhum cliente escreve, e o único caminho é
- * `data/blog/escrita.js`, que fala com a função de servidor. Não decide Estado:
- * publicar, agendar e arquivar são da Story 2.8, e a função de escrita recusa
- * `estado` de propósito até lá. E não tem campo de Autor: ele é resolvido no
- * servidor, a partir da Conta autenticada.
+ * `data/blog/escrita.js`, que fala com a função de servidor. Não decide se a
+ * transição vale: ela oferece o que a máquina declara, e quem recusa de verdade
+ * é o servidor — inclusive para quem chamar a API direto. E não tem campo de
+ * Autor: ele é resolvido no servidor, a partir da Conta autenticada.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Loader2, Save } from "lucide-react";
+import { ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
 
 import Editor from "@/admin/blog/Editor";
 import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
+import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
 import { larguraDaGaveta, nasceAberta } from "@/admin/blog/gaveta";
 import {
   corpoDoPedido,
@@ -78,8 +93,14 @@ import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
 import { lerPostDoPainelPorId } from "@/data/blog/posts";
 import { listarCategorias, listarTags, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
+import { paraCampoDeInstante } from "@/domain/blog/formato";
 import { documentoVazio } from "@/domain/blog/schema";
 import { gerarSlug, problemaNoSlug } from "@/domain/blog/slug";
+import {
+  ENFASE_PRINCIPAL,
+  ESTADO_INICIAL,
+  acoesDoEstado,
+} from "@/domain/blog/transicoes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -105,7 +126,17 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   const [faltando, setFaltando] = useState([]);
   const [problemaNoEndereco, setProblemaNoEndereco] = useState(null);
-  const [salvando, setSalvando] = useState(false);
+  /* Qual ação está em curso, e não apenas "está salvando": é ela que ganha o
+     giro e some do caminho, enquanto as outras só ficam indisponíveis. Um
+     spinner em quatro botões ao mesmo tempo não diz o que está acontecendo. */
+  const [acaoEmCurso, setAcaoEmCurso] = useState(null);
+  const salvando = acaoEmCurso !== null;
+
+  /* O ESTADO DO POST vive aqui, e é dele que as ações são derivadas.
+     Post que está nascendo começa em `rascunho` — o mesmo padrão da coluna, e
+     a mesma constante que o servidor usa como Estado de partida na criação. */
+  const [estado, setEstado] = useState(ESTADO_INICIAL);
+  const acoes = useMemo(() => acoesDoEstado(estado), [estado]);
 
   /* A gaveta NASCE aberta, e recolhida quando a tela é estreita. O estado é
      de montagem: nada é lido de armazenamento do navegador, e nada é escrito
@@ -188,6 +219,10 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       const conteudo = post.dados.conteudo ?? documentoVazio();
       setValores(doBanco);
       setDocumento(conteudo);
+      /* O Estado vem do banco, e a camada de dados já o conferiu contra o
+         vocabulário fechado — linha com Estado desconhecido vira erro tipado lá,
+         e não pílula em branco aqui. */
+      setEstado(post.dados.estado);
       // O que acabou de ser lido É o que está gravado: é este o retrato com que
       // tudo o que vier depois será comparado.
       setReferencia(instantaneo(doBanco, conteudo));
@@ -257,8 +292,22 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   /* ── Salvar ──────────────────────────────────────────────────────────── */
 
-  const salvar = useCallback(async () => {
+  const salvar = useCallback(async (acao) => {
     if (salvando) return;
+
+    /* A ação que EXIGE data recusa aqui, com a frase da tela.
+       O banco recusaria de qualquer jeito — a restrição `posts_publicavel_
+       exige_data` existe desde a Story 2.1 — e o servidor recusa antes dele.
+       O que se ganha recusando aqui é a marca no campo certo da gaveta em vez
+       de uma frase no rodapé sobre uma coluna. */
+    if (acao.exigeData && String(valores.publicado_em ?? "").trim() === "") {
+      setFaltando(["publicado_em"]);
+      notificarErro(
+        "Falta a data de publicação",
+        "Informe o dia e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
+      );
+      return;
+    }
 
     /* A conferência local não substitui a do servidor — ela evita a viagem. O
        servidor recusa do mesmo jeito, inclusive para quem chamar a API direto,
@@ -288,16 +337,25 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       return;
     }
 
-    const pedido = corpoDoPedido({ id: criando ? null : id, valores, documento });
+    /* O DESTINO viaja no pedido, e é o servidor que decide se ele vale.
+       A tela oferecer só o que a máquina declara é conveniência; a garantia é
+       a validação do outro lado, contra a mesma máquina e a partir do Estado
+       que está GRAVADO. */
+    const pedido = corpoDoPedido({
+      id: criando ? null : id,
+      valores,
+      documento,
+      estado: acao.destino,
+    });
     if (!pedido.ok) {
       setFaltando([pedido.campo]);
       notificarErro("Não deu para salvar o post", pedido.motivo);
       return;
     }
 
-    setSalvando(true);
+    setAcaoEmCurso(acao.chave);
     const resultado = await salvarPost(pedido.corpo);
-    setSalvando(false);
+    setAcaoEmCurso(null);
 
     if (!resultado.ok) {
       /* NADA é descartado por falha: o Autor continua nesta tela, com os
@@ -320,38 +378,44 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     setFaltando([]);
     setProblemaNoEndereco(null);
     notificarSucesso(
-      resultado.dados?.criado ? "Post criado" : "Post salvo",
+      /* A confirmação vem da AÇÃO, não do Estado: "Post publicado" é o que
+         aconteceu, e "Post salvo" para tudo deixaria o Autor sem saber se a
+         publicação foi mesmo pedida. A exceção é o Post que nasceu por um
+         salvamento comum, em que "Post criado" diz mais que "Rascunho salvo". */
+      resultado.dados?.criado && acao.chave === "salvar" ? "Post criado" : acao.confirmacao,
       valores.titulo,
     );
 
     const gravado = resultado.dados?.post ?? null;
-    const slugGravado = typeof gravado?.slug === "string" ? gravado.slug : null;
+
+    /* O QUE A TELA MOSTRA PASSA A SER O QUE O SERVIDOR GRAVOU.
+       O endereço pode ter sido aposentado e trocado lá; a data de publicação
+       pode ter sido preenchida (publicar agora) ou PRESERVADA contra o que a
+       gaveta mandava (salvar um Post no ar). Mostrar o que a tela tinha seria
+       mostrar o passado — e, no caso da data, uma mentira que só apareceria na
+       próxima abertura do Post. */
+    const valoresGravados = {
+      ...valores,
+      ...(typeof gravado?.slug === "string" ? { slug: gravado.slug } : {}),
+      ...(gravado && Object.hasOwn(gravado, "publicado_em")
+        ? { publicado_em: gravado.publicado_em ? paraCampoDeInstante(gravado.publicado_em) : "" }
+        : {}),
+    };
+    setValores(valoresGravados);
+    if (gravado?.estado) setEstado(gravado.estado);
 
     /* A PENDÊNCIA SOME AQUI, e só aqui.
-       O retrato de referência passa a ser o que acabou de ser gravado — com o
-       endereço que o SERVIDOR devolveu, porque ele pode ter sido aposentado e
-       trocado lá. Guardar o retrato do que a tela tinha faria a confirmação de
-       saída aparecer logo depois de um salvamento bem-sucedido, que é o começo
-       do treinamento para ignorá-la. */
-    setReferencia(
-      instantaneo(
-        slugGravado === null ? valores : { ...valores, slug: slugGravado },
-        documento,
-      ),
-    );
+       O retrato de referência é o dos valores GRAVADOS, pelo mesmo motivo:
+       guardar o retrato do que a tela tinha faria a confirmação de saída
+       aparecer logo depois de um salvamento bem-sucedido, que é o começo do
+       treinamento para ignorá-la. */
+    setReferencia(instantaneo(valoresGravados, documento));
 
     if (gravado?.id && criando) {
       // O Post nasceu: a tela passa a estar editando, e o endereço para de
       // acompanhar o título a partir deste instante.
       enderecoDigitadoAMao.current = true;
       setId(gravado.id);
-    } else if (gravado) {
-      setValores((atuais) => ({
-        ...atuais,
-        // O endereço volta do servidor porque ele pode ter sido aposentado e
-        // trocado lá: mostrar o que a tela tinha seria mostrar o passado.
-        slug: slugGravado === null ? atuais.slug : slugGravado,
-      }));
     }
 
     aoSalvar?.(gravado);
@@ -433,19 +497,50 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         )
       }
       acao={
-        <Button
-          type="button"
-          onClick={salvar}
-          disabled={salvando || carregando}
-          className={cn(ANEL_DE_FOCO, "gap-2")}
-        >
-          {salvando ? (
-            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-          ) : (
-            <Save aria-hidden="true" className="size-4" />
-          )}
-          {salvando ? "Salvando…" : "Salvar"}
-        </Button>
+        /* AS AÇÕES SÃO DERIVADAS, E O ESTADO FICA À VISTA AO LADO DELAS.
+           Nenhuma lista de botões é escrita aqui: `acoes` vem da máquina do
+           domínio, e a ordem é a que ela declara. A pílula é a mesma da
+           listagem e do filtro — a palavra por extenso, sem sinônimo. */
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <PilulaDeEstado estado={estado} />
+          {estado === "publicado" && valores.slug ? (
+            /* Aba nova, de propósito: o Autor continua AQUI, com o que ainda
+               não foi salvo intacto. Navegar na mesma aba logo depois de
+               publicar seria trocar a confirmação por uma perda. */
+            <a
+              href={`/blog/${valores.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                ANEL_DE_FOCO,
+                "inline-flex items-center gap-1.5 rounded-controle px-2 py-1",
+                "text-sm font-medium text-ink-secondary underline underline-offset-4",
+                "hover:text-ink",
+              )}
+            >
+              <ExternalLink aria-hidden="true" className="size-4" />
+              Ver no site
+            </a>
+          ) : null}
+          {acoes.map((acao) => (
+            <Button
+              key={acao.chave}
+              type="button"
+              data-acao={acao.chave}
+              data-destino={acao.destino}
+              variant={acao.enfase === ENFASE_PRINCIPAL ? "default" : "outline"}
+              onClick={() => salvar(acao)}
+              aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
+              disabled={salvando || carregando}
+              className={cn(ANEL_DE_FOCO, "gap-2")}
+            >
+              {acaoEmCurso === acao.chave ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : null}
+              {acao.rotulo}
+            </Button>
+          ))}
+        </div>
       }
     >
       {carregando ? (

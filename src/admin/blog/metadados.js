@@ -100,11 +100,15 @@ export function valoresDoPost(post, tags = []) {
  * nomeia o CAMPO para que a gaveta possa apontá-lo, em vez de a tela mostrar uma
  * frase solta no rodapé.
  *
- * **`estado` não entra aqui, e a ausência é o requisito**: a transição é da
- * Story 2.8, e a função de servidor recusa o campo de propósito. Autor também
- * não: ele é resolvido no servidor.
+ * **`estado` é o DESTINO da ação escolhida** (Story 2.8), e não um campo da
+ * gaveta: ele vem da máquina de transições, que é quem sabe para onde cada ação
+ * leva. Omiti-lo é dizer ao servidor "fique onde está". Quem decide se a
+ * mudança é permitida é o servidor, contra a mesma máquina — a tela não oferecer
+ * o botão é conveniência, não garantia.
+ *
+ * Autor continua de fora: ele é resolvido no servidor, sempre.
  */
-export function corpoDoPedido({ id = null, valores, documento }) {
+export function corpoDoPedido({ id = null, valores, documento, estado = null }) {
   const v = valores ?? valoresVazios();
 
   let publicado_em = null;
@@ -140,6 +144,7 @@ export function corpoDoPedido({ id = null, valores, documento }) {
     tempo_leitura: minutos === "" ? 0 : Number(minutos),
   };
   if (id) corpo.id = id;
+  if (estado) corpo.estado = estado;
   return { ok: true, corpo };
 }
 
