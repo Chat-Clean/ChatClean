@@ -44,6 +44,10 @@ export default [
       // uso em JSX — é correção de leitura, não afrouxamento do lint.
       "react/jsx-uses-react": "error",
       "react/jsx-uses-vars": "error",
+      // `no-undef` do núcleo NÃO enxerga componente em JSX: `<Menu>` sem
+      // import passava no lint e quebrava só no navegador, na mão de quem
+      // abrisse a tela. Aconteceu — daí esta regra.
+      "react/jsx-no-undef": "error",
       // Sem `varsIgnorePattern` global: com o uso em JSX já registrado, isentar
       // todo nome capitalizado só esconderia import morto de verdade.
       // `_` continua sendo a marca idiomática de parâmetro e erro ignorados.

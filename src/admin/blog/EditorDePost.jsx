@@ -67,7 +67,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
 
 import Editor from "@/admin/blog/Editor";
 import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
@@ -102,6 +102,12 @@ import {
   acoesDoEstado,
 } from "@/domain/blog/transicoes";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +143,18 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      a mesma constante que o servidor usa como Estado de partida na criação. */
   const [estado, setEstado] = useState(ESTADO_INICIAL);
   const acoes = useMemo(() => acoesDoEstado(estado), [estado]);
+
+  /* A mesma lista, separada por ênfase: em tela estreita a ação de sempre
+     fica visível e as decisões vão para o menu. A separação sai da máquina
+     de transições, não de uma segunda lista escrita à mão. */
+  const acoesPrincipais = useMemo(
+    () => acoes.filter((a) => a.enfase === ENFASE_PRINCIPAL),
+    [acoes],
+  );
+  const acoesSecundarias = useMemo(
+    () => acoes.filter((a) => a.enfase !== ENFASE_PRINCIPAL),
+    [acoes],
+  );
 
   /* A gaveta NASCE aberta, e recolhida quando a tela é estreita. O estado é
      de montagem: nada é lido de armazenamento do navegador, e nada é escrito
@@ -522,24 +540,87 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
               Ver no site
             </a>
           ) : null}
-          {acoes.map((acao) => (
-            <Button
-              key={acao.chave}
-              type="button"
-              data-acao={acao.chave}
-              data-destino={acao.destino}
-              variant={acao.enfase === ENFASE_PRINCIPAL ? "default" : "outline"}
-              onClick={() => salvar(acao)}
-              aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
-              disabled={salvando || carregando}
-              className={cn(ANEL_DE_FOCO, "gap-2")}
-            >
-              {acaoEmCurso === acao.chave ? (
-                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-              ) : null}
-              {acao.rotulo}
-            </Button>
-          ))}
+          {/* ─── Tela larga: as ações lado a lado ─────────────────────────
+              `data-acao` vive AQUI e só aqui: é por ele que a verificação
+              conta as ações oferecidas, e repeti-lo na versão compacta faria
+              cada ação ser contada duas vezes no DOM — o jsdom não aplica
+              media query, então os dois blocos existem para ele. */}
+          <div className="hidden flex-wrap items-center gap-2 sm:flex">
+            {acoes.map((acao) => (
+              <Button
+                key={acao.chave}
+                type="button"
+                data-acao={acao.chave}
+                data-destino={acao.destino}
+                variant={acao.enfase === ENFASE_PRINCIPAL ? "default" : "outline"}
+                onClick={() => salvar(acao)}
+                aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
+                disabled={salvando || carregando}
+                className={cn(ANEL_DE_FOCO, "gap-2")}
+              >
+                {acaoEmCurso === acao.chave ? (
+                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                ) : null}
+                {acao.rotulo}
+              </Button>
+            ))}
+          </div>
+
+          {/* ─── Celular: a ação de sempre à mão, as decisões no menu ─────
+              Em `agendado` são quatro ações, e quatro botões lado a lado num
+              telefone viram quatro alvos estreitos demais para o dedo.
+              Salvar é o que se faz o tempo todo e fica a um toque; agendar,
+              publicar e arquivar são decisões raras e difíceis de desfazer —
+              custar um toque a mais é vantagem, não atrito. */}
+          <div className="flex items-center gap-2 sm:hidden">
+            {acoesPrincipais.map((acao) => (
+              <Button
+                key={acao.chave}
+                type="button"
+                data-acao-compacta={acao.chave}
+                variant="default"
+                onClick={() => salvar(acao)}
+                aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
+                disabled={salvando || carregando}
+                className={cn(ANEL_DE_FOCO, "gap-2")}
+              >
+                {acaoEmCurso === acao.chave ? (
+                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                ) : null}
+                {acao.rotulo}
+              </Button>
+            ))}
+            {acoesSecundarias.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={salvando || carregando}
+                    className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2")}
+                  >
+                    Mudar estado do post
+                    <ChevronDown aria-hidden="true" className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                {/* `painel` porque o menu monta em portal, fora da árvore da
+                    tela: sem a classe ele resolveria os tokens do site
+                    público em vez dos do Painel. */}
+                <DropdownMenuContent align="end" className="painel">
+                  {acoesSecundarias.map((acao) => (
+                    <DropdownMenuItem
+                      key={acao.chave}
+                      data-acao-compacta={acao.chave}
+                      onSelect={() => salvar(acao)}
+                      className={cn(ALVO_DE_TOQUE, "gap-2")}
+                    >
+                      {acao.rotulo}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
         </div>
       }
     >
