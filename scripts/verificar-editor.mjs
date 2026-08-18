@@ -68,6 +68,21 @@ const CAMINHO_BARRA = "src/admin/blog/BarraDoEditor.jsx";
 const CAMINHO_EDITOR = "src/admin/blog/Editor.jsx";
 const CAMINHO_APP_CSS = "src/App.css";
 
+/* A tela da Story 2.6, a gaveta e os dois módulos puros da Story 2.7. */
+const CAMINHO_TELA = "src/admin/blog/EditorDePost.jsx";
+const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
+const CAMINHO_MODULO_DA_GAVETA = "src/admin/blog/gaveta.js";
+const CAMINHO_PENDENCIA = "src/admin/blog/pendencia.js";
+const CAMINHO_FOCO = "src/admin/shell/foco.js";
+const CAMINHO_VOZ = "src/admin/shell/voz.js";
+
+/* A fronteira de dados que a tela consome. Ela é DUBLADA na montagem — ver o
+   comentário de `compilarComponentes` — e os módulos reais entram junto para
+   que a forma dos dublês seja comparada com a deles, executando. */
+const CAMINHO_ESCRITA = "src/data/blog/escrita.js";
+const CAMINHO_POSTS = "src/data/blog/posts.js";
+const CAMINHO_TAXONOMIA = "src/data/blog/taxonomia.js";
+
 /** Os quatro pacotes que a espinha exige em versão exata. */
 const PACOTES_EXATOS = [
   "@tiptap/react",
@@ -1543,6 +1558,16 @@ function montarNavegador() {
       /* getters que estouram ao serem lidos não interessam aqui */
     }
   }
+  /* Os construtores de evento do JSDOM sobrepõem os do Node, e a sobreposição
+     é obrigatória, não cosmética. O Node 22+ já traz `Event` e `CustomEvent`
+     globais, então o laço acima os pula (`nome in globalThis` é verdadeiro) — e
+     uma biblioteca que faça `new CustomEvent(...)` produz um objeto que o
+     `dispatchEvent` do jsdom RECUSA com "parameter 1 is not of type 'Event'".
+     É o que acontecia ao montar o diálogo do shadcn: o Radix dispara eventos
+     próprios ao abrir, e a tela inteira caía num erro que não é da tela. */
+  for (const nome of ["Event", "CustomEvent", "MouseEvent", "KeyboardEvent", "FocusEvent"]) {
+    if (w[nome]) expor(nome, w[nome]);
+  }
   expor("window", w);
   expor("document", w.document);
   expor("navigator", w.navigator);
@@ -1640,11 +1665,91 @@ async function compilarComponentes() {
     .join(raiz, CAMINHO_CONTEUDO)
     .split(path.sep)
     .join("/");
+
+  /* ── A fronteira de dados, dublada ─────────────────────────────────────
+     A tela da Story 2.6 fala com três módulos de `data/blog`, e os três falam
+     com a rede. Aqui interessa o que a TELA faz — a gaveta que recolhe, a
+     pendência que aparece e some, o conteúdo que sobrevive a uma gravação
+     recusada —, e nenhuma dessas coisas se observa se o salvamento depender de
+     ambiente e de servidor: `verificar:editor` roda sem rede, e "falha porque
+     não havia `.env`" é exatamente a falha que não é falha.
+
+     Os dublês trocam SÓ as funções que viajam. Tudo o mais é reexportado dos
+     módulos reais com `export *`, e a igualdade dos conjuntos de exportação é
+     AFIRMADA adiante, executando: um dublê que deixe de acompanhar a forma do
+     módulo real é acusado em vez de mentir em silêncio. O comportamento dos
+     módulos reais é provado onde ele existe — `verificar:dados` e
+     `verificar:escrita`, esta última contra o Supabase de verdade. */
+  const caminhoReal = (relativo) =>
+    JSON.stringify(path.join(raiz, relativo).split(path.sep).join("/"));
+
+  const arquivoDoControle = path.join(pasta, "controle.js");
+  writeFileSync(
+    arquivoDoControle,
+    "/* O que os dublês respondem, e o que eles registraram. */\n" +
+      "export const controle = {\n" +
+      "  pedidos: [],\n" +
+      "  resposta: { ok: true, dados: { criado: false, post: null } },\n" +
+      "  post: { ok: false, erro: { tipo: 'nao_encontrado', mensagem: 'sem post' } },\n" +
+      "  categorias: { ok: true, dados: [] },\n" +
+      "  tags: { ok: true, dados: [] },\n" +
+      "  tagsDoPost: { ok: true, dados: [] },\n" +
+      "};\n",
+  );
+
+  const arquivoDaEscrita = path.join(pasta, "duble-escrita.js");
+  writeFileSync(
+    arquivoDaEscrita,
+    `export * from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
+      'import { controle } from "./controle.js";\n' +
+      "export async function salvarPost(corpo) {\n" +
+      "  controle.pedidos.push(corpo);\n" +
+      "  return controle.resposta;\n" +
+      "}\n",
+  );
+
+  const arquivoDosPosts = path.join(pasta, "duble-posts.js");
+  writeFileSync(
+    arquivoDosPosts,
+    `export * from ${caminhoReal(CAMINHO_POSTS)};\n` +
+      'import { controle } from "./controle.js";\n' +
+      "export async function lerPostDoPainelPorId() {\n" +
+      "  return controle.post;\n" +
+      "}\n",
+  );
+
+  const arquivoDaTaxonomia = path.join(pasta, "duble-taxonomia.js");
+  writeFileSync(
+    arquivoDaTaxonomia,
+    `export * from ${caminhoReal(CAMINHO_TAXONOMIA)};\n` +
+      'import { controle } from "./controle.js";\n' +
+      "export async function listarCategorias() {\n" +
+      "  return controle.categorias;\n" +
+      "}\n" +
+      "export async function listarTags() {\n" +
+      "  return controle.tags;\n" +
+      "}\n" +
+      "export async function listarTagsDoPostNoPainel() {\n" +
+      "  return controle.tagsDoPost;\n" +
+      "}\n",
+  );
+
+  const comoModulo = (arquivo) =>
+    JSON.stringify(arquivo.split(path.sep).join("/"));
+
   writeFileSync(
     entrada,
     `export { default as Editor } from ${JSON.stringify(alvo)};\n` +
       `export { prepararConteudo } from ${JSON.stringify(alvoDoConteudo)};\n` +
-      `export { controlesDaBarra } from ${JSON.stringify(alvoDaConfiguracao)};\n`,
+      `export { controlesDaBarra } from ${JSON.stringify(alvoDaConfiguracao)};\n` +
+      `export { default as EditorDePost } from ${caminhoReal(CAMINHO_TELA)};\n` +
+      `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
+      `export * as escritaReal from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
+      `export * as escritaDuble from ${comoModulo(arquivoDaEscrita)};\n` +
+      `export * as postsReal from ${caminhoReal(CAMINHO_POSTS)};\n` +
+      `export * as postsDuble from ${comoModulo(arquivoDosPosts)};\n` +
+      `export * as taxonomiaReal from ${caminhoReal(CAMINHO_TAXONOMIA)};\n` +
+      `export * as taxonomiaDuble from ${comoModulo(arquivoDaTaxonomia)};\n`,
   );
 
   /* O `build` do Vite escreve `NODE_ENV=production` no processo INTEIRO, e
@@ -1659,7 +1764,17 @@ async function compilarComponentes() {
       configFile: false,
       logLevel: "silent",
       plugins: [plugin()],
-      resolve: { alias: { "@": path.join(raiz, "src") } },
+      /* A ordem importa: o apelido específico precisa vir ANTES do genérico,
+         senão `@/data/blog/escrita` é resolvido por `@` e o dublê nunca entra
+         (e a asserção de que ele entrou é o que denuncia isso). */
+      resolve: {
+        alias: {
+          "@/data/blog/escrita": arquivoDaEscrita,
+          "@/data/blog/posts": arquivoDosPosts,
+          "@/data/blog/taxonomia": arquivoDaTaxonomia,
+          "@": path.join(raiz, "src"),
+        },
+      },
       build: {
         ssr: entrada,
         outDir: path.join(pasta, "saida"),
@@ -2986,6 +3101,546 @@ if (janela && schema && configuracao && compilado) {
         );
       })(),
     );
+
+    /* ─── (i) A gaveta retrátil e a proteção contra perda ──────────────── */
+
+    secao("(i) a gaveta retrátil e a proteção contra perda (Story 2.7)");
+
+    const gavetaPura = await import(urlDe(CAMINHO_MODULO_DA_GAVETA)).catch(() => null);
+    const pendenciaPura = await import(urlDe(CAMINHO_PENDENCIA)).catch(() => null);
+    const foco = await import(urlDe(CAMINHO_FOCO)).catch(() => null);
+    const voz = await import(urlDe(CAMINHO_VOZ)).catch(() => null);
+    const { toast } = await import("sonner");
+
+    afirmar(
+      "`gaveta.js`, `pendencia.js`, `foco.js` e `voz.js` importam em Node — as regras são executáveis fora do navegador",
+      gavetaPura !== null && pendenciaPura !== null && foco !== null && voz !== null,
+    );
+
+    /* ── O dublê acompanha a forma do módulo real ─────────────────────────
+       Sem isto, a fronteira dublada poderia perder uma exportação (ou ganhar
+       uma que o módulo real não tem) e a tela continuaria montando aqui
+       enquanto quebra na aplicação. */
+    if (modulo.escritaReal && modulo.escritaDuble) {
+      const paresDeFronteira = [
+        ["escrita", modulo.escritaReal, modulo.escritaDuble],
+        ["posts", modulo.postsReal, modulo.postsDuble],
+        ["taxonomia", modulo.taxonomiaReal, modulo.taxonomiaDuble],
+      ];
+      for (const [nome, real, duble] of paresDeFronteira) {
+        const daReal = Object.keys(real).sort();
+        const doDuble = Object.keys(duble).sort();
+        afirmar(
+          `o dublê de \`data/blog/${nome}\` exporta exatamente o que o módulo real exporta`,
+          // O comprimento entra na condição para que dois conjuntos VAZIOS —
+          // um módulo que não carregou — não passem por igualdade vacuosa.
+          daReal.length > 0 && igual(daReal, doDuble),
+          `real: ${daReal.join(",")} | dublê: ${doDuble.join(",")}`,
+        );
+      }
+    }
+
+    /* ── As regras puras, executadas ──────────────────────────────────── */
+    if (gavetaPura) {
+      afirmar(
+        "a gaveta NASCE ABERTA em tela larga, e recolhida em tela estreita",
+        gavetaPura.nasceAberta(1440) === true &&
+          gavetaPura.nasceAberta(1024) === true &&
+          gavetaPura.nasceAberta(1023) === false &&
+          gavetaPura.nasceAberta(390) === false,
+        `1440:${gavetaPura.nasceAberta(1440)} 1024:${gavetaPura.nasceAberta(1024)} 1023:${gavetaPura.nasceAberta(1023)} 390:${gavetaPura.nasceAberta(390)}`,
+      );
+      afirmar(
+        "largura de tela desconhecida abre a gaveta — não se esconde campo por não saber medir a tela",
+        gavetaPura.nasceAberta(null) === true &&
+          gavetaPura.nasceAberta(undefined) === true &&
+          gavetaPura.nasceAberta("larga") === true &&
+          gavetaPura.nasceAberta(0) === true,
+      );
+      /* As duas medidas escritas À MÃO aqui: lê-las do próprio módulo faria a
+         asserção dizer apenas que ele é igual a si mesmo. */
+      afirmar(
+        "aberta mede 340px e recolhida mede 46px",
+        gavetaPura.larguraDaGaveta(true) === "340px" &&
+          gavetaPura.larguraDaGaveta(false) === "46px",
+        `${gavetaPura.larguraDaGaveta(true)} / ${gavetaPura.larguraDaGaveta(false)}`,
+      );
+      if (voz) {
+        const aberto = gavetaPura.rotuloDoControle(true);
+        const fechado = gavetaPura.rotuloDoControle(false);
+        afirmar(
+          "o nome do controle DIZ O QUE ELE FARÁ, e muda com o estado — passa pelas guardas de voz do Painel",
+          aberto !== fechado &&
+            voz.diagnosticarRotuloDeAcao(aberto) === null &&
+            voz.diagnosticarRotuloDeAcao(fechado) === null,
+          `${aberto} | ${fechado}`,
+        );
+      }
+    }
+
+    if (pendenciaPura) {
+      const doc = { type: "doc", content: [{ type: "paragraph" }] };
+      const um = pendenciaPura.instantaneo({ titulo: "a", resumo: "b" }, doc);
+      const outro = pendenciaPura.instantaneo({ resumo: "b", titulo: "a" }, doc);
+      afirmar(
+        "o retrato não depende da ORDEM das chaves — `jsonb` volta do Postgres reordenado, e reordenar não é alterar",
+        um === outro,
+        `${um} vs ${outro}`,
+      );
+      afirmar(
+        "mas depende da ordem dos ARRAYS: trocar duas tags de lugar é alteração",
+        pendenciaPura.instantaneo({ tags: ["a", "b"] }, doc) !==
+          pendenciaPura.instantaneo({ tags: ["b", "a"] }, doc),
+      );
+      afirmar(
+        "mudar o documento muda o retrato — o corpo do Post conta como alteração",
+        um !==
+          pendenciaPura.instantaneo(
+            { titulo: "a", resumo: "b" },
+            { type: "doc", content: [{ type: "paragraph" }, { type: "horizontalRule" }] },
+          ),
+      );
+      afirmar(
+        "sem referência (tela ainda carregando) NÃO há pendência — e com retrato igual também não",
+        pendenciaPura.haPendencia(um, null) === false &&
+          pendenciaPura.haPendencia(um, um) === false &&
+          pendenciaPura.haPendencia(um, outro + "x") === true,
+      );
+      afirmar(
+        "a descrição da saída NOMEIA o post, e diz o que se perde",
+        pendenciaPura.descricaoDaSaida("Guia de atalhos").includes("Guia de atalhos") &&
+          pendenciaPura.descricaoDaSaida("").includes("post"),
+        pendenciaPura.descricaoDaSaida("Guia de atalhos"),
+      );
+      if (voz) {
+        afirmar(
+          "os dois rótulos do diálogo de saída dizem o que fazem",
+          voz.diagnosticarRotuloDeAcao(pendenciaPura.ROTULO_PARA_SAIR) === null &&
+            voz.diagnosticarRotuloDeAcao(pendenciaPura.ROTULO_PARA_FICAR) === null,
+          `${pendenciaPura.ROTULO_PARA_SAIR} | ${pendenciaPura.ROTULO_PARA_FICAR}`,
+        );
+      }
+    }
+
+    /* ── Nada disto é lembrado entre sessões ──────────────────────────── */
+    {
+      const ARQUIVOS_DA_STORY = [
+        CAMINHO_TELA,
+        CAMINHO_GAVETA,
+        CAMINHO_MODULO_DA_GAVETA,
+        CAMINHO_PENDENCIA,
+      ];
+      const TERMOS = ["localStorage", "sessionStorage", "document.cookie", "indexedDB"];
+      const procurar = (fonte) => {
+        const codigo = mascararComentariosJs(fonte);
+        return TERMOS.filter((termo) => codigo.includes(termo));
+      };
+      // Autoteste: o detector precisa acusar código e ignorar prosa.
+      afirmar(
+        "detector de armazenamento: acusa no código, ignora no comentário",
+        procurar('const a = localStorage.getItem("x");').length === 1 &&
+          procurar("/* nada aqui usa localStorage nem document.cookie */").length === 0,
+      );
+      const achados = [];
+      for (const arquivo of ARQUIVOS_DA_STORY) {
+        for (const termo of procurar(ler(arquivo))) achados.push(`${arquivo}: ${termo}`);
+      }
+      afirmar(
+        "o estado da gaveta não é PERSISTIDO: nada nesta story toca armazenamento do navegador",
+        achados.length === 0,
+        achados.join(" | "),
+      );
+    }
+
+    /* ── A tela montada, em DOM ───────────────────────────────────────── */
+
+    /** Monta `EditorDePost` e devolve as ferramentas para mexer nele. */
+    const montarTela = async (props) => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+
+      const reclamacoes = [];
+      const erroOriginal = console.error;
+      console.error = (...partes) => reclamacoes.push(partes.join(" "));
+
+      const raizReact = createRoot(alvo);
+      await act(async () => {
+        raizReact.render(React.createElement(modulo.EditorDePost, props));
+      });
+
+      const gaveta = () => alvo.querySelector('aside[aria-label="Metadados do post"]');
+      const controle = () => gaveta()?.querySelector("button[aria-controls]") ?? null;
+      const campos = () => {
+        const id = controle()?.getAttribute("aria-controls") ?? "";
+        return id === "" ? null : janela.document.getElementById(id);
+      };
+      const botaoPorTexto = (dentro, texto) =>
+        [...dentro.querySelectorAll("button")].find(
+          (b) => (b.textContent ?? "").trim() === texto,
+        ) ?? null;
+
+      return {
+        alvo,
+        reclamacoes,
+        gaveta,
+        controle,
+        campos,
+        botaoPorTexto,
+        colunaDoTexto: () => alvo.querySelector('[role="textbox"]'),
+        /* O irmão anterior da gaveta é a coluna do texto — estrutural, e não
+           por classe: uma busca por classe encontraria o invólucro de rolagem
+           de dentro do Editor e a asserção mudaria de assunto sem avisar. */
+        involucroDoTexto: () => gaveta()?.previousElementSibling ?? null,
+        campo: (nome) => alvo.querySelector(`[data-campo="${nome}"]`),
+        voltar: () => alvo.querySelector('button[aria-label="Voltar para a listagem"]'),
+        salvar: () =>
+          [...alvo.querySelectorAll("button")].find((b) =>
+            (b.textContent ?? "").includes("Salvar"),
+          ) ?? null,
+        dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+        async clicar(elemento) {
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+          });
+        },
+        async digitar(entrada, texto) {
+          const prototipo =
+            entrada.tagName === "TEXTAREA"
+              ? janela.HTMLTextAreaElement.prototype
+              : janela.HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(prototipo, "value").set;
+          await act(async () => {
+            setter.call(entrada, texto);
+            entrada.dispatchEvent(new janela.Event("input", { bubbles: true }));
+          });
+        },
+        async desmontar() {
+          console.error = erroOriginal;
+          await act(async () => raizReact.unmount());
+          alvo.remove();
+        },
+      };
+    };
+
+    /* A largura da tela é dado de montagem, e o jsdom deixa redefini-la. */
+    const larguraOriginal = janela.innerWidth;
+    const fingirLargura = (px) => {
+      Object.defineProperty(janela, "innerWidth", {
+        value: px,
+        configurable: true,
+        writable: true,
+      });
+    };
+
+    /* O ouvinte de saída, contado de fora: registrar e nunca remover é um
+       defeito que só aparece meses depois, quando o navegador passa a
+       perguntar sem motivo. */
+    let ouvintesVivos = 0;
+    const adicionarOriginal = janela.addEventListener.bind(janela);
+    const removerOriginal = janela.removeEventListener.bind(janela);
+    janela.addEventListener = (tipo, ouvinte, opcoes) => {
+      if (tipo === "beforeunload") ouvintesVivos += 1;
+      return adicionarOriginal(tipo, ouvinte, opcoes);
+    };
+    janela.removeEventListener = (tipo, ouvinte, opcoes) => {
+      if (tipo === "beforeunload") ouvintesVivos -= 1;
+      return removerOriginal(tipo, ouvinte, opcoes);
+    };
+    /** O navegador pergunta antes de fechar ou recarregar? */
+    const perguntaAoDescarregar = () => {
+      const evento = new janela.Event("beforeunload", { cancelable: true });
+      janela.dispatchEvent(evento);
+      return evento.defaultPrevented;
+    };
+
+    /* ── Abrir, recolher, reabrir ─────────────────────────────────────── */
+    fingirLargura(1440);
+    {
+      const tela = await montarTela({ postId: null });
+
+      afirmar(
+        "a gaveta NASCE ABERTA, medindo 340px, com os campos à vista",
+        tela.gaveta()?.style.width === "340px" && tela.campos()?.hidden === false,
+        `largura: ${tela.gaveta()?.style.width} | campos escondidos: ${tela.campos()?.hidden}`,
+      );
+      afirmar(
+        "e o controle se anuncia expandido, apontando para a região que ele controla",
+        tela.controle()?.getAttribute("aria-expanded") === "true" &&
+          tela.campos() !== null,
+        `aria-expanded: ${tela.controle()?.getAttribute("aria-expanded")}`,
+      );
+
+      if (foco) {
+        const classe = tela.controle()?.className ?? "";
+        const faltando = [...foco.ANEL_DE_FOCO.split(" "), ...foco.ALVO_DE_TOQUE.split(" ")]
+          .filter((token) => token !== "")
+          .filter((token) => !classe.split(/\s+/u).includes(token));
+        afirmar(
+          "o controle de recolher tem anel de foco e alvo de toque de 40px — cada classe conferida, não a soma",
+          faltando.length === 0,
+          `faltam: ${faltando.join(", ")}`,
+        );
+      }
+      afirmar(
+        "o controle é alcançável por teclado: é um `button` de verdade, sem `tabindex` negativo",
+        tela.controle()?.tagName === "BUTTON" &&
+          tela.controle()?.getAttribute("tabindex") === null &&
+          !tela.controle()?.hasAttribute("disabled"),
+        `${tela.controle()?.tagName} tabindex=${tela.controle()?.getAttribute("tabindex")}`,
+      );
+
+      const classeDoTextoAberta = tela.colunaDoTexto()?.className ?? "";
+      const classeDoInvolucroAberta = tela.involucroDoTexto()?.className ?? "";
+      const rotuloAberta = tela.controle()?.getAttribute("aria-label") ?? "";
+
+      await tela.clicar(tela.controle());
+
+      afirmar(
+        "recolher leva a um trilho de 46px e esconde os campos",
+        tela.gaveta()?.style.width === "46px" && tela.campos()?.hidden === true,
+        `largura: ${tela.gaveta()?.style.width} | campos escondidos: ${tela.campos()?.hidden}`,
+      );
+      afirmar(
+        "o controle de REABRIR continua visível dentro do trilho, e mudou de nome",
+        tela.controle() !== null &&
+          tela.gaveta()?.contains(tela.controle()) === true &&
+          tela.controle()?.closest("[hidden]") === null &&
+          (tela.controle()?.getAttribute("aria-label") ?? "") !== rotuloAberta &&
+          tela.controle()?.getAttribute("aria-expanded") === "false",
+        `${rotuloAberta} → ${tela.controle()?.getAttribute("aria-label")}`,
+      );
+      if (voz) {
+        afirmar(
+          "e o nome novo continua dizendo o que fará",
+          voz.diagnosticarRotuloDeAcao(tela.controle()?.getAttribute("aria-label")) === null,
+          String(tela.controle()?.getAttribute("aria-label")),
+        );
+      }
+
+      /* A MEDIDA NÃO MUDA. O que muda é a largura do contêiner — e a coluna
+         se recentraliza dentro dele, porque `.artigo` fixa 68ch no próprio
+         elemento e a área de escrita é `mx-auto`. */
+      afirmar(
+        "recolher NÃO estica o texto: a classe da coluna é idêntica nos dois estados",
+        (tela.colunaDoTexto()?.className ?? "") === classeDoTextoAberta &&
+          classeDoTextoAberta !== "",
+        `${classeDoTextoAberta} → ${tela.colunaDoTexto()?.className}`,
+      );
+      afirmar(
+        "a coluna CENTRALIZA: `mx-auto` na área de escrita, e nenhuma largura declarada no invólucro",
+        classeDoTextoAberta.split(/\s+/u).includes("mx-auto") &&
+          (tela.involucroDoTexto()?.className ?? "") === classeDoInvolucroAberta &&
+          !classeDoInvolucroAberta.includes("max-w-") &&
+          !classeDoInvolucroAberta.includes("w-[") &&
+          (tela.involucroDoTexto()?.style.width ?? "") === "",
+        `invólucro: ${classeDoInvolucroAberta}`,
+      );
+
+      await tela.clicar(tela.controle());
+      afirmar(
+        "reabrir devolve os 340px e os campos",
+        tela.gaveta()?.style.width === "340px" && tela.campos()?.hidden === false,
+        `largura: ${tela.gaveta()?.style.width}`,
+      );
+
+      // Recolhida de novo, para provar que o estado NÃO sobrevive à montagem.
+      await tela.clicar(tela.controle());
+      afirmar(
+        "o React não reclamou ao recolher e reabrir a gaveta",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+    }
+
+    {
+      const tela = await montarTela({ postId: null });
+      afirmar(
+        "a gaveta NÃO LEMBRA o estado da sessão anterior: recolhida antes, aberta agora",
+        tela.gaveta()?.style.width === "340px",
+        `largura: ${tela.gaveta()?.style.width}`,
+      );
+      await tela.desmontar();
+    }
+
+    /* ── Tela estreita ────────────────────────────────────────────────── */
+    fingirLargura(800);
+    {
+      const tela = await montarTela({ postId: null });
+      afirmar(
+        "em tela estreita a gaveta NASCE RECOLHIDA — pelo mesmo mecanismo, sem regra responsiva separada",
+        tela.gaveta()?.style.width === "46px" && tela.campos()?.hidden === true,
+        `largura: ${tela.gaveta()?.style.width}`,
+      );
+      afirmar(
+        "e o controle de reabrir está lá desde o primeiro quadro",
+        tela.controle() !== null && tela.controle()?.closest("[hidden]") === null,
+      );
+      await tela.desmontar();
+    }
+    fingirLargura(1440);
+
+    /* ── A proteção contra perda ──────────────────────────────────────── */
+    {
+      const ID_DE_PROVA = "11111111-2222-4333-8444-555555555555";
+      const CORPO_SALVO = "corpo que precisa sobreviver";
+      const documentoGravado = {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: CORPO_SALVO }] }],
+      };
+
+      modulo.controle.pedidos.length = 0;
+      modulo.controle.resposta = {
+        ok: true,
+        dados: { criado: true, post: { id: ID_DE_PROVA, slug: "guia-de-atalhos" } },
+      };
+      modulo.controle.post = {
+        ok: true,
+        dados: {
+          id: ID_DE_PROVA,
+          slug: "guia-de-atalhos",
+          titulo: "Guia de atalhos",
+          resumo: "O que dá para fazer sem tirar as mãos do teclado.",
+          conteudo: documentoGravado,
+          categoria_id: null,
+          publicado_em: null,
+          tempo_leitura: 0,
+        },
+      };
+
+      const saidas = [];
+      const tela = await montarTela({ postId: null, aoSair: () => saidas.push(1) });
+
+      afirmar(
+        "sem alteração nenhuma, o navegador NÃO pergunta ao fechar ou recarregar — e não há ouvinte registrado",
+        ouvintesVivos === 0 && perguntaAoDescarregar() === false,
+        `ouvintes vivos: ${ouvintesVivos}`,
+      );
+      await tela.clicar(tela.voltar());
+      afirmar(
+        "e voltar para a listagem sai DIRETO, sem diálogo",
+        saidas.length === 1 && tela.dialogo() === null,
+        `saídas: ${saidas.length} | diálogo: ${tela.dialogo() !== null}`,
+      );
+
+      await tela.digitar(tela.campo("titulo"), "Guia de atalhos");
+      afirmar(
+        "com alteração pendente, o ouvinte de saída é REGISTRADO e o navegador passa a perguntar",
+        ouvintesVivos === 1 && perguntaAoDescarregar() === true,
+        `ouvintes vivos: ${ouvintesVivos}`,
+      );
+
+      await tela.clicar(tela.voltar());
+      const dialogo = tela.dialogo();
+      afirmar(
+        "voltar para a listagem PERGUNTA antes de sair, e não sai enquanto não se responde",
+        dialogo !== null && saidas.length === 1,
+        `saídas: ${saidas.length}`,
+      );
+      afirmar(
+        "o diálogo nomeia o post e diz o que se perde",
+        (dialogo?.textContent ?? "").includes("Guia de atalhos") &&
+          tela.botaoPorTexto(dialogo ?? tela.alvo, pendenciaPura.ROTULO_PARA_SAIR) !== null &&
+          tela.botaoPorTexto(dialogo ?? tela.alvo, pendenciaPura.ROTULO_PARA_FICAR) !== null,
+        (dialogo?.textContent ?? "").slice(0, 200),
+      );
+
+      await tela.clicar(tela.botaoPorTexto(dialogo, pendenciaPura.ROTULO_PARA_FICAR));
+      afirmar(
+        "cancelar MANTÉM TUDO como está: o diálogo fecha, ninguém sai e o texto continua no campo",
+        tela.dialogo() === null &&
+          saidas.length === 1 &&
+          tela.campo("titulo")?.value === "Guia de atalhos",
+        `saídas: ${saidas.length} | título: ${tela.campo("titulo")?.value}`,
+      );
+
+      await tela.clicar(tela.voltar());
+      await tela.clicar(tela.botaoPorTexto(tela.dialogo(), pendenciaPura.ROTULO_PARA_SAIR));
+      afirmar(
+        "confirmar sai — a proteção pergunta, não impede",
+        saidas.length === 2,
+        `saídas: ${saidas.length}`,
+      );
+
+      /* ── Salvar com sucesso apaga a pendência ─────────────────────── */
+      await tela.digitar(
+        tela.campo("resumo"),
+        "O que dá para fazer sem tirar as mãos do teclado.",
+      );
+      await tela.clicar(tela.salvar());
+      afirmar(
+        "a gravação passou pelo caminho de escrita da tela — o dublê recebeu o pedido",
+        modulo.controle.pedidos.length === 1,
+        `pedidos: ${modulo.controle.pedidos.length}`,
+      );
+      afirmar(
+        "depois de salvar, o ouvinte de saída é REMOVIDO e o navegador para de perguntar",
+        ouvintesVivos === 0 && perguntaAoDescarregar() === false,
+        `ouvintes vivos: ${ouvintesVivos}`,
+      );
+      await tela.clicar(tela.voltar());
+      afirmar(
+        "e sair passa a ser direto de novo",
+        saidas.length === 3 && tela.dialogo() === null,
+        `saídas: ${saidas.length}`,
+      );
+
+      /* ── Falha ao salvar: nada é descartado ───────────────────────── */
+      const RECUSA = "Já existe um post com este endereço. Escolha outro antes de salvar.";
+      modulo.controle.resposta = {
+        ok: false,
+        erro: { tipo: "conflito", mensagem: RECUSA, faltando: null },
+      };
+      const historicoAntes = toast.getHistory().length;
+      await tela.digitar(tela.campo("titulo"), "Guia de atalhos do editor");
+      await tela.clicar(tela.salvar());
+
+      afirmar(
+        "falha ao salvar MANTÉM o Autor no Editor, com o conteúdo intacto",
+        tela.campo("titulo")?.value === "Guia de atalhos do editor" &&
+          (tela.colunaDoTexto()?.textContent ?? "").includes(CORPO_SALVO) &&
+          tela.gaveta() !== null,
+        `título: ${tela.campo("titulo")?.value} | corpo: ${(tela.colunaDoTexto()?.textContent ?? "").slice(0, 60)}`,
+      );
+      afirmar(
+        "e a pendência CONTINUA pendente — o que não foi gravado não pode ser dado por gravado",
+        perguntaAoDescarregar() === true && ouvintesVivos === 1,
+        `ouvintes vivos: ${ouvintesVivos}`,
+      );
+      {
+        const novos = toast.getHistory().slice(historicoAntes);
+        const recusa = novos.find((t) => String(t.description ?? "") === RECUSA) ?? null;
+        afirmar(
+          "a falha produz uma mensagem ACIONÁVEL: a frase do servidor chega inteira à tela",
+          recusa !== null,
+          novos.map((t) => `${t.title} / ${t.description}`).join(" | ").slice(0, 220),
+        );
+        if (recusa && voz) {
+          afirmar(
+            "e as duas metades da mensagem passam pelas guardas de voz — nada de “erro inesperado”",
+            voz.diagnosticarMensagem("o que houve", String(recusa.title)) === null &&
+              voz.diagnosticarMensagem("o que fazer", String(recusa.description)) === null,
+            `${recusa.title} / ${recusa.description}`,
+          );
+        }
+      }
+      afirmar(
+        "o React não reclamou durante a proteção contra perda",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+
+      await tela.desmontar();
+      afirmar(
+        "desmontar a tela não deixa ouvinte de saída para trás",
+        ouvintesVivos === 0,
+        `ouvintes vivos: ${ouvintesVivos}`,
+      );
+    }
+
+    delete janela.addEventListener;
+    delete janela.removeEventListener;
+    fingirLargura(larguraOriginal);
   }
 }
 

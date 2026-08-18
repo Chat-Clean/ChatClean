@@ -32,13 +32,26 @@
  * inteiro. O campo mostra e lê **hora de parede em São Paulo**, pelas funções de
  * `domain/blog/formato.js` — o único lugar do projeto que conhece o fuso. A
  * comparação de visibilidade continua em UTC, na política do banco.
+ *
+ * ─── ABERTA OU RECOLHIDA — E QUEM DECIDE NÃO É ELA ──────────────────────────
+ *
+ * A gaveta ocupa 340px aberta e um trilho de 46px recolhida, e o controle de
+ * reabrir fica **dentro do trilho**: uma gaveta que some sem deixar como voltar
+ * é pior que uma gaveta larga. O estado vem de fora, como tudo aqui — quem monta
+ * a tela é que sabe se a tela é estreita, e é lá que a regra de nascimento mora.
+ *
+ * Os campos continuam MONTADOS quando ela recolhe, apenas escondidos pelo
+ * atributo `hidden`. Desmontá-los faria o `aria-controls` do controle apontar
+ * para um elemento que não existe — e um alvo ausente é anunciado como nada.
  */
 
 import { useId } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, PanelRightClose, PanelRightOpen } from "lucide-react";
 
-import { ANEL_DE_FOCO } from "@/admin/shell/foco";
+import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { FRASES_DE_FALTA, textoDaDataDoCampo } from "@/admin/blog/metadados";
+import { larguraDaGaveta, rotuloDoControle } from "@/admin/blog/gaveta";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const CLASSE_DE_CAMPO =
@@ -53,6 +66,8 @@ export default function GavetaDeMetadados({
   tags = [],
   problemaNoEndereco = null,
   desabilitado = false,
+  aberta = true,
+  aoAlternar,
   className,
 }) {
   /* Um prefixo por instância. Dois editores na mesma página (a verificação monta
@@ -60,6 +75,7 @@ export default function GavetaDeMetadados({
      rótulo passa a apontar para o campo do segundo — e a associação, que é o
      ponto do componente, deixa de valer sem nada quebrar visivelmente. */
   const base = useId();
+  const idDosCampos = `${base}-campos`;
   const idDe = (campo) => `${base}-${campo}`;
   const idDoErro = (campo) => `${base}-${campo}-erro`;
   const idDaAjuda = (campo) => `${base}-${campo}-ajuda`;
@@ -92,144 +108,178 @@ export default function GavetaDeMetadados({
   return (
     <aside
       aria-label="Metadados do post"
+      data-aberta={aberta ? "true" : "false"}
+      /* A largura é VALOR, e não classe utilitária: é ela que a verificação lê
+         no elemento, do mesmo jeito que o navegador. Ver `gaveta.js`. */
+      style={{ width: larguraDaGaveta(aberta) }}
       className={cn(
-        "flex min-h-0 w-full flex-col gap-5 overflow-y-auto rounded-cartao",
-        "border border-border-soft bg-surface p-4",
+        "flex min-h-0 flex-col rounded-cartao",
+        "border border-border-soft bg-surface",
+        aberta ? "gap-4 p-4" : "gap-2 py-2",
         className,
       )}
     >
-      {/* ── Título ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("titulo")} obrigatorio>
-          Título
-        </Rotulo>
-        <input
-          type="text"
-          {...campo("titulo")}
-          value={valores.titulo ?? ""}
-          onChange={mudar("titulo")}
-          placeholder="O título do artigo"
-        />
-        <Recusa id={idDoErro("titulo")} visivel={falta("titulo")}>
-          {FRASES_DE_FALTA.titulo}
-        </Recusa>
-      </div>
-
-      {/* ── Endereço (Slug) ────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("slug")}>Endereço no site</Rotulo>
-        {/* Slug é dado, não prosa: pilha monoespaçada com numeral tabular. */}
-        <input
-          type="text"
-          {...campo("slug", { ajuda: true, recusa: enderecoRecusado, extra: "dado" })}
-          value={valores.slug ?? ""}
-          onChange={mudar("slug")}
-          placeholder="meu-artigo"
-        />
-        <Recusa id={idDoErro("slug")} visivel={falta("slug") || enderecoRecusado}>
-          {falta("slug") ? FRASES_DE_FALTA.slug : problemaNoEndereco}
-        </Recusa>
-        <p id={idDaAjuda("slug")} className="text-xs text-ink-muted">
-          Gerado do título quando o post nasce. Depois disso ele não muda sozinho
-          — quem já tem o link continua chegando aqui.
-        </p>
-      </div>
-
-      {/* ── Resumo ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("resumo")} obrigatorio>
-          Resumo
-        </Rotulo>
-        <textarea
-          rows={3}
-          {...campo("resumo", { extra: "resize-y" })}
-          value={valores.resumo ?? ""}
-          onChange={mudar("resumo")}
-          placeholder="A frase que descreve o post na listagem e na busca"
-        />
-        <Recusa id={idDoErro("resumo")} visivel={falta("resumo")}>
-          {FRASES_DE_FALTA.resumo}
-        </Recusa>
-      </div>
-
-      {/* ── Categoria ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("categoria_id")}>Categoria</Rotulo>
-        <select
-          {...campo("categoria_id")}
-          value={valores.categoria_id ?? ""}
-          onChange={mudar("categoria_id")}
+      {/* ── O controle de recolher e reabrir ───────────────────────────── */}
+      <div className={cn("flex shrink-0", aberta ? "justify-end" : "justify-center")}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => aoAlternar?.()}
+          aria-label={rotuloDoControle(aberta)}
+          aria-expanded={aberta}
+          aria-controls={idDosCampos}
+          className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0 text-ink-secondary")}
         >
-          <option value="">Sem categoria</option>
-          {categorias.map((categoria) => (
-            <option key={categoria.id} value={categoria.id}>
-              {categoria.nome}
-            </option>
-          ))}
-        </select>
+          {aberta ? (
+            <PanelRightClose aria-hidden="true" />
+          ) : (
+            <PanelRightOpen aria-hidden="true" />
+          )}
+        </Button>
       </div>
 
-      {/* ── Tags ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("tags")}>Tags</Rotulo>
-        <select
-          multiple
-          size={Math.min(Math.max(tags.length, 3), 6)}
-          {...campo("tags", { ajuda: true })}
-          value={valores.tags ?? []}
-          onChange={(evento) =>
-            aoMudar?.(
-              "tags",
-              [...evento.target.selectedOptions].map((opcao) => opcao.value),
-            )
-          }
-        >
-          {tags.map((tag) => (
-            <option key={tag.id} value={tag.id}>
-              {tag.nome}
-            </option>
-          ))}
-        </select>
-        <p id={idDaAjuda("tags")} className="text-xs text-ink-muted">
-          {tags.length === 0
-            ? "Nenhuma tag cadastrada ainda."
-            : "Segure Ctrl (ou Command) para escolher mais de uma."}
-        </p>
-      </div>
+      <div
+        id={idDosCampos}
+        /* `hidden` e não desmontagem: o alvo de `aria-controls` precisa existir.
+           A regra do Tailwind para `[hidden]` é `!important`, então o `flex`
+           daqui não a desfaz — foi medido, e é o modo de falha clássico. */
+        hidden={!aberta}
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto"
+      >
+        {/* ── Título ─────────────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("titulo")} obrigatorio>
+            Título
+          </Rotulo>
+          <input
+            type="text"
+            {...campo("titulo")}
+            value={valores.titulo ?? ""}
+            onChange={mudar("titulo")}
+            placeholder="O título do artigo"
+          />
+          <Recusa id={idDoErro("titulo")} visivel={falta("titulo")}>
+            {FRASES_DE_FALTA.titulo}
+          </Recusa>
+        </div>
 
-      {/* ── Data de Publicação ─────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("publicado_em")}>Data de publicação</Rotulo>
-        <input
-          type="datetime-local"
-          {...campo("publicado_em", { ajuda: true, extra: "dado" })}
-          value={valores.publicado_em ?? ""}
-          onChange={mudar("publicado_em")}
-        />
-        {/* O instante é gravado em UTC; o que se lê e o que se digita é a hora de
-            Brasília. Dizer o fuso por extenso é o que impede alguém de agendar
-            00h30 achando que agendou no fuso do próprio navegador. */}
-        <p id={idDaAjuda("publicado_em")} className="text-xs text-ink-muted">
-          Horário de Brasília{" "}
-          <span className="dado" data-papel="data-em-sao-paulo">
-            {textoDaDataDoCampo(valores.publicado_em)}
-          </span>
-        </p>
-      </div>
+        {/* ── Endereço (Slug) ────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("slug")}>Endereço no site</Rotulo>
+          {/* Slug é dado, não prosa: pilha monoespaçada com numeral tabular. */}
+          <input
+            type="text"
+            {...campo("slug", { ajuda: true, recusa: enderecoRecusado, extra: "dado" })}
+            value={valores.slug ?? ""}
+            onChange={mudar("slug")}
+            placeholder="meu-artigo"
+          />
+          <Recusa id={idDoErro("slug")} visivel={falta("slug") || enderecoRecusado}>
+            {falta("slug") ? FRASES_DE_FALTA.slug : problemaNoEndereco}
+          </Recusa>
+          <p id={idDaAjuda("slug")} className="text-xs text-ink-muted">
+            Gerado do título quando o post nasce. Depois disso ele não muda sozinho
+            — quem já tem o link continua chegando aqui.
+          </p>
+        </div>
 
-      {/* ── Tempo de leitura ───────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <Rotulo para={idDe("tempo_leitura")}>Tempo de leitura (minutos)</Rotulo>
-        <input
-          type="number"
-          min={0}
-          step={1}
-          inputMode="numeric"
-          {...campo("tempo_leitura", { extra: "dado" })}
-          value={valores.tempo_leitura ?? ""}
-          onChange={mudar("tempo_leitura")}
-          placeholder="5"
-        />
+        {/* ── Resumo ─────────────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("resumo")} obrigatorio>
+            Resumo
+          </Rotulo>
+          <textarea
+            rows={3}
+            {...campo("resumo", { extra: "resize-y" })}
+            value={valores.resumo ?? ""}
+            onChange={mudar("resumo")}
+            placeholder="A frase que descreve o post na listagem e na busca"
+          />
+          <Recusa id={idDoErro("resumo")} visivel={falta("resumo")}>
+            {FRASES_DE_FALTA.resumo}
+          </Recusa>
+        </div>
+
+        {/* ── Categoria ──────────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("categoria_id")}>Categoria</Rotulo>
+          <select
+            {...campo("categoria_id")}
+            value={valores.categoria_id ?? ""}
+            onChange={mudar("categoria_id")}
+          >
+            <option value="">Sem categoria</option>
+            {categorias.map((categoria) => (
+              <option key={categoria.id} value={categoria.id}>
+                {categoria.nome}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* ── Tags ───────────────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("tags")}>Tags</Rotulo>
+          <select
+            multiple
+            size={Math.min(Math.max(tags.length, 3), 6)}
+            {...campo("tags", { ajuda: true })}
+            value={valores.tags ?? []}
+            onChange={(evento) =>
+              aoMudar?.(
+                "tags",
+                [...evento.target.selectedOptions].map((opcao) => opcao.value),
+              )
+            }
+          >
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.nome}
+              </option>
+            ))}
+          </select>
+          <p id={idDaAjuda("tags")} className="text-xs text-ink-muted">
+            {tags.length === 0
+              ? "Nenhuma tag cadastrada ainda."
+              : "Segure Ctrl (ou Command) para escolher mais de uma."}
+          </p>
+        </div>
+
+        {/* ── Data de Publicação ─────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("publicado_em")}>Data de publicação</Rotulo>
+          <input
+            type="datetime-local"
+            {...campo("publicado_em", { ajuda: true, extra: "dado" })}
+            value={valores.publicado_em ?? ""}
+            onChange={mudar("publicado_em")}
+          />
+          {/* O instante é gravado em UTC; o que se lê e o que se digita é a hora de
+              Brasília. Dizer o fuso por extenso é o que impede alguém de agendar
+              00h30 achando que agendou no fuso do próprio navegador. */}
+          <p id={idDaAjuda("publicado_em")} className="text-xs text-ink-muted">
+            Horário de Brasília{" "}
+            <span className="dado" data-papel="data-em-sao-paulo">
+              {textoDaDataDoCampo(valores.publicado_em)}
+            </span>
+          </p>
+        </div>
+
+        {/* ── Tempo de leitura ───────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Rotulo para={idDe("tempo_leitura")}>Tempo de leitura (minutos)</Rotulo>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            {...campo("tempo_leitura", { extra: "dado" })}
+            value={valores.tempo_leitura ?? ""}
+            onChange={mudar("tempo_leitura")}
+            placeholder="5"
+          />
+        </div>
       </div>
     </aside>
   );

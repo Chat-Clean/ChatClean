@@ -17,12 +17,31 @@
  * o endereço à mão: sobrescrever o que a pessoa acabou de escrever, porque ela
  * mexeu no título depois, é o mesmo desrespeito, em escala menor.
  *
- * ─── Salvar é sempre explícito ──────────────────────────────────────────────
+ * ─── Salvar é sempre explícito, e por isso sair é protegido ─────────────────
  *
- * Não há salvamento automático, e falha ao salvar mantém o Autor aqui com o
- * conteúdo intacto — a tela nunca volta para a listagem sem que a gravação
- * tenha acontecido de verdade. A proteção contra sair com alterações pendentes
- * é da Story 2.7.
+ * Não há salvamento automático — nem em intervalo, nem ao sair. Falha ao salvar
+ * mantém o Autor aqui com o conteúdo intacto: a tela nunca volta para a listagem
+ * sem que a gravação tenha acontecido de verdade.
+ *
+ * O preço de não salvar sozinho é que fechar a aba no momento errado apaga o que
+ * foi escrito, e a tela paga esse preço perguntando — nas TRÊS formas de sair:
+ * voltar para a listagem (o diálogo daqui), fechar a aba e recarregar (o evento
+ * de descarregamento do navegador). A pergunta só aparece quando há alteração
+ * pendente de verdade, e o ouvinte do navegador é **removido** assim que ela
+ * some: uma pergunta que aparece sempre é treinada em duas semanas, e no dia em
+ * que havia trabalho de verdade a pessoa clica em "sair" sem ler.
+ *
+ * ─── A gaveta recolhe, e o texto não estica ─────────────────────────────────
+ *
+ * Recolher devolve 294px ao redor do texto, e a medida de leitura NÃO muda: a
+ * largura vira margem, porque `.artigo` fixa 68ch no próprio elemento e a área
+ * de escrita centraliza (`mx-auto`, em `configuracao.js`). Se recolher esticasse
+ * o texto, o Autor seria punido por pedir mais espaço para escrever.
+ *
+ * O estado da gaveta **não** é lembrado entre sessões: nada em `src/admin/`
+ * toca armazenamento do navegador, e a previsibilidade vale mais que a memória.
+ * Em tela estreita ela nasce recolhida, pelo mesmo mecanismo — não há uma
+ * segunda regra responsiva no CSS para divergir desta.
  *
  * ─── O que esta tela NÃO faz ────────────────────────────────────────────────
  *
@@ -33,17 +52,27 @@
  * servidor, a partir da Conta autenticada.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Loader2, Save } from "lucide-react";
 
 import Editor from "@/admin/blog/Editor";
 import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
+import { larguraDaGaveta, nasceAberta } from "@/admin/blog/gaveta";
 import {
   corpoDoPedido,
   faltandoNaGaveta,
   valoresDoPost,
   valoresVazios,
 } from "@/admin/blog/metadados";
+import {
+  ROTULO_PARA_FICAR,
+  ROTULO_PARA_SAIR,
+  TITULO_DA_SAIDA,
+  descricaoDaSaida,
+  haPendencia,
+  instantaneo,
+} from "@/admin/blog/pendencia";
+import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
@@ -77,6 +106,28 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
   const [faltando, setFaltando] = useState([]);
   const [problemaNoEndereco, setProblemaNoEndereco] = useState(null);
   const [salvando, setSalvando] = useState(false);
+
+  /* A gaveta NASCE aberta, e recolhida quando a tela é estreita. O estado é
+     de montagem: nada é lido de armazenamento do navegador, e nada é escrito
+     nele — toda abertura de Post começa igual, o que é o requisito. */
+  const [gavetaAberta, setGavetaAberta] = useState(() =>
+    nasceAberta(typeof window === "undefined" ? null : window.innerWidth),
+  );
+  const alternarGaveta = useCallback(() => setGavetaAberta((atual) => !atual), []);
+
+  /* O retrato do último estado salvo. `null` enquanto a tela carrega: não há o
+     que comparar, e perguntar antes de haver conteúdo é a confirmação inútil
+     que ensina a ignorar confirmações. */
+  const [referencia, setReferencia] = useState(() =>
+    criando ? instantaneo(valoresVazios(), documentoVazio()) : null,
+  );
+  const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+
+  const retratoAtual = useMemo(
+    () => instantaneo(valores, documento),
+    [valores, documento],
+  );
+  const pendente = haPendencia(retratoAtual, referencia);
 
   /* O endereço foi digitado à mão? A partir daí ele para de acompanhar o
      título, mesmo durante a criação. É `ref` e não estado porque nada na tela
@@ -119,6 +170,8 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     let vivo = true;
     setCarregando(true);
     setErroDeCarga(null);
+    // Enquanto não se sabe o que está gravado, não há pendência a rastrear.
+    setReferencia(null);
 
     (async () => {
       const [post, tagsDoPost] = await Promise.all([
@@ -131,8 +184,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         setCarregando(false);
         return;
       }
-      setValores(valoresDoPost(post.dados, tagsDoPost.ok ? tagsDoPost.dados : []));
-      setDocumento(post.dados.conteudo ?? documentoVazio());
+      const doBanco = valoresDoPost(post.dados, tagsDoPost.ok ? tagsDoPost.dados : []);
+      const conteudo = post.dados.conteudo ?? documentoVazio();
+      setValores(doBanco);
+      setDocumento(conteudo);
+      // O que acabou de ser lido É o que está gravado: é este o retrato com que
+      // tudo o que vier depois será comparado.
+      setReferencia(instantaneo(doBanco, conteudo));
       // Trocar de Post é trocar de Editor: o conteúdo inicial é lido uma vez, e
       // a `key` é o mecanismo que o componente da Story 2.4 documenta.
       setChaveDoEditor(String(post.dados.id));
@@ -242,6 +300,9 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     setSalvando(false);
 
     if (!resultado.ok) {
+      /* NADA é descartado por falha: o Autor continua nesta tela, com os
+         valores e o documento onde estavam, e a pendência continua pendente —
+         é justamente agora que a proteção contra sair precisa estar de pé. */
       const { erro } = resultado;
       if (Array.isArray(erro.faltando) && erro.faltando.length > 0) {
         setFaltando([...erro.faltando]);
@@ -264,6 +325,21 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     );
 
     const gravado = resultado.dados?.post ?? null;
+    const slugGravado = typeof gravado?.slug === "string" ? gravado.slug : null;
+
+    /* A PENDÊNCIA SOME AQUI, e só aqui.
+       O retrato de referência passa a ser o que acabou de ser gravado — com o
+       endereço que o SERVIDOR devolveu, porque ele pode ter sido aposentado e
+       trocado lá. Guardar o retrato do que a tela tinha faria a confirmação de
+       saída aparecer logo depois de um salvamento bem-sucedido, que é o começo
+       do treinamento para ignorá-la. */
+    setReferencia(
+      instantaneo(
+        slugGravado === null ? valores : { ...valores, slug: slugGravado },
+        documento,
+      ),
+    );
+
     if (gravado?.id && criando) {
       // O Post nasceu: a tela passa a estar editando, e o endereço para de
       // acompanhar o título a partir deste instante.
@@ -274,12 +350,51 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         ...atuais,
         // O endereço volta do servidor porque ele pode ter sido aposentado e
         // trocado lá: mostrar o que a tela tinha seria mostrar o passado.
-        slug: typeof gravado.slug === "string" ? gravado.slug : atuais.slug,
+        slug: slugGravado === null ? atuais.slug : slugGravado,
       }));
     }
 
     aoSalvar?.(gravado);
   }, [salvando, valores, documento, criando, id, aoSalvar]);
+
+  /* ── Sair, nas três formas ───────────────────────────────────────────── */
+
+  /**
+   * Fechar a aba e recarregar.
+   *
+   * O ouvinte é registrado SÓ enquanto há pendência, e o `return` do efeito o
+   * remove assim que ela some. Um ouvinte que fica registrado depois de salvo
+   * faz o navegador perguntar sem motivo — e a pergunta sem motivo é o caminho
+   * para a pessoa aprender a confirmar sem ler.
+   *
+   * O texto da pergunta é do navegador: `returnValue` foi mantido porque
+   * navegadores antigos ainda exigem a atribuição para levar o evento a sério,
+   * mas nenhum deles mostra a frase há anos.
+   */
+  useEffect(() => {
+    if (!pendente) return undefined;
+    const aoDescarregar = (evento) => {
+      evento.preventDefault();
+      evento.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", aoDescarregar);
+    return () => window.removeEventListener("beforeunload", aoDescarregar);
+  }, [pendente]);
+
+  /** Voltar para a listagem: a forma mais comum, e a única que é da tela. */
+  const sair = useCallback(() => {
+    if (!pendente) {
+      aoSair?.();
+      return;
+    }
+    setConfirmandoSaida(true);
+  }, [pendente, aoSair]);
+
+  const sairDescartando = useCallback(() => {
+    setConfirmandoSaida(false);
+    aoSair?.();
+  }, [aoSair]);
 
   /* ── Desenho ─────────────────────────────────────────────────────────── */
 
@@ -306,7 +421,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   return (
     <Moldura
-      aoSair={aoSair}
+      aoSair={sair}
       titulo={criando ? "Novo post" : "Editar post"}
       subtitulo={
         criando ? (
@@ -341,18 +456,27 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-5/6" />
           </div>
-          <Skeleton className="h-64 w-[340px] shrink-0" />
+          {/* O esqueleto ocupa a medida em que a gaveta vai nascer: um vulto de
+              340px seguido de um trilho de 46px seria um salto de leiaute. */}
+          <Skeleton
+            className="h-64 shrink-0"
+            style={{ width: larguraDaGaveta(gavetaAberta) }}
+          />
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
-          {/* A medida do texto é travada pela própria classe `.artigo`; a coluna
-              centraliza e a gaveta ao lado não a estica. */}
+        /* UMA linha, em qualquer largura de tela. A adaptação a tela estreita é
+           a gaveta nascer recolhida — não uma segunda regra responsiva aqui,
+           que divergiria daquela na primeira mudança. */
+        <div className="flex min-h-0 flex-1 gap-4 p-4">
+          {/* A medida do texto é travada pela própria classe `.artigo`, no
+              próprio elemento; recolher a gaveta devolve largura ao CONTÊINER,
+              e a coluna apenas se recentraliza. O texto nunca estica. */}
           <Editor
             key={chaveDoEditor}
             documento={documento}
             aoMudar={mudarDocumento}
             aoAvisar={avisarSobreConteudo}
-            className="min-h-0 flex-1"
+            className="min-h-0 min-w-0 flex-1"
           />
           <GavetaDeMetadados
             valores={valores}
@@ -362,10 +486,24 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
             tags={tags}
             problemaNoEndereco={problemaNoEndereco}
             desabilitado={salvando}
-            className="w-full shrink-0 lg:w-[340px]"
+            aberta={gavetaAberta}
+            aoAlternar={alternarGaveta}
+            className="shrink-0"
           />
         </div>
       )}
+
+      {/* A confirmação de saída. Ela só chega a abrir quando há pendência: quem
+          decide é `sair`, e é essa raridade que a mantém eficaz. */}
+      <DialogoDeConfirmacao
+        aberto={confirmandoSaida}
+        aoMudarAbertura={setConfirmandoSaida}
+        titulo={TITULO_DA_SAIDA}
+        descricao={descricaoDaSaida(valores.titulo)}
+        rotuloDeConfirmacao={ROTULO_PARA_SAIR}
+        rotuloDeCancelamento={ROTULO_PARA_FICAR}
+        aoConfirmar={sairDescartando}
+      />
     </Moldura>
   );
 }
