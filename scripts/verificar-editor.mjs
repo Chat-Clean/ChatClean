@@ -78,6 +78,11 @@ const CAMINHO_VOZ = "src/admin/shell/voz.js";
 
 /* A máquina de estados da Story 2.8 — a mesma que o servidor consulta. */
 const CAMINHO_TRANSICOES = "src/domain/blog/transicoes.js";
+const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
+
+/* A listagem da Story 2.10 e as regras puras dela. */
+const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
+const CAMINHO_MODULO_DA_LISTAGEM = "src/admin/blog/listagem.js";
 
 /* A fronteira de dados que a tela consome. Ela é DUBLADA na montagem — ver o
    comentário de `compilarComponentes` — e os módulos reais entram junto para
@@ -1697,6 +1702,14 @@ async function compilarComponentes() {
       "  categorias: { ok: true, dados: [] },\n" +
       "  tags: { ok: true, dados: [] },\n" +
       "  tagsDoPost: { ok: true, dados: [] },\n" +
+      /* A listagem da Story 2.10. `aoListar`, quando é função, tem precedência:
+         é ela que permite SEGURAR a resposta e observar o esqueleto — uma
+         resposta pronta resolve no primeiro microtask e o carregamento nunca
+         chega a ser desenhado. `listagens` conta as idas, que é como se prova
+         que o botão de tentar de novo relê de verdade. */
+      "  listagem: { ok: true, dados: [] },\n" +
+      "  aoListar: null,\n" +
+      "  listagens: 0,\n" +
       "};\n",
   );
 
@@ -1718,6 +1731,11 @@ async function compilarComponentes() {
       'import { controle } from "./controle.js";\n' +
       "export async function lerPostDoPainelPorId() {\n" +
       "  return controle.post;\n" +
+      "}\n" +
+      "export async function listarPostsDoPainel() {\n" +
+      "  controle.listagens += 1;\n" +
+      "  if (typeof controle.aoListar === 'function') return controle.aoListar();\n" +
+      "  return controle.listagem;\n" +
       "}\n",
   );
 
@@ -1746,6 +1764,8 @@ async function compilarComponentes() {
       `export { prepararConteudo } from ${JSON.stringify(alvoDoConteudo)};\n` +
       `export { controlesDaBarra } from ${JSON.stringify(alvoDaConfiguracao)};\n` +
       `export { default as EditorDePost } from ${caminhoReal(CAMINHO_TELA)};\n` +
+      `export { default as ListaDePosts } from ${caminhoReal(CAMINHO_LISTA)};\n` +
+      `export * as regrasDaListagem from ${caminhoReal(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
       `export * as escritaReal from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
       `export * as escritaDuble from ${comoModulo(arquivoDaEscrita)};\n` +
@@ -4125,6 +4145,497 @@ if (janela && schema && configuracao && compilado) {
         );
         await tela.desmontar();
       }
+    }
+
+    /* ─── (l) A listagem do Painel (Story 2.10) ───────────────────────── */
+
+    secao("(l) a listagem: a lista que o Autor encontra ao voltar do Editor");
+
+    const estadosDoDominio = await import(urlDe(CAMINHO_ESTADOS)).catch(() => null);
+    const regras = modulo.regrasDaListagem ?? null;
+
+    afirmar(
+      "`listagem.js` é módulo próprio e chega ao pacote — as regras da linha são executáveis, não JSX lido",
+      regras !== null && typeof regras.monogramaDaCategoria === "function",
+    );
+
+    /* ── As regras puras, executadas ──────────────────────────────────── */
+    if (regras) {
+      afirmar(
+        "o monograma é a primeira letra da Categoria em caixa alta — e Post SEM Categoria devolve vazio, não explode",
+        regras.monogramaDaCategoria({ categoria: { nome: "automação" } }) === "A" &&
+          regras.monogramaDaCategoria({ categoria: { nome: "Estratégia" } }) === "E" &&
+          regras.monogramaDaCategoria({ categoria: null }) === "" &&
+          regras.monogramaDaCategoria({}) === "" &&
+          regras.monogramaDaCategoria(null) === "",
+        `automação → ${JSON.stringify(regras.monogramaDaCategoria({ categoria: { nome: "automação" } }))}`,
+      );
+      /* As datas esperadas estão escritas À MÃO: derivá-las do próprio módulo de
+         formatação faria a asserção dizer que ele é igual a si mesmo, e é
+         justamente a conversão de fuso que se quer observar. 12:00Z é 09:00 em
+         São Paulo, e 12:30Z do dia 1º é 09:30 do dia 1º. */
+      afirmar(
+        "a data da linha é `COALESCE(publicado_em, atualizado_em)` — o mesmo par que ordena a lista",
+        regras.textoDaData({
+          publicado_em: "2027-03-05T12:00:00.000Z",
+          atualizado_em: "2026-01-02T12:00:00.000Z",
+        }) === "05/03/2027" &&
+          regras.textoDaData({
+            publicado_em: null,
+            atualizado_em: "2026-01-02T12:00:00.000Z",
+          }) === "02/01/2026",
+        `com publicado_em: ${regras.textoDaData({ publicado_em: "2027-03-05T12:00:00.000Z", atualizado_em: "2026-01-02T12:00:00.000Z" })}`,
+      );
+      afirmar(
+        "data ilegível vira AUSÊNCIA, não exceção — uma linha corrompida não derruba a listagem inteira",
+        regras.textoDaData({ atualizado_em: "isto não é data" }) === "" &&
+          regras.textoDaData({}) === "" &&
+          regras.textoDoAgendamento({ estado: "agendado", publicado_em: "nada" }) === null &&
+          regras.textoDoTempoDeLeitura({ tempo_leitura: "muitos" }) === null,
+      );
+      afirmar(
+        "só Post AGENDADO com data mostra o para-quando, e ele sai no fuso de apresentação",
+        regras.textoDoAgendamento({
+          estado: "agendado",
+          publicado_em: "2027-03-01T12:30:00.000Z",
+        }) === "01/03/2027 09:30" &&
+          regras.textoDoAgendamento({
+            estado: "publicado",
+            publicado_em: "2027-03-01T12:30:00.000Z",
+          }) === null &&
+          regras.textoDoAgendamento({ estado: "agendado", publicado_em: null }) === null,
+        `agendado → ${JSON.stringify(regras.textoDoAgendamento({ estado: "agendado", publicado_em: "2027-03-01T12:30:00.000Z" }))}`,
+      );
+      if (voz) {
+        afirmar(
+          "o vazio e a falha dizem coisas DIFERENTES, e as quatro frases passam pelas guardas de voz",
+          regras.TITULO_DO_VAZIO !== regras.TITULO_DO_ERRO &&
+            voz.diagnosticarMensagem("o que aconteceu", regras.TITULO_DO_VAZIO) === null &&
+            voz.diagnosticarMensagem("o que houve", regras.TITULO_DO_ERRO) === null &&
+            voz.diagnosticarRotuloDeAcao(regras.ROTULO_DO_PRIMEIRO_POST) === null &&
+            voz.diagnosticarRotuloDeAcao(regras.ROTULO_DE_RECARREGAR) === null,
+          `${regras.TITULO_DO_VAZIO} | ${regras.TITULO_DO_ERRO}`,
+        );
+      }
+    }
+
+    /** Monta `ListaDePosts` e devolve as ferramentas para mexer nela. */
+    const montarLista = async (props) => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+
+      const reclamacoes = [];
+      const erroOriginal = console.error;
+      console.error = (...partes) => reclamacoes.push(partes.join(" "));
+
+      const raizReact = createRoot(alvo);
+      await act(async () => {
+        raizReact.render(React.createElement(modulo.ListaDePosts, props));
+      });
+
+      const regiao = () => alvo.querySelector("[data-estado-da-lista]");
+      return {
+        alvo,
+        reclamacoes,
+        regiao,
+        situacao: () => regiao()?.getAttribute("data-estado-da-lista") ?? null,
+        linhas: () => [...alvo.querySelectorAll("[data-post]")],
+        linha: (id) => alvo.querySelector(`[data-post="${id}"]`),
+        esqueletos: () => [...alvo.querySelectorAll('[data-slot="skeleton"]')],
+        botaoPorTexto: (texto) =>
+          [...alvo.querySelectorAll("button")].find(
+            (b) => (b.textContent ?? "").trim() === texto,
+          ) ?? null,
+        async clicar(elemento) {
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+          });
+        },
+        async reRenderizar(novasProps) {
+          await act(async () => {
+            raizReact.render(React.createElement(modulo.ListaDePosts, novasProps));
+          });
+        },
+        async desmontar() {
+          console.error = erroOriginal;
+          await act(async () => raizReact.unmount());
+          alvo.remove();
+        },
+      };
+    };
+
+    /* Quatro Posts, um por Estado, com o par de datas escolhido para que a
+       ORDEM esperada não coincida com a ordem de entrada nem com a ordem por
+       `publicado_em` sozinha — senão a asserção de ordenação passaria por
+       acidente. As chaves de ordenação são, por `COALESCE`:
+         C = 10/03/2027 (rascunho, só `atualizado_em`)
+         A = 05/03/2027 (publicado)
+         B = 01/03/2027 (agendado)
+         D = 01/12/2026 (arquivado, só `atualizado_em`)
+       O rascunho fica em cima e o arquivado embaixo por MÉRITO de data — que é
+       o ponto da regra: rascunho não afunda nem domina. */
+    const ID_A = "aaaaaaaa-1111-4111-8111-111111111111";
+    const ID_B = "bbbbbbbb-2222-4222-8222-222222222222";
+    const ID_C = "cccccccc-3333-4333-8333-333333333333";
+    const ID_D = "dddddddd-4444-4444-8444-444444444444";
+    const ORDEM_ESPERADA = [ID_C, ID_A, ID_B, ID_D];
+
+    const POSTS_DE_PROVA = [
+      {
+        id: ID_D,
+        slug: "nota-antiga",
+        titulo: "Nota antiga",
+        autor_nome: "Bruno Lima",
+        categoria: { id: "cat-2", nome: "Novidades", slug: "novidades" },
+        imagem_url: null,
+        destaque: false,
+        tempo_leitura: 0,
+        estado: "arquivado",
+        publicado_em: null,
+        atualizado_em: "2026-12-01T12:00:00.000Z",
+      },
+      {
+        id: ID_B,
+        slug: "o-que-vem-por-ai",
+        titulo: "O que vem por aí",
+        autor_nome: "Ana Ribeiro",
+        categoria: { id: "cat-3", nome: "Estratégia", slug: "estrategia" },
+        imagem_url: null,
+        destaque: false,
+        tempo_leitura: 4,
+        estado: "agendado",
+        publicado_em: "2027-03-01T12:30:00.000Z",
+        atualizado_em: "2027-02-01T12:00:00.000Z",
+      },
+      {
+        id: ID_C,
+        slug: "rascunho-sem-categoria",
+        titulo: "Rascunho sem categoria",
+        autor_nome: "Ana Ribeiro",
+        categoria: null,
+        imagem_url: null,
+        destaque: false,
+        tempo_leitura: 0,
+        estado: "rascunho",
+        publicado_em: null,
+        atualizado_em: "2027-03-10T12:00:00.000Z",
+      },
+      {
+        id: ID_A,
+        slug: "guia-de-atalhos",
+        titulo: "Guia de atalhos",
+        autor_nome: "Ana Ribeiro",
+        categoria: { id: "cat-1", nome: "Automação", slug: "automacao" },
+        imagem_url: "https://exemplo.local/capa.jpg",
+        imagem_alt: "Um teclado sobre a mesa",
+        destaque: true,
+        tempo_leitura: 7,
+        estado: "publicado",
+        publicado_em: "2027-03-05T12:00:00.000Z",
+        atualizado_em: "2027-01-01T12:00:00.000Z",
+      },
+    ];
+
+    /* ── O ESQUELETO, e não a tela em branco ──────────────────────────── */
+    if (regras) {
+      let liberar = null;
+      modulo.controle.listagens = 0;
+      modulo.controle.aoListar = () =>
+        new Promise((resolver) => {
+          liberar = resolver;
+        });
+
+      const contagens = [];
+      const abertos = [];
+      const tela = await montarLista({
+        aoContar: (n) => contagens.push(n),
+        aoAbrirPost: (post) => abertos.push(post?.id ?? null),
+      });
+
+      afirmar(
+        "enquanto os dados vêm, a listagem mostra ESQUELETO — nunca tela em branco",
+        tela.situacao() === "carregando" && tela.esqueletos().length > 0,
+        `situação: ${tela.situacao()} | esqueletos: ${tela.esqueletos().length}`,
+      );
+      afirmar(
+        "e o esqueleto é do sistema, escondido de quem ouve a tela, com o carregamento anunciado UMA vez",
+        tela.alvo.querySelector('[role="status"]') !== null &&
+          tela.esqueletos().every((e) => e.closest('[aria-hidden="true"]') !== null),
+        `status: ${tela.alvo.querySelector('[role="status"]')?.textContent}`,
+      );
+
+      await act(async () => {
+        liberar({ ok: true, dados: POSTS_DE_PROVA });
+      });
+      modulo.controle.aoListar = null;
+
+      afirmar(
+        "chegando os dados, o esqueleto sai e as linhas entram",
+        tela.situacao() === "lista" &&
+          tela.esqueletos().length === 0 &&
+          tela.linhas().length === POSTS_DE_PROVA.length,
+        `situação: ${tela.situacao()} | linhas: ${tela.linhas().length}`,
+      );
+
+      /* ── A ORDEM VEM DA CAMADA ─────────────────────────────────────── */
+      afirmar(
+        "a ordem é `COALESCE(publicado_em, atualizado_em)` decrescente — e a entrada estava embaralhada",
+        igual(
+          tela.linhas().map((l) => l.getAttribute("data-post")),
+          ORDEM_ESPERADA,
+        ),
+        `na tela: ${tela.linhas().map((l) => l.getAttribute("data-post")?.slice(0, 4)).join(", ")} | esperado: ${ORDEM_ESPERADA.map((i) => i.slice(0, 4)).join(", ")}`,
+      );
+      afirmar(
+        "e a listagem NÃO reescreve a comparação: a entrada não estava ordenada, e a ordem da tela difere dela",
+        !igual(
+          POSTS_DE_PROVA.map((p) => p.id),
+          ORDEM_ESPERADA,
+        ),
+      );
+
+      /* ── A LINHA: todos os campos do critério ──────────────────────── */
+      {
+        const linha = tela.linha(ID_A);
+        const texto = (papel) =>
+          (linha?.querySelector(`[data-papel="${papel}"]`)?.textContent ?? "").trim();
+        afirmar(
+          "a linha traz capa, título, Categoria, Autor e data — os campos que o critério nomeia",
+          linha !== null &&
+            linha.querySelector('[data-papel="capa"]')?.getAttribute("src") ===
+              "https://exemplo.local/capa.jpg" &&
+            (linha.textContent ?? "").includes("Guia de atalhos") &&
+            texto("categoria") === "Automação" &&
+            texto("autor") === "Ana Ribeiro" &&
+            texto("data") === "05/03/2027",
+          `categoria: ${texto("categoria")} | autor: ${texto("autor")} | data: ${texto("data")}`,
+        );
+        afirmar(
+          "data e contagem são DADO: pilha monoespaçada e numeral tabular, pela classe `.dado`",
+          (linha?.querySelector('[data-papel="data"]')?.className ?? "")
+            .split(/\s+/u)
+            .includes("dado") &&
+            (linha?.querySelector('[data-papel="tempo-de-leitura"]')?.className ?? "")
+              .split(/\s+/u)
+              .includes("dado") &&
+            texto("tempo-de-leitura") === "7 min",
+          `tempo: ${texto("tempo-de-leitura")}`,
+        );
+        afirmar(
+          "o Destaque aparece na linha, com PALAVRA e não só com a estrela",
+          linha?.querySelector('[data-destaque="true"]') !== null &&
+            (linha?.querySelector('[data-destaque="true"]')?.textContent ?? "")
+              .trim()
+              .toLowerCase() === "destaque" &&
+            tela.linha(ID_B)?.querySelector('[data-destaque="true"]') === null,
+          `na linha do destaque: ${linha?.querySelector('[data-destaque="true"]')?.textContent}`,
+        );
+        afirmar(
+          "e a linha leva ao Editor: um controle, que NOMEIA o post em vez de dizer só “Editar”",
+          linha?.querySelector(`[data-abrir="${ID_A}"]`) !== null &&
+            (linha
+              ?.querySelector(`[data-abrir="${ID_A}"]`)
+              ?.getAttribute("aria-label") ?? "").includes("Guia de atalhos"),
+          String(linha?.querySelector(`[data-abrir="${ID_A}"]`)?.getAttribute("aria-label")),
+        );
+        if (linha?.querySelector(`[data-abrir="${ID_A}"]`)) {
+          await tela.clicar(linha.querySelector(`[data-abrir="${ID_A}"]`));
+          afirmar(
+            "e clicar nele abre EXATAMENTE aquele Post",
+            igual(abertos, [ID_A]),
+            `abertos: ${abertos.join(", ")}`,
+          );
+        }
+      }
+
+      /* ── SEM CAPA: monograma da Categoria; sem Categoria, a linha vive ── */
+      afirmar(
+        "Post sem capa mostra o MONOGRAMA da Categoria no lugar dela",
+        tela
+          .linha(ID_B)
+          ?.querySelector('[data-papel="monograma"]')
+          ?.getAttribute("data-monograma") === "E" &&
+          tela.linha(ID_B)?.querySelector('[data-papel="capa"]') === null,
+        `monograma: ${tela.linha(ID_B)?.querySelector('[data-papel="monograma"]')?.getAttribute("data-monograma")}`,
+      );
+      afirmar(
+        "e Post SEM Categoria também renderiza — a linha aparece inteira, com símbolo neutro no lugar da letra",
+        tela.linha(ID_C) !== null &&
+          (tela.linha(ID_C)?.textContent ?? "").includes("Rascunho sem categoria") &&
+          tela
+            .linha(ID_C)
+            ?.querySelector('[data-papel="monograma"]')
+            ?.getAttribute("data-monograma") === "" &&
+          tela.linha(ID_C)?.querySelector('[data-papel="categoria"]') === null,
+      );
+
+      /* ── O ESTADO: PONTO **E** PALAVRA, nos quatro ─────────────────── */
+      if (estadosDoDominio) {
+        const semPalavra = [];
+        const semPonto = [];
+        for (const post of POSTS_DE_PROVA) {
+          const pilula = tela.linha(post.id)?.querySelector("[data-estado]") ?? null;
+          if (
+            pilula?.getAttribute("data-estado") !== post.estado ||
+            (pilula?.textContent ?? "").trim() !==
+              estadosDoDominio.rotuloDoEstado(post.estado)
+          ) {
+            semPalavra.push(`${post.estado}: ${JSON.stringify(pilula?.textContent ?? null)}`);
+          }
+          // O ponto é elemento próprio, decorativo, com cor de fundo aplicada
+          // por estilo — é ele que faz a pílula não ser só texto.
+          const ponto = pilula?.querySelector('[aria-hidden="true"]') ?? null;
+          if (ponto === null || (ponto.style?.backgroundColor ?? "") === "") {
+            semPonto.push(post.estado);
+          }
+        }
+        afirmar(
+          "cada linha traz a pílula do Estado com a PALAVRA por extenso do vocabulário fechado",
+          semPalavra.length === 0,
+          semPalavra.join(" | "),
+        );
+        afirmar(
+          "e com o PONTO colorido ao lado — cor nunca é o único portador, e palavra nunca é o único portador",
+          semPonto.length === 0,
+          semPonto.join(", "),
+        );
+      }
+
+      /* ── AGENDADO: a data futura, à vista ──────────────────────────── */
+      afirmar(
+        "o Post agendado mostra a DATA FUTURA junto do rótulo — “Agendado” sozinho responde metade da pergunta",
+        (
+          tela.linha(ID_B)?.querySelector('[data-papel="agendado-para"]')?.textContent ?? ""
+        ).trim() === "01/03/2027 09:30",
+        `veio: ${tela.linha(ID_B)?.querySelector('[data-papel="agendado-para"]')?.textContent}`,
+      );
+      afirmar(
+        "e só ele: publicado, rascunho e arquivado não ganham data futura nenhuma",
+        [ID_A, ID_C, ID_D].every(
+          (id) => tela.linha(id)?.querySelector('[data-papel="agendado-para"]') === null,
+        ),
+      );
+
+      /* ── A contagem que a aba mostra sai daqui ─────────────────────── */
+      afirmar(
+        "a listagem informa quantos Posts há — é essa contagem que a aba Blog exibe",
+        contagens[contagens.length - 1] === POSTS_DE_PROVA.length,
+        `contagens: ${JSON.stringify(contagens)}`,
+      );
+
+      /* ── SALVAR NO EDITOR FAZ A LISTA RELER ────────────────────────── */
+      const idasAntes = modulo.controle.listagens;
+      await tela.reRenderizar({
+        recarregarEm: 1,
+        aoContar: (n) => contagens.push(n),
+        aoAbrirPost: (post) => abertos.push(post?.id ?? null),
+      });
+      afirmar(
+        "salvar no Editor faz a listagem RELER pela camada — é a costura que faltava",
+        modulo.controle.listagens === idasAntes + 1,
+        `idas antes: ${idasAntes} | depois: ${modulo.controle.listagens}`,
+      );
+
+      afirmar(
+        "o React não reclamou ao montar a listagem",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+    }
+
+    /* ── FALHA DE LEITURA ≠ VAZIO ─────────────────────────────────────── */
+    if (regras) {
+      const MENSAGEM =
+        "Esta leitura exige uma sessão válida. Entre no Painel e tente de novo.";
+      modulo.controle.aoListar = null;
+      modulo.controle.listagens = 0;
+      modulo.controle.listagem = {
+        ok: false,
+        erro: { tipo: "permissao", mensagem: MENSAGEM },
+      };
+      const tela = await montarLista({});
+
+      afirmar(
+        "falha de leitura mostra ERRO, e não o vazio inicial",
+        tela.situacao() === "erro" &&
+          tela.alvo.querySelector('[data-estado-da-lista="vazio"]') === null,
+        `situação: ${tela.situacao()}`,
+      );
+      afirmar(
+        "sessão expirada é erro de PERMISSÃO na tela, com a frase do erro tipado inteira — e não uma lista vazia",
+        (tela.regiao()?.textContent ?? "").includes(MENSAGEM) &&
+          tela.regiao()?.getAttribute("role") === "alert" &&
+          !(tela.regiao()?.textContent ?? "").includes(regras.TITULO_DO_VAZIO),
+        (tela.regiao()?.textContent ?? "").slice(0, 160),
+      );
+
+      const botao = tela.botaoPorTexto(regras.ROTULO_DE_RECARREGAR);
+      afirmar("a falha oferece TENTAR DE NOVO — o Autor não fica sem saída", botao !== null);
+      if (botao) {
+        modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+        await tela.clicar(botao);
+        afirmar(
+          "e tentar de novo RELÊ de verdade: a camada é consultada outra vez e as linhas aparecem",
+          modulo.controle.listagens === 2 &&
+            tela.situacao() === "lista" &&
+            tela.linhas().length === POSTS_DE_PROVA.length,
+          `idas à camada: ${modulo.controle.listagens} | situação: ${tela.situacao()}`,
+        );
+      }
+      await tela.desmontar();
+    }
+
+    /* ── O VAZIO INICIAL LEVA AO PRIMEIRO POST ────────────────────────── */
+    if (regras) {
+      const criados = [];
+      modulo.controle.aoListar = null;
+      modulo.controle.listagem = { ok: true, dados: [] };
+      const tela = await montarLista({ aoCriarPost: () => criados.push(1) });
+
+      afirmar(
+        "Painel sem nenhum Post mostra o VAZIO INICIAL — que não é alerta, porque não houve falha",
+        tela.situacao() === "vazio" && tela.alvo.querySelector('[role="alert"]') === null,
+        `situação: ${tela.situacao()}`,
+      );
+      afirmar(
+        "o vazio diz o que fazer, e diz coisa DIFERENTE da falha de leitura",
+        (tela.regiao()?.textContent ?? "").includes(regras.TITULO_DO_VAZIO) &&
+          !(tela.regiao()?.textContent ?? "").includes(regras.TITULO_DO_ERRO),
+        (tela.regiao()?.textContent ?? "").slice(0, 160),
+      );
+
+      const botao = tela.botaoPorTexto(regras.ROTULO_DO_PRIMEIRO_POST);
+      afirmar("e oferece o caminho para o primeiro Post", botao !== null);
+      if (botao) {
+        await tela.clicar(botao);
+        afirmar(
+          "que ABRE o Editor de verdade — um convite que não leva a lugar nenhum é pior que nenhum convite",
+          criados.length === 1,
+          `aberturas: ${criados.length}`,
+        );
+      }
+      afirmar(
+        "o React não reclamou nas telas sem linha",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+    }
+
+    /* ── A LISTAGEM NÃO TOCA ARMAZENAMENTO DO NAVEGADOR ───────────────── */
+    {
+      const codigo = mascararComentariosJs(ler(CAMINHO_LISTA));
+      const puro = mascararComentariosJs(ler(CAMINHO_MODULO_DA_LISTAGEM));
+      const TERMOS = ["localStorage", "sessionStorage", "blogStore", "document.cookie"];
+      const achados = TERMOS.filter(
+        (termo) => codigo.includes(termo) || puro.includes(termo),
+      );
+      afirmar(
+        "a listagem nova não conhece `blogStore` nem armazenamento do navegador — a origem é uma só",
+        achados.length === 0,
+        achados.join(", "),
+      );
     }
 
     delete janela.addEventListener;

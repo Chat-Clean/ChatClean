@@ -327,6 +327,7 @@ const CAMINHO_DIALOGO = "src/admin/shell/DialogoDeConfirmacao.jsx";
 const CAMINHO_MENU = "src/admin/shell/MenuDoAutor.jsx";
 const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
+const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 const CAMINHO_FORMATO = "src/domain/blog/formato.js";
 const CAMINHO_PAGINA = "src/pages/AdminBlog.jsx";
@@ -350,6 +351,11 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_ESTADOS,
   CAMINHO_FORMATO,
   CAMINHO_MENU,
+  /* A listagem da Story 2.10 nasce sob as mesmas regras: toda cor por token,
+     raio da direção, nada de `zinc` nem de hex solto. Ela é o primeiro pedaço do
+     CORPO do Painel reconstruído — o corpo escuro que sobrou é o que a Story 1.5
+     deixou explicitamente para o Épico 2. */
+  CAMINHO_LISTA,
 ];
 
 function acharCssCompilado() {
@@ -369,6 +375,7 @@ const dialogo = lerOuFalhar(CAMINHO_DIALOGO);
 const menu = lerOuFalhar(CAMINHO_MENU);
 const gaveta = lerOuFalhar(CAMINHO_GAVETA);
 const pilula = lerOuFalhar(CAMINHO_PILULA);
+const lista = lerOuFalhar(CAMINHO_LISTA);
 const appCss = lerOuFalhar(CAMINHO_APP_CSS);
 const indexCss = lerOuFalhar(CAMINHO_INDEX_CSS);
 
@@ -600,14 +607,21 @@ if (pagina) {
     }
   }
 
-  /* As abas que a página entrega à casca. */
+  /* As abas que a página entrega à casca.
+     A contagem do Blog ganhou uma guarda na Story 2.10 — ela é `null` enquanto a
+     listagem carrega, para a barra omitir o número em vez de anunciar zero a
+     quem tem doze posts —, então o padrão não exige `formatarNumero` colado ao
+     `contagem:`. O que ele continua exigindo é o que importa: as duas contagens
+     passam pela FORMATAÇÃO. Trocar `formatarNumero` por interpolação crua
+     continua falhando aqui. */
   const rotulos = [...pagina.matchAll(/rotulo:\s*"([^"]+)"/g)].map((m) => m[1]);
   afirmar(
-    "a página declara as abas Blog e Carreiras com contagem e link externo",
+    "a página declara as abas Blog e Carreiras com contagem formatada e link externo",
     rotulos.includes("Blog") &&
       rotulos.includes("Carreiras") &&
-      contar(pagina, /contagem:\s*formatarNumero\(/g) === 2 &&
+      contar(semComentarios(pagina), /contagem:[^,\n]*formatarNumero\(/g) === 2 &&
       contar(pagina, /href:\s*"\/(blog|carreiras)"/g) === 2,
+    `contagens formatadas: ${contar(semComentarios(pagina), /contagem:[^,\n]*formatarNumero\(/g)}`,
   );
 }
 
@@ -937,6 +951,7 @@ if (pagina) {
 
   const semVoz = [];
   const semGuarda = [];
+  const encontradas = [];
   let sitiosEncontrados = 0;
 
   for (const escrita of GRAVAM) {
@@ -948,6 +963,7 @@ if (pagina) {
       if (/^\s*import\b/.test(linha)) continue;
 
       sitiosEncontrados += 1;
+      if (!encontradas.includes(escrita)) encontradas.push(escrita);
       const corpo = corpoDaFuncaoQueContem(codigo, casou.index);
       if (corpo === null) {
         semVoz.push(`${escrita} (função não localizada)`);
@@ -963,10 +979,21 @@ if (pagina) {
     }
   }
 
+  /* QUAIS gravações a página faz, e não apenas quantas.
+     O piso numérico era 4 e a Story 2.10 o teria derrubado para 3: excluir Post
+     saiu junto com o `blogStore`, e o que sobrou na página é Carreiras. Um piso
+     solto se ajusta a qualquer perda futura sem dizer nada; a lista NOMEADA
+     acusa nas duas direções — uma gravação de vaga que desapareça (regressão em
+     módulo fora de escopo) e uma gravação de Post que ressuscite no
+     armazenamento do navegador. */
+  const GRAVACOES_DE_CARREIRAS = ["saveVaga", "deleteVaga", "resetVagas"];
+  const GRAVACOES_DE_POST = ["savePost", "deletePost", "resetPosts"];
   afirmar(
-    "há operações de gravação para auditar na página",
-    sitiosEncontrados >= 4,
-    `encontradas: ${sitiosEncontrados}`,
+    "as gravações da página são exatamente as de Carreiras — Post não grava mais daqui",
+    GRAVACOES_DE_CARREIRAS.every((f) => encontradas.includes(f)) &&
+      GRAVACOES_DE_POST.every((f) => !encontradas.includes(f)) &&
+      sitiosEncontrados >= GRAVACOES_DE_CARREIRAS.length,
+    `encontradas: ${encontradas.join(", ") || "nenhuma"} (${sitiosEncontrados} sítios)`,
   );
   afirmar(
     "NENHUMA operação que grava fica sem notificar conclusão e falha",
@@ -1556,16 +1583,21 @@ if (cssCompilado) {
  * três de fora. Aqui cada dado nomeado é localizado no ponto onde é renderizado
  * e o elemento que o envolve é conferido.
  */
-if (pagina) {
-  const codigo = semComentarios(pagina);
-  /* Onde cada dado vive DEPOIS da Story 2.6. O formulario de Post saiu da
-     pagina e virou `EditorDePost` + `GavetaDeMetadados`; o que sobrou aqui e a
-     listagem. O contador de caracteres saiu junto com o formulario antigo e
-     NAO foi reposto — esta registrado como pendencia da 2.6, e nao some daqui
-     em silencio: a linha continua na lista, apontando para a gaveta, e falha
-     se alguem repuser o contador sem `.dado`. */
+if (lista) {
+  const codigo = semComentarios(lista);
+  /* Onde cada dado vive DEPOIS da Story 2.10. O formulario de Post saiu da
+     pagina na 2.6 (virou `EditorDePost` + `GavetaDeMetadados`) e a LISTAGEM
+     saiu na 2.10 (virou `ListaDePosts`) — a pagina nao renderiza mais dado
+     nenhum. A regra continua valendo, e precisa de guardiao no lugar novo:
+     trocar de arquivo nao pode ser o jeito de perder a cobertura.
+
+     Sao dois dados na linha: a data (`COALESCE(publicado_em, atualizado_em)`) e
+     a contagem de minutos de leitura. O "para quando" do Post agendado tambem
+     e data, e entra na lista pelo mesmo motivo. */
   const DADOS_NOMEADOS = [
-    ["data, no cartão da listagem", ">{post.data}<"],
+    ["data, na linha da listagem", ">{data}<"],
+    ["tempo de leitura, na linha da listagem", ">{tempo}<"],
+    ["data do agendamento, ao lado do rótulo", ">{agendamento}<"],
   ];
 
   const semDado = [];
@@ -1580,10 +1612,22 @@ if (pagina) {
   }
 
   afirmar(
-    "data, contador e slug são renderizados com `.dado`",
+    "na linha da listagem, data, tempo de leitura e a data do agendado usam `.dado`",
     semDado.length === 0,
     semDado.join(" | "),
   );
+
+  /* E a PÁGINA não renderiza mais dado nenhum: se voltasse a renderizar, seria
+     a listagem antiga ressuscitando ao lado da nova — que é exatamente a
+     duplicidade de origem que esta story existe para acabar. */
+  if (pagina) {
+    const daPagina = semComentarios(pagina);
+    afirmar(
+      "a página não desenha mais linha de post: a listagem inteira vive em `ListaDePosts`",
+      !/\{post\.\w+\}/.test(daPagina) && /<ListaDePosts\b/.test(daPagina),
+      (daPagina.match(/\{post\.\w+\}/g) ?? []).join(", "),
+    );
+  }
 
   /* O dado migrou de casa na Story 2.6: slug, Data de Publicacao e tempo de
      leitura agora vivem na gaveta. A regra da Story 1.6 continua valendo, e
@@ -1907,6 +1951,138 @@ if (cssCompilado) {
     raiosSoltos.length === 0,
     raiosSoltos.join(", "),
   );
+}
+
+/* ─── A FRONTEIRA DO MÓDULO MIGRADO (Story 2.10) ────────────────────────
+ *
+ * A aba Blog passou a ler o Supabase; a aba Carreiras continua no armazenamento
+ * do navegador, de propósito — é módulo irmão, fora do escopo do módulo Blog, e
+ * migrá-lo por simetria seria trabalho não pedido em código que ninguém revisou
+ * nesta linha. A fronteira entre os dois é exatamente o que não pode escorregar:
+ * uma leitura antiga que sobrevive "por segurança" na aba Blog é como o Painel
+ * chegou a mostrar de uma origem e gravar noutra. */
+{
+  /* O detector é exercitado ANTES de julgar o repositório: um detector que nunca
+     foi visto acusando é uma promessa, não uma verificação. */
+  const importaDe = (fonte, modulo) =>
+    new RegExp(`from\\s+["'][^"']*${modulo}["']`).test(semComentarios(fonte));
+
+  /** O símbolo veio de FORA, por importação — e não de uma declaração local com
+      o mesmo nome, que é como uma leitura de verdade vira dublê em silêncio. */
+  const importaSimbolo = (fonte, simbolo, modulo) =>
+    new RegExp(
+      `import\\s*\\{[^}]*\\b${simbolo}\\b[^}]*\\}\\s*from\\s*["'][^"']*${modulo}["']`,
+    ).test(semComentarios(fonte));
+
+  afirmar(
+    "detector de importação: acusa no código, ignora no comentário",
+    importaDe('import { getPosts } from "@/lib/blogStore";', "blogStore") &&
+      !importaDe("/* antes isto vinha de @/lib/blogStore */", "blogStore") &&
+      !importaDe('import { getVagas } from "@/lib/vagasStore";', "blogStore"),
+  );
+  afirmar(
+    "detector de símbolo importado: distingue o que vem do módulo do que é declarado ali mesmo",
+    importaSimbolo(
+      'import { listarPostsDoPainel, ordenarListagem } from "@/data/blog/posts";',
+      "listarPostsDoPainel",
+      "data/blog/posts",
+    ) &&
+      !importaSimbolo(
+        'import { ordenarListagem } from "@/data/blog/posts";\nconst listarPostsDoPainel = async () => ({ ok: true, dados: [] });',
+        "listarPostsDoPainel",
+        "data/blog/posts",
+      ),
+  );
+
+  if (pagina) {
+    const daPagina = semComentarios(pagina);
+    afirmar(
+      "a aba Blog NÃO lê mais `blogStore`: nem a importação, nem uma chamada sobrevivente",
+      !importaDe(pagina, "blogStore") &&
+        !/\b(getPosts|savePost|deletePost|getPostBySlug)\s*\(/.test(daPagina),
+      (daPagina.match(/\b(blogStore|getPosts|savePost|deletePost)\b/g) ?? []).join(", "),
+    );
+    afirmar(
+      "e a aba Carreiras continua exatamente onde estava: `vagasStore` importado e as quatro funções em uso",
+      importaDe(pagina, "vagasStore") &&
+        ["getVagas", "saveVaga", "deleteVaga", "resetVagas"].every((f) =>
+          new RegExp(`\\b${f}\\s*\\(`).test(daPagina),
+        ),
+      "Carreiras está fora de escopo e não pode regredir",
+    );
+
+    /* A costura, EXECUTADA: o trecho que a página roda quando o Editor salva é
+       extraído e chamado. Um `handleSavePost` que não mexesse na versão passaria
+       por qualquer leitura — e o Autor voltaria para uma lista que ainda não
+       sabe do Post, que é o defeito inteiro desta story. */
+    const extrair = (texto, nome) => {
+      const inicio = texto.indexOf(`const ${nome} =`);
+      if (inicio === -1) return null;
+      let profundidade = 0;
+      for (let i = inicio; i < texto.length; i += 1) {
+        const c = texto[i];
+        if (c === "(" || c === "[" || c === "{") profundidade += 1;
+        else if (c === ")" || c === "]" || c === "}") profundidade -= 1;
+        else if (c === ";" && profundidade === 0) return texto.slice(inicio, i + 1);
+      }
+      return null;
+    };
+    const trecho = extrair(daPagina, "handleSavePost");
+    const achou = afirmar(
+      "a declaração de `handleSavePost` foi encontrada na página",
+      trecho !== null,
+    );
+    if (achou) {
+      let versao = 7;
+      try {
+        const rodar = new Function(
+          "setVersaoDaLista",
+          `${trecho}\nreturn handleSavePost;`,
+        );
+        rodar((atualizar) => {
+          versao = typeof atualizar === "function" ? atualizar(versao) : atualizar;
+        })();
+        afirmar(
+          "salvar no Editor MUDA a versão da lista — é o que faz a listagem reler e o Post aparecer",
+          versao === 8,
+          `versão depois de salvar: ${versao}`,
+        );
+      } catch (erro) {
+        afirmar("o trecho de `handleSavePost` roda isoladamente", false, erro.message);
+      }
+    }
+    afirmar(
+      "e a versão é o que a página entrega à listagem, por propriedade",
+      /recarregarEm=\{versaoDaLista\}/.test(daPagina),
+    );
+  }
+
+  if (lista) {
+    const daLista = semComentarios(lista);
+    afirmar(
+      "quem lê os Posts é a camada de dados, com sessão — `listarPostsDoPainel`, e nada montado na tela",
+      importaSimbolo(lista, "listarPostsDoPainel", "data/blog/posts") &&
+        /\blistarPostsDoPainel\s*\(/.test(daLista) &&
+        !importaDe(lista, "supabase") &&
+        !/\.select\s*\(/.test(daLista),
+    );
+    afirmar(
+      "e a ORDEM vem da camada: `ordenarListagem` importada, sem comparação escrita na tela",
+      importaSimbolo(lista, "ordenarListagem", "data/blog/posts") &&
+        /\bordenarListagem\s*\(/.test(daLista) &&
+        !/\.sort\s*\(/.test(daLista),
+    );
+  }
+
+  {
+    const doPainel = arquivosDe(path.join(DIR_SRC, "admin"), [".js", ".jsx"]);
+    const suspeitos = ocorrencias(doPainel, /\bblogStore\b/, semComentarios);
+    afirmar(
+      "nenhum arquivo do Painel conhece `blogStore` — a origem antiga não sobrevive em canto nenhum",
+      doPainel.length > 0 && suspeitos.length === 0,
+      suspeitos.join(", "),
+    );
+  }
 }
 
 /* O guarda-chuva `radix-ui` não pode voltar pela porta do CLI do shadcn. */

@@ -2,10 +2,9 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus, Pencil, Trash2, Eye, RotateCcw,
-  Save, Star,
+  Save,
   ChevronLeft, Search, Check,
   FileText, Briefcase,
-  Cpu, Target, BarChart2, Bot, TrendingUp, Newspaper,
   MapPin,
 } from "lucide-react";
 
@@ -13,8 +12,8 @@ import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
 import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import EditorDePost from "@/admin/blog/EditorDePost";
+import ListaDePosts from "@/admin/blog/ListaDePosts";
 import { formatarNumero } from "@/domain/blog/formato";
-import { getPosts, deletePost } from "@/lib/blogStore";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
 
 /* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
@@ -53,27 +52,14 @@ function comoResolver(erro, acaoNoInfinitivo) {
 
 /* A lista fixa de Categorias que vivia aqui SAIU: Categoria vem de dado, não de
    constante no código (`categorias` no Supabase), e a gaveta de metadados da
-   Story 2.6 lê a lista pela camada de dados. O que sobra abaixo é o mapa de
-   ÍCONE por nome, que a listagem em `localStorage` ainda usa até a Story 2.10. */
+   Story 2.6 lê a lista pela camada de dados.
 
-/* ─── Ícone por categoria ──────────────────────────────────────────── */
-const CATEGORY_ICON = {
-  Tecnologia:   { Icon: Cpu,        bg: "bg-blue-500/15",    text: "text-blue-400"    },
-  "Estratégia": { Icon: Target,     bg: "bg-purple-500/15",  text: "text-purple-400"  },
-  Analytics:    { Icon: BarChart2,  bg: "bg-amber-500/15",   text: "text-amber-400"   },
-  "Automação":  { Icon: Bot,        bg: "bg-emerald-500/15", text: "text-emerald-400" },
-  "Tendências": { Icon: TrendingUp, bg: "bg-rose-500/15",    text: "text-rose-400"    },
-  Novidades:    { Icon: Newspaper,  bg: "bg-cyan-500/15",    text: "text-cyan-400"    },
-};
-
-function CategoryThumb({ categoria }) {
-  const cfg = CATEGORY_ICON[categoria] || { Icon: Cpu, bg: "bg-zinc-700", text: "text-zinc-400" };
-  return (
-    <div className={`w-full h-full flex items-center justify-center rounded-xl ${cfg.bg}`}>
-      <cfg.Icon className={`w-7 h-7 ${cfg.text}`} strokeWidth={1.5} />
-    </div>
-  );
-}
+   O MAPA DE ÍCONE POR NOME saiu junto, na Story 2.10. Ele existia para a
+   listagem em `localStorage`, que casava o NOME da categoria com um ícone
+   escrito aqui — seis nomes fixos, e nada para uma sétima categoria criada no
+   Painel. A listagem nova mostra a capa do Post ou o monograma da Categoria
+   (`ListaDePosts.jsx`), e o monograma vem do dado, não de um mapa que precisa
+   ser editado toda vez que alguém cadastra uma categoria. */
 
 /* ─── Cores disponíveis para vagas ────────────────────────────────── */
 const VAGA_COLORS = [
@@ -291,11 +277,19 @@ export default function AdminBlog() {
   /* ── Aba ativa ────────────────────────────────────────────────── */
   const [activeTab, setActiveTab] = useState("blog"); // "blog" | "carreiras"
 
-  /* ── Estado — Blog ────────────────────────────────────────────── */
-  const [posts, setPosts] = useState([]);
+  /* ── Estado — Blog ────────────────────────────────────────────────
+     A LISTA NÃO MORA MAIS AQUI. Quem carrega os Posts é `ListaDePosts`, pela
+     camada de dados, com o carregamento, o erro e o vazio dela — três telas que
+     a página não tem como orquestrar sem virar a listagem por outro nome.
+
+     O que fica aqui é só o que a PÁGINA precisa saber: quantos Posts há (a
+     contagem da aba, que a barra exibe) e quando a lista precisa recarregar.
+     `contagemDePosts` nasce `null` — "ainda não sei" — e não `0`: um zero
+     enquanto os dados vêm anuncia "nenhum post" para quem tem doze. */
+  const [contagemDePosts, setContagemDePosts] = useState(null);
+  const [versaoDaLista, setVersaoDaLista] = useState(0);
   const [blogView, setBlogView] = useState("list"); // "list" | "form"
   const [editingPost, setEditingPost] = useState(null);
-  const [blogSearch, setBlogSearch] = useState("");
 
   /* ── Estado — Carreiras ───────────────────────────────────────── */
   const [vagas, setVagas] = useState([]);
@@ -304,13 +298,18 @@ export default function AdminBlog() {
   const [vagasSearch, setVagasSearch] = useState("");
 
   /* ── Modais ────────────────────────────────────────────────────── */
-  const [deleteTarget, setDeleteTarget] = useState(null); // { type: "blog"|"vaga", item }
+  /* Só vaga: excluir Post saiu com o `blogStore` (ver acima). O campo `type`
+     continua no formato para a Story 2.12 recolocar o Post por lá, agora pelo
+     caminho único de escrita. */
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: "vaga", item }
   const [confirmReset, setConfirmReset] = useState(false);
 
-  /* Carrega dados na montagem. A página só é montada com sessão verificada —
-     o portão está acima da rota —, então não há mais condição a checar aqui. */
+  /* Carrega as vagas na montagem. A página só é montada com sessão verificada —
+     o portão está acima da rota —, então não há mais condição a checar aqui.
+     Os Posts NÃO são carregados aqui: quem os lê é `ListaDePosts`, pela camada
+     de dados, e ler duas vezes em dois lugares é como o Painel chegou a mostrar
+     de uma origem e gravar noutra. */
   useEffect(() => {
-    setPosts(getPosts());
     setVagas(getVagas());
   }, []);
 
@@ -318,32 +317,24 @@ export default function AdminBlog() {
   /* Salvar NÃO fecha o Editor. A regra do épico é explícita — publicar não tira
      o Autor do Editor —, e o mesmo vale para salvar: quem acabou de gravar
      costuma continuar escrevendo. Quem sai é o botão de voltar, e só ele.
-     A listagem continua vindo do armazenamento do navegador até a Story 2.10;
-     recarregá-la aqui mantém o comportamento de hoje sem fingir que ela já
-     enxerga o que foi gravado no servidor. */
-  const handleSavePost = () => { setPosts(getPosts()); };
 
-  /* Excluir e restaurar também gravam, e também podem falhar — por motivo que
-     raramente é cota, já que ambas escrevem menos do que havia antes. O erro é
-     capturado e registrado, e a mensagem só fala em espaço quando o erro é
-     mesmo de cota: mandar limpar espaço por um defeito que espaço nenhum
-     resolve é pior que não dizer nada. */
-  const handleDeletePost = (id) => {
-    try {
-      setPosts(deletePost(id));
-      setDeleteTarget(null);
-      notificarSucesso("Post excluído");
-    } catch (erro) {
-      console.error("[Painel] falha ao excluir post", erro);
-      notificarErro("Não deu para excluir o post", comoResolver(erro, "excluir"));
-    }
-  };
+     O QUE ESTA FUNÇÃO GARANTE é que a listagem, quando o Autor voltar, já saiba
+     do que foi gravado: a versão muda, e a lista relê pela camada de dados. Sem
+     isto o Autor salva e volta para uma lista que ainda não viu o Post — que é
+     precisamente a costura que esta story fecha. */
+  const handleSavePost = () => { setVersaoDaLista((n) => n + 1); };
 
-  /* Não existe `handleResetPosts`: Restaurar só é oferecida na aba Carreiras
-     (Story 1.5), então o caminho de restaurar posts não tem como ser acionado.
-     Deixá-lo escrito seria código morto se passando por funcionalidade — e um
-     dia alguém religaria o botão confiando num caminho que ninguém exercitou.
-     A restauração de posts volta quando o Épico 2 decidir se ela deve existir. */
+  /* Não existe `handleDeletePost`, e a ausência é a entrega: excluir Post
+     passava por `blogStore`, que grava no armazenamento do navegador. Depois da
+     Story 2.10 a lista vem do Supabase, e apagar do `localStorage` removeria uma
+     linha que a listagem nem mostra — a aparência de ter excluído, sem excluir
+     nada. As ações por linha, com o caminho único de escrita, são da Story 2.12.
+
+     Também não existe `handleResetPosts`: Restaurar só é oferecida na aba
+     Carreiras (Story 1.5), então o caminho de restaurar posts não tem como ser
+     acionado. Deixá-lo escrito seria código morto se passando por
+     funcionalidade — e um dia alguém religaria o botão confiando num caminho que
+     ninguém exercitou. */
 
   /* ── Ações — Carreiras ────────────────────────────────────────── */
   const handleSaveVaga = () => { setVagas(getVagas()); setVagasView("list"); setEditingVaga(null); };
@@ -379,7 +370,9 @@ export default function AdminBlog() {
       id: "blog",
       rotulo: "Blog",
       Icone: FileText,
-      contagem: formatarNumero(posts.length),
+      /* `null` enquanto a listagem carrega: a barra omite a contagem, em vez de
+         anunciar zero para quem tem doze posts. */
+      contagem: contagemDePosts === null ? null : formatarNumero(contagemDePosts),
       href: "/blog",
       rotuloDoLink: "Abrir o blog publicado em nova aba",
     },
@@ -413,8 +406,8 @@ export default function AdminBlog() {
      O formulário de `localStorage` com campo de Autor digitável e caixa de
      Markdown SAIU: quem edita post agora é o Editor visual da Story 2.4 com a
      gaveta de metadados da 2.6, e quem grava é a função de servidor da 2.5. A
-     LISTAGEM continua exatamente como está — ela é da Story 2.10 —, então o
-     que mudou aqui é só para onde "editar" e "novo" levam. */
+     listagem SAIU na Story 2.10, e virou `ListaDePosts` — o que ficou aqui é
+     para onde "editar" e "novo" levam, e o aviso de que gravou. */
   if (blogView === "form") {
     return (
       <EditorDePost
@@ -436,17 +429,14 @@ export default function AdminBlog() {
     );
   }
 
-  /* ── Filtros ──────────────────────────────────────────────────── */
-  const search = activeTab === "blog" ? blogSearch : vagasSearch;
-  const setSearch = activeTab === "blog" ? setBlogSearch : setVagasSearch;
-
-  const filteredPosts = posts.filter(
-    (p) =>
-      p.titulo.toLowerCase().includes(blogSearch.toLowerCase()) ||
-      p.categoria.toLowerCase().includes(blogSearch.toLowerCase()) ||
-      p.autor.toLowerCase().includes(blogSearch.toLowerCase()),
-  );
-
+  /* ── Filtros ──────────────────────────────────────────────────────
+     O filtro de POST saiu daqui e ainda não voltou: buscar e filtrar a listagem
+     do Blog é a Story 2.11, e ela busca no Postgres — insensível a maiúsculas e
+     a acentos, sobre título, Categoria, Autor e Tags. Um `includes` de
+     minúsculas sobre a lista carregada não é nada disso, e mantê-lo aqui
+     deixaria uma busca que erra em "automação" fingindo que o assunto está
+     resolvido. Enquanto isso, o campo de busca não é oferecido na aba Blog:
+     controle que não faz o que promete é pior que controle ausente. */
   const filteredVagas = vagas.filter(
     (v) =>
       v.titulo.toLowerCase().includes(vagasSearch.toLowerCase()) ||
@@ -455,8 +445,9 @@ export default function AdminBlog() {
   );
 
   /* O rótulo do diálogo de exclusão precisa existir mesmo com ele fechado —
-     agora que a montagem é permanente, não condicional. */
-  const tipoDoAlvo = deleteTarget?.type === "vaga" ? "vaga" : "post";
+     agora que a montagem é permanente, não condicional. Só há um tipo de alvo
+     desde a Story 2.10: excluir Post saiu junto com o `blogStore`. */
+  const tipoDoAlvo = "vaga";
 
   /* ── Render principal ─────────────────────────────────────────── */
   return (
@@ -475,17 +466,25 @@ export default function AdminBlog() {
         acoesDaAba={acoesDaAba}
       />
 
-      {/* ────── Toolbar: busca + novo ──────────────────────────── */}
+      {/* ────── Toolbar: busca + novo ────────────────────────────
+          A busca é oferecida SÓ na aba Carreiras. Na aba Blog ela some até a
+          Story 2.11 — a que busca de verdade, no banco, sem acento e sobre
+          Tags. Deixar o campo aqui digitando no vazio seria uma promessa que a
+          tela não cumpre, e a pessoa concluiria que o post sumiu. */}
       <div className="shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={activeTab === "blog" ? "Buscar posts..." : "Buscar vagas..."}
-            className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
-          />
-        </div>
+        {activeTab === "carreiras" ? (
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <input
+              value={vagasSearch}
+              onChange={(e) => setVagasSearch(e.target.value)}
+              placeholder="Buscar vagas..."
+              className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+            />
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
         <button
           onClick={() => {
             if (activeTab === "blog") { setEditingPost(null); setBlogView("form"); }
@@ -508,82 +507,31 @@ export default function AdminBlog() {
         role="tabpanel"
         aria-labelledby={idDaAba(activeTab)}
         tabIndex={-1}
+        /* O FUNDO DO CORPO CONTINUA ESCURO, nas duas abas. A listagem nova veste
+           os tokens do Painel (cartão em `surface`, tinta `ink`) e é o primeiro
+           pedaço do corpo reconstruído — mas repintar a superfície ATRÁS dela
+           deixaria a faixa de busca, que é compartilhada com Carreiras, escura
+           entre duas áreas claras. Repintar a faixa junto significaria mexer em
+           controle de um módulo fora de escopo, que não pode regredir. O corpo
+           inteiro clareia quando Carreiras for migrada; até lá, cartão claro
+           sobre fundo escuro é a transição honesta. */
         className="flex-1 overflow-y-auto p-6"
       >
 
-        {/* ── POSTS ─────────────────────────────────────────────── */}
+        {/* ── POSTS ───────────────────────────────────────────────
+            A LISTAGEM LÊ O SUPABASE, e não mais o `localStorage`. Carregamento,
+            erro e vazio são dela: são três telas distintas, e a página não teria
+            como orquestrá-las sem virar a listagem por outro nome.
+
+            `recarregarEm` é a costura com o Editor: salvar muda a versão, a
+            lista relê, e o Autor que acabou de gravar encontra o Post. */}
         {activeTab === "blog" && (
-          filteredPosts.length === 0 ? (
-            <div className="text-center py-20 text-zinc-600">
-              <FileText className="w-12 h-12 mx-auto mb-4 opacity-25" />
-              <p className="text-base font-medium">Nenhum post encontrado</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredPosts.map((post) => (
-                <div
-                  key={post.id}
-                  className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4 hover:border-zinc-700 transition-colors group"
-                >
-                  {/* Thumb */}
-                  <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-zinc-800">
-                    {post.imagem ? (
-                      <img
-                        src={post.imagem}
-                        alt={post.titulo}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      />
-                    ) : (
-                      <CategoryThumb categoria={post.categoria} />
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-white text-sm truncate">{post.titulo}</h3>
-                      {post.destaque && <Star className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      <span className="bg-zinc-800 px-2 py-0.5 rounded-full">{post.categoria}</span>
-                      {post.autor && <span>{post.autor}</span>}
-                      {/* Data e tempo de leitura são dados: alinham em coluna
-                          entre as linhas da listagem, com numeral tabular. */}
-                      <span className="dado">{post.data}</span>
-                      <span className="dado">{post.tempo}</span>
-                    </div>
-                  </div>
-
-                  {/* Ações */}
-                  <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <Link
-                      to={`/blog/${post.slug}`}
-                      target="_blank"
-                      className="p-2 rounded-xl hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-                      title="Ver post"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Link>
-                    <button
-                      onClick={() => { setEditingPost(post); setBlogView("form"); }}
-                      className="p-2 rounded-xl hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 transition-colors"
-                      title="Editar"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget({ type: "blog", item: post })}
-                      className="p-2 rounded-xl hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
+          <ListaDePosts
+            recarregarEm={versaoDaLista}
+            aoContar={setContagemDePosts}
+            aoAbrirPost={(post) => { setEditingPost(post); setBlogView("form"); }}
+            aoCriarPost={() => { setEditingPost(null); setBlogView("form"); }}
+          />
         )}
 
         {/* ── VAGAS ─────────────────────────────────────────────── */}
@@ -678,8 +626,7 @@ export default function AdminBlog() {
         rotuloDeConfirmacao={`Excluir ${tipoDoAlvo}`}
         aoConfirmar={() => {
           if (!deleteTarget) return;
-          if (deleteTarget.type === "blog") handleDeletePost(deleteTarget.item.id);
-          else handleDeleteVaga(deleteTarget.item.id);
+          handleDeleteVaga(deleteTarget.item.id);
         }}
       />
 
