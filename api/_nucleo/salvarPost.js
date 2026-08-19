@@ -97,6 +97,17 @@ import {
   FORMATO_DE_SLUG,
   TAMANHO_MAXIMO_DO_SLUG,
 } from "../../src/domain/blog/slug.js";
+/* As regras da Tag digitada vêm do DOMÍNIO — as MESMAS que a gaveta usa para
+   separar por vírgula e mostrar o que vai ser gravado. Uma segunda
+   normalização aqui faria a tela e o servidor discordarem sobre o que é a
+   mesma Tag, e a divergência apareceria como duas linhas em `tags` que ninguém
+   consegue juntar depois. */
+import {
+  LIMITE_DE_TAGS,
+  chaveDaTag,
+  normalizarNomeDeTag,
+  problemaNaTag,
+} from "../../src/domain/blog/tags.js";
 /* A máquina de transições vem do DOMÍNIO, e é a MESMA que a tela consulta. Uma
    segunda tabela escrita aqui divergiria da barra de ações na primeira mudança,
    e a divergência apareceria como botão que falha — ou, pior, como transição
@@ -238,6 +249,10 @@ export const CAMPOS_ACEITOS = Object.freeze([
   "conteudo",
   // Os quatro metadados da Story 2.6. `tags` é o único que não é coluna de
   // `posts`: ele vira associação em `posts_tags`, por uma função de banco.
+  // Desde a Story 2.14 ele chega por NOME, e não por identificador — a tela é
+  // um campo de texto separado por vírgula, e quem resolve nome em
+  // identificador (reaproveitando o que existe, criando o que falta) é
+  // `resolverTags`, aqui no servidor.
   "categoria_id",
   "tags",
   "publicado_em",
@@ -321,7 +336,11 @@ export const LIMITE_DE_IGNORADOS = 40;
  *                   recusa no banco) de chegar lá para ser recusado como erro
  *                   de banco em vez de como campo mal preenchido.
  */
-export const LIMITE_DE_TAGS = 30;
+/* O teto de Tags mora no DOMÍNIO desde a Story 2.14: a gaveta desenhava as
+   pílulas sem aviso até a gravação falhar, e este módulo existe para tela e
+   servidor não discordarem. Reexportado porque quem lê os tetos da gravação os
+   procura aqui. */
+export { LIMITE_DE_TAGS };
 const TEMPO_DE_LEITURA_MAXIMO = 1000;
 
 /**
@@ -601,29 +620,61 @@ export function lerCorpo(corpo, { criando }) {
     }
   }
 
+  /* ── AS TAGS CHEGAM POR NOME (Story 2.14) ───────────────────────────────
+     Até a Story 2.13 a lista era de IDENTIFICADORES de Tags que já existiam, e
+     `definir_tags_do_post` recusava qualquer identificador desconhecido. A tela
+     passou a ser um campo de texto separado por vírgula, e texto produz NOMES:
+     alguém tem de normalizar, procurar a que já existe e criar a que falta.
+     Esse alguém é `resolverTags`, adiante, e a normalização é a MESMA do
+     domínio (`domain/blog/tags.js`), importada — uma segunda regra aqui
+     produziria uma Tag duplicada no banco, que é defeito sem desfazer. */
   if (corpo.tags !== undefined) {
     if (corpo.tags === null) {
       campos.tags = [];
     } else if (!Array.isArray(corpo.tags)) {
       problemas.push("As tags do post precisam vir como uma lista.");
       detalhes.push(`tags veio ${descreverValor(corpo.tags)}`);
-    } else if (corpo.tags.length > LIMITE_DE_TAGS) {
-      problemas.push(
-        `Um post aceita no máximo ${LIMITE_DE_TAGS} tags. Escolha as que classificam de verdade.`,
-      );
-      detalhes.push(`tags com ${corpo.tags.length} itens`);
     } else {
-      const invalida = corpo.tags.find(
-        (t) => typeof t !== "string" || !PADRAO_UUID.test(t.trim()),
-      );
-      if (invalida !== undefined) {
-        problemas.push("Não reconhecemos uma das tags escolhidas. Escolha-as da lista.");
-        detalhes.push(`tag fora do formato: ${JSON.stringify(String(invalida).slice(0, 60))}`);
-      } else {
-        // Repetida é a mesma tag: o par (post, tag) é chave primária, e mandar
-        // duas iguais transformaria uma escolha inofensiva em erro de banco.
-        campos.tags = [...new Set(corpo.tags.map((t) => t.trim()))];
+      const nomes = [];
+      const vistas = new Set();
+      const recusadas = [];
+      for (const bruta of corpo.tags) {
+        if (typeof bruta !== "string") {
+          /* A FRASE ENTRA UMA VEZ. Dez elementos que não são texto repetiam a
+             mesma sentença dez vezes na mensagem — o mesmo cuidado que as
+             outras recusas desta lista já tinham. */
+          const aviso = "As tags do post são texto.";
+          if (!recusadas.includes(aviso)) recusadas.push(aviso);
+          detalhes.push(`tag não é texto: ${descreverValor(bruta)}`);
+          continue;
+        }
+        const nome = normalizarNomeDeTag(bruta);
+        const problema = problemaNaTag(nome);
+        if (problema !== null) {
+          if (!recusadas.includes(problema)) recusadas.push(problema);
+          detalhes.push(`tag recusada: ${JSON.stringify(String(bruta).slice(0, 60))}`);
+          continue;
+        }
+        // Repetida é a mesma Tag, e a chave de igualdade é o SLUG: "Vendas" e
+        // "vendas" produzem a mesma linha em `tags`, e mandar as duas
+        // transformaria uma escolha inofensiva em erro de unicidade.
+        const chave = chaveDaTag(nome);
+        if (vistas.has(chave)) continue;
+        vistas.add(chave);
+        nomes.push(nome);
       }
+      /* O TETO VALE SOBRE O QUE VAI SER GRAVADO, e não sobre o que chegou.
+         Contá-lo antes do colapso fazia trinta e uma repetições da MESMA Tag
+         serem recusadas como trinta e uma tags, quando o que chega ao banco é
+         uma — e é a mesma ordem que `separarTags` usa na tela. */
+      if (nomes.length > LIMITE_DE_TAGS) {
+        recusadas.push(
+          `Um post aceita no máximo ${LIMITE_DE_TAGS} tags. Escolha as que classificam de verdade.`,
+        );
+        detalhes.push(`tags distintas: ${nomes.length}`);
+      }
+      if (recusadas.length > 0) problemas.push(...recusadas);
+      else campos.tags = nomes;
     }
   }
 
@@ -1277,7 +1328,10 @@ function colunasDeMetadado(campos) {
 async function gravarTags({ acesso, id, lido }) {
   if (lido.campos.tags === undefined) return { ok: true, tags: null };
 
-  const resposta = await acesso.definirTags(id, lido.campos.tags);
+  const resolvidas = await resolverTags({ acesso, nomes: lido.campos.tags });
+  if (!resolvidas.ok) return resolvidas;
+
+  const resposta = await acesso.definirTags(id, resolvidas.ids);
   if (!resposta.ok) {
     const tipo = classificar(resposta);
     return falha(tipo, {
@@ -1288,7 +1342,96 @@ async function gravarTags({ acesso, id, lido }) {
       status: resposta.status,
     });
   }
-  return { ok: true, tags: [...lido.campos.tags] };
+  return { ok: true, tags: [...resolvidas.nomes] };
+}
+
+/**
+ * NOMES DE TAG → IDENTIFICADORES, reaproveitando a que existe e criando a que
+ * falta (Story 2.14).
+ *
+ * ─── A CHAVE DE IGUALDADE É O SLUG ──────────────────────────────────────────
+ *
+ * "Vendas", "vendas" e "VENDAS " são a mesma Tag, e quem decide isso é
+ * `gerarSlug` — a mesma função que gera o endereço do Post, através de
+ * `chaveDaTag`. É por isso que `tags.slug` tem unicidade no banco e `tags.nome`
+ * não: o slug é a identidade, o nome é a grafia de quem cadastrou primeiro.
+ *
+ * ─── A ORDEM DAS DUAS CHAMADAS, E POR QUE ELA É ESSA ────────────────────────
+ *
+ * Primeiro a inserção das que faltam, com `resolution=ignore-duplicates`;
+ * depois a leitura de TODAS por slug. O contrário — ler, decidir o que falta,
+ * inserir — deixa uma janela em que duas gravações simultâneas do mesmo nome
+ * tentam inserir a mesma linha, e a segunda estoura por unicidade. Ignorar
+ * duplicata na inserção e reler depois é o que faz a corrida terminar com as
+ * duas apontando para a MESMA Tag, que é o resultado certo.
+ *
+ * Devolve `{ ok: true, ids, nomes }` — `nomes` são as grafias que ficaram
+ * gravadas, que podem não ser as digitadas quando a Tag já existia.
+ */
+async function resolverTags({ acesso, nomes }) {
+  if (nomes.length === 0) return { ok: true, ids: [], nomes: [] };
+
+  /* A lista de inserção é montada AQUI, com as duas colunas nomeadas — o que
+     veio no corpo não é espalhado sobre o comando em lugar nenhum. */
+  const desejadas = nomes.map((nome) => ({ nome, slug: chaveDaTag(nome) }));
+  const slugs = desejadas.map((t) => t.slug);
+
+  const criadas = await acesso.inserirTags(desejadas);
+  if (!criadas.ok) {
+    const tipo = classificar(criadas);
+    return falha(tipo, {
+      mensagem:
+        "O texto do post foi salvo, mas as tags não. Abra o post e salve de novo para aplicá-las.",
+      detalhe: detalhar(criadas, "criação das tags digitadas"),
+      codigo: criadas.codigo,
+      status: criadas.status,
+    });
+  }
+
+  const existentes = await acesso.tagsPorSlugs(slugs);
+  if (!existentes.ok) {
+    const tipo = classificar(existentes);
+    return falha(tipo, {
+      mensagem:
+        "O texto do post foi salvo, mas as tags não. Abra o post e salve de novo para aplicá-las.",
+      detalhe: detalhar(existentes, "leitura das tags digitadas"),
+      codigo: existentes.codigo,
+      status: existentes.status,
+    });
+  }
+
+  const porSlug = new Map(
+    (Array.isArray(existentes.dados) ? existentes.dados : [])
+      .filter((t) => t !== null && typeof t === "object")
+      .map((t) => [String(t.slug), t]),
+  );
+
+  const ids = [];
+  const gravados = [];
+  const perdidas = [];
+  for (const desejada of desejadas) {
+    const linha = porSlug.get(desejada.slug);
+    if (linha === undefined || typeof linha.id !== "string") {
+      perdidas.push(desejada.nome);
+      continue;
+    }
+    ids.push(linha.id);
+    gravados.push(typeof linha.nome === "string" ? linha.nome : desejada.nome);
+  }
+
+  /* NENHUMA TAG SOME EM SILÊNCIO. Uma Tag que não voltou da leitura é sinal de
+     que a inserção não pegou — e descartá-la calado faria o Autor salvar cinco
+     tags e reabrir com quatro, que é exatamente o que a função de banco recusa
+     fazer com identificador desconhecido. */
+  if (perdidas.length > 0) {
+    return falha(ERRO_INESPERADO, {
+      mensagem:
+        "O texto do post foi salvo, mas as tags não. Abra o post e salve de novo para aplicá-las.",
+      detalhe: `tags que não voltaram do banco: ${perdidas.join(", ").slice(0, 200)}`,
+    });
+  }
+
+  return { ok: true, ids, nomes: gravados };
 }
 
 /** Falha de uma chamada de escrita, já classificada e com frase certa. */

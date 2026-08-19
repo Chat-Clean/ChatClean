@@ -99,6 +99,24 @@ const CAMINHO_MODULO_DA_PREVIA = "src/admin/blog/previa.js";
    e a declaração de rotas. Eles NÃO moram no módulo da tela — um módulo
    compartilhado apontando para o módulo de uma tela é seta invertida. */
 const CAMINHO_MODULO_DAS_ROTAS = "src/admin/blog/rotas.js";
+/* A tela de Categorias da Story 2.14 e os módulos dela. O vocabulário fechado
+   de cor e de ícone é DOMÍNIO — o servidor o consulta para recusar, e ele não
+   pode importar `lucide-react`. O desenho mora no Painel, e a igualdade entre
+   as duas listas é cobrada executando. */
+const CAMINHO_TELA_DE_CATEGORIAS = "src/admin/blog/TelaDeCategorias.jsx";
+const CAMINHO_MODULO_DAS_CATEGORIAS = "src/admin/blog/categorias.js";
+const CAMINHO_CATEGORIAS_DO_DOMINIO = "src/domain/blog/categorias.js";
+const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
+/* O FILTRO DO BLOG PÚBLICO. Ele lê as Categorias do banco desde a Story 2.14, e
+   a única asserção sobre isso eram duas expressões regulares sobre o texto do
+   arquivo — que continuam passando com `categoria.slug` no lugar de
+   `categoria.nome`, e aí toda pastilha menos "Todos" mostra "Nenhum artigo
+   encontrado". Aqui ele é MONTADO. */
+const CAMINHO_BLOG_PUBLICO = "src/pages/Blog.jsx";
+/* O mapa de ícone de Categoria: ele traz o DESENHO e o RÓTULO, e o rótulo é o
+   nome acessível de cada opção — a chave ("faisca", "chip", "robo") é nome de
+   código, sem sentido para quem ouve a tela. */
+const CAMINHO_ICONES_DE_CATEGORIA = "src/admin/blog/iconesDeCategoria.js";
 const CAMINHO_RENDERIZADOR = "src/render/blog/paraHtml.js";
 /* O ponto único de notificação. Ele é DUBLADO na montagem: a única coisa que
    o alvo indisponível de "Ver no site" FAZ é notificar, e sem o dublê apagar
@@ -1615,6 +1633,7 @@ async function compilarComponentes() {
       "  pedidos_de_post: [],\n" +
       "  aoLerPost: null,\n" +
       "  categorias: { ok: true, dados: [] },\n" +
+      "  leituras_publicas_de_categoria: 0,\n" +
       "  tags: { ok: true, dados: [] },\n" +
       "  tagsDoPost: { ok: true, dados: [] },\n" +
       /* A listagem da Story 2.10. `aoListar`, quando é função, tem precedência:
@@ -1641,6 +1660,21 @@ async function compilarComponentes() {
       "  destaque: { ok: true, dados: { operacao: 'destacar', id: null, destaque: true, post: null } },\n" +
       "  aoExcluir: null,\n" +
       "  aoDestacar: null,\n" +
+      /* Story 2.14: a tela de Categorias. `categorias_do_painel` é o que a
+         leitura devolve; `pedidos_de_categoria` guarda o que a tela mandou
+         gravar e `pedidos_de_exclusao_de_categoria` o que ela mandou excluir —
+         é por aí que se prova que ela passa pela porta única em vez de escrever
+         no banco. `aoListarCategorias` permite SEGURAR a resposta e observar o
+         esqueleto, que de outro modo resolve no primeiro microtask. */
+      "  categorias_do_painel: { ok: true, dados: [] },\n" +
+      "  aoListarCategorias: null,\n" +
+      "  leituras_de_categoria: 0,\n" +
+      "  pedidos_de_categoria: [],\n" +
+      "  pedidos_de_exclusao_de_categoria: [],\n" +
+      "  categoria_salva: { ok: true, dados: { operacao: 'salvarCategoria', criada: false, categoria: null } },\n" +
+      "  categoria_excluida: { ok: true, dados: { operacao: 'excluirCategoria', id: null, categoria: null } },\n" +
+      "  aoSalvarCategoria: null,\n" +
+      "  aoExcluirCategoria: null,\n" +
       /* O que a tela ANUNCIOU, em ordem. `{ tom, oQueHouve, oQueFazer }` — as
          duas metades separadas, como `notificarErro` as exige. */
       "  avisos: [],\n" +
@@ -1665,6 +1699,16 @@ async function compilarComponentes() {
       "  controle.pedidos_de_destaque.push({ id, destaque });\n" +
       "  if (typeof controle.aoDestacar === 'function') return controle.aoDestacar(id, destaque);\n" +
       "  return controle.destaque;\n" +
+      "}\n" +
+      "export async function salvarCategoria(campos, opcoes) {\n" +
+      "  controle.pedidos_de_categoria.push({ campos, id: opcoes?.id ?? null });\n" +
+      "  if (typeof controle.aoSalvarCategoria === 'function') return controle.aoSalvarCategoria(campos, opcoes);\n" +
+      "  return controle.categoria_salva;\n" +
+      "}\n" +
+      "export async function excluirCategoria(id) {\n" +
+      "  controle.pedidos_de_exclusao_de_categoria.push(id);\n" +
+      "  if (typeof controle.aoExcluirCategoria === 'function') return controle.aoExcluirCategoria(id);\n" +
+      "  return controle.categoria_excluida;\n" +
       "}\n",
   );
 
@@ -1716,13 +1760,22 @@ async function compilarComponentes() {
     `export * from ${caminhoDeModulo(CAMINHO_TAXONOMIA)};\n` +
       'import { controle } from "./controle.js";\n' +
       "export async function listarCategorias() {\n" +
+      "  controle.leituras_publicas_de_categoria += 1;\n" +
       "  return controle.categorias;\n" +
+      "}\n" +
+      "export async function listarTagsDoPainel() {\n" +
+      "  return controle.tags;\n" +
       "}\n" +
       "export async function listarTags() {\n" +
       "  return controle.tags;\n" +
       "}\n" +
       "export async function listarTagsDoPostNoPainel() {\n" +
       "  return controle.tagsDoPost;\n" +
+      "}\n" +
+      "export async function listarCategoriasDoPainel() {\n" +
+      "  controle.leituras_de_categoria += 1;\n" +
+      "  if (typeof controle.aoListarCategorias === 'function') return controle.aoListarCategorias();\n" +
+      "  return controle.categorias_do_painel;\n" +
       "}\n",
   );
 
@@ -1740,6 +1793,21 @@ async function compilarComponentes() {
       `export * as regrasDasAcoes from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ACOES)};\n` +
       `export { default as PreVisualizacaoDePost } from ${caminhoDeModulo(CAMINHO_PREVIA)};\n` +
       `export * as regrasDaPrevia from ${caminhoDeModulo(CAMINHO_MODULO_DA_PREVIA)};\n` +
+      /* A tela de Categorias da Story 2.14 e os módulos que ela consome: as
+         regras puras, o vocabulário fechado do domínio e o mapa de ícone. Os
+         três entram porque as asserções os EXECUTAM — a cor aplicada por
+         `style` só se prova comparando o que a tela pintou com o que o
+         vocabulário declara. */
+      `export { default as TelaDeCategorias } from ${caminhoDeModulo(CAMINHO_TELA_DE_CATEGORIAS)};\n` +
+      `export * as regrasDasCategorias from ${caminhoDeModulo(CAMINHO_MODULO_DAS_CATEGORIAS)};\n` +
+      `export * as categoriasDoDominio from ${caminhoDeModulo(CAMINHO_CATEGORIAS_DO_DOMINIO)};\n` +
+      `export * as regrasDasTags from ${caminhoDeModulo(CAMINHO_TAGS_DO_DOMINIO)};\n` +
+      `export * as iconesDeCategoria from ${caminhoDeModulo(CAMINHO_ICONES_DE_CATEGORIA)};\n` +
+      /* A gaveta, montada SOZINHA: a Categoria com cor e ícone e a entrada de
+         Tag por vírgula são dela, e montá-la pelo Editor inteiro faria a
+         asserção depender de tudo o que o Editor carrega. */
+      `export { default as GavetaDeMetadados } from ${caminhoDeModulo(CAMINHO_GAVETA)};\n` +
+      `export { default as BlogPublico } from ${caminhoDeModulo(CAMINHO_BLOG_PUBLICO)};\n` +
       `export * as regrasDasRotas from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ROTAS)};\n` +
       `export * as renderizador from ${caminhoDeModulo(CAMINHO_RENDERIZADOR)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
@@ -6856,6 +6924,1159 @@ if (janela && schema && configuracao && compilado) {
             false,
           ),
         );
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════ */
+
+    secao("(o) as Categorias: cor do dado, ícone do mapa, e a exclusão que conta");
+
+    {
+      const regras = modulo.regrasDasCategorias ?? null;
+      const dominio = modulo.categoriasDoDominio ?? null;
+      const tags = modulo.regrasDasTags ?? null;
+      const iconesDeCategoria = modulo.iconesDeCategoria ?? null;
+
+      afirmar(
+        "`categorias.js` é módulo próprio e chega ao pacote — as frases e as situações são executáveis, não JSX lido",
+        regras !== null &&
+          typeof regras.situacaoDaTela === "function" &&
+          typeof regras.textoDoUso === "function" &&
+          typeof regras.motivoDeNaoExcluir === "function",
+      );
+      afirmar(
+        "e o VOCABULÁRIO de cor e de ícone é do DOMÍNIO, não da tela — é ele que o servidor consulta para recusar",
+        dominio !== null &&
+          Array.isArray(dominio.CORES_DE_CATEGORIA) &&
+          Array.isArray(dominio.CHAVES_DE_ICONE_DE_CATEGORIA) &&
+          /* A seta aponta para o domínio: a tela importa dele, e ele não sabe
+             que a tela existe. */
+          /from\s+["']@\/domain\/blog\/categorias["']/.test(ler(CAMINHO_TELA_DE_CATEGORIAS)) &&
+          !/from\s+["']@\/admin\//.test(ler(CAMINHO_CATEGORIAS_DO_DOMINIO)),
+        "a tela lê o vocabulário do domínio, e o domínio não conhece a tela",
+      );
+
+      if (regras && dominio && tags) {
+        /* ── AS CINCO SITUAÇÕES, EXECUTADAS POR TABELA ─────────────────
+           A ORDEM dos ramos é regra, e não detalhe de escrita: o formulário
+           vence tudo (quem está escrevendo não pode ver o esqueleto de uma
+           releitura passar por cima do que digitou) e o erro vence o vazio
+           (erro não é vazio, e trocar um pelo outro é como alguém conclui
+           que a lista inteira sumiu). Dentro de um ternário de JSX isso só
+           poderia ser conferido por leitura. */
+        afirmar(
+          "a tela declara CINCO situações, em lista fechada e congelada",
+          Object.isFrozen(regras.SITUACOES_DA_TELA) &&
+            regras.SITUACOES_DA_TELA.length === 5 &&
+            new Set(regras.SITUACOES_DA_TELA).size === 5,
+          (regras.SITUACOES_DA_TELA ?? []).join(", "),
+        );
+        afirmar(
+          "o formulário vence `carregando` e vence o erro — quem está escrevendo não perde o que digitou para uma releitura",
+          regras.situacaoDaTela({ editando: true, carregando: true }) ===
+            regras.SITUACAO_FORMULARIO &&
+            regras.situacaoDaTela({ editando: true, erro: { tipo: "rede" } }) ===
+              regras.SITUACAO_FORMULARIO,
+          String(regras.situacaoDaTela({ editando: true, carregando: true })),
+        );
+        afirmar(
+          "e a tabela cobre as outras: espera, erro, vazio e lista — e ERRO vence VAZIO",
+          regras.situacaoDaTela({ carregando: true }) === regras.SITUACAO_CARREGANDO &&
+            regras.situacaoDaTela({ erro: { tipo: "rede" }, categorias: [] }) ===
+              regras.SITUACAO_ERRO &&
+            regras.situacaoDaTela({ categorias: [] }) === regras.SITUACAO_VAZIA &&
+            regras.situacaoDaTela({ categorias: [{ id: "1" }] }) === regras.SITUACAO_LISTA,
+          [
+            regras.situacaoDaTela({ carregando: true }),
+            regras.situacaoDaTela({ erro: { tipo: "rede" }, categorias: [] }),
+            regras.situacaoDaTela({ categorias: [] }),
+            regras.situacaoDaTela({ categorias: [{ id: "1" }] }),
+          ].join(" | "),
+        );
+
+        /* ── O USO, POR EXTENSO E COM CONCORDÂNCIA ─────────────────────── */
+        afirmar(
+          "o uso é dito por extenso e concorda em número — “1 posts” é a marca de um texto que ninguém leu",
+          regras.textoDoUso({ posts: 0 }) === "Nenhum post" &&
+            regras.textoDoUso({ posts: 1 }) === "1 post" &&
+            regras.textoDoUso({ posts: 2 }).endsWith(" posts") &&
+            /* Contagem AUSENTE é dita como desconhecida, e nunca como zero: é o
+               zero que a tela leria como "pode excluir". */
+            regras.textoDoUso({}) === "Uso desconhecido" &&
+            regras.textoDoUso({ posts: "lixo" }) === "Uso desconhecido",
+          [
+            regras.textoDoUso({ posts: 0 }),
+            regras.textoDoUso({ posts: 1 }),
+            regras.textoDoUso({ posts: 2 }),
+          ].join(" | "),
+        );
+        afirmar(
+          "Categoria com Post não pode ser excluída, e o motivo diz o NÚMERO e nomeia a Categoria",
+          regras.podeExcluir({ posts: 0 }) === true &&
+            regras.podeExcluir({ posts: 1 }) === false &&
+            regras.motivoDeNaoExcluir({ posts: 0 }) === null &&
+            regras.motivoDeNaoExcluir({ nome: "Analytics", posts: 3 }).oQueHouve.includes("3 posts a usam") &&
+            regras.motivoDeNaoExcluir({ nome: "Analytics", posts: 3 }).oQueHouve.includes("Analytics") &&
+            regras.motivoDeNaoExcluir({ nome: "Analytics", posts: 1 }).oQueHouve.includes("1 post a usa"),
+          JSON.stringify(regras.motivoDeNaoExcluir({ nome: "Analytics", posts: 3 })),
+        );
+        /* Categoria sem nome não vira frase vazia: "Excluir “”?" é pior que
+           "Excluir “categoria sem nome”?". */
+        afirmar(
+          "Categoria sem nome ainda produz frase utilizável, e nada aqui lança",
+          regras.nomeParaFrase({}) === "categoria sem nome" &&
+            regras.nomeParaFrase(null) === "categoria sem nome" &&
+            regras.tituloDaExclusao({}).includes("categoria sem nome"),
+          regras.tituloDaExclusao({}),
+        );
+
+
+        /* ── AS REGRAS PURAS DO FORMULÁRIO, EXECUTADAS ─────────────────
+           Elas eram exportadas e nenhuma asserção as chamava: é onde mora a
+           divergência de teto que fazia a tela aprovar 5000 e a rede recusar. */
+        {
+          const cheio = regras.corpoDaCategoria({
+            nome: "  Inteligência   Artificial  ",
+            slug: "",
+            cor: dominio.CORES_DE_CATEGORIA[1],
+            icone: dominio.CHAVES_DE_ICONE_DE_CATEGORIA[1],
+            ordem: "7",
+          });
+          afirmar(
+            "`corpoDaCategoria` normaliza o nome, omite endereço vazio e converte a ordem",
+            cheio.ok === true &&
+              cheio.corpo.nome === "Inteligência Artificial" &&
+              !Object.hasOwn(cheio.corpo, "slug") &&
+              cheio.corpo.ordem === 7 &&
+              cheio.corpo.cor === dominio.CORES_DE_CATEGORIA[1],
+            JSON.stringify(cheio),
+          );
+          /* O TETO É O MESMO NOS DOIS LADOS. A tela aceitava quatro dígitos e o
+             servidor recusava acima de mil: 5000 passava aqui e voltava
+             recusado da rede, sobre um campo que a tela tinha aprovado. */
+          const acimaDoTeto = regras.corpoDaCategoria({
+            nome: "X",
+            ordem: String(dominio.ORDEM_MAXIMA_DA_CATEGORIA + 1),
+          });
+          const noTeto = regras.corpoDaCategoria({
+            nome: "X",
+            ordem: String(dominio.ORDEM_MAXIMA_DA_CATEGORIA),
+          });
+          afirmar(
+            "e o teto de `ordem` da tela é EXATAMENTE o do domínio — um a mais é recusado, o teto exato passa",
+            acimaDoTeto.ok === false &&
+              acimaDoTeto.campo === "ordem" &&
+              noTeto.ok === true,
+            JSON.stringify([acimaDoTeto, noTeto.ok]),
+          );
+          /* COR E ÍCONE LEGADOS NÃO SÃO REENVIADOS — nem sobrescritos.
+             Reenviar faria o servidor recusar, e renomear uma Categoria antiga
+             ficaria travado para sempre; trocar pelo padrão sobrescreveria em
+             silêncio o que estava gravado. */
+          const legado = regras.corpoDaCategoria({
+            nome: "Antiga",
+            cor: "oklch(0.7 0.1 200)",
+            icone: "flask",
+          });
+          afirmar(
+            "cor e ícone que a tela NÃO reconhece ficam de fora do pedido — omitido é 'preserva', e é o que destrava renomear uma Categoria legada",
+            legado.ok === true &&
+              !Object.hasOwn(legado.corpo, "cor") &&
+              !Object.hasOwn(legado.corpo, "icone"),
+            JSON.stringify(legado.corpo),
+          );
+          afirmar(
+            "nome vazio é recusado nomeando o campo, para o formulário poder apontá-lo",
+            regras.corpoDaCategoria({ nome: "   " }).campo === "nome" &&
+              regras.faltandoNoFormulario({ nome: "   " }).length === 1 &&
+              regras.faltandoNoFormulario({ nome: "Boa" }).length === 0,
+            JSON.stringify(regras.faltandoNoFormulario({ nome: "   " })),
+          );
+          /* `valoresDaCategoria`: o que o formulário abre a partir do gravado. */
+          const abertos = regras.valoresDaCategoria({
+            nome: "Analytics",
+            slug: "analytics",
+            cor: dominio.CORES_DE_CATEGORIA[2],
+            icone: dominio.CHAVES_DE_ICONE_DE_CATEGORIA[3],
+            ordem: 3,
+          });
+          afirmar(
+            "`valoresDaCategoria` abre o formulário com o que está gravado, tudo como TEXTO",
+            abertos.nome === "Analytics" &&
+              abertos.slug === "analytics" &&
+              abertos.ordem === "3" &&
+              typeof abertos.ordem === "string",
+            JSON.stringify(abertos),
+          );
+          afirmar(
+            "e `ordem` nula vira campo VAZIO — `String(null)` é o texto 'null', que a gravação depois recusa",
+            regras.valoresDaCategoria({ nome: "X", ordem: null }).ordem === "" &&
+              regras.valoresDaCategoria({ nome: "X" }).ordem === "" &&
+              regras.valoresDaCategoria({ nome: "X", ordem: 1.5 }).ordem === "",
+            JSON.stringify(regras.valoresDaCategoria({ nome: "X", ordem: null })),
+          );
+        }
+
+        /* ── USO DESCONHECIDO NÃO É USO ZERO ──────────────────────────── */
+        afirmar(
+          "contagem ausente vira uso DESCONHECIDO — e desconhecido não libera exclusão",
+          regras.usoDaCategoria({ posts: null }) === null &&
+            regras.usoDaCategoria({}) === null &&
+            regras.usoDaCategoria({ posts: -1 }) === null &&
+            regras.podeExcluir({ posts: null }) === false &&
+            regras.textoDoUso({ posts: null }) === "Uso desconhecido",
+          regras.textoDoUso({ posts: null }),
+        );
+        afirmar(
+          "e o motivo do indisponível DISTINGUE 'está em uso' de 'não deu para contar' — as saídas são diferentes",
+          regras.motivoDeNaoExcluir({ nome: "A", posts: null }).oQueHouve.includes("contar") &&
+            regras.motivoDeNaoExcluir({ nome: "A", posts: 2 }).oQueHouve.includes("2 posts a usam") &&
+            regras.motivoDeNaoExcluir({ nome: "A", posts: null }).oQueFazer !==
+              regras.motivoDeNaoExcluir({ nome: "A", posts: 2 }).oQueFazer,
+          JSON.stringify(regras.motivoDeNaoExcluir({ nome: "A", posts: null })),
+        );
+        /* A SAÍDA DA RECUSA POR USO LEVA A ALGUM LUGAR. "Abra esses posts" não
+           diz como achá-los; a busca do Painel procura na Categoria desde a
+           Story 2.11, e é esse o caminho que existe. */
+        afirmar(
+          "a saída da recusa por uso aponta para a busca do Painel, que é o caminho que EXISTE",
+          /busca do Painel/i.test(regras.motivoDeNaoExcluir({ nome: "A", posts: 2 }).oQueFazer),
+          regras.motivoDeNaoExcluir({ nome: "A", posts: 2 }).oQueFazer,
+        );
+        /* A DESCRIÇÃO DA TELA NÃO PODE PROMETER O QUE NÃO ACONTECE. Renomear
+           acerta o Painel; no site os posts ainda vêm do armazenamento local
+           com o nome em texto, então a pastilha renomeada não os encontra até a
+           Story 2.15. A frase diz o alcance. */
+        afirmar(
+          "a descrição da tela declara o ALCANCE de renomear em vez de prometer o site",
+          /site/i.test(regras.DESCRICAO_DA_TELA) &&
+            /Painel/i.test(regras.DESCRICAO_DA_TELA),
+          regras.DESCRICAO_DA_TELA,
+        );
+
+        /* ── AS FRASES PASSAM PELAS GUARDAS DE VOZ ─────────────────────── */
+        if (voz) {
+          const frases = [
+            ["TITULO_DA_TELA", regras.TITULO_DA_TELA],
+            ["DESCRICAO_DA_TELA", regras.DESCRICAO_DA_TELA],
+            ["TITULO_DO_VAZIO", regras.TITULO_DO_VAZIO],
+            ["DESCRICAO_DO_VAZIO", regras.DESCRICAO_DO_VAZIO],
+            ["TITULO_DO_ERRO", regras.TITULO_DO_ERRO],
+            ["descricaoDaExclusao", regras.descricaoDaExclusao()],
+            ["confirmacaoDaExclusao", regras.confirmacaoDaExclusao({ nome: "Analytics" })],
+            ["falhaDaExclusao", regras.falhaDaExclusao({ nome: "Analytics" })],
+            ["confirmacaoDoSalvamento", regras.confirmacaoDoSalvamento({ nome: "Analytics" }, true)],
+            ["falhaDoSalvamento", regras.falhaDoSalvamento({ nome: "Analytics" })],
+            [
+              "motivoDeNaoExcluir.oQueFazer",
+              regras.motivoDeNaoExcluir({ nome: "Analytics", posts: 2 }).oQueFazer,
+            ],
+          ];
+          const reprovadas = frases.filter(
+            ([, frase]) => voz.diagnosticarMensagem("o que houve", frase) !== null,
+          );
+          afirmar(
+            "as frases da tela de Categorias passam pelas guardas de voz — nenhuma vaga, nenhuma vazia",
+            reprovadas.length === 0,
+            reprovadas
+              .map(([nome, frase]) => `${nome}: ${voz.diagnosticarMensagem("o que houve", frase)}`)
+              .join(" | "),
+          );
+          afirmar(
+            "e o rótulo do botão que confirma NOMEIA a ação — “Excluir” sozinho obriga a reler o texto",
+            voz.diagnosticarRotuloDeAcao(regras.ROTULO_DE_CONFIRMAR_EXCLUSAO) === null &&
+              regras.ROTULO_DE_CONFIRMAR_EXCLUSAO.toLowerCase().includes("categoria"),
+            regras.ROTULO_DE_CONFIRMAR_EXCLUSAO,
+          );
+        }
+
+        /* ── AS REGRAS DA TAG DIGITADA, EXECUTADAS ─────────────────────── */
+        afirmar(
+          "a Tag digitada é separada por VÍRGULA, e só por vírgula",
+          tags.separarTags("uma, outra").nomes.length === 2 &&
+            tags.separarTags("uma; outra").nomes.length === 1 &&
+            tags.separarTags("uma\noutra").nomes.length === 1,
+          JSON.stringify(tags.separarTags("uma; outra").nomes),
+        );
+        afirmar(
+          "a repetida colapsa pela CHAVE, preservando a primeira grafia",
+          JSON.stringify(tags.separarTags("Vendas, vendas,  VENDAS ").nomes) ===
+            JSON.stringify(["Vendas"]),
+          JSON.stringify(tags.separarTags("Vendas, vendas,  VENDAS ").nomes),
+        );
+        afirmar(
+          "pedaço vazio some sem virar Tag — a vírgula final é o jeito normal de digitar uma lista",
+          tags.separarTags("uma, , outra,").nomes.length === 2 &&
+            tags.separarTags("uma, , outra,").problemas.length === 0,
+          JSON.stringify(tags.separarTags("uma, , outra,")),
+        );
+        afirmar(
+          "mas Tag que não serve é RECUSADA com frase, nunca descartada em silêncio",
+          tags.separarTags("boa, !!! ???").problemas.length === 1 &&
+            tags.separarTags(`boa, ${"a".repeat(200)}`).problemas.length === 1,
+          JSON.stringify(tags.separarTags("boa, !!! ???")),
+        );
+        afirmar(
+          "e o texto volta na forma que a separação lê sem mudar nada — abrir e fechar o Editor não acusa pendência",
+          tags.textoDasTags(["uma", "outra"]) === "uma, outra" &&
+            JSON.stringify(tags.separarTags(tags.textoDasTags(["uma", "outra"])).nomes) ===
+              JSON.stringify(["uma", "outra"]),
+          tags.textoDasTags(["uma", "outra"]),
+        );
+
+        /* ── A TELA, MONTADA ──────────────────────────────────────────── */
+        const AS_CATEGORIAS = [
+          {
+            id: "aaaaaaaa-1111-4111-8111-111111111111",
+            nome: "Analytics",
+            slug: "analytics",
+            cor: dominio.CORES_DE_CATEGORIA[2],
+            icone: dominio.CHAVES_DE_ICONE_DE_CATEGORIA[4],
+            ordem: 1,
+            /* EM USO: é esta linha que prova que o alvo de excluir fica
+               indisponível DIZENDO o motivo, em vez de sumir. */
+            posts: 3,
+          },
+          {
+            id: "bbbbbbbb-2222-4222-8222-222222222222",
+            nome: "Novidades",
+            slug: "novidades",
+            cor: dominio.CORES_DE_CATEGORIA[4],
+            icone: dominio.CHAVES_DE_ICONE_DE_CATEGORIA[2],
+            ordem: 2,
+            posts: 0,
+          },
+        ];
+
+        /* A tela tem um LINK de volta para a listagem, e link precisa de
+           roteador: montar sem ele não seria montar a tela real. */
+        const roteadorDasCategorias = await tentar(
+          "`react-router-dom` importa para montar a tela de Categorias",
+          () => import("react-router-dom"),
+          null,
+        );
+
+        const montarCategorias = async () => {
+          const alvo = janela.document.createElement("div");
+          janela.document.body.appendChild(alvo);
+          const raizReact = createRoot(alvo);
+          await act(async () => {
+            raizReact.render(
+              React.createElement(
+                roteadorDasCategorias.MemoryRouter,
+                { initialEntries: ["/admin/categorias"] },
+                React.createElement(modulo.TelaDeCategorias),
+              ),
+            );
+          });
+          const q = (seletor) => alvo.querySelector(seletor);
+          const todos = (seletor) => [...alvo.querySelectorAll(seletor)];
+          return {
+            alvo,
+            situacao: () =>
+              q("[data-estado-da-lista]")?.getAttribute("data-estado-da-lista") ?? null,
+            /* `li[...]`, e não `[data-categoria]` solto: a pílula também sai
+               com o identificador como dado, e contar as duas faria a lista
+               parecer ter o dobro de linhas. */
+            linhas: () => todos("li[data-categoria]"),
+            linhaDe: (id) => q(`li[data-categoria="${id}"]`),
+            pilulas: () => todos('[data-papel="pilula-de-categoria"]'),
+            acoes: (id) =>
+              todos(`li[data-categoria="${id}"] [data-papel="acoes"] [data-acao]`),
+            uso: (id) =>
+              (q(`li[data-categoria="${id}"] [data-papel="uso"]`)?.textContent ?? "").trim(),
+            dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+            texto: () => alvo.textContent ?? "",
+            async clicar(elemento) {
+              await act(async () => {
+                elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+              });
+            },
+            async desmontar() {
+              await act(async () => raizReact.unmount());
+              alvo.remove();
+            },
+          };
+        };
+
+        if (roteadorDasCategorias) {
+        /* — CARREGANDO: a resposta é SEGURA, senão o quadro nunca é desenhado */
+        {
+          let liberar = null;
+          modulo.controle.aoListarCategorias = () =>
+            new Promise((resolve) => {
+              liberar = () => resolve({ ok: true, dados: AS_CATEGORIAS });
+            });
+          const tela = await montarCategorias();
+          afirmar(
+            "enquanto a leitura corre, a tela mostra o ESQUELETO e anuncia o que está fazendo",
+            tela.situacao() === regras.SITUACAO_CARREGANDO &&
+              tela.alvo.querySelector('[data-papel="esqueleto"]') !== null &&
+              tela.texto().includes("Carregando as categorias"),
+            String(tela.situacao()),
+          );
+          await act(async () => {
+            liberar();
+          });
+          afirmar(
+            "e quando ela chega, a tela vira LISTA com uma linha por Categoria",
+            tela.situacao() === regras.SITUACAO_LISTA &&
+              tela.linhas().length === AS_CATEGORIAS.length,
+            `${tela.situacao()} | linhas: ${tela.linhas().length}`,
+          );
+          await tela.desmontar();
+          modulo.controle.aoListarCategorias = null;
+        }
+
+        /* — ERRO NÃO É VAZIO — */
+        {
+          modulo.controle.categorias_do_painel = {
+            ok: false,
+            erro: { tipo: "rede", mensagem: "Confira a conexão e tente carregar de novo." },
+          };
+          const tela = await montarCategorias();
+          afirmar(
+            "falha de leitura vira a tela de ERRO, com a frase do erro TIPADO e o botão de tentar de novo",
+            tela.situacao() === regras.SITUACAO_ERRO &&
+              tela.texto().includes("Confira a conexão") &&
+              tela.alvo.querySelector('[data-acao="repetir"]') !== null &&
+              tela.linhas().length === 0,
+            `${tela.situacao()} | ${tela.texto().slice(0, 120)}`,
+          );
+          /* E ele RELÊ de verdade: sem uma dependência que muda, o botão vira
+             enfeite. */
+          const antes = modulo.controle.leituras_de_categoria;
+          await tela.clicar(tela.alvo.querySelector('[data-acao="repetir"]'));
+          afirmar(
+            "e o botão de tentar de novo RELÊ — sem isso ele é enfeite",
+            modulo.controle.leituras_de_categoria > antes,
+            `leituras: ${antes} → ${modulo.controle.leituras_de_categoria}`,
+          );
+          await tela.desmontar();
+        }
+
+        /* — VAZIO INICIAL — */
+        {
+          modulo.controle.categorias_do_painel = { ok: true, dados: [] };
+          const tela = await montarCategorias();
+          afirmar(
+            "sem Categoria nenhuma, a tela é o VAZIO que convida a criar a primeira — e não a de erro",
+            tela.situacao() === regras.SITUACAO_VAZIA &&
+              tela.texto().includes(regras.TITULO_DO_VAZIO) &&
+              tela.alvo.querySelector('[data-acao="primeira"]') !== null,
+            String(tela.situacao()),
+          );
+          /* E o VAZIO leva ao FORMULÁRIO, que é a quinta situação. */
+          await tela.clicar(tela.alvo.querySelector('[data-acao="primeira"]'));
+          afirmar(
+            "criar a primeira abre o FORMULÁRIO — a quinta situação, e ela existe",
+            tela.situacao() === regras.SITUACAO_FORMULARIO &&
+              tela.alvo.querySelector('[data-papel="formulario"]') !== null,
+            String(tela.situacao()),
+          );
+          await tela.desmontar();
+        }
+
+        /* — A LISTA: cor por `style`, ícone do mapa, uso à vista, alvos 40×40 */
+        {
+          modulo.controle.categorias_do_painel = { ok: true, dados: AS_CATEGORIAS };
+          const tela = await montarCategorias();
+
+          /* A COR VEM DO DADO E É APLICADA POR `style`. Uma classe montada em
+             tempo de execução não existiria no CSS compilado — seria uma
+             pílula sem cor nenhuma em produção. */
+          const pilulas = tela.pilulas();
+          const paresPintados = pilulas.map((p) => p.getAttribute("style") ?? "");
+          const paresEsperados = AS_CATEGORIAS.map((c) => {
+            const { fundo, tinta } = dominio.aparenciaDaCategoria(c);
+            return { fundo, tinta };
+          });
+          afirmar(
+            "a pílula de Categoria pinta o par do DADO por `style`, com os tokens do vocabulário",
+            pilulas.length === AS_CATEGORIAS.length &&
+              paresPintados.every(
+                (estilo, i) =>
+                  estilo.includes(paresEsperados[i].fundo) &&
+                  estilo.includes(paresEsperados[i].tinta),
+              ),
+            JSON.stringify(paresPintados),
+          );
+          afirmar(
+            "e nenhuma classe de cor é montada: a lista de classes da pílula não cita a cor",
+            pilulas.every((p) => !/categoria-[a-z]+/.test(p.getAttribute("class") ?? "")),
+            pilulas.map((p) => p.getAttribute("class")).join(" | "),
+          );
+          afirmar(
+            "o ÍCONE é a chave do mapa fechado, e ela sai como dado na tela",
+            pilulas.every(
+              (p, i) => p.getAttribute("data-icone") === AS_CATEGORIAS[i].icone,
+            ) &&
+              pilulas.every((p) => p.querySelector("svg") !== null),
+            pilulas.map((p) => p.getAttribute("data-icone")).join(", "),
+          );
+          afirmar(
+            "e o NOME vai por extenso ao lado — cor nunca é o único portador",
+            pilulas.every((p, i) => (p.textContent ?? "").includes(AS_CATEGORIAS[i].nome)),
+            pilulas.map((p) => p.textContent).join(" | "),
+          );
+
+          /* A CONTAGEM DE USO APARECE ANTES DE ALGUÉM TENTAR. */
+          afirmar(
+            "cada linha mostra quantos Posts usam a Categoria",
+            tela.uso(AS_CATEGORIAS[0].id) === regras.textoDoUso(AS_CATEGORIAS[0]) &&
+              tela.uso(AS_CATEGORIAS[1].id) === regras.textoDoUso(AS_CATEGORIAS[1]),
+            `${tela.uso(AS_CATEGORIAS[0].id)} | ${tela.uso(AS_CATEGORIAS[1].id)}`,
+          );
+
+          /* OS ALVOS: 40×40, contorno PERMANENTE, e nome acessível que nomeia
+             a Categoria. Nada condicionado a `hover`. */
+          for (const categoria of AS_CATEGORIAS) {
+            const acoes = tela.acoes(categoria.id);
+            const classes = acoes.map((a) => a.getAttribute("class") ?? "");
+            afirmar(
+              `a linha de ${categoria.nome} tem os dois alvos, em 40×40 com contorno permanente`,
+              acoes.length === 2 &&
+                classes.every(
+                  (c) =>
+                    c.includes("size-10") &&
+                    c.includes("min-h-10") &&
+                    c.includes("min-w-10") &&
+                    /(^|\s)border(\s|$)/.test(c) &&
+                    !/group-hover:|hover:border-border/.test(c),
+                ),
+              classes.join(" | "),
+            );
+            afirmar(
+              `e cada um deles NOMEIA a categoria ${categoria.nome} no rótulo acessível`,
+              acoes.every((a) => (a.getAttribute("aria-label") ?? "").includes(categoria.nome)),
+              acoes.map((a) => a.getAttribute("aria-label")).join(" | "),
+            );
+          }
+
+          /* O ALVO DE EXCLUIR DE UMA CATEGORIA EM USO EXISTE E EXPLICA. Um
+             controle que some deixa a pessoa procurando o que fez de errado. */
+          const emUso = tela.linhaDe(AS_CATEGORIAS[0].id).querySelector('[data-acao="excluir"]');
+          modulo.controle.avisos.length = 0;
+          await tela.clicar(emUso);
+          const motivo = regras.motivoDeNaoExcluir(AS_CATEGORIAS[0]);
+          afirmar(
+            "excluir Categoria EM USO fica indisponível dizendo o motivo — e não abre diálogo nenhum",
+            emUso.getAttribute("aria-disabled") === "true" &&
+              emUso.hasAttribute("disabled") === false &&
+              tela.dialogo() === null &&
+              modulo.controle.avisos.at(-1)?.oQueHouve === motivo.oQueHouve &&
+              modulo.controle.avisos.at(-1)?.oQueFazer === motivo.oQueFazer,
+            JSON.stringify(modulo.controle.avisos.at(-1) ?? null),
+          );
+
+          /* — A CONFIRMAÇÃO NOMEIA A CATEGORIA, e só ela exclui — */
+          const livre = tela.linhaDe(AS_CATEGORIAS[1].id).querySelector('[data-acao="excluir"]');
+          modulo.controle.pedidos_de_exclusao_de_categoria.length = 0;
+          await tela.clicar(livre);
+          const dialogo = tela.dialogo();
+          afirmar(
+            "excluir Categoria SEM uso abre a confirmação do sistema, e ela NOMEIA a Categoria",
+            dialogo !== null &&
+              (dialogo.textContent ?? "").includes(regras.tituloDaExclusao(AS_CATEGORIAS[1])) &&
+              (dialogo.textContent ?? "").includes(regras.descricaoDaExclusao()) &&
+              (dialogo.textContent ?? "").includes(regras.ROTULO_DE_CONFIRMAR_EXCLUSAO),
+            dialogo ? (dialogo.textContent ?? "").slice(0, 200) : "sem diálogo",
+          );
+          afirmar(
+            "e abrir a confirmação NÃO exclui nada — só o botão de confirmar exclui",
+            modulo.controle.pedidos_de_exclusao_de_categoria.length === 0,
+            JSON.stringify(modulo.controle.pedidos_de_exclusao_de_categoria),
+          );
+
+          if (dialogo) {
+            const confirmar = [...dialogo.querySelectorAll("button")].find((b) =>
+              (b.textContent ?? "").includes(regras.ROTULO_DE_CONFIRMAR_EXCLUSAO),
+            );
+            modulo.controle.categoria_excluida = {
+              ok: true,
+              dados: {
+                operacao: "excluirCategoria",
+                id: AS_CATEGORIAS[1].id,
+                categoria: AS_CATEGORIAS[1],
+              },
+            };
+            modulo.controle.avisos.length = 0;
+            await tela.clicar(confirmar);
+            afirmar(
+              "confirmar exclui PELA PORTA ÚNICA — o pedido vai para `data/blog/escrita.js`, com o identificador da Categoria",
+              modulo.controle.pedidos_de_exclusao_de_categoria.length === 1 &&
+                modulo.controle.pedidos_de_exclusao_de_categoria[0] === AS_CATEGORIAS[1].id,
+              JSON.stringify(modulo.controle.pedidos_de_exclusao_de_categoria),
+            );
+            afirmar(
+              "e a confirmação anunciada NOMEIA a Categoria que saiu",
+              modulo.controle.avisos.some(
+                (a) =>
+                  a.tom === "sucesso" &&
+                  a.oQueHouve === regras.confirmacaoDaExclusao(AS_CATEGORIAS[1]),
+              ),
+              JSON.stringify(modulo.controle.avisos),
+            );
+          }
+          await tela.desmontar();
+        }
+
+        /* — O FORMULÁRIO: cor e ícone escolhidos do vocabulário FECHADO — */
+        {
+          modulo.controle.categorias_do_painel = { ok: true, dados: AS_CATEGORIAS };
+          const tela = await montarCategorias();
+          await tela.clicar(tela.alvo.querySelector('[data-acao="nova"]'));
+
+          const opcoesDeCor = [...tela.alvo.querySelectorAll("[data-cor]")];
+          const opcoesDeIcone = [...tela.alvo.querySelectorAll('[role="radio"][data-icone]')];
+          afirmar(
+            "o formulário oferece EXATAMENTE as cores do vocabulário fechado, cada uma pintada por `style`",
+            opcoesDeCor.length === dominio.CORES_DE_CATEGORIA.length &&
+              opcoesDeCor.every(
+                (b, i) =>
+                  b.getAttribute("data-cor") === dominio.CORES_DE_CATEGORIA[i] &&
+                  (b.getAttribute("style") ?? "").includes(dominio.CORES_DE_CATEGORIA[i]),
+              ),
+            opcoesDeCor.map((b) => b.getAttribute("data-cor")).join(", "),
+          );
+          afirmar(
+            "e EXATAMENTE os ícones do mapa fechado, cada um com o desenho",
+            opcoesDeIcone.length === dominio.CHAVES_DE_ICONE_DE_CATEGORIA.length &&
+              opcoesDeIcone.every(
+                (b, i) =>
+                  b.getAttribute("data-icone") === dominio.CHAVES_DE_ICONE_DE_CATEGORIA[i] &&
+                  b.querySelector("svg") !== null,
+              ),
+            opcoesDeIcone.map((b) => b.getAttribute("data-icone")).join(", "),
+          );
+
+
+          /* A ORDEM DOS CAMPOS É DECLARADA, E AGORA É COBRADA.
+             `CAMPOS_DO_FORMULARIO` era exportado, nunca importado e nunca
+             conferido contra o JSX: o comentário afirmava "na ordem em que ele
+             os oferece" sem nada que forçasse a ordem. Aqui a sequência lida da
+             tela é comparada com a declarada. */
+          const naTela = [...tela.alvo.querySelectorAll("[data-campo]")].map((e) =>
+            e.getAttribute("data-campo"),
+          );
+          afirmar(
+            "o formulário desenha EXATAMENTE os campos declarados, na ordem declarada",
+            JSON.stringify(naTela) === JSON.stringify([...regras.CAMPOS_DO_FORMULARIO]),
+            "na tela: " + naTela.join(", ") + " | declarados: " + regras.CAMPOS_DO_FORMULARIO.join(", "),
+          );
+
+          /* O GRUPO DE ESCOLHA SE OPERA COMO GRUPO DE RÁDIOS: uma parada de
+             tabulação, e setas que percorrem. Doze botões tabuláveis com
+             `role="radio"` anunciam um padrão que o teclado não cumpre. */
+          const radiosDeCor = [...tela.alvo.querySelectorAll('[data-cor][role="radio"]')];
+          const tabulaveis = radiosDeCor.filter((b) => b.getAttribute("tabindex") === "0");
+          afirmar(
+            "o grupo de cor tem UMA parada de tabulação, e ela é a opção marcada",
+            radiosDeCor.length > 1 &&
+              tabulaveis.length === 1 &&
+              tabulaveis[0].getAttribute("aria-checked") === "true",
+            "tabuláveis: " + tabulaveis.length + " de " + radiosDeCor.length,
+          );
+          const marcadaAntes = radiosDeCor.findIndex(
+            (b) => b.getAttribute("aria-checked") === "true",
+          );
+          await act(async () => {
+            radiosDeCor[marcadaAntes].dispatchEvent(
+              new janela.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+            );
+          });
+          const depoisDaSeta = [
+            ...tela.alvo.querySelectorAll('[data-cor][role="radio"]'),
+          ].findIndex((b) => b.getAttribute("aria-checked") === "true");
+          afirmar(
+            "e a seta ESCOLHE a opção seguinte — sem isso o grupo anuncia um padrão que o teclado não cumpre",
+            depoisDaSeta === (marcadaAntes + 1) % radiosDeCor.length,
+            "marcada: " + marcadaAntes + " → " + depoisDaSeta,
+          );
+          /* A MARCA DENTRO DA AMOSTRA DISTINGUE AS CORES ENTRE SI.
+             Ela existe para quem não distingue os tons — e era
+             `rotulo.slice(0, 2)`, que dava "Ci" para Ciano E para Cinza: duas
+             amostras com a mesma marca, exatamente onde a marca deveria ser o
+             desempate. A sigla é do vocabulário e é única, e o que se lê aqui é
+             o que a tela desenhou. */
+          {
+            const doVocabulario = dominio.CORES_DE_CATEGORIA.map(
+              (c) => dominio.aparenciaDaCor(c).sigla,
+            );
+            afirmar(
+              "cada cor do vocabulário tem uma marca ÚNICA — “Ci” servia a Ciano e a Cinza",
+              new Set(doVocabulario).size === doVocabulario.length &&
+                doVocabulario.every((s) => typeof s === "string" && s.trim() !== ""),
+              doVocabulario.join(", "),
+            );
+            const naTela = radiosDeCor.map((b) => (b.textContent ?? "").trim());
+            afirmar(
+              "e a amostra desenhada mostra a marca da SUA cor, não os dois primeiros caracteres do rótulo",
+              naTela.length === doVocabulario.length &&
+                naTela.every((s, i) => s === doVocabulario[i]),
+              naTela.join(", ") + " | esperadas: " + doVocabulario.join(", "),
+            );
+          }
+
+          /* E o nome acessível do ícone é PALAVRA DE INTERFACE, não a chave. */
+          const radioDeIcone = tela.alvo.querySelector('[data-icone="faisca"][role="radio"]');
+          afirmar(
+            "o nome acessível de um ícone é a palavra de interface, e não a chave de código",
+            radioDeIcone?.getAttribute("aria-label") ===
+              iconesDeCategoria.ICONES_DE_CATEGORIA.faisca.rotulo &&
+              radioDeIcone?.getAttribute("aria-label") !== "faisca",
+            String(radioDeIcone?.getAttribute("aria-label")),
+          );
+
+          /* SALVAR PASSA PELA PORTA ÚNICA, com o corpo que o servidor aceita. */
+          const campoNome = tela.alvo.querySelector('[data-campo="nome"]');
+          await act(async () => {
+            const setar = Object.getOwnPropertyDescriptor(
+              janela.HTMLInputElement.prototype,
+              "value",
+            ).set;
+            setar.call(campoNome, "Inteligência Artificial");
+            campoNome.dispatchEvent(new janela.Event("input", { bubbles: true }));
+          });
+          modulo.controle.pedidos_de_categoria.length = 0;
+          modulo.controle.categoria_salva = {
+            ok: true,
+            dados: {
+              operacao: "salvarCategoria",
+              criada: true,
+              categoria: { id: "cccccccc-3333-4333-8333-333333333333", nome: "Inteligência Artificial" },
+            },
+          };
+          modulo.controle.avisos.length = 0;
+          await tela.clicar(tela.alvo.querySelector('[data-acao="salvar"]'));
+          const pedido = modulo.controle.pedidos_de_categoria.at(-1);
+          afirmar(
+            "salvar manda o pedido pela porta única, com nome normalizado, cor e ícone do vocabulário",
+            modulo.controle.pedidos_de_categoria.length === 1 &&
+              pedido?.id === null &&
+              pedido?.campos.nome === "Inteligência Artificial" &&
+              dominio.ehCorDeCategoria(pedido?.campos.cor) &&
+              dominio.ehChaveDeIconeDeCategoria(pedido?.campos.icone),
+            JSON.stringify(pedido),
+          );
+          afirmar(
+            "e a confirmação distingue CRIAR de salvar, nomeando a Categoria",
+            modulo.controle.avisos.some(
+              (a) => a.tom === "sucesso" && a.oQueHouve.includes("criada"),
+            ),
+            JSON.stringify(modulo.controle.avisos),
+          );
+          await tela.desmontar();
+        }
+
+        /* — EDITAR MANDA O IDENTIFICADOR: é o que distingue renomear de criar */
+        {
+          modulo.controle.categorias_do_painel = { ok: true, dados: AS_CATEGORIAS };
+          const tela = await montarCategorias();
+          await tela.clicar(
+            tela.linhaDe(AS_CATEGORIAS[0].id).querySelector('[data-acao="editar"]'),
+          );
+          const campoNome = tela.alvo.querySelector('[data-campo="nome"]');
+          afirmar(
+            "editar abre o formulário JÁ PREENCHIDO com o que está gravado",
+            tela.situacao() === regras.SITUACAO_FORMULARIO &&
+              campoNome?.value === AS_CATEGORIAS[0].nome &&
+              tela.alvo.querySelector('[data-campo="slug"]')?.value === AS_CATEGORIAS[0].slug,
+            `${campoNome?.value} | ${tela.alvo.querySelector('[data-campo="slug"]')?.value}`,
+          );
+          await act(async () => {
+            const setar = Object.getOwnPropertyDescriptor(
+              janela.HTMLInputElement.prototype,
+              "value",
+            ).set;
+            setar.call(campoNome, "Análise");
+            campoNome.dispatchEvent(new janela.Event("input", { bubbles: true }));
+          });
+          modulo.controle.pedidos_de_categoria.length = 0;
+          await tela.clicar(tela.alvo.querySelector('[data-acao="salvar"]'));
+          const pedido = modulo.controle.pedidos_de_categoria.at(-1);
+          afirmar(
+            "renomear manda o IDENTIFICADOR junto — é ele que faz o servidor editar em vez de criar uma segunda",
+            pedido?.id === AS_CATEGORIAS[0].id && pedido?.campos.nome === "Análise",
+            JSON.stringify(pedido),
+          );
+          await tela.desmontar();
+        }
+
+        }
+
+
+        /* ── O FILTRO DO BLOG PÚBLICO, MONTADO ─────────────────────────
+         *
+         * É a única linha da matriz que nomeia um defeito DE PRODUÇÃO — a
+         * pastilha "Novidades" que não existia — e ela era verificada por duas
+         * expressões regulares sobre o texto do arquivo. Trocar `categoria.nome`
+         * por `categoria.slug` continuava passando: as pastilhas virariam
+         * `tecnologia`, `estrategia`, o `blogStore` casa por `"Tecnologia"`, e
+         * toda pastilha menos "Todos" mostraria "Nenhum artigo encontrado".
+         */
+        if (roteadorDasCategorias) {
+          /* ─── O QUE O JSDOM NÃO TEM, E A PÁGINA PÚBLICA USA ────────────
+             A página é a do site, e ela anima cartões com `whileInView` —
+             que pede `IntersectionObserver`, ausente no jsdom. Sem o
+             substituto, montar a página derruba o processo inteiro e a
+             asserção não chega a existir. Ele é inerte de propósito: o que se
+             está verificando é o FILTRO, não a animação, e um observador que
+             dispara mudaria o que a tela mostra durante a leitura. */
+          const observadorOriginal = janela.IntersectionObserver;
+          class ObservadorInerte {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+            takeRecords() {
+              return [];
+            }
+          }
+          janela.IntersectionObserver = ObservadorInerte;
+          globalThis.IntersectionObserver = ObservadorInerte;
+
+          const DO_BANCO = [
+            { id: "c1", nome: "Tecnologia", slug: "tecnologia", icone: "chip", cor: dominio.CORES_DE_CATEGORIA[1], ordem: 1 },
+            { id: "c2", nome: "Novidades", slug: "novidades", icone: "faisca", cor: dominio.CORES_DE_CATEGORIA[4], ordem: 6 },
+            /* Uma Categoria chamada "Todos" produziria duas pastilhas iguais,
+               chave de React repetida e um filtro ambíguo. */
+            { id: "c3", nome: "Todos", slug: "todos", icone: "pasta", cor: dominio.CORES_DE_CATEGORIA[0], ordem: 7 },
+            /* E a repetida também: o banco tem unicidade de nome, mas a tela não
+               pode depender disso para não desenhar duas chaves iguais. */
+            { id: "c4", nome: "Tecnologia", slug: "tecnologia-2", icone: "chip", cor: dominio.CORES_DE_CATEGORIA[1], ordem: 8 },
+          ];
+          modulo.controle.categorias = { ok: true, dados: DO_BANCO };
+          modulo.controle.leituras_publicas_de_categoria = 0;
+
+          const alvo = janela.document.createElement("div");
+          janela.document.body.appendChild(alvo);
+          const raizReact = createRoot(alvo);
+          await act(async () => {
+            raizReact.render(
+              React.createElement(
+                roteadorDasCategorias.MemoryRouter,
+                { initialEntries: ["/blog"] },
+                React.createElement(modulo.BlogPublico),
+              ),
+            );
+          });
+
+          const pastilhas = [...alvo.querySelectorAll("button")]
+            .map((b) => (b.textContent ?? "").trim())
+            .filter((t) => t !== "");
+
+          afirmar(
+            "o filtro público pede as Categorias à camada de dados — a lista não vem de constante nenhuma",
+            modulo.controle.leituras_publicas_de_categoria === 1,
+            "leituras: " + modulo.controle.leituras_publicas_de_categoria,
+          );
+          afirmar(
+            "e as pastilhas mostram o NOME da Categoria — com `slug` no lugar do nome, toda pastilha deixaria de achar posts",
+            pastilhas.includes("Tecnologia") &&
+              pastilhas.includes("Novidades") &&
+              !pastilhas.includes("tecnologia") &&
+              !pastilhas.includes("novidades"),
+            pastilhas.join(" | "),
+          );
+          afirmar(
+            "“Novidades” está entre elas — é o defeito em produção que o critério nomeia",
+            pastilhas.includes("Novidades"),
+            pastilhas.join(" | "),
+          );
+          afirmar(
+            "“Todos” aparece UMA vez: ele é a ausência de filtro, e uma Categoria com esse nome não pode virar uma segunda pastilha igual",
+            pastilhas.filter((t) => t === "Todos").length === 1,
+            pastilhas.join(" | "),
+          );
+          afirmar(
+            "e nome repetido não desenha duas pastilhas — chave de React duplicada e filtro ambíguo",
+            pastilhas.filter((t) => t === "Tecnologia").length === 1,
+            pastilhas.join(" | "),
+          );
+
+          await act(async () => raizReact.unmount());
+          alvo.remove();
+
+          /* E A FALHA DE LEITURA É DITA. Ela era silenciosa: o filtro colapsava
+             para só "Todos" e o visitante concluía que o blog tem uma
+             categoria só. */
+          modulo.controle.categorias = {
+            ok: false,
+            erro: { tipo: "rede", mensagem: "Confira a conexão." },
+          };
+          const alvo2 = janela.document.createElement("div");
+          janela.document.body.appendChild(alvo2);
+          const raiz2 = createRoot(alvo2);
+          await act(async () => {
+            raiz2.render(
+              React.createElement(
+                roteadorDasCategorias.MemoryRouter,
+                { initialEntries: ["/blog"] },
+                React.createElement(modulo.BlogPublico),
+              ),
+            );
+          });
+          afirmar(
+            "falha ao carregar as Categorias é ANUNCIADA no filtro público, e não colapsa em silêncio para só “Todos”",
+            alvo2.querySelector('[data-papel="falha-das-categorias"]') !== null,
+            (alvo2.textContent ?? "").slice(0, 160),
+          );
+          await act(async () => raiz2.unmount());
+          alvo2.remove();
+          modulo.controle.categorias = { ok: true, dados: [] };
+
+          if (observadorOriginal === undefined) delete janela.IntersectionObserver;
+          else janela.IntersectionObserver = observadorOriginal;
+          delete globalThis.IntersectionObserver;
+        }
+
+
+        /* ── A IDA E A VOLTA DAS TAGS, PELO EDITOR DE VERDADE ──────────
+         *
+         * Era a lacuna mais cara desta entrega: `controle.tagsDoPost` ficava
+         * fixado em lista VAZIA para sempre, então `valoresDoPost` só rodava no
+         * único caso em que o código velho e o novo dão o mesmo resultado — e
+         * nenhuma asserção lia `pedidos[0].tags`. Voltar `corpoDoPedido` para
+         * `tags: [...v.tags]` deixava tudo verde: como `v.tags` agora é TEXTO,
+         * o espalhamento produz `[]`, e `[]` é o pedido legítimo de "apague
+         * todas as tags". Salvar qualquer post apagaria as tags de todos.
+         */
+        {
+          const ID_COM_TAGS = "dddddddd-4444-4444-8444-444444444444";
+          modulo.controle.post = {
+            ok: true,
+            dados: {
+              id: ID_COM_TAGS,
+              slug: "post-com-tags",
+              titulo: "Post com tags",
+              resumo: "Resumo",
+              estado: "rascunho",
+              conteudo: null,
+              conteudo_html: "",
+              publicado_em: null,
+              categoria_id: null,
+              tempo_leitura: 0,
+              atualizado_em: "2027-01-01T00:00:00.000Z",
+            },
+          };
+          modulo.controle.tagsDoPost = {
+            ok: true,
+            dados: [
+              { id: "t1", nome: "Atendimento" },
+              { id: "t2", nome: "Automação" },
+            ],
+          };
+          modulo.controle.tags = { ok: true, dados: [] };
+          modulo.controle.categorias = { ok: true, dados: [] };
+          modulo.controle.pedidos.length = 0;
+          modulo.controle.resposta = {
+            ok: true,
+            dados: { criado: false, post: { ...modulo.controle.post.dados } },
+          };
+
+          const tela = await montarTela({ postId: ID_COM_TAGS });
+          const campoDeTags = tela.campo("tags");
+          afirmar(
+            "abrir um Post traz as Tags GRAVADAS para o campo, pelo NOME e separadas por vírgula",
+            campoDeTags?.value === "Atendimento, Automação",
+            String(campoDeTags?.value),
+          );
+
+          await tela.clicar(tela.salvar());
+          const enviado = modulo.controle.pedidos.at(-1);
+          afirmar(
+            "e salvar SEM TOCAR nas tags devolve as mesmas ao servidor — a lista não pode encolher sozinha",
+            Array.isArray(enviado?.tags) &&
+              enviado.tags.length === 2 &&
+              enviado.tags.includes("Atendimento") &&
+              enviado.tags.includes("Automação"),
+            JSON.stringify(enviado?.tags ?? null),
+          );
+
+          /* E o que é DIGITADO chega ao pedido, normalizado e sem repetida. */
+          await tela.digitar(tela.campo("tags"), "Atendimento, atendimento,  Vendas  ");
+          modulo.controle.pedidos.length = 0;
+          await tela.clicar(tela.salvar());
+          const depois = modulo.controle.pedidos.at(-1);
+          afirmar(
+            "o que se digita chega ao pedido como NOMES normalizados, com a repetida colapsada",
+            JSON.stringify(depois?.tags) === JSON.stringify(["Atendimento", "Vendas"]),
+            JSON.stringify(depois?.tags ?? null),
+          );
+          await tela.desmontar();
+        }
+
+        /* ── E QUANDO A LEITURA DAS TAGS FALHA, O CAMPO NÃO VIAJA ───────
+           O aviso na tela era a única proteção — e aviso não impede salvar:
+           `tags` sempre ia no pedido, o campo estava vazio, e o servidor lê
+           lista vazia como "apague todas". Campo AUSENTE é "preserva". */
+        {
+          const ID_SEM_TAGS = "eeeeeeee-5555-4555-8555-555555555555";
+          modulo.controle.post = {
+            ok: true,
+            dados: {
+              id: ID_SEM_TAGS,
+              slug: "post-sem-tags",
+              titulo: "Post cujas tags não vieram",
+              resumo: "Resumo",
+              estado: "rascunho",
+              conteudo: null,
+              conteudo_html: "",
+              publicado_em: null,
+              categoria_id: null,
+              tempo_leitura: 0,
+              atualizado_em: "2027-01-01T00:00:00.000Z",
+            },
+          };
+          modulo.controle.tagsDoPost = {
+            ok: false,
+            erro: { tipo: "rede", mensagem: "Confira a conexão." },
+          };
+          modulo.controle.pedidos.length = 0;
+          modulo.controle.avisos.length = 0;
+
+          const tela = await montarTela({ postId: ID_SEM_TAGS });
+          afirmar(
+            "a falha ao ler as Tags do Post é ANUNCIADA, e não engolida",
+            modulo.controle.avisos.some(
+              (a) => a.tom === "erro" && /tags deste post/i.test(a.oQueHouve),
+            ),
+            JSON.stringify(modulo.controle.avisos),
+          );
+          await tela.clicar(tela.salvar());
+          const enviado = modulo.controle.pedidos.at(-1);
+          afirmar(
+            "e o pedido sai SEM o campo `tags` — ausente é 'preserva', e lista vazia seria 'apague todas'",
+            enviado !== undefined && !Object.hasOwn(enviado, "tags"),
+            JSON.stringify(Object.keys(enviado ?? {})),
+          );
+          await tela.desmontar();
+          modulo.controle.tagsDoPost = { ok: true, dados: [] };
+        }
+
+        /* — A GAVETA: Categoria com cor e ícone, Tag por vírgula — */
+        {
+          const CATEGORIAS_DA_GAVETA = AS_CATEGORIAS.map((c) => ({ ...c }));
+          const TAGS_JA_USADAS = [
+            { id: "t1", nome: "Atendimento", slug: "atendimento" },
+            { id: "t2", nome: "Automação", slug: "automacao" },
+          ];
+          const alvo = janela.document.createElement("div");
+          janela.document.body.appendChild(alvo);
+          const raizReact = createRoot(alvo);
+          let valores = {
+            titulo: "",
+            slug: "",
+            resumo: "",
+            categoria_id: CATEGORIAS_DA_GAVETA[0].id,
+            tags: "Atendimento, atendimento",
+            publicado_em: "",
+            tempo_leitura: "",
+          };
+          const desenhar = () =>
+            React.createElement(modulo.GavetaDeMetadados, {
+              valores,
+              categorias: CATEGORIAS_DA_GAVETA,
+              tags: TAGS_JA_USADAS,
+              aoMudar: (campo, valor) => {
+                valores = { ...valores, [campo]: valor };
+                raizReact.render(desenhar());
+              },
+            });
+          await act(async () => {
+            raizReact.render(desenhar());
+          });
+
+          const pilula = alvo.querySelector('[data-papel="pilula-de-categoria"]');
+          const esperada = dominio.aparenciaDaCategoria(CATEGORIAS_DA_GAVETA[0]);
+          afirmar(
+            "a gaveta mostra a Categoria escolhida COM cor e ícone — os dois já chegavam da camada de dados e eram descartados",
+            pilula !== null &&
+              (pilula.getAttribute("style") ?? "").includes(esperada.fundo) &&
+              pilula.getAttribute("data-icone") === CATEGORIAS_DA_GAVETA[0].icone &&
+              (pilula.textContent ?? "").includes(CATEGORIAS_DA_GAVETA[0].nome),
+            pilula ? pilula.getAttribute("style") : "sem pílula",
+          );
+
+          const campoDeTags = alvo.querySelector('[data-campo="tags"]');
+          afirmar(
+            "as Tags são um campo de TEXTO, e não um menu múltiplo com “Segure Ctrl” na ajuda",
+            campoDeTags !== null &&
+              campoDeTags.tagName === "INPUT" &&
+              !(alvo.textContent ?? "").includes("Segure Ctrl") &&
+              (alvo.textContent ?? "").includes("Separe por vírgula"),
+            campoDeTags ? campoDeTags.tagName : "sem campo",
+          );
+          const lidas = [...alvo.querySelectorAll('[data-papel="tags-lidas"] [data-tag]')];
+          afirmar(
+            "o que vai ser gravado aparece enquanto se digita — e a repetida já colapsou",
+            lidas.length === 1 && lidas[0].getAttribute("data-tag") === "Atendimento",
+            lidas.map((l) => l.getAttribute("data-tag")).join(", "),
+          );
+          const sugestoes = [...alvo.querySelectorAll("[data-sugestao]")];
+          afirmar(
+            "as já usadas são SUGERIDAS — e a que já está no campo não é oferecida de novo",
+            sugestoes.length === 1 && sugestoes[0].getAttribute("data-sugestao") === "Automação",
+            sugestoes.map((s) => s.getAttribute("data-sugestao")).join(", "),
+          );
+          await act(async () => {
+            sugestoes[0].dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+          });
+          /* O QUE SE ACRESCENTA É TEXTO AO TEXTO, e não a lista normalizada de
+             volta. Remontar o campo a partir de `tagsLidas.nomes` descartava em
+             silêncio o pedaço que estava sendo digitado e a tag recusada — a
+             pessoa via texto sumir por ter clicado noutro lugar. Aqui o campo
+             tinha "Atendimento, atendimento" (a repetida ainda escrita), e ela
+             CONTINUA lá depois do clique. */
+          afirmar(
+            "clicar numa sugestão ACRESCENTA a Tag ao texto do campo, sem apagar o que já estava escrito",
+            valores.tags === "Atendimento, atendimento, Automação",
+            valores.tags,
+          );
+
+          /* E O SEPARADOR NÃO É REPOSTO SOBRE O QUE JÁ ESTÁ ESCRITO. Digitar
+             "Atendimento, " e clicar numa sugestão produzia
+             "Atendimento, , Automação": o pedaço vazio entre as duas vírgulas
+             some na leitura de volta, então o campo mostrava uma coisa e o
+             pedido levava outra. Os três finais que uma pessoa digita de
+             verdade — sem vírgula, com vírgula, com vírgula e espaço — chegam
+             ao MESMO texto. */
+          {
+            const finais = ["Atendimento", "Atendimento,", "Atendimento, "];
+            const produzidos = [];
+            for (const inicial of finais) {
+              await act(async () => {
+                valores = { ...valores, tags: inicial };
+                raizReact.render(desenhar());
+              });
+              const sugestao = alvo.querySelector('[data-sugestao="Automação"]');
+              await act(async () => {
+                sugestao?.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+              });
+              produzidos.push(valores.tags);
+            }
+            afirmar(
+              "e a vírgula que já está escrita não é reposta — “Atendimento, ” não vira “Atendimento, , Automação”",
+              produzidos.every((t) => t === "Atendimento, Automação"),
+              produzidos.map((t) => JSON.stringify(t)).join(" | "),
+            );
+          }
+
+          /* E a RECUSA aparece: Tag que não serve não some em silêncio. */
+          await act(async () => {
+            valores = { ...valores, tags: "boa, !!! ???" };
+            raizReact.render(desenhar());
+          });
+          const recusa = alvo.querySelector('[data-campo="tags"]')?.getAttribute("aria-invalid");
+          afirmar(
+            "Tag que não vira endereço é RECUSADA na gaveta, com a frase — nunca descartada calada",
+            recusa === "true" && (alvo.textContent ?? "").includes("letra ou número"),
+            `aria-invalid: ${recusa}`,
+          );
+
+          await act(async () => raizReact.unmount());
+          alvo.remove();
+        }
       }
     }
 

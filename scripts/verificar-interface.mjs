@@ -191,6 +191,43 @@ function contar(texto, padrao) {
 }
 
 /**
+ * Importa um módulo do projeto, transformando a falha em asserção.
+ *
+ * Devolve `null` quando não dá — e a asserção falha alto, para que um módulo
+ * que deixou de existir apareça como falha em vez de fazer a seção inteira
+ * sumir em silêncio.
+ */
+async function tentarImportar(caminhoRelativo) {
+  try {
+    const modulo = await import(
+      pathToFileURL(path.join(raiz, caminhoRelativo)).href
+    );
+    afirmar(`${caminhoRelativo} importa`, true);
+    return modulo;
+  } catch (erro) {
+    afirmar(`${caminhoRelativo} importa`, false, String(erro?.message ?? erro));
+    return null;
+  }
+}
+
+/** Dois conjuntos com os mesmos elementos, ignorando ordem e repetição. */
+function igualComoConjunto(a, b) {
+  const x = [...new Set(a)].sort();
+  const y = [...new Set(b)].sort();
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+/** Lê um arquivo do projeto; ausência vira asserção falha, não exceção. */
+function lerRelativoOuVazio(descricao, caminhoRelativo) {
+  try {
+    return ler(path.join(raiz, caminhoRelativo));
+  } catch (erro) {
+    afirmar(descricao, false, String(erro?.message ?? erro));
+    return "";
+  }
+}
+
+/**
  * A tag de abertura do elemento JSX que envolve `indice`.
  *
  * Existe porque contar ocorrências no arquivo inteiro não sabe ONDE elas estão:
@@ -335,6 +372,16 @@ const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 const CAMINHO_PREVIA = "src/admin/blog/PreVisualizacaoDePost.jsx";
 const CAMINHO_MODULO_DA_PREVIA = "src/admin/blog/previa.js";
 const CAMINHO_MODULO_DAS_ROTAS = "src/admin/blog/rotas.js";
+/* A tela de Categorias da Story 2.14 e os módulos dela. O comentário acima
+   registra que a omissão de uma tela nova nesta lista já foi o defeito uma vez;
+   esta é a primeira tela em que um dado do BANCO vira aparência, que é
+   exatamente quando a tentação do hex solto e da classe montada aparece. */
+const CAMINHO_TELA_DE_CATEGORIAS = "src/admin/blog/TelaDeCategorias.jsx";
+const CAMINHO_PILULA_DE_CATEGORIA = "src/admin/blog/PilulaDeCategoria.jsx";
+const CAMINHO_MODULO_DAS_CATEGORIAS = "src/admin/blog/categorias.js";
+const CAMINHO_ICONES_DE_CATEGORIA = "src/admin/blog/iconesDeCategoria.js";
+const CAMINHO_CATEGORIAS_DO_DOMINIO = "src/domain/blog/categorias.js";
+const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
 const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 const CAMINHO_FORMATO = "src/domain/blog/formato.js";
 const CAMINHO_PAGINA = "src/pages/AdminBlog.jsx";
@@ -370,6 +417,14 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_PREVIA,
   CAMINHO_MODULO_DA_PREVIA,
   CAMINHO_MODULO_DAS_ROTAS,
+  /* A Story 2.14: a tela de Categorias, a pílula que a cor do dado pinta, e os
+     vocabulários fechados que as duas consomem. */
+  CAMINHO_TELA_DE_CATEGORIAS,
+  CAMINHO_PILULA_DE_CATEGORIA,
+  CAMINHO_MODULO_DAS_CATEGORIAS,
+  CAMINHO_ICONES_DE_CATEGORIA,
+  CAMINHO_CATEGORIAS_DO_DOMINIO,
+  CAMINHO_TAGS_DO_DOMINIO,
 ];
 
 function acharCssCompilado() {
@@ -1560,6 +1615,358 @@ if (pilula) {
       /exigir\(/.test(codigo) &&
       // a checagem vem ANTES da leitura que lança
       codigo.indexOf("ehEstado(estado)") < codigo.indexOf("aparenciaDoEstado(estado)"),
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════════ */
+
+secao("(f2) Categoria: cor por token, ícone por mapa fechado (Story 2.14)");
+
+{
+  const categoriasDominio = await tentarImportar(
+    "src/domain/blog/categorias.js",
+  );
+  const iconesDeCategoria = await tentarImportar(
+    "src/admin/blog/iconesDeCategoria.js",
+  );
+
+  if (categoriasDominio) {
+    const {
+      CORES_DE_CATEGORIA,
+      CHAVES_DE_ICONE_DE_CATEGORIA,
+      COR_PADRAO,
+      ICONE_PADRAO,
+      aparenciaDaCor,
+      aparenciaDaCategoria,
+      ehCorDeCategoria,
+      ehChaveDeIconeDeCategoria,
+      iconeDaCategoria,
+    } = categoriasDominio;
+
+    afirmar(
+      "o vocabulário de cor é uma lista congelada e não vazia",
+      Object.isFrozen(CORES_DE_CATEGORIA) && CORES_DE_CATEGORIA.length > 0,
+      JSON.stringify(CORES_DE_CATEGORIA),
+    );
+    afirmar(
+      "o vocabulário de ícone é uma lista congelada e não vazia",
+      Object.isFrozen(CHAVES_DE_ICONE_DE_CATEGORIA) &&
+        CHAVES_DE_ICONE_DE_CATEGORIA.length > 0,
+      JSON.stringify(CHAVES_DE_ICONE_DE_CATEGORIA),
+    );
+    afirmar(
+      "a cor padrão e o ícone padrão estão dentro dos próprios vocabulários",
+      ehCorDeCategoria(COR_PADRAO) && ehChaveDeIconeDeCategoria(ICONE_PADRAO),
+      `${COR_PADRAO} | ${ICONE_PADRAO}`,
+    );
+
+    /* A CONFERÊNCIA É CONTRA A LISTA, e não contra as chaves de um objeto: com
+       objeto, `ehCorDeCategoria("constructor")` responderia verdadeiro e a
+       busca no catálogo devolveria uma função que ninguém declarou. É a mesma
+       armadilha que `ehOperacao` evita, e ela vale aqui porque `cor` chega da
+       rede no corpo de um pedido de escrita. */
+    const HERDADOS = ["constructor", "__proto__", "toString", "hasOwnProperty"];
+    afirmar(
+      "nome herdado do protótipo não é cor nem ícone",
+      HERDADOS.every((n) => !ehCorDeCategoria(n) && !ehChaveDeIconeDeCategoria(n)),
+      HERDADOS.filter((n) => ehCorDeCategoria(n) || ehChaveDeIconeDeCategoria(n)).join(", "),
+    );
+
+    const pares = CORES_DE_CATEGORIA.map((c) => aparenciaDaCor(c));
+    afirmar(
+      "cada cor tem par por TOKEN, nunca hex solto e nunca classe utilitária",
+      pares.every(
+        ({ fundo, tinta }) =>
+          /^var\(--categoria-[a-z]+-bg\)$/.test(fundo) &&
+          /^var\(--categoria-[a-z]+-ink\)$/.test(tinta),
+      ),
+      JSON.stringify(pares),
+    );
+    afirmar(
+      "os pares são distintos entre si",
+      new Set(pares.map((p) => `${p.fundo}|${p.tinta}`)).size === pares.length,
+    );
+    afirmar(
+      "a aparência devolvida é congelada",
+      pares.every((p) => Object.isFrozen(p)),
+    );
+
+    afirmarQueLanca(
+      "cor fora do vocabulário falha alto em `aparenciaDaCor`",
+      () => aparenciaDaCor("red"),
+    );
+    /* Mas a LEITURA de uma linha do banco não pode lançar: a coluna nasce com
+       `''`, e uma listagem inteira não pode cair por causa de uma linha. */
+    afirmar(
+      "Categoria sem cor cai na cor padrão em vez de derrubar a tela",
+      aparenciaDaCategoria({ cor: "" }).fundo === COR_PADRAO &&
+        aparenciaDaCategoria({}).fundo === COR_PADRAO &&
+        aparenciaDaCategoria({ cor: "red" }).fundo === COR_PADRAO,
+    );
+    afirmar(
+      "Categoria sem ícone cai no ícone padrão",
+      iconeDaCategoria({}) === ICONE_PADRAO &&
+        iconeDaCategoria({ icone: "inexistente" }) === ICONE_PADRAO,
+    );
+
+    if (appCss && cssCompilado) {
+      const tokens = pares.flatMap(({ fundo, tinta }) => [
+        fundo.slice(4, -1),
+        tinta.slice(4, -1),
+      ]);
+      const semDeclaracao = tokens.filter(
+        (t) => !new RegExp(`${t}:\\s*#`).test(appCss),
+      );
+      afirmar(
+        "todo token de Categoria citado pelo domínio está declarado em App.css",
+        semDeclaracao.length === 0,
+        semDeclaracao.join(", "),
+      );
+      const semCompilar = tokens.filter((t) => !cssCompilado.includes(`${t}:`));
+      afirmar(
+        "todo token de Categoria chega ao CSS compilado com valor",
+        semCompilar.length === 0,
+        semCompilar.join(", "),
+      );
+    }
+
+    if (iconesDeCategoria) {
+      /* A AUDITORIA BIDIRECIONAL: chave órfã falha, chave faltando falha. É a
+         mesma trava do mapa de ícones do Editor, e ela existe porque a lista
+         (que o SERVIDOR consulta para recusar) e o desenho (que só o Painel
+         conhece) moram em arquivos diferentes de propósito — `api/` não importa
+         `lucide-react` nem `admin/blog`. */
+      afirmar(
+        "o mapa de ícone de Categoria tem exatamente as chaves do vocabulário — nem chave sem desenho, nem desenho órfão",
+        igualComoConjunto(
+          Object.keys(iconesDeCategoria.ICONES_DE_CATEGORIA),
+          [...CHAVES_DE_ICONE_DE_CATEGORIA],
+        ),
+        `mapa: ${Object.keys(iconesDeCategoria.ICONES_DE_CATEGORIA).join(", ")} | vocabulário: ${CHAVES_DE_ICONE_DE_CATEGORIA.join(", ")}`,
+      );
+      afirmar(
+        "todo desenho é um componente de verdade (nenhuma entrada vazia)",
+        Object.values(iconesDeCategoria.ICONES_DE_CATEGORIA).every(
+          (icone) => typeof icone === "function" || typeof icone === "object",
+        ),
+      );
+      afirmar(
+        "o mapa é congelado — ninguém acrescenta um ícone em tempo de execução",
+        Object.isFrozen(iconesDeCategoria.ICONES_DE_CATEGORIA),
+      );
+    }
+  }
+
+  /* A pílula de Categoria: o par vai por `style`, e o nome por extenso. */
+  const fontePilulaDeCategoria = lerRelativoOuVazio(
+    "src/admin/blog/PilulaDeCategoria.jsx legível",
+    "src/admin/blog/PilulaDeCategoria.jsx",
+  );
+  if (fontePilulaDeCategoria) {
+    const codigo = semComentarios(fontePilulaDeCategoria);
+    afirmar(
+      "a pílula de Categoria consome o vocabulário do domínio, não uma tabela própria",
+      /from\s+["']@\/domain\/blog\/categorias["']/.test(codigo) &&
+        /aparenciaDaCategoria\(/.test(codigo),
+    );
+    afirmar(
+      "o par de cor é aplicado por `style`, com os valores do dado",
+      /style=\{\{\s*backgroundColor:\s*fundo,\s*color:\s*tinta\s*\}\}/.test(codigo),
+    );
+    afirmar(
+      "o ícone vem do mapa fechado, indexado pela chave do vocabulário",
+      /ICONES_DE_CATEGORIA\[chave\]/.test(codigo),
+    );
+    afirmar(
+      "a pílula de Categoria usa o raio de pílula e nenhum raio solto",
+      /rounded-pilula/.test(codigo) && !/rounded-(full|xl|lg|md|sm)\b/.test(codigo),
+    );
+  }
+
+  /* ─── NENHUMA LISTA DE CATEGORIA EXISTE NO FONTE ─────────────────────────
+   *
+   * Era o defeito que a Story 2.14 veio desfazer: as Categorias moravam em
+   * constante, em TRÊS lugares que já divergiam entre si — e o terceiro, o
+   * filtro público, tinha CINCO. "Novidades" não estava nele, e um post
+   * publicado nela não era alcançável por filtro nenhum no site. Ninguém
+   * percebeu porque não havia um lugar só que dissesse quais Categorias
+   * existem.
+   *
+   * A asserção é sobre o FONTE, e por isso ela é estática: o que se cobra é a
+   * ausência de uma segunda fonte de verdade. Que a leitura funciona está
+   * provado em `verificar:dados`, contra o banco.
+   */
+  {
+    /* Os nomes que estavam nas constantes. Eles são procurados como LITERAL de
+       string no fonte inteiro — se alguém recriar a lista, o nome dela volta a
+       aparecer escrito à mão. */
+    const NOMES_QUE_ERAM_CONSTANTE = [
+      "Tecnologia",
+      "Estratégia",
+      "Analytics",
+      "Automação",
+      "Tendências",
+      "Novidades",
+    ];
+    /* `blogPosts.js` é o conteúdo herdado do `localStorage`, e cada post ali
+       declara a categoria DELE — isso é dado de post, não lista de vocabulário.
+       Ele sai do repositório na Story 2.15, junto com o `localStorage`. */
+    const HERDADOS = ["src/data/blogPosts.js"];
+    const doFonte = fontesSrc.filter((a) => !HERDADOS.includes(rel(a)));
+    const comLista = [];
+    for (const arquivo of doFonte) {
+      const texto = semComentarios(ler(arquivo));
+      /* DOIS nomes ou mais no MESMO arquivo é o sinal: um nome sozinho pode ser
+         um exemplo num `placeholder`; dois são uma lista. */
+      const achados = NOMES_QUE_ERAM_CONSTANTE.filter((nome) =>
+        new RegExp(`["'\`]${nome}["'\`]`).test(texto),
+      );
+      if (achados.length >= 2) comLista.push(`${rel(arquivo)}: ${achados.join(", ")}`);
+    }
+    afirmar(
+      "nenhuma lista de Categoria existe no fonte — elas vêm do banco, e só de lá",
+      comLista.length === 0,
+      comLista.join(" | "),
+    );
+    /* AUTOTESTE do detector: sem ele, um erro na expressão faria a varredura
+       devolver zero achados e a asserção passaria por vacuidade — verde
+       justamente sobre o repositório com a constante de volta. */
+    {
+      const amostra = `const categorias = ["Todos", "Tecnologia", "Estratégia"];`;
+      const achados = NOMES_QUE_ERAM_CONSTANTE.filter((nome) =>
+        new RegExp(`["'\`]${nome}["'\`]`).test(amostra),
+      );
+      afirmar(
+        "autoteste: o detector encontra a constante que a story removeu",
+        achados.length === 2,
+        achados.join(", "),
+      );
+    }
+
+    const filtroPublico = lerRelativoOuVazio(
+      "src/pages/Blog.jsx legível",
+      "src/pages/Blog.jsx",
+    );
+    afirmar(
+      "o filtro do Blog Público lê as Categorias pela camada de dados",
+      /from\s+["']@\/data\/blog\/taxonomia["']/.test(semComentarios(filtroPublico)) &&
+        /listarCategorias\s*\(/.test(semComentarios(filtroPublico)),
+      "sem isso, o filtro voltaria a ser uma constante — e foi de uma constante que “Novidades” sumiu",
+    );
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════ */
+
+secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
+
+/*
+ * A LACUNA QUE ESTA SEÇÃO FECHA.
+ *
+ * "Classe utilitária gerada em tempo de execução não existe no CSS compilado"
+ * é uma das regras mais repetidas do projeto — e até a Story 2.14 ela existia
+ * em DOIS COMENTÁRIOS e em nenhuma asserção. Comentário não falha.
+ *
+ * O Tailwind lê o código-fonte como TEXTO e só gera o utilitário cuja string
+ * completa ele encontra. `bg-${cor}-500`, `` `text-state-${estado}` `` e
+ * `"rounded-" + tamanho` produzem, em produção, elementos sem estilo nenhum —
+ * e em desenvolvimento eles às vezes funcionam por acidente, porque a variante
+ * inteira foi escrita em outro lugar. É o modo de falha mais difícil de ver: a
+ * tela não quebra, ela só fica sem cor.
+ *
+ * O detector procura, dentro de literais de template e de concatenações, um
+ * PREFIXO de utilitário conhecido seguido de interpolação. Ele é exercitado
+ * antes de julgar o repositório — detector que nunca foi visto acusando é uma
+ * promessa, não uma verificação.
+ */
+{
+  /* Os prefixos de utilitário que carregam cor, tamanho e raio — os três que
+     alguém teria motivo para montar a partir de dado. Lista de PERMISSÃO ao
+     contrário não existe aqui: o que se procura é a FORMA da montagem, e a
+     lista de prefixos serve para não acusar `${classe}` genérico, que é
+     composição legítima (é o que `cn()` faz o tempo todo). */
+  const PREFIXOS = [
+    "bg", "text", "border", "ring", "fill", "stroke", "from", "via", "to",
+    "rounded", "shadow", "size", "w", "h", "p", "m", "gap", "grid-cols",
+  ].join("|");
+
+  /** A classe é montada com interpolação? Devolve o trecho, ou `null`. */
+  const classeInterpolada = (texto) => {
+    const padroes = [
+      // dentro de template: `bg-${x}`, `text-state-${x}`, `rounded-${x}`
+      new RegExp(`(?:${PREFIXOS})-[a-z0-9-]*\\$\\{`),
+      // por concatenação: "bg-" + x
+      new RegExp(`["'](?:${PREFIXOS})-[a-z0-9-]*["']\\s*\\+`),
+      // e o inverso: x + "-500"
+      new RegExp(`\\+\\s*["']-[a-z0-9]+["']`),
+    ];
+    for (const padrao of padroes) {
+      const casou = padrao.exec(texto);
+      if (casou) return casou[0];
+    }
+    return null;
+  };
+
+  /* AUTOTESTE — os dois sentidos. Sem ele, uma expressão quebrada faria a
+     varredura devolver zero achados e a asserção passaria por vacuidade,
+     verde justamente sobre o repositório com o defeito. */
+  const DEVE_ACUSAR = [
+    "className={`bg-${cor}-500`}",
+    'className={"text-" + estado}',
+    "const c = `rounded-${tamanho}`;",
+    "className={`border-state-${estado}-bg`}",
+    'const c = prefixo + "-500";',
+  ];
+  const NAO_DEVE_ACUSAR = [
+    'className={cn("bg-surface", className)}',
+    "className={`${ANEL_DE_FOCO} rounded-controle`}",
+    'style={{ backgroundColor: fundo }}',
+    "const rotulo = `Excluir a categoria ${nome}`;",
+    'const url = `/blog/${slug}`;',
+  ];
+  const escaparam = DEVE_ACUSAR.filter((t) => classeInterpolada(t) === null);
+  const falsos = NAO_DEVE_ACUSAR.filter((t) => classeInterpolada(t) !== null);
+  afirmar(
+    "autoteste do detector: acusa classe montada por interpolação",
+    escaparam.length === 0,
+    `escaparam: ${escaparam.join(" | ")}`,
+  );
+  afirmar(
+    "autoteste do detector: não acusa composição legítima nem interpolação de texto",
+    falsos.length === 0,
+    `falsos positivos: ${falsos.join(" | ")}`,
+  );
+
+  /* E agora o repositório. O alcance é o PAINEL inteiro — `admin/`, o domínio
+     que ele consome e a página que o hospeda —, e não só os arquivos novos:
+     a proibição vale em lugar nenhum do Painel, e restringi-la aos arquivos
+     desta entrega deixaria o resto de fora justamente quando um dado do banco
+     começa a chegar perto de virar aparência. */
+  const doPainel = fontesSrc.filter((a) => {
+    const caminho = rel(a);
+    return (
+      caminho.startsWith("src/admin/") ||
+      caminho.startsWith("src/domain/blog/") ||
+      caminho === CAMINHO_PAGINA
+    );
+  });
+  afirmar(
+    "há arquivos do Painel para varrer",
+    doPainel.length > 0,
+    "uma lista vazia faria a asserção seguinte passar por vacuidade",
+  );
+  const montadas = [];
+  for (const arquivo of doPainel) {
+    const texto = semComentarios(ler(arquivo));
+    texto.split(/\r?\n/).forEach((linha, i) => {
+      const achado = classeInterpolada(linha);
+      if (achado !== null) montadas.push(`${rel(arquivo)}:${i + 1} (${achado})`);
+    });
+  }
+  afirmar(
+    "nenhuma classe do Tailwind é montada por interpolação em lugar nenhum do Painel",
+    montadas.length === 0,
+    montadas.slice(0, 8).join(" | "),
   );
 }
 

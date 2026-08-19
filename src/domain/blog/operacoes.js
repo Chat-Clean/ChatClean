@@ -36,18 +36,49 @@ export const OPERACAO_EXCLUIR = "excluir";
 export const OPERACAO_DESTACAR = "destacar";
 
 /**
- * As três, na ordem em que a listagem as oferece.
+ * Criar ou editar uma Categoria (Story 2.14) — nome, endereço, cor, ícone e
+ * ordem.
+ *
+ * Uma operação para as duas coisas, como `salvar` faz com o Post: identificador
+ * ausente cria, identificador presente edita. Duas operações para "gravar" e
+ * "editar" seriam duas superfícies para autenticar, validar e recusar colisão —
+ * e a segunda ficaria para trás da primeira.
+ */
+export const OPERACAO_SALVAR_CATEGORIA = "salvarCategoria";
+
+/**
+ * Excluir uma Categoria.
+ *
+ * Ela é recusada quando a Categoria está em uso, e a recusa diz **quantos**
+ * Posts dependem dela. O bloqueio de verdade mora no banco (`on delete
+ * restrict`): a contagem existe para EXPLICAR a recusa, não para ser a recusa.
+ */
+export const OPERACAO_EXCLUIR_CATEGORIA = "excluirCategoria";
+
+/**
+ * As cinco, na ordem em que o Painel as oferece.
  *
  * `salvar` está aqui, e não implícito, porque o vocabulário precisa ser
  * COMPLETO para ser fechado: uma lista que só nomeia as operações novas deixa
  * "o que acontece quando o campo falta" como comportamento não declarado, e
- * comportamento não declarado é onde a próxima pessoa encaixa uma quarta
+ * comportamento não declarado é onde a próxima pessoa encaixa uma sexta
  * operação sem lista nenhuma.
+ *
+ * ─── A LISTA CRESCE DE PROPÓSITO, E ISSO NÃO É UMA PORTA NOVA ───────────────
+ *
+ * A Story 2.12 fixou por asserção que o vocabulário tinha TRÊS operações "e
+ * nenhuma a mais" — e registrou, no `deferred` daquela spec, que uma story
+ * futura precisaria reabrir a asserção **de propósito, não por acidente**. É o
+ * que a Story 2.14 faz: as duas operações de Categoria entram aqui, não em
+ * `api/categorias.js`. A porta continua sendo uma; o que muda é o dado que ela
+ * recebe.
  */
 export const OPERACOES = Object.freeze([
   OPERACAO_SALVAR,
   OPERACAO_EXCLUIR,
   OPERACAO_DESTACAR,
+  OPERACAO_SALVAR_CATEGORIA,
+  OPERACAO_EXCLUIR_CATEGORIA,
 ]);
 
 /**
@@ -60,7 +91,7 @@ export const OPERACOES = Object.freeze([
 export const OPERACAO_PADRAO = OPERACAO_SALVAR;
 
 /**
- * `true` apenas para uma das três chaves.
+ * `true` apenas para uma das chaves declaradas.
  *
  * A conferência é contra a LISTA, e não contra as chaves de um objeto: com
  * objeto, `ehOperacao("constructor")` responderia verdadeiro e a tabela de

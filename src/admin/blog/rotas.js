@@ -35,6 +35,26 @@ export const BASE_DO_PAINEL = "/admin";
 /** O segmento que distingue a prévia das outras telas do Painel. */
 export const SEGMENTO_DA_PREVIA = "previa";
 
+/**
+ * O segmento da tela de Categorias (Story 2.14).
+ *
+ * ─── POR QUE ELA É ROTA, E NÃO ABA ──────────────────────────────────────────
+ *
+ * A faixa de busca do Painel é um ternário de DOIS ramos — Blog e Carreiras —,
+ * e ela é a superfície escura que a Story 2.10 deixou de propósito para não
+ * regredir Carreiras. Uma terceira aba cairia no ramo de Carreiras e ganharia o
+ * campo "Buscar vagas" e o botão "Nova Vaga". A Story 2.13 já deixou a rota-pai
+ * com portão pronta: a tela de Categorias nasce irmã da prévia, dentro do
+ * mesmo portão, e não encosta em Carreiras.
+ */
+export const SEGMENTO_DAS_CATEGORIAS = "categorias";
+
+/** O caminho da rota filha, RELATIVO ao pai `/admin`. */
+export const ROTA_DAS_CATEGORIAS = SEGMENTO_DAS_CATEGORIAS;
+
+/** O endereço absoluto da tela de Categorias. */
+export const ENDERECO_DAS_CATEGORIAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_CATEGORIAS}`;
+
 /** O nome do parâmetro de rota. Escrito uma vez: a rota e a tela o leem daqui. */
 export const PARAMETRO_DA_PREVIA = "id";
 

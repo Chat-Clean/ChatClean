@@ -101,6 +101,50 @@ export const COLUNAS_DO_POST = Object.freeze([
 const SELECAO_DO_POST = COLUNAS_DO_POST.join(",");
 
 /**
+ * As colunas que uma gravação de Categoria devolve (Story 2.14).
+ *
+ * Lista FECHADA pelo mesmo motivo da do Post: a entrada é lista de permissão, e
+ * uma saída `select=*` faria toda coluna futura passar a sair na resposta da
+ * API sem ninguém decidir isso. Ela é a MESMA lista que a camada de leitura
+ * usa (`COLUNAS_DA_CATEGORIA`, em `src/data/blog/taxonomia.js`) mais os dois
+ * instantes — e a verificação compara as duas.
+ */
+export const COLUNAS_DA_CATEGORIA_NA_ESCRITA = Object.freeze([
+  "id",
+  "nome",
+  "slug",
+  "icone",
+  "cor",
+  "ordem",
+  "criado_em",
+  "atualizado_em",
+]);
+
+const SELECAO_DA_CATEGORIA = COLUNAS_DA_CATEGORIA_NA_ESCRITA.join(",");
+
+/** As colunas de uma Tag. Curta, e fechada pela mesma razão. */
+export const COLUNAS_DA_TAG_NA_ESCRITA = Object.freeze(["id", "nome", "slug"]);
+
+const SELECAO_DA_TAG = COLUNAS_DA_TAG_NA_ESCRITA.join(",");
+
+/**
+ * O total de uma faixa do PostgREST (`0-0/12`, `* /12`, `0-24/*`), ou `null`.
+ *
+ * `null` significa "não deu para saber", e quem chama precisa tratar isso como
+ * falha em vez de zero: a contagem existe para dizer quantos Posts dependem de
+ * uma Categoria antes de excluí-la, e um zero inventado é a frase mais
+ * perigosa que essa recusa poderia ter. `*` no lugar do total é a resposta do
+ * PostgREST quando a contagem não foi pedida — também é ausência, não zero.
+ */
+export function totalDaFaixa(faixa) {
+  const texto = typeof faixa === "string" ? faixa.trim() : "";
+  const casou = /\/(\d+)\s*$/.exec(texto);
+  if (!casou) return null;
+  const total = Number(casou[1]);
+  return Number.isInteger(total) && total >= 0 ? total : null;
+}
+
+/**
  * A URL do projeto serve para receber a chave de serviço?
  *
  * Sem esta conferência, `lerAmbiente` aceitava qualquer texto e o acesso mandava
@@ -244,6 +288,7 @@ export function criarAcesso({
         ok: false,
         status: 0,
         dados: null,
+        faixa: "",
         codigo: "PrazoEsgotado",
         mensagem: `o prazo de ${prazoTotalMs} ms do pedido terminou antes de ${caminho}`,
       };
@@ -266,6 +311,7 @@ export function criarAcesso({
         ok: false,
         status: 0,
         dados: null,
+        faixa: "",
         codigo: String(excecao?.name ?? ""),
         mensagem: esconder(excecao?.message ?? excecao),
       };
@@ -279,12 +325,25 @@ export function criarAcesso({
       dados = null;
     }
 
+    /* A FAIXA da resposta, quando o PostgREST a manda.
+       Ela é a única forma de saber uma CONTAGEM exata sem trazer as linhas: com
+       `Prefer: count=exact`, o cabeçalho volta como `0-0/12`, e é o `12` que a
+       recusa de excluir Categoria em uso precisa dizer. Trazer as linhas para
+       contá-las funcionaria com doze Posts e seria uma varredura com mil. */
+    let faixa = "";
+    try {
+      faixa = String(resposta.headers?.get?.("content-range") ?? "");
+    } catch {
+      faixa = "";
+    }
+
     if (!resposta.ok) {
       const objeto = dados !== null && typeof dados === "object" ? dados : {};
       return {
         ok: false,
         status: resposta.status,
         dados: null,
+        faixa,
         // O PostgREST devolve `code` (SQLSTATE) e `message`; o GoTrue devolve
         // `error_code` e `msg`. Os dois entram, porque a classificação depende
         // deles e olhar só um deixa metade dos casos em "inesperado".
@@ -295,7 +354,14 @@ export function criarAcesso({
       };
     }
 
-    return { ok: true, status: resposta.status, dados, codigo: "", mensagem: "" };
+    return {
+      ok: true,
+      status: resposta.status,
+      dados,
+      faixa,
+      codigo: "",
+      mensagem: "",
+    };
   }
 
   const comServico = (extra = {}) => ({
@@ -406,6 +472,185 @@ export function criarAcesso({
       });
     },
 
+    /* ─── Categorias (Story 2.14) ──────────────────────────────────────────
+       A Categoria virou dado, e escrever nela é escrever no banco: passa por
+       aqui, com a chave de serviço, como tudo o mais. Nenhuma política de
+       escrita foi criada para `categorias` — a RLS continua negando escrita a
+       `anon` e a `authenticated`. */
+
+    /** A Categoria que já existe, ou `null`. */
+    async lerCategoria(id) {
+      return primeira(
+        await pedir(
+          `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&id=eq.${encodeURIComponent(id)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /**
+     * Quem já tem este nome, ou `null` — para a recusa dizer QUAL já existe.
+     *
+     * A restrição `categorias_nome_unico` continua sendo a última linha; o que
+     * ela não sabe fazer é avisar enquanto ainda dá para escolher outro nome.
+     * É o mesmo desenho de `postPorSlug`.
+     */
+    async categoriaPorNome(nome) {
+      return primeira(
+        await pedir(
+          `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&nome=eq.${encodeURIComponent(nome)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /** Quem já tem este endereço, ou `null`. Mesma razão. */
+    async categoriaPorSlug(slug) {
+      return primeira(
+        await pedir(
+          `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&slug=eq.${encodeURIComponent(slug)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /**
+     * Quantos Posts usam esta Categoria — a contagem que EXPLICA a recusa.
+     *
+     * `Prefer: count=exact` faz o PostgREST devolver `content-range: 0-0/12`
+     * sem trazer as linhas. Trazer os Posts para contá-los funcionaria com doze
+     * e seria uma varredura com mil — e o número precisa ser exato, porque a
+     * frase o diz.
+     *
+     * Devolve `{ ok: true, total }` ou a falha do transporte. Faixa que não dá
+     * para ler vira falha, e não zero: um zero inventado transformaria "três
+     * posts dependem desta categoria" em "nenhum post depende", que é a frase
+     * mais perigosa possível diante de uma exclusão.
+     */
+    async contarPostsDaCategoria(id) {
+      const resposta = await pedir(
+        `/rest/v1/posts?select=id&categoria_id=eq.${encodeURIComponent(id)}&limit=1`,
+        { cabecalhos: comServico({ Prefer: "count=exact" }) },
+      );
+      if (!resposta.ok) return resposta;
+      const total = totalDaFaixa(resposta.faixa);
+      if (total === null) {
+        return {
+          ok: false,
+          status: resposta.status,
+          dados: null,
+          faixa: resposta.faixa,
+          codigo: "ContagemIlegivel",
+          mensagem: `o PostgREST não devolveu contagem: content-range ${JSON.stringify(resposta.faixa ?? "")}`,
+        };
+      }
+      return { ...resposta, dados: { total } };
+    },
+
+    /** Cria uma Categoria. Um comando, com as colunas montadas pelo chamador. */
+    async inserirCategoria(campos) {
+      return primeira(
+        await pedir(`/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}`, {
+          metodo: "POST",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /** Atualiza uma Categoria existente. */
+    async atualizarCategoria(id, campos) {
+      return primeira(
+        await pedir(
+          `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&id=eq.${encodeURIComponent(id)}`,
+          {
+            metodo: "PATCH",
+            corpo: campos,
+            cabecalhos: comServico({ Prefer: "return=representation" }),
+          },
+        ),
+      );
+    },
+
+    /**
+     * Apaga uma Categoria — com a MESMA guarda do `DELETE` de Post.
+     *
+     * Filtro ausente ou malformado no PostgREST não é um erro: é um `DELETE` na
+     * tabela inteira. O chamador já confere o identificador, e confiar nisso é
+     * exatamente a suposição que um caminho novo quebraria sem ninguém notar.
+     *
+     * `return=representation` distingue "excluída" de "não estava lá", como na
+     * exclusão de Post. E o banco recusa por `posts_categoria_id_fkey` quando
+     * ela está em uso — a aplicação conta antes para explicar; o `restrict` é o
+     * que garante.
+     */
+    async excluirCategoria(id) {
+      const alvo = typeof id === "string" ? id.trim() : "";
+      if (!PADRAO_DE_UUID.test(alvo)) {
+        return {
+          ok: false,
+          status: 0,
+          faixa: "",
+          codigo: "IdentificadorInvalido",
+          mensagem:
+            "exclusão de categoria recusada no transporte: identificador ausente ou fora do formato",
+          dados: null,
+        };
+      }
+      return primeira(
+        await pedir(
+          `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&id=eq.${encodeURIComponent(alvo)}`,
+          {
+            metodo: "DELETE",
+            cabecalhos: comServico({ Prefer: "return=representation" }),
+          },
+        ),
+      );
+    },
+
+    /* ─── Tags por NOME (Story 2.14) ───────────────────────────────────────
+       A tela passou a produzir nomes, e nome não é identificador: alguém tem
+       de procurar a Tag que já existe e criar a que falta. São duas chamadas,
+       nesta ordem, e a ordem importa — ver `resolverTags` no núcleo. */
+
+    /** As Tags cujos endereços estão nesta lista. Lista vazia não vai à rede. */
+    async tagsPorSlugs(slugs) {
+      const lista = Array.isArray(slugs) ? slugs.filter((s) => s !== "") : [];
+      if (lista.length === 0) {
+        return { ok: true, status: 200, dados: [], faixa: "", codigo: "", mensagem: "" };
+      }
+      const filtro = lista.map((s) => `"${encodeURIComponent(s)}"`).join(",");
+      return pedir(`/rest/v1/tags?select=${SELECAO_DA_TAG}&slug=in.(${filtro})`, {
+        cabecalhos: comServico(),
+      });
+    },
+
+    /**
+     * Cria as Tags que faltam, **ignorando** as que já existem.
+     *
+     * `resolution=ignore-duplicates` em vez de `merge-duplicates`: mesclar
+     * REESCREVERIA o nome de uma Tag que já existe porque alguém digitou com
+     * outra caixa — "SEO" viraria "seo" para todos os Posts que já a usavam.
+     * A grafia é de quem cadastrou primeiro; quem chega depois reaproveita.
+     *
+     * Ignorar duplicata é também o que faz duas gravações simultâneas do mesmo
+     * nome não estourarem por unicidade: a segunda simplesmente não insere, e a
+     * releitura seguinte encontra a linha da primeira.
+     */
+    async inserirTags(linhas) {
+      const lista = Array.isArray(linhas) ? linhas : [];
+      if (lista.length === 0) {
+        return { ok: true, status: 200, dados: [], faixa: "", codigo: "", mensagem: "" };
+      }
+      return pedir(`/rest/v1/tags?select=${SELECAO_DA_TAG}&on_conflict=slug`, {
+        metodo: "POST",
+        corpo: lista,
+        cabecalhos: comServico({
+          Prefer: "return=representation,resolution=ignore-duplicates",
+        }),
+      });
+    },
+
     /** Substitui o conjunto de Tags do Post, também numa transação só. */
     async definirTags(id, tags) {
       return pedir("/rest/v1/rpc/definir_tags_do_post", {
@@ -484,6 +729,7 @@ export function criarAcesso({
         return {
           ok: false,
           status: 0,
+          faixa: "",
           codigo: "IdentificadorInvalido",
           mensagem:
             "exclusão recusada no transporte: identificador ausente ou fora do formato",

@@ -5,7 +5,7 @@ import {
   Save,
   ChevronLeft, Search, Check,
   FileText, Briefcase,
-  MapPin,
+  MapPin, Tags,
 } from "lucide-react";
 
 import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
@@ -14,6 +14,7 @@ import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import EditorDePost from "@/admin/blog/EditorDePost";
 import ListaDePosts from "@/admin/blog/ListaDePosts";
 import { alternarEstado } from "@/admin/blog/listagem";
+import { ENDERECO_DAS_CATEGORIAS } from "@/admin/blog/rotas";
 import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
 import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
@@ -61,7 +62,14 @@ function comoResolver(erro, acaoNoInfinitivo) {
    escrito aqui — seis nomes fixos, e nada para uma sétima categoria criada no
    Painel. A listagem nova mostra a capa do Post ou o monograma da Categoria
    (`ListaDePosts.jsx`), e o monograma vem do dado, não de um mapa que precisa
-   ser editado toda vez que alguém cadastra uma categoria. */
+   ser editado toda vez que alguém cadastra uma categoria.
+
+   E a Story 2.14 fechou o buraco pelo lado certo: o ícone voltou, mas como
+   CHAVE de um mapa fechado (`admin/blog/iconesDeCategoria.js`) escolhida pelo
+   Autor na tela de Categorias — não como nome de categoria casado com desenho.
+   A cor entrou junto, por `style`, de um vocabulário fechado do domínio. Quem
+   cadastra, renomeia e exclui Categoria é a rota `/admin/categorias`, e não
+   uma constante neste arquivo. */
 
 /* ─── Cores disponíveis para vagas ────────────────────────────────── */
 const VAGA_COLORS = [
@@ -544,6 +552,20 @@ export default function AdminBlog() {
                 só dela: em Carreiras o botão sempre veio logo depois do campo,
                 e mover um controle de módulo fora de escopo é regressão. */}
             <div className="flex-1" />
+            {/* A ENTRADA PARA AS CATEGORIAS (Story 2.14).
+                É um LINK para uma rota irmã, e não uma terceira aba: a faixa em
+                que ele está é um ternário de dois ramos, e uma aba a mais
+                cairia no ramo de Carreiras — ganhando o campo "Buscar vagas" e
+                o botão "Nova Vaga". Ele só existe na aba Blog, como tudo o mais
+                deste ramo. */}
+            <Link
+              to={ENDERECO_DAS_CATEGORIAS}
+              data-acao="abrir-categorias"
+              className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-600 text-zinc-300 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+            >
+              <Tags className="w-4 h-4" />
+              <span className="hidden sm:inline">Categorias</span>
+            </Link>
           </>
         ) : (
           <div className="relative flex-1 max-w-sm">

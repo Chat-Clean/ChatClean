@@ -12,7 +12,12 @@ import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
 import ScrollToTop from "./components/ScrollToTop.jsx";
 import AdminBlog from "./pages/AdminBlog.jsx";
 import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
-import { ROTA_DA_PREVIA, ROTA_DESCONHECIDA } from "@/admin/blog/rotas";
+import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
+import {
+  ROTA_DAS_CATEGORIAS,
+  ROTA_DA_PREVIA,
+  ROTA_DESCONHECIDA,
+} from "@/admin/blog/rotas";
 import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
@@ -52,6 +57,10 @@ createRoot(document.getElementById("root")).render(
           {/* A pré-visualização (Story 2.13): por identificador, porque
               rascunho pode não ter endereço nenhum. */}
           <Route path={ROTA_DA_PREVIA} element={<PreVisualizacaoDePost />} />
+          {/* As Categorias (Story 2.14): rota IRMÃ da prévia, dentro do mesmo
+              portão. Não é aba nova — uma terceira aba cairia no ramo de
+              Carreiras da faixa de busca, que é módulo fora de escopo. */}
+          <Route path={ROTA_DAS_CATEGORIAS} element={<TelaDeCategorias />} />
           {/* Endereço desconhecido sob o Painel cai na mesma tela de ausência.
               Sem esta filha, o pai monta, o `Outlet` fica vazio e o Autor
               recebe uma página em branco — indistinguível de "o Painel

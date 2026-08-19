@@ -14,8 +14,9 @@
  * ─── Três coisas que este arquivo decide, e só ele ──────────────────────────
  *
  * **1. QUAL operação está sendo pedida.** Desde a Story 2.12 esta porta faz
- * três coisas — salvar, excluir e alternar Destaque —, escolhidas por um campo
- * do corpo conferido contra o vocabulário fechado de `domain/blog/operacoes.js`.
+ * mais de uma coisa — salvar, excluir e alternar Destaque um Post; e, desde a
+ * Story 2.14, salvar e excluir uma Categoria —, escolhidas por um campo do
+ * corpo conferido contra o vocabulário fechado de `domain/blog/operacoes.js`.
  * A escolha mora aqui, e não no núcleo, porque é aqui que o corpo chega da
  * rede: é o ponto exato em que a lista de permissão precisa existir.
  *
@@ -31,11 +32,17 @@
 import {
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
+  OPERACAO_EXCLUIR_CATEGORIA,
   OPERACAO_SALVAR,
+  OPERACAO_SALVAR_CATEGORIA,
   OPERACOES,
   operacaoPedida,
 } from "../src/domain/blog/operacoes.js";
 import { acessoDoAmbiente, VARIAVEIS } from "./_nucleo/acesso.js";
+import {
+  excluirCategoria,
+  salvarCategoria,
+} from "./_nucleo/operacoesDaCategoria.js";
 import { definirDestaque, excluirPost } from "./_nucleo/operacoesDoPost.js";
 import {
   ERRO_CONFIGURACAO,
@@ -87,14 +94,21 @@ export const CODIGO_HTTP = Object.freeze({
  * conferido de novo com `Object.hasOwn`. Lista de proibição sempre tem uma
  * forma de evasão que ninguém pensou ainda.
  *
- * As três funções têm a MESMA assinatura (`{ token, corpo, acesso }`) e o mesmo
- * contrato de retorno, e é isso que permite ao invólucro continuar sem saber
- * qual delas está chamando.
+ * TODAS as funções têm a MESMA assinatura (`{ token, corpo, acesso }`) e o
+ * mesmo contrato de retorno, e é isso que permite ao invólucro continuar sem
+ * saber qual delas está chamando — inclusive quando a operação nova mexe em
+ * outra tabela.
  */
 export const EXECUTORES = Object.freeze({
   [OPERACAO_SALVAR]: salvarPost,
   [OPERACAO_EXCLUIR]: excluirPost,
   [OPERACAO_DESTACAR]: definirDestaque,
+  /* Story 2.14: a Categoria virou dado, e mexer nela é escrever. Ela entra
+     como OPERAÇÃO, e não como `api/categorias.js` — uma segunda rota teria de
+     repetir a conferência do token, a exigência de cadastro, a classificação do
+     erro e a ocultação do detalhe, quatro coisas que a segunda cópia faz pior. */
+  [OPERACAO_SALVAR_CATEGORIA]: salvarCategoria,
+  [OPERACAO_EXCLUIR_CATEGORIA]: excluirCategoria,
 });
 
 /**
@@ -274,9 +288,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  // 201 é só do Post que NASCEU. As operações que mexem no que já existe saem
-  // com 200 — `criado` nem existe na resposta delas.
-  res.status(resultado.dados.criado === true ? 201 : 200).json({
+  /* 201 é do que NASCEU — o Post (`criado`) e a Categoria (`criada`). As
+     operações que mexem no que já existe saem com 200, e nenhuma das duas
+     chaves existe na resposta delas. */
+  const nasceu =
+    resultado.dados.criado === true || resultado.dados.criada === true;
+  res.status(nasceu ? 201 : 200).json({
     ok: true,
     dados: resultado.dados,
   });

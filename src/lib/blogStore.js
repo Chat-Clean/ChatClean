@@ -33,9 +33,20 @@ export function getRelatedPosts(currentId, categoria, limit = 3) {
     .slice(0, limit);
 }
 
+/**
+ * A escolha que significa "sem filtro".
+ *
+ * Ela NÃO é uma Categoria — cadastrá-la no banco criaria uma categoria que
+ * ninguém pode usar num post —, e por isso continua escrita no código. O que
+ * ela não pode ser é escrita DUAS vezes: a página comparava com um literal
+ * próprio, e renomear um dos dois faria a visão padrão filtrar zero posts sem
+ * que nada acusasse.
+ */
+export const CATEGORIA_TODOS = "Todos";
+
 export function getPostsByCategory(categoria) {
   const all = getPosts();
-  if (categoria === "Todos") return all;
+  if (categoria === CATEGORIA_TODOS) return all;
   return all.filter((p) => p.categoria === categoria);
 }
 

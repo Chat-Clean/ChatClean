@@ -75,7 +75,7 @@ const SEM_RESPOSTA_PARA_DESTACAR =
  * A recusa para quem tem token válido e não está cadastrado no Painel.
  * Autenticar não é autorizar — ver `perfilOuFalha`.
  */
-const SEM_CADASTRO =
+export const SEM_CADASTRO =
   "Esta conta não está cadastrada no Painel, então não pode mexer nos posts. Avise quem cuida das contas.";
 
 /**
@@ -106,8 +106,23 @@ function idDoCorpo(corpo) {
  *
  * As duas conferências acontecem ANTES de qualquer escrita, para que "recusado,
  * nada mudou" seja consequência da ordem e não de sorte.
+ *
+ * **Exportada** desde a Story 2.14: as operações de Categoria fazem exatamente
+ * a mesma pergunta, e uma segunda cópia dela divergiria na primeira mudança de
+ * política — a operação nova que "esqueceu" de exigir cadastro é o defeito que
+ * este arquivo existe para tornar impossível. O que cada operação traz de
+ * próprio são as FRASES, que viajam como argumento.
  */
-async function autorizar({ token, acesso, mensagem, mensagemDeRede }) {
+export async function autorizar({
+  token,
+  acesso,
+  mensagem,
+  mensagemDeRede,
+  /* A frase do CADASTRO também é da operação — "não pode mexer nos posts" dito
+     a quem tentou renomear uma Categoria manda a pessoa procurar no lugar
+     errado. O padrão é a dos Posts, que é o caso de quem não passa nada. */
+  mensagemDeCadastro = SEM_CADASTRO,
+}) {
   const chamador = await identificarChamador({
     token,
     acesso,
@@ -121,7 +136,7 @@ async function autorizar({ token, acesso, mensagem, mensagemDeRede }) {
   const perfil = await perfilOuFalha({
     acesso,
     conta: chamador.conta,
-    mensagem: SEM_CADASTRO,
+    mensagem: mensagemDeCadastro,
     /* O MESMO para a leitura do perfil: ela também vai ao banco, e falhar ali
        é indisponibilidade, não falta de cadastro. */
     mensagemDeRede,

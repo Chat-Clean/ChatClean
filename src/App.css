@@ -168,6 +168,35 @@
   --state-arquivado-bg: #f7ece5;
   --state-arquivado-ink: #8a4b2a;
 
+  /* Pares de Categoria (Story 2.14): fundo e tinta, entre 4,9:1 e 6,7:1.
+
+     São VALOR CSS aplicado por `style`, nunca classe utilitária — o valor
+     gravado em `categorias.cor` é a própria referência `var(--categoria-…-bg)`,
+     e o par vem do vocabulário fechado de `src/domain/blog/categorias.js`.
+     `bg-categoria-${cor}` não existiria no CSS compilado: o Tailwind lê o fonte
+     como texto e nunca vê a string final.
+
+     Eles não são registrados em `@theme inline` de propósito: não há utilitário
+     `bg-categoria-*` para gerar, porque ninguém escreve a classe. Quem os lê é
+     o JavaScript, e o detector de variável órfã conta `var()` escrito em JS
+     justamente por causa deste caso. */
+  --categoria-verde-bg: #e8f5ec;
+  --categoria-verde-ink: #007a2a;
+  --categoria-azul-bg: #e7f0f7;
+  --categoria-azul-ink: #0b6a9e;
+  --categoria-roxo-bg: #f1eaf9;
+  --categoria-roxo-ink: #6b34a8;
+  --categoria-ambar-bg: #f9f0e0;
+  --categoria-ambar-ink: #8a5a00;
+  --categoria-rosa-bg: #fbe9ef;
+  --categoria-rosa-ink: #a8215a;
+  --categoria-ciano-bg: #e2f2f4;
+  --categoria-ciano-ink: #126b78;
+  --categoria-terracota-bg: #f7ece5;
+  --categoria-terracota-ink: #8a4b2a;
+  --categoria-cinza-bg: #eef0f2;
+  --categoria-cinza-ink: #5b6672;
+
   /* Raios da direção Etiqueta. */
   --radius-cartao: 14px;
   --radius-controle: 12px;

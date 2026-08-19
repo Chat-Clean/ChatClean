@@ -14,6 +14,10 @@ import {
   formatarDataEHoraPorExtenso,
   paraCampoDeInstante,
 } from "@/domain/blog/formato";
+/* As regras da Tag digitada vêm do DOMÍNIO — as MESMAS que o servidor usa para
+   normalizar o que chega pela rede. Uma segunda regra aqui faria a tela e o
+   servidor discordarem sobre o que é a mesma Tag. */
+import { separarTags, textoDasTags } from "@/domain/blog/tags";
 
 /**
  * Os sete campos da gaveta, na ordem em que ela os oferece.
@@ -70,7 +74,10 @@ export function valoresVazios() {
     slug: "",
     resumo: "",
     categoria_id: "",
-    tags: [],
+    /* TEXTO, e não lista: o campo é digitado, e um valor normalizado a cada
+       tecla impediria de escrever a vírgula que separa a próxima tag. Quem
+       transforma texto em lista é `separarTags`, na hora de montar o pedido. */
+    tags: "",
     publicado_em: "",
     tempo_leitura: "",
   };
@@ -94,7 +101,10 @@ export function valoresDoPost(post, tags = []) {
     slug: typeof post.slug === "string" ? post.slug : "",
     resumo: typeof post.resumo === "string" ? post.resumo : "",
     categoria_id: typeof post.categoria_id === "string" ? post.categoria_id : "",
-    tags: Array.isArray(tags) ? tags.map((t) => String(t?.id ?? t)) : [],
+    // As Tags do Post viram o TEXTO do campo, na forma que `separarTags` lê
+    // de volta sem mudar nada — é o que faz abrir e fechar o Editor sem tocar
+    // em nada não acusar pendência.
+    tags: textoDasTags(tags),
     publicado_em: post.publicado_em ? paraCampoDeInstante(post.publicado_em) : "",
     tempo_leitura:
       Number.isFinite(Number(post.tempo_leitura)) && Number(post.tempo_leitura) > 0
@@ -118,7 +128,19 @@ export function valoresDoPost(post, tags = []) {
  *
  * Autor continua de fora: ele é resolvido no servidor, sempre.
  */
-export function corpoDoPedido({ id = null, valores, documento, estado = null }) {
+export function corpoDoPedido({
+  id = null,
+  valores,
+  documento,
+  estado = null,
+  /* ─── QUANDO AS TAGS NÃO PODEM SER ENVIADAS ─────────────────────────────
+     A leitura das Tags do Post pode falhar. O aviso na tela era a única
+     proteção — e aviso não impede salvar: `tags` sempre viajava, o campo
+     estava vazio, e o servidor lê lista vazia como "apague todas". A proteção
+     precisa ser ESTRUTURAL: campo ausente é "preserva o que está lá", e é
+     exatamente isso que a função de servidor faz com `tags` indefinido. */
+  omitirTags = false,
+}) {
   const v = valores ?? valoresVazios();
 
   let publicado_em = null;
@@ -143,16 +165,29 @@ export function corpoDoPedido({ id = null, valores, documento, estado = null }) 
     };
   }
 
+  /* AS TAGS DIGITADAS. Recusa antes de o pedido sair, e a recusa NOMEIA a Tag
+     que não serve: uma tag vazia entre duas vírgulas some sozinha (é o jeito
+     normal de digitar uma lista), mas uma tag longa demais ou sem letra nenhuma
+     é escolha da pessoa, e descartá-la em silêncio faria ela salvar cinco tags e
+     reabrir com quatro. */
+  const tags = separarTags(v.tags);
+  if (!omitirTags && tags.problemas.length > 0) {
+    return { ok: false, campo: "tags", motivo: tags.problemas.join(" ") };
+  }
+
   const corpo = {
     titulo: String(v.titulo ?? "").trim(),
     slug: String(v.slug ?? "").trim(),
     resumo: String(v.resumo ?? "").trim(),
     conteudo: documento,
     categoria_id: String(v.categoria_id ?? "").trim() === "" ? null : v.categoria_id,
-    tags: Array.isArray(v.tags) ? [...v.tags] : [],
     publicado_em,
     tempo_leitura: minutos === "" ? 0 : Number(minutos),
   };
+  /* NOMES, e não identificadores (Story 2.14): quem procura a Tag que já
+     existe e cria a que falta é o servidor, pela porta única. E o campo só
+     entra quando ele pode ser confiado — ausente preserva. */
+  if (!omitirTags) corpo.tags = tags.nomes;
   if (id) corpo.id = id;
   if (estado) corpo.estado = estado;
   return { ok: true, corpo };

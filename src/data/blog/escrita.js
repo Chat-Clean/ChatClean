@@ -1,11 +1,12 @@
 /**
  * O cliente da função de escrita — o único jeito de o Painel mexer num Post.
  *
- * São TRÊS operações e UMA porta: salvar (Story 2.5), excluir e alternar
- * Destaque (Story 2.12). Elas se distinguem por um campo do corpo, conferido
- * contra o vocabulário fechado de `domain/blog/operacoes.js` — nunca por um
- * endereço a mais, nunca por um método HTTP a mais, e nunca por uma escrita do
- * cliente direto no banco.
+ * São CINCO operações e UMA porta: salvar (Story 2.5), excluir e alternar
+ * Destaque (Story 2.12), e salvar e excluir Categoria (Story 2.14) — estas
+ * duas mexendo em outra tabela, e mesmo assim sem endereço próprio. Elas se
+ * distinguem por um campo do corpo, conferido contra o vocabulário fechado de
+ * `domain/blog/operacoes.js` — nunca por um endereço a mais, nunca por um
+ * método HTTP a mais, e nunca por uma escrita do cliente direto no banco.
  *
  * **Não escreve no banco.** Nenhum módulo do navegador escreve: a RLS da Story
  * 2.1 nega escrita a `anon` e a `authenticated`, e isso é deliberado. O que este
@@ -34,7 +35,9 @@
 import {
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
+  OPERACAO_EXCLUIR_CATEGORIA,
   OPERACAO_SALVAR,
+  OPERACAO_SALVAR_CATEGORIA,
 } from "../../domain/blog/operacoes.js";
 import { ehUuid, tokenDoPainelOuFalha } from "./comum.js";
 import {
@@ -92,7 +95,7 @@ export const ROTA_DE_ESCRITA = "/api/posts";
  * em que o servidor não manda mensagem nenhuma — 5xx, 401 sem corpo JSON, proxy
  * no caminho, rota ausente no ambiente.
  *
- * As três chaves são as do vocabulário fechado, e a verificação cobra que sejam
+ * As chaves são as do vocabulário fechado, e a verificação cobra que sejam
  * exatamente elas: uma operação nova sem frase própria cairia na de salvar sem
  * que nada acusasse.
  */
@@ -100,17 +103,40 @@ const VERBOS_DA_OPERACAO = Object.freeze({
   [OPERACAO_SALVAR]: Object.freeze({
     fazer: "salvar o post",
     tentar: "tente salvar de novo",
+    conflito: "Já existe um post com este endereço. Escolha outro antes de salvar.",
     ausente: "O post que você está editando já não está no Painel. Volte à listagem para ver o que existe agora.",
   }),
   [OPERACAO_EXCLUIR]: Object.freeze({
     fazer: "excluir o post",
     tentar: "tente excluir de novo",
+    /* CONFLITO AO EXCLUIR NÃO É COLISÃO DE ENDEREÇO. A frase de salvar mandava
+       quem tentou excluir "escolher outro endereço antes de salvar" — conselho
+       sobre uma ação que a pessoa não pediu, num campo que ela não tocou. */
+    conflito:
+      "Alguma coisa ainda depende deste post, então ele não pode sair agora. Recarregue o Painel e tente excluir de novo.",
     ausente: "Este post já não está no Painel — alguém pode tê-lo excluído antes.",
   }),
   [OPERACAO_DESTACAR]: Object.freeze({
     fazer: "mudar o destaque do post",
     tentar: "tente mudar o destaque de novo",
+    conflito:
+      "O destaque deste post foi mudado por outra pessoa enquanto você mexia nele. Recarregue o Painel para ver como ele está.",
     ausente: "Este post já não está no Painel, então não dá para mudar o destaque dele.",
+  }),
+  /* Story 2.14. As Categorias falam da CATEGORIA, e não do post: quem acabou de
+     tentar renomear uma categoria lendo "tente salvar o post de novo" procura o
+     defeito numa tela que não abriu. */
+  [OPERACAO_SALVAR_CATEGORIA]: Object.freeze({
+    fazer: "salvar a categoria",
+    tentar: "tente salvar de novo",
+    conflito: "Já existe uma categoria com este nome ou este endereço. Escolha outro antes de salvar.",
+    ausente: "A categoria que você está editando já não está no Painel. Volte à lista de categorias para ver o que existe agora.",
+  }),
+  [OPERACAO_EXCLUIR_CATEGORIA]: Object.freeze({
+    fazer: "excluir a categoria",
+    tentar: "tente excluir de novo",
+    conflito: "Há posts usando esta categoria. Mude a categoria desses posts antes de excluí-la.",
+    ausente: "Esta categoria já não está no Painel — alguém pode tê-la excluído antes.",
   }),
 });
 
@@ -134,9 +160,7 @@ export function fraseDaEscrita(operacao, tipo) {
     return `Não conseguimos falar com o servidor para ${verbo.fazer}. Confira a conexão e ${verbo.tentar}.`;
   }
   if (tipo === ERRO_NAO_ENCONTRADO) return verbo.ausente;
-  if (tipo === ERRO_CONFLITO) {
-    return "Já existe um post com este endereço. Escolha outro antes de salvar.";
-  }
+  if (tipo === ERRO_CONFLITO) return verbo.conflito;
   if (tipo === ERRO_DADOS_INVALIDOS) {
     return `Não conseguimos ${verbo.fazer} com o que foi enviado. Confira os campos e ${verbo.tentar}.`;
   }
@@ -215,17 +239,16 @@ function falhaDeEscrita(tipo, { operacao = "", mensagem = "", detalhe = "", falt
   return Object.freeze({ ok: false, erro: Object.freeze(erro) });
 }
 
-
 /**
  * O PEDIDO À FUNÇÃO DE SERVIDOR — a única porta, e ela é uma só função aqui.
  *
- * As três operações da Story 2.12 (salvar, excluir, destacar) compartilham este
- * caminho inteiro: o token pelo ponto único, o prazo, a leitura da resposta, a
- * tradução do erro e a frase de "a função não respondeu neste ambiente". É a
- * mesma porta, e precisa **parecer** a mesma porta — três cópias divergiriam na
- * primeira mudança de tratamento de erro, e a divergência apareceria como uma
- * operação que diz "tente de novo" e outra que diz "entre de novo" para a mesma
- * falha de rede.
+ * Todas as operações do vocabulário fechado compartilham este caminho inteiro:
+ * o token pelo ponto único, o prazo, a leitura da resposta, a tradução do erro
+ * e a frase de "a função não respondeu neste ambiente". É a mesma porta, e
+ * precisa **parecer** a mesma porta — cinco cópias divergiriam na primeira
+ * mudança de tratamento de erro, e a divergência apareceria como uma operação
+ * que diz "tente de novo" e outra que diz "entre de novo" para a mesma falha
+ * de rede.
  *
  * `operacao` viaja no CORPO, e não no endereço nem no método: o vocabulário é
  * fechado e conferido no servidor. `rotulo` é só o nome da chamada no erro
@@ -446,6 +469,82 @@ export async function definirDestaque(
     operacao: OPERACAO_DESTACAR,
     rotulo,
     corpo: { id: String(id).trim(), destaque },
+    buscar,
+    obterToken,
+  });
+}
+
+/* ─── Categorias (Story 2.14) ────────────────────────────────────────────── */
+
+/**
+ * Cria ou edita uma Categoria — pela MESMA porta, e não por um `insert` do
+ * cliente.
+ *
+ * A RLS nega escrita a `authenticated` em `categorias` tanto quanto em `posts`,
+ * e isso é deliberado: uma categoria criada pelo cliente exigiria política de
+ * escrita, e política de escrita "só para categorias" é política de escrita.
+ *
+ * `campos` é `{ nome, slug, icone, cor, ordem }` — o servidor tem a lista
+ * fechada, e o que vier fora dela é ignorado lá. `id` ausente CRIA; `id`
+ * presente edita, e é conferido aqui antes de viajar pela mesma razão que na
+ * exclusão de Post: recusar cedo dá uma frase melhor que a resposta de um
+ * filtro malformado, e a recusa local é `dados_invalidos` e nunca
+ * `nao_encontrado`.
+ *
+ * Devolve `{ ok: true, dados: { operacao, criada, categoria } }` ou
+ * `{ ok: false, erro }`. **Nunca lança.**
+ */
+export async function salvarCategoria(
+  campos,
+  { id = null, buscar = globalThis.fetch, obterToken } = {},
+) {
+  /* O rótulo é a PRÓPRIA chave da operação, importada — escrevê-la aqui como
+     literal criaria a segunda grafia que o módulo de domínio existe para
+     impedir, e a verificação cobra exatamente isso. */
+  const rotulo = OPERACAO_SALVAR_CATEGORIA;
+  const alvo = id === null || id === undefined || id === "" ? null : id;
+  if (alvo !== null && !ehUuid(alvo)) {
+    return falhaDeEscrita(ERRO_DADOS_INVALIDOS, {
+      operacao: rotulo,
+      mensagem: "Não reconhecemos qual categoria deve ser alterada.",
+      detalhe: `id fora do formato de identificador: ${JSON.stringify(String(id).slice(0, 60))}`,
+    });
+  }
+  const corpo = { ...(campos ?? {}) };
+  if (alvo !== null) corpo.id = String(alvo).trim();
+  else delete corpo.id;
+  return pedirAoServidor({
+    operacao: OPERACAO_SALVAR_CATEGORIA,
+    rotulo,
+    corpo,
+    buscar,
+    obterToken,
+  });
+}
+
+/**
+ * Exclui uma Categoria — também pela mesma porta.
+ *
+ * Categoria em uso volta do servidor como `conflito`, com a frase que diz
+ * **quantos** Posts dependem dela. A tela mostra essa frase e não inventa
+ * outra: quem sabe o número é quem contou.
+ *
+ * Devolve `{ ok: true, dados: { operacao, id, categoria } }` ou
+ * `{ ok: false, erro }`. **Nunca lança.**
+ */
+export async function excluirCategoria(id, { buscar = globalThis.fetch, obterToken } = {}) {
+  const rotulo = OPERACAO_EXCLUIR_CATEGORIA;
+  if (!ehUuid(id)) {
+    return falhaDeEscrita(ERRO_DADOS_INVALIDOS, {
+      operacao: rotulo,
+      mensagem: "Não reconhecemos qual categoria deve ser excluída.",
+      detalhe: `id fora do formato de identificador: ${JSON.stringify(String(id).slice(0, 60))}`,
+    });
+  }
+  return pedirAoServidor({
+    operacao: OPERACAO_EXCLUIR_CATEGORIA,
+    rotulo,
+    corpo: { id: String(id).trim() },
     buscar,
     obterToken,
   });

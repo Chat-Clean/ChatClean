@@ -18,6 +18,22 @@
  * Story 2.5, a partir da Conta autenticada. O campo digitável que existia na
  * tela de `localStorage` não se reproduz aqui, e a ausência é o requisito.
  *
+ * ─── CATEGORIA E TAG, DEPOIS DA STORY 2.14 ──────────────────────────────────
+ *
+ * A **Categoria** continua sendo um menu nativo — é o controle que cabe em
+ * 340px e que quem navega por teclado já sabe operar —, mas a escolhida passa a
+ * aparecer com COR e ÍCONE ao lado dele: os dois já chegavam da camada de dados
+ * e eram descartados. A cor vai por `style`, do vocabulário fechado do domínio;
+ * o ícone é chave de um mapa fechado no código. Nenhuma classe do Tailwind é
+ * montada em tempo de execução — ela não existiria no CSS compilado.
+ *
+ * As **Tags** deixaram de ser um menu múltiplo com "Segure Ctrl" na ajuda.
+ * Aquilo não é entrada de texto, não existe no celular, e não permitia criar
+ * tag nenhuma: só dava para escolher entre as que já existiam. Agora o campo é
+ * texto separado por vírgula, com as já usadas SUGERIDAS ao lado — e quem
+ * separa, normaliza e colapsa a repetida é `domain/blog/tags.js`, a mesma
+ * função que o servidor usa para não haver duas ideias do que é a mesma Tag.
+ *
  * ─── O campo que falta é INDICADO ───────────────────────────────────────────
  *
  * `faltando` é a lista de nomes de campo vazios que a gravação recusa — a mesma
@@ -51,6 +67,14 @@ import { AlertCircle, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { FRASES_DE_FALTA, textoDaDataDoCampo } from "@/admin/blog/metadados";
 import { larguraDaGaveta, rotuloDoControle } from "@/admin/blog/gaveta";
+import PilulaDeCategoria from "@/admin/blog/PilulaDeCategoria";
+/* As regras da Tag digitada vêm do DOMÍNIO — as MESMAS que o servidor usa. */
+import {
+  LIMITE_DE_TAGS,
+  SEPARADOR_DE_TAGS,
+  chaveDaTag,
+  separarTags,
+} from "@/domain/blog/tags";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +128,54 @@ export default function GavetaDeMetadados({
   const mudar = (nome) => (evento) => aoMudar?.(nome, evento.target.value);
 
   const enderecoRecusado = Boolean(problemaNoEndereco);
+
+  /* ── A Categoria escolhida, com cor e ícone ────────────────────────────
+     A gaveta recebe a lista de Categorias da camada de dados, que já traz
+     `icone` e `cor` desde a Story 2.2 — e que a versão anterior descartava. */
+  const categoriaEscolhida =
+    categorias.find((c) => c.id === valores.categoria_id) ?? null;
+
+  /* ── As Tags digitadas ─────────────────────────────────────────────────
+     Lidas do TEXTO do campo pela regra do domínio, a cada renderização: é
+     barato (uma string curta) e é o que faz o preview e a recusa refletirem o
+     que está escrito neste instante. */
+  const tagsLidas = separarTags(valores.tags ?? "");
+  const tagsRecusadas = tagsLidas.problemas.length > 0;
+
+  /* As já usadas que ainda não estão no campo. Sugerir uma Tag que a pessoa
+     acabou de digitar seria oferecer o que ela já tem. */
+  const escolhidas = new Set(tagsLidas.nomes.map((n) => chaveDaTag(n)));
+  const sugestoes = tags.filter(
+    (tag) => typeof tag?.nome === "string" && !escolhidas.has(chaveDaTag(tag.nome)),
+  );
+
+  /**
+   * Acrescenta uma Tag ao TEXTO do campo, sem apagar o que já está escrito.
+   *
+   * A versão anterior remontava o campo a partir de `tagsLidas.nomes` — a lista
+   * JÁ NORMALIZADA. Com isso, clicar numa sugestão descartava em silêncio o
+   * pedaço que estava sendo digitado ("atendi") e a Tag que a separação tinha
+   * recusado, e a pessoa via texto sumir por ter clicado noutro lugar. O que se
+   * acrescenta é texto ao texto.
+   *
+   * A vírgula que já está escrita não é reposta: "Atendimento, " seguido de um
+   * clique produzia "Atendimento, , Automação", e a lista lida de volta perdia
+   * um item para um separador vazio que ninguém digitou.
+   */
+  const acrescentarTag = (nome) => {
+    const atual = String(valores.tags ?? "");
+    if (atual.trim() === "") {
+      aoMudar?.("tags", nome);
+      return;
+    }
+    /* Terminar em vírgula — com ou sem espaço depois — significa que o
+       separador já está posto: o que falta é só o espaço antes do nome. */
+    const jaTerminaEmVirgula = /,\s*$/.test(atual);
+    const base = jaTerminaEmVirgula
+      ? atual.replace(/\s*$/, "")
+      : `${atual}${SEPARADOR_DE_TAGS}`;
+    aoMudar?.("tags", `${base} ${nome}`);
+  };
 
   return (
     <aside
@@ -201,7 +273,15 @@ export default function GavetaDeMetadados({
           </Recusa>
         </div>
 
-        {/* ── Categoria ──────────────────────────────────────────────────── */}
+        {/* ── Categoria ────────────────────────────────────────────────────
+            O menu continua nativo — ele é o controle que cabe em 340px e que
+            quem navega por teclado já sabe operar —, e ao lado dele a Categoria
+            escolhida aparece COM COR E ÍCONE. `icone` e `cor` já chegavam da
+            camada de dados desde a Story 2.2 e eram descartados aqui.
+
+            A cor vai por `style`, do vocabulário fechado do domínio; o ícone é
+            chave de um mapa fechado no código. Nenhuma classe do Tailwind é
+            montada em tempo de execução — ela não existiria no CSS compilado. */}
         <div className="flex flex-col gap-1.5">
           <Rotulo para={idDe("categoria_id")}>Categoria</Rotulo>
           <select
@@ -216,33 +296,86 @@ export default function GavetaDeMetadados({
               </option>
             ))}
           </select>
+          {categoriaEscolhida !== null ? (
+            <PilulaDeCategoria
+              categoria={categoriaEscolhida}
+              className="self-start"
+            />
+          ) : null}
         </div>
 
-        {/* ── Tags ───────────────────────────────────────────────────────── */}
+        {/* ── Tags ─────────────────────────────────────────────────────────
+            DIGITADAS, separadas por vírgula (Story 2.14). O menu múltiplo que
+            vivia aqui só deixava escolher entre as que já existiam, e a ajuda
+            dizia "Segure Ctrl" — que não é entrada de texto, não existe no
+            celular e não permite criar tag nenhuma.
+
+            O campo guarda TEXTO. Normalizar a cada tecla impediria de digitar a
+            vírgula que separa a próxima tag; quem transforma texto em lista é
+            `separarTags`, do domínio — a MESMA função que o servidor usa. */}
         <div className="flex flex-col gap-1.5">
           <Rotulo para={idDe("tags")}>Tags</Rotulo>
-          <select
-            multiple
-            size={Math.min(Math.max(tags.length, 3), 6)}
-            {...campo("tags", { ajuda: true })}
-            value={valores.tags ?? []}
-            onChange={(evento) =>
-              aoMudar?.(
-                "tags",
-                [...evento.target.selectedOptions].map((opcao) => opcao.value),
-              )
-            }
-          >
-            {tags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.nome}
-              </option>
-            ))}
-          </select>
+          <input
+            type="text"
+            {...campo("tags", { ajuda: true, recusa: tagsRecusadas })}
+            value={valores.tags ?? ""}
+            onChange={mudar("tags")}
+            placeholder="atendimento, automação"
+          />
+          <Recusa id={idDoErro("tags")} visivel={tagsRecusadas}>
+            {tagsLidas.problemas.join(" ")}
+          </Recusa>
+
+          {/* O QUE VAI SER GRAVADO, mostrado enquanto se digita: é aqui que a
+              pessoa vê a repetida colapsar e o espaço sobrando sumir, antes de
+              salvar em vez de depois. */}
+          {tagsLidas.nomes.length > 0 ? (
+            <ul data-papel="tags-lidas" className="flex flex-wrap gap-1.5">
+              {tagsLidas.nomes.map((nome) => (
+                <li
+                  key={nome}
+                  data-tag={nome}
+                  className="rounded-pilula bg-surface-sunk px-2 py-0.5 text-xs font-medium text-ink-secondary"
+                >
+                  {nome}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/* AS JÁ USADAS SÃO SUGERIDAS. Não é uma lista fechada: ela existe
+              para reaproveitar em vez de recriar com outra grafia — digitar uma
+              tag nova continua sendo o caminho normal. */}
+          {sugestoes.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-xs font-medium text-ink-muted">Já usadas</p>
+              <div data-papel="sugestoes-de-tag" className="flex flex-wrap gap-1.5">
+                {sugestoes.map((tag) => (
+                  <button
+                    key={tag.id ?? tag.nome}
+                    type="button"
+                    data-sugestao={tag.nome}
+                    disabled={desabilitado}
+                    aria-label={`Acrescentar a tag ${tag.nome}`}
+                    onClick={() => acrescentarTag(tag.nome)}
+                    className={cn(
+                      ANEL_DE_FOCO,
+                      "rounded-pilula border border-border-soft px-2 py-0.5",
+                      "text-xs font-medium text-ink-secondary",
+                      "transition-colors hover:border-border-strong hover:text-ink",
+                      "disabled:pointer-events-none disabled:opacity-60",
+                    )}
+                  >
+                    {tag.nome}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <p id={idDaAjuda("tags")} className="text-xs text-ink-muted">
-            {tags.length === 0
-              ? "Nenhuma tag cadastrada ainda."
-              : "Segure Ctrl (ou Command) para escolher mais de uma."}
+            Separe por vírgula, até {LIMITE_DE_TAGS}. Tag que já existe é
+            reaproveitada; tag nova é criada ao salvar.
           </p>
         </div>
 

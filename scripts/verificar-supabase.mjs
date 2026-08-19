@@ -71,6 +71,50 @@ import { sqlDeCriacaoDeConta, sqlDeRemocaoDeConta } from "./criar-conta.mjs";
 // justamente a divergência entre banco e código que a asserção existe para
 // pegar, e uma lista reescrita neste arquivo verificaria a si mesma.
 import { ESTADOS } from "../src/domain/blog/estados.js";
+/* Os vocabulários de cor e de ícone de Categoria vêm do DOMÍNIO, importados e
+   EXECUTADOS contra o que está gravado. Reescrever as listas aqui compararia
+   duas cópias do mesmo engano. */
+import {
+  ehChaveDeIconeDeCategoria,
+  ehCorDeCategoria,
+} from "../src/domain/blog/categorias.js";
+
+/**
+ * Os ENDEREÇOS das seis Categorias que a Story 2.14 semeou.
+ *
+ * ─── POR QUE ENDEREÇO, E NÃO NOME ───────────────────────────────────────────
+ *
+ * A primeira versão desta lista trazia os NOMES, e exigia que os seis
+ * estivessem no banco. Isso quebrava `npm run verificar` no instante em que
+ * alguém usasse a story: renomear ou excluir uma Categoria pelo Painel novo — o
+ * objetivo inteiro da entrega — derrubava a ferramenta. E era a QUARTA cópia da
+ * lista de Categorias, justamente o que a story veio eliminar.
+ *
+ * O que a asserção precisa provar é que a SEMEADURA aconteceu, e o endereço é o
+ * que sobrevive a um renomear: ele é gerado uma vez e não muda sozinho, pela
+ * mesma regra do Slug do Post. Excluir continua sendo possível — e por isso a
+ * asserção cobra que a semeadura tenha DEIXADO MARCA (nenhum endereço
+ * desconhecido, e pelo menos "novidades", que é o defeito que o critério
+ * nomeia), não que as seis linhas continuem lá para sempre.
+ */
+const ENDERECOS_SEMEADOS = Object.freeze([
+  "tecnologia",
+  "estrategia",
+  "analytics",
+  "automacao",
+  "tendencias",
+  "novidades",
+]);
+
+/**
+ * O endereço que o critério de aceite nomeia por extenso.
+ *
+ * "Novidades" existia no Painel e faltava no filtro público desde sempre; ela é
+ * a razão de a semeadura existir. Excluí-la é possível pela tela nova — e, se
+ * alguém o fizer, esta asserção precisa acusar, porque o produto perdeu a
+ * correção que a story entregou.
+ */
+const ENDERECO_QUE_FALTAVA = "novidades";
 
 let falhas = 0;
 let adiadas = 0;
@@ -1002,7 +1046,14 @@ if (!temToken) {
     ["posts_tags_post_id_fkey", "c", "cascade"],
     ["posts_tags_tag_id_fkey", "c", "cascade"],
     ["slugs_antigos_post_id_fkey", "c", "cascade"],
-    ["posts_categoria_id_fkey", "n", "set null"],
+    /* 'r' = restrict, desde a Story 2.14. Ela nasceu 'n' (set null) na Story
+       2.1, e esse era o DEFEITO CENTRAL daquela story: excluir uma Categoria em
+       uso desassociava todos os Posts em silêncio, e silêncio é o modo de falha
+       que ninguém descobre. Contar Posts na função de servidor produz a
+       mensagem útil; o `restrict` é o que faz a recusa valer também para quem
+       não passa por ela — o console do projeto, um script, qualquer detentor da
+       chave de serviço. */
+    ["posts_categoria_id_fkey", "r", "restrict"],
     ["posts_autor_id_fkey", "n", "set null"],
   ]) {
     afirmar(
@@ -1011,6 +1062,71 @@ if (!temToken) {
       `encontrado: ${acaoDe.get(nome) ?? "chave ausente"}`,
     );
   }
+
+  /* — Unicidade de NOME de Categoria (Story 2.14) — */
+  //
+  // `categorias_slug_unico` existe desde a Story 2.1; unicidade de nome não.
+  // Sem ela, duas Categorias com o mesmo nome e endereços diferentes conviveriam
+  // e o menu do Editor ofereceria as duas como se fossem coisas diferentes. O
+  // servidor normaliza antes de gravar; esta restrição vale para quem não passou
+  // por ele.
+  const nomeUnico = await uma(
+    `select coalesce(string_agg(pg_get_indexdef(i.indexrelid), ' | '), '') as d
+       from pg_index i
+       join pg_class c on c.oid = i.indrelid
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'categorias' and i.indisunique
+        and pg_get_indexdef(i.indexrelid) like '%(nome)%'`,
+    "unicidade de nome de categoria",
+  );
+  afirmar(
+    "public.categorias.nome tem restrição de unicidade",
+    !nomeUnico.falhou && (nomeUnico.linha?.d ?? "") !== "",
+    nomeUnico.erro ?? "sem ela, duas Categorias com o mesmo nome conviveriam no menu",
+  );
+
+  /* — AS SEIS CATEGORIAS, SEMEADAS COM COR E ÍCONE DO VOCABULÁRIO — */
+  //
+  // Elas moravam em constante no fonte, em três lugares que já divergiam entre
+  // si: o filtro público listava CINCO, e "Novidades" não estava nele. A
+  // asserção lê o BANCO e compara com as listas FECHADAS do código, importadas
+  // — reescrevê-las aqui compararia duas cópias do mesmo engano.
+  const semeadas = await uma(
+    `select nome, slug, icone, cor, ordem from public.categorias order by ordem, nome`,
+    "categorias semeadas",
+  );
+  const linhasDeCategoria = semeadas.linhas ?? [];
+  const enderecosNoBanco = linhasDeCategoria.map((c) => c.slug);
+  /* A SEMEADURA DEIXOU MARCA? O endereço sobrevive a um renomear — ele é gerado
+     uma vez e não muda sozinho —, então esta é a pergunta que continua válida
+     depois de alguém usar a tela nova. */
+  const semeadosPresentes = ENDERECOS_SEMEADOS.filter((e) =>
+    enderecosNoBanco.includes(e),
+  );
+  afirmar(
+    "a semeadura das seis Categorias deixou marca no banco",
+    !semeadas.falhou && semeadosPresentes.length > 0,
+    semeadas.erro ?? `endereços no banco: ${enderecosNoBanco.join(", ") || "nenhum"}`,
+  );
+  afirmar(
+    `"Novidades" está no banco — é o defeito em produção que o critério nomeia, e excluí-la o traria de volta`,
+    !semeadas.falhou && enderecosNoBanco.includes(ENDERECO_QUE_FALTAVA),
+    `endereços no banco: ${enderecosNoBanco.join(", ") || "nenhum"}`,
+  );
+  const corFora = linhasDeCategoria.filter((c) => !ehCorDeCategoria(c.cor));
+  afirmar(
+    "toda Categoria do banco tem cor do vocabulário fechado de domain/blog/categorias.js",
+    !semeadas.falhou && corFora.length === 0,
+    corFora.map((c) => `${c.nome}: ${JSON.stringify(c.cor)}`).join(" | "),
+  );
+  const iconeFora = linhasDeCategoria.filter(
+    (c) => !ehChaveDeIconeDeCategoria(c.icone),
+  );
+  afirmar(
+    "toda Categoria do banco tem ícone do mapa fechado do código",
+    !semeadas.falhou && iconeFora.length === 0,
+    iconeFora.map((c) => `${c.nome}: ${JSON.stringify(c.icone)}`).join(" | "),
+  );
 
   /* — O índice da ordenação que o Épico 2 usa — */
 
@@ -1451,7 +1567,7 @@ if (temToken && temChave) {
     const semeadura = await executarSql(
       token,
       `insert into public.categorias (slug, nome, icone, cor, ordem) values
-         (${literal(slug("categoria"))}, 'Categoria de verificação', 'flask', 'oklch(0.7 0.1 200)', 99);
+         (${literal(slug("categoria"))}, 'Categoria de verificação', 'etiqueta', 'var(--categoria-cinza-bg)', 99);
 
        insert into public.posts (slug, titulo, estado, publicado_em, categoria_id)
        select v.slug, v.titulo, v.estado::public.estado_post, v.publicado_em, c.id
@@ -2092,33 +2208,87 @@ if (temToken && temChave) {
         `tags restantes: ${cascata.linha?.tag_sobrevive ?? "?"}`,
       );
 
+      /* ─── EXCLUIR CATEGORIA EM USO É RECUSADO PELO BANCO (Story 2.14) ───
+         Até a 2.14 esta mesma seção afirmava o OPOSTO: que apagar a Categoria
+         anulava a referência sem apagar Post algum. Era `on delete set null`, e
+         era o defeito central da story — doze artigos podiam perder a
+         classificação sem que nada na tela dissesse isso.
+
+         A prova é feita PELO CONSOLE (SQL via Management API), que é
+         exatamente a via que função de servidor nenhuma cobre: se o bloqueio
+         morasse só na aplicação, este comando passaria. */
       const antesDaCategoria = await uma(
         `select
            (select count(*)::int from public.posts where slug like ${literal(marca)}) as posts,
            (select count(*)::int from public.posts
              where slug like ${literal(marca)} and categoria_id is not null) as com_categoria`,
-        "posts antes de apagar a Categoria",
+        "posts antes de tentar apagar a Categoria",
       );
-      const catRemovida = await executarSql(
+      /* CONTROLE POSITIVO: sem a garantia de que há Post usando a Categoria, a
+         recusa abaixo poderia ser sobre uma Categoria vazia — e a asserção
+         passaria por vacuidade, provando nada. */
+      afirmar(
+        "controle positivo: há Post usando a Categoria semeada",
+        !antesDaCategoria.falhou && (antesDaCategoria.linha?.com_categoria ?? 0) > 0,
+        `com categoria: ${antesDaCategoria.linha?.com_categoria ?? "?"}`,
+      );
+
+      const emUso = await executarSql(
         token,
         `delete from public.categorias where slug = ${literal(slug("categoria"))}`,
       );
-      const semCategoria = await uma(
+      const depoisDaTentativa = await uma(
         `select
            (select count(*)::int from public.posts where slug like ${literal(marca)}) as posts,
            (select count(*)::int from public.posts
-             where slug like ${literal(marca)} and categoria_id is not null) as com_categoria`,
-        "posts depois de apagar a Categoria",
+             where slug like ${literal(marca)} and categoria_id is not null) as com_categoria,
+           (select count(*)::int from public.categorias
+             where slug = ${literal(slug("categoria"))}) as categoria`,
+        "estado depois da tentativa de apagar a Categoria em uso",
       );
       afirmar(
-        "apagar uma Categoria anula a referência sem apagar Post algum",
-        catRemovida.ok &&
-          !antesDaCategoria.falhou &&
-          !semCategoria.falhou &&
-          (antesDaCategoria.linha?.com_categoria ?? 0) > 0 &&
-          semCategoria.linha?.com_categoria === 0 &&
-          semCategoria.linha?.posts === antesDaCategoria.linha?.posts,
-        `posts: ${antesDaCategoria.linha?.posts ?? "?"} → ${semCategoria.linha?.posts ?? "?"} | com categoria: ${antesDaCategoria.linha?.com_categoria ?? "?"} → ${semCategoria.linha?.com_categoria ?? "?"}`,
+        "o BANCO recusa apagar uma Categoria em uso — e nomeia a chave estrangeira",
+        emUso.ok === false && /posts_categoria_id_fkey/.test(String(emUso.erro ?? "")),
+        emUso.ok
+          ? "o comando foi ACEITO — `on delete restrict` não está em vigor"
+          : String(emUso.erro ?? "").slice(0, 200),
+      );
+      afirmar(
+        "a recusa não desassocia Post nenhum, e a Categoria continua lá",
+        !depoisDaTentativa.falhou &&
+          depoisDaTentativa.linha?.com_categoria ===
+            antesDaCategoria.linha?.com_categoria &&
+          depoisDaTentativa.linha?.posts === antesDaCategoria.linha?.posts &&
+          depoisDaTentativa.linha?.categoria === 1,
+        `posts: ${antesDaCategoria.linha?.posts ?? "?"} → ${depoisDaTentativa.linha?.posts ?? "?"} | com categoria: ${antesDaCategoria.linha?.com_categoria ?? "?"} → ${depoisDaTentativa.linha?.com_categoria ?? "?"} | categoria: ${depoisDaTentativa.linha?.categoria ?? "?"}`,
+      );
+
+      /* E o CONTROLE POSITIVO do outro lado: sem uso, ela sai. Sem isto, a
+         recusa acima passaria idêntica com uma restrição que proibisse TODA
+         exclusão de Categoria — que é outro defeito, e não a garantia pedida. */
+      const desassociou = await executarSql(
+        token,
+        `update public.posts set categoria_id = null where slug like ${literal(marca)}`,
+      );
+      const semUso = await executarSql(
+        token,
+        `delete from public.categorias where slug = ${literal(slug("categoria"))}`,
+      );
+      const sumiu = await uma(
+        `select (select count(*)::int from public.categorias
+                  where slug = ${literal(slug("categoria"))}) as categoria,
+                (select count(*)::int from public.posts
+                  where slug like ${literal(marca)}) as posts`,
+        "estado depois de apagar a Categoria sem uso",
+      );
+      afirmar(
+        "Categoria SEM uso é excluída normalmente, sem levar Post nenhum junto",
+        desassociou.ok &&
+          semUso.ok &&
+          !sumiu.falhou &&
+          sumiu.linha?.categoria === 0 &&
+          sumiu.linha?.posts === antesDaCategoria.linha?.posts,
+        `${desassociou.erro ?? ""} ${semUso.erro ?? ""} | categoria: ${sumiu.linha?.categoria ?? "?"} | posts: ${sumiu.linha?.posts ?? "?"}`,
       );
 
       /* — `publicado_em` nulo não é verdadeiro: a aritmética da política — */

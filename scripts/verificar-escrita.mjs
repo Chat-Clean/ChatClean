@@ -71,8 +71,13 @@ import {
   lerAmbiente,
   PADRAO_DE_UUID,
   problemaNaUrl,
+  totalDaFaixa,
   VARIAVEIS,
 } from "../api/_nucleo/acesso.js";
+/* A agregação embutida do lado da LEITURA. As duas — faixa e agregação —
+   respondem à mesma pergunta em camadas diferentes, e as duas precisam recusar
+   inventar zero: é o zero que a tela lê como "pode excluir". */
+import { totalEmbutido } from "../src/data/blog/taxonomia.js";
 import {
   CAMPOS_ACEITOS,
   CAMPOS_IGNORADOS,
@@ -113,11 +118,31 @@ import {
   ehOperacao,
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
+  OPERACAO_EXCLUIR_CATEGORIA,
   OPERACAO_PADRAO,
   OPERACAO_SALVAR,
+  OPERACAO_SALVAR_CATEGORIA,
   OPERACOES,
   operacaoPedida,
 } from "../src/domain/blog/operacoes.js";
+/* As operações de Categoria da Story 2.14, IMPORTADAS e executadas. */
+import {
+  CAMPOS_DA_CATEGORIA,
+  excluirCategoria,
+  fraseDeCategoriaEmUso,
+  lerCorpoDaCategoria,
+  ORDEM_MAXIMA_DA_CATEGORIA,
+  salvarCategoria,
+} from "../api/_nucleo/operacoesDaCategoria.js";
+/* Os vocabulários fechados de cor e de ícone, e as regras da Tag digitada — os
+   MESMOS módulos que a tela usa. */
+import {
+  CHAVES_DE_ICONE_DE_CATEGORIA,
+  CORES_DE_CATEGORIA,
+  COR_PADRAO,
+  ICONE_PADRAO,
+} from "../src/domain/blog/categorias.js";
+import { chaveDaTag, separarTags } from "../src/domain/blog/tags.js";
 /* O cliente da porta única. Ele importa em Node — a configuração do Supabase é
    lida com guarda e a falta dela vira erro TIPADO, não exceção —, e é isso que
    permite executar as recusas dele aqui em vez de lê-las. */
@@ -828,6 +853,21 @@ function acessoDeTeste({
   donoAposentado = null,
   respostaDaAposentadoria = null,
   respostaDasTags = null,
+  /* Story 2.14. As Tags chegam por NOME: o acesso finge o que já existe (por
+     slug) e registra o que seria criado. `tagsExistentes` é a lista de linhas
+     de `tags` que o banco já tem. */
+  tagsExistentes = [],
+  respostaDaLeituraDeTags = null,
+  respostaDaCriacaoDeTags = null,
+  /* E as Categorias. `categoria` é a linha que `lerCategoria` devolve;
+     `donoDoNome` e `donoDoSlug` são as colisões que a recusa precisa nomear. */
+  categoria = null,
+  donoDoNome = null,
+  donoDoSlug = null,
+  postsDaCategoria = 0,
+  respostaDaContagem = null,
+  respostaDaEscritaDeCategoria = null,
+  respostaDaExclusaoDeCategoria = null,
 } = {}) {
   const chamadas = [];
   const reg = (nome, argumentos) => chamadas.push({ nome, argumentos });
@@ -849,7 +889,18 @@ function acessoDeTeste({
        sobre uma linha nova em `slugs_antigos`. */
     escritas: () =>
       chamadas.filter((c) =>
-        ["inserirPost", "atualizarPost", "aposentarSlug", "definirTags"].includes(c.nome),
+        [
+          "inserirPost",
+          "atualizarPost",
+          "aposentarSlug",
+          "definirTags",
+          /* Story 2.14: as três escritas novas. Deixá-las de fora faria "nada
+             foi gravado" ser verdadeiro sobre uma Categoria recém-criada. */
+          "inserirTags",
+          "inserirCategoria",
+          "atualizarCategoria",
+          "excluirCategoria",
+        ].includes(c.nome),
       ),
     contaDoToken(token) {
       reg("contaDoToken", [token]);
@@ -890,6 +941,90 @@ function acessoDeTeste({
     atualizarPost(id, campos) {
       reg("idAtualizado", [id]);
       return escrever("atualizarPost", campos);
+    },
+
+    /* ─── Story 2.14: Tags por nome ─────────────────────────────────────── */
+
+    inserirTags(linhas) {
+      reg("inserirTags", [linhas]);
+      if (respostaDaCriacaoDeTags) return respostaDaCriacaoDeTags;
+      /* O banco IGNORA duplicata e devolve só as inseridas. O dublê imita isso
+         acrescentando as que ainda não existiam à lista do "banco". */
+      const criadas = [];
+      for (const linha of linhas) {
+        if (tagsExistentes.some((t) => t.slug === linha.slug)) continue;
+        const nova = { id: randomUUID(), nome: linha.nome, slug: linha.slug };
+        tagsExistentes.push(nova);
+        criadas.push(nova);
+      }
+      return { ok: true, status: 201, dados: criadas };
+    },
+    tagsPorSlugs(slugs) {
+      reg("tagsPorSlugs", [slugs]);
+      if (respostaDaLeituraDeTags) return respostaDaLeituraDeTags;
+      return {
+        ok: true,
+        status: 200,
+        dados: tagsExistentes.filter((t) => slugs.includes(t.slug)),
+      };
+    },
+
+    /* ─── Story 2.14: Categorias ────────────────────────────────────────── */
+
+    lerCategoria(id) {
+      reg("lerCategoria", [id]);
+      return { ok: true, status: 200, dados: categoria };
+    },
+    categoriaPorNome(nome) {
+      reg("categoriaPorNome", [nome]);
+      const achou = donoDoNome !== null && donoDoNome.nome === nome ? donoDoNome : null;
+      return { ok: true, status: 200, dados: achou };
+    },
+    categoriaPorSlug(slug) {
+      reg("categoriaPorSlug", [slug]);
+      const achou = donoDoSlug !== null && donoDoSlug.slug === slug ? donoDoSlug : null;
+      return { ok: true, status: 200, dados: achou };
+    },
+    contarPostsDaCategoria(id) {
+      reg("contarPostsDaCategoria", [id]);
+      return (
+        respostaDaContagem ?? {
+          ok: true,
+          status: 200,
+          faixa: `0-0/${postsDaCategoria}`,
+          dados: { total: postsDaCategoria },
+        }
+      );
+    },
+    inserirCategoria(campos) {
+      reg("inserirCategoria", [campos]);
+      return (
+        respostaDaEscritaDeCategoria ?? {
+          ok: true,
+          status: 201,
+          dados: { id: randomUUID(), ...campos },
+        }
+      );
+    },
+    atualizarCategoria(id, campos) {
+      reg("atualizarCategoria", [{ id, campos }]);
+      return (
+        respostaDaEscritaDeCategoria ?? {
+          ok: true,
+          status: 200,
+          dados: { ...(categoria ?? { id }), ...campos },
+        }
+      );
+    },
+    excluirCategoria(id) {
+      reg("excluirCategoria", [id]);
+      return (
+        respostaDaExclusaoDeCategoria ?? {
+          ok: true,
+          status: 200,
+          dados: categoria ?? { id },
+        }
+      );
     },
   };
 }
@@ -2201,7 +2336,12 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
 
     /** As remoções que EXISTEM, declaradas: rótulo → onde e por quê. */
     const REMOCOES_DECLARADAS = Object.freeze({
-      "api/_nucleo/acesso.js": ["excluirPost"],
+      /* `excluirPost` desde a Story 2.12; `excluirCategoria` desde a 2.14 — e
+         a segunda tem a MESMA guarda de identificador da primeira, porque um
+         filtro ausente no PostgREST não é um erro: é um `DELETE` na tabela
+         inteira. Acrescentar uma terceira remoção exige editar esta lista, que
+         é o ponto. */
+      "api/_nucleo/acesso.js": ["excluirPost", "excluirCategoria"],
       "api/_nucleo/salvarPost.js": [],
     });
 
@@ -2334,14 +2474,27 @@ secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
 {
   /* — A LISTA É A LISTA, e ela é completa — */
 
+  /* A LISTA CRESCEU NA STORY 2.14, E ISSO FOI DELIBERADO.
+     A versão anterior desta asserção dizia "as TRÊS operações, e nenhuma a
+     mais" — e o `deferred` da spec da Story 2.12 registrou, por escrito, que
+     uma story futura precisaria reabri-la DE PROPÓSITO, não por acidente. É o
+     que a 2.14 faz: as duas operações de Categoria entram no vocabulário
+     fechado, não em `api/categorias.js`. A porta continua sendo uma. */
+  const OPERACOES_ESPERADAS = [
+    OPERACAO_SALVAR,
+    OPERACAO_EXCLUIR,
+    OPERACAO_DESTACAR,
+    OPERACAO_SALVAR_CATEGORIA,
+    OPERACAO_EXCLUIR_CATEGORIA,
+  ];
   afirmar(
-    "o vocabulário declara as TRÊS operações da porta única, e nenhuma a mais",
-    mesmoConjunto(OPERACOES, [OPERACAO_SALVAR, OPERACAO_EXCLUIR, OPERACAO_DESTACAR]) &&
-      OPERACOES.length === 3,
+    `o vocabulário declara as ${OPERACOES_ESPERADAS.length} operações da porta única, e nenhuma a mais`,
+    mesmoConjunto(OPERACOES, OPERACOES_ESPERADAS) &&
+      OPERACOES.length === OPERACOES_ESPERADAS.length,
     OPERACOES.join(", "),
   );
   afirmar(
-    "a lista é congelada — quem importa não consegue acrescentar uma quarta operação em tempo de execução",
+    "a lista é congelada — quem importa não consegue acrescentar uma operação em tempo de execução",
     Object.isFrozen(OPERACOES) &&
       (() => {
         try {
@@ -2349,7 +2502,7 @@ secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
         } catch {
           /* modo estrito: lançar é o comportamento desejado */
         }
-        return OPERACOES.length === 3;
+        return OPERACOES.length === OPERACOES_ESPERADAS.length;
       })(),
     OPERACOES.join(", "),
   );
@@ -2477,14 +2630,16 @@ secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
     OPERACOES.map((o) => `${o}: ${typeof executorDe(o)}`).join(", "),
   );
   afirmar(
-    "as três funções são DISTINTAS — uma tabela que aponta duas chaves para o mesmo executor faria excluir salvar",
+    "as funções são DISTINTAS — uma tabela que aponta duas chaves para o mesmo executor faria excluir salvar",
     new Set(OPERACOES.map((o) => executorDe(o))).size === OPERACOES.length,
   );
   afirmar(
-    "excluir e destacar são as funções do módulo delas, e salvar é o núcleo — não há terceira implementação escondida na tabela",
+    "cada operação aponta para a função do módulo dela — não há implementação escondida na tabela",
     executorDe(OPERACAO_EXCLUIR) === excluirPost &&
       executorDe(OPERACAO_DESTACAR) === definirDestaque &&
-      executorDe(OPERACAO_SALVAR) === salvarPost,
+      executorDe(OPERACAO_SALVAR) === salvarPost &&
+      executorDe(OPERACAO_SALVAR_CATEGORIA) === salvarCategoria &&
+      executorDe(OPERACAO_EXCLUIR_CATEGORIA) === excluirCategoria,
   );
   {
     const alcancados = FORA_DO_VOCABULARIO.filter((v) => executorDe(v) !== null);
@@ -2616,6 +2771,118 @@ secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
        sem provar nada. */
     await buscar();
     afirmar("o contador de idas à rede conta de verdade", idas === 1, `idas: ${idas}`);
+  }
+
+  /* — E AS DUAS DE CATEGORIA, TAMBÉM EXECUTADAS (Story 2.14) — */
+  //
+  // Elas eram as únicas funções do cliente que nenhuma asserção CHAMAVA: as
+  // asserções da tela usam o dublê, que as REIMPLEMENTA, e aqui só se conferia
+  // `typeof === "function"`. Três sabotagens passavam verdes — trocar o rótulo
+  // para o de salvar Post (o pedido de categoria vira pedido de post), apagar o
+  // `delete corpo.id` (criar vira editar uma existente) e remover a recusa por
+  // `ehUuid` (identificador malformado vai para a rede).
+
+  {
+    let idas = 0;
+    const pedidos = [];
+    const buscar = async (rota, opcoes) => {
+      idas += 1;
+      pedidos.push({ rota, corpo: JSON.parse(opcoes.body) });
+      return new Response(JSON.stringify({ ok: true, dados: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const obterToken = async () => ({ ok: true, dados: "t" });
+
+    /* CRIAR: sem `id` no corpo, e com a operação do vocabulário. */
+    const criou = await clienteDaEscrita.salvarCategoria(
+      { nome: "Nova", cor: CORES_DE_CATEGORIA[0], icone: CHAVES_DE_ICONE_DE_CATEGORIA[0] },
+      { buscar, obterToken },
+    );
+    afirmar(
+      "criar Categoria sai pela ROTA ÚNICA, com a operação do vocabulário e SEM identificador",
+      criou.ok === true &&
+        pedidos.length === 1 &&
+        pedidos[0].rota === clienteDaEscrita.ROTA_DE_ESCRITA &&
+        pedidos[0].corpo.operacao === OPERACAO_SALVAR_CATEGORIA &&
+        !Object.hasOwn(pedidos[0].corpo, "id") &&
+        pedidos[0].corpo.nome === "Nova",
+      JSON.stringify(pedidos[0] ?? null),
+    );
+
+    /* EDITAR: o identificador viaja, e é ele que faz o servidor editar em vez
+       de criar uma segunda Categoria com o mesmo nome. */
+    const ID_DA_CATEGORIA = "aaaaaaaa-1111-4111-8111-111111111111";
+    await clienteDaEscrita.salvarCategoria(
+      { nome: "Outra" },
+      { id: ID_DA_CATEGORIA, buscar, obterToken },
+    );
+    afirmar(
+      "editar Categoria manda o identificador no corpo, com a MESMA operação",
+      pedidos[1]?.corpo.id === ID_DA_CATEGORIA &&
+        pedidos[1]?.corpo.operacao === OPERACAO_SALVAR_CATEGORIA,
+      JSON.stringify(pedidos[1] ?? null),
+    );
+
+    /* EXCLUIR: operação própria, identificador no corpo. */
+    await clienteDaEscrita.excluirCategoria(ID_DA_CATEGORIA, { buscar, obterToken });
+    afirmar(
+      "excluir Categoria usa a operação PRÓPRIA dela — não a de excluir post, e não a de salvar",
+      pedidos[2]?.corpo.operacao === OPERACAO_EXCLUIR_CATEGORIA &&
+        pedidos[2]?.corpo.id === ID_DA_CATEGORIA &&
+        pedidos[2]?.rota === clienteDaEscrita.ROTA_DE_ESCRITA,
+      JSON.stringify(pedidos[2] ?? null),
+    );
+    afirmar(
+      "e nenhuma delas viaja como operação de Post",
+      !pedidos.some(
+        (x) =>
+          x.corpo.operacao === OPERACAO_SALVAR ||
+          x.corpo.operacao === OPERACAO_EXCLUIR ||
+          x.corpo.operacao === OPERACAO_DESTACAR,
+      ),
+      pedidos.map((x) => x.corpo.operacao).join(", "),
+    );
+
+    /* E O CORPO NÃO ESCOLHE A OPERAÇÃO: um `operacao` forjado no que a tela
+       manda não pode virar a operação executada — ela é declarada depois. */
+    const forjado = await clienteDaEscrita.salvarCategoria(
+      { nome: "X", operacao: OPERACAO_EXCLUIR },
+      { buscar, obterToken },
+    );
+    afirmar(
+      "`operacao` forjada no corpo NÃO troca a operação de Categoria",
+      forjado.ok === true &&
+        pedidos.at(-1).corpo.operacao === OPERACAO_SALVAR_CATEGORIA,
+      String(pedidos.at(-1)?.corpo.operacao),
+    );
+
+    /* AS RECUSAS ANTES DA REDE. */
+    const antes = idas;
+    const ruimAoEditar = await clienteDaEscrita.salvarCategoria(
+      { nome: "X" },
+      { id: "nao-e-uuid", buscar, obterToken },
+    );
+    const ruimAoExcluir = await clienteDaEscrita.excluirCategoria("nao-e-uuid", {
+      buscar,
+      obterToken,
+    });
+    afirmar(
+      "identificador de Categoria fora do formato é recusado ANTES de qualquer pedido, com `dados_invalidos`",
+      ruimAoEditar.ok === false &&
+        ruimAoEditar.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        ruimAoExcluir.ok === false &&
+        ruimAoExcluir.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        idas === antes,
+      "idas à rede: " + (idas - antes),
+    );
+    afirmar(
+      "e NUNCA com `nao_encontrado` — ausência é veredito do servidor, e a tela age sobre ela",
+      ruimAoEditar.erro.tipo !== ERRO_NAO_ENCONTRADO &&
+        ruimAoExcluir.erro.tipo !== ERRO_NAO_ENCONTRADO,
+      ruimAoEditar.erro.tipo + " | " + ruimAoExcluir.erro.tipo,
+    );
   }
 
   /* — O CORPO QUE SAI PARA A REDE, OBSERVADO — */
@@ -3352,6 +3619,624 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
         enderecos[0].includes("/rest/v1/posts?"),
       enderecos.join(" | "),
     );
+
+    /* A MESMA GUARDA NA EXCLUSÃO DE CATEGORIA (Story 2.14). Ela é a segunda
+       chamada destrutiva do projeto, e a razão da guarda é idêntica: um filtro
+       ausente no PostgREST é um `DELETE` em `categorias` inteira — que, com
+       `on delete restrict`, falharia ruidosamente só se houvesse Post usando
+       alguma delas. Nas outras, sumiria a taxonomia do blog em silêncio. */
+    enderecos.length = 0;
+    const aceitosNaCategoria = [];
+    for (const ruim of RUINS) {
+      const r = await acesso.excluirCategoria(ruim);
+      if (r.ok !== false) aceitosNaCategoria.push(JSON.stringify(ruim));
+    }
+    afirmar(
+      `identificador ruim de CATEGORIA também não vira comando: nenhum dos ${RUINS.length} chegou à rede`,
+      aceitosNaCategoria.length === 0 && enderecos.length === 0,
+      `aceitos: ${aceitosNaCategoria.join(", ")} | endereços emitidos: ${enderecos.join(" | ")}`,
+    );
+    const boaCategoria = randomUUID();
+    await acesso.excluirCategoria(boaCategoria);
+    afirmar(
+      "e o identificador bom de Categoria vira comando COM filtro por id",
+      enderecos.length === 1 &&
+        enderecos[0].includes(`id=eq.${boaCategoria}`) &&
+        enderecos[0].includes("/rest/v1/categorias?"),
+      enderecos.join(" | "),
+    );
+
+    /* — A CONTAGEM VEM DA FAIXA, e faixa ilegível é FALHA, nunca zero ─────
+       "Nenhum post depende desta categoria" é a frase mais perigosa que a
+       recusa poderia ter: dita por engano, ela libera uma exclusão que
+       desassociaria o arquivo inteiro se o banco não estivesse lá. */
+    {
+      const comFaixa = (faixa) =>
+        criarAcesso({
+          url: "https://nao-existe.invalido",
+          chavePublicavel: "sb_publishable_x",
+          chaveDeServico: "sb_secret_x",
+          buscar: async () =>
+            new Response("[]", {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                ...(faixa === null ? {} : { "Content-Range": faixa }),
+              },
+            }),
+        });
+      const doze = await comFaixa("0-0/12").contarPostsDaCategoria(randomUUID());
+      afirmar(
+        "a contagem de Posts de uma Categoria é lida da faixa do PostgREST, sem trazer linha nenhuma",
+        doze.ok === true && doze.dados.total === 12,
+        JSON.stringify(doze.dados ?? doze.mensagem),
+      );
+      const zero = await comFaixa("*/0").contarPostsDaCategoria(randomUUID());
+      afirmar(
+        "e zero é zero — a faixa sem intervalo continua sendo contagem",
+        zero.ok === true && zero.dados.total === 0,
+        JSON.stringify(zero.dados ?? zero.mensagem),
+      );
+      for (const [nome, faixa] of [
+        ["sem cabeçalho", null],
+        ["com total desconhecido", "0-0/*"],
+        ["com lixo", "não é faixa"],
+      ]) {
+        const r = await comFaixa(faixa).contarPostsDaCategoria(randomUUID());
+        afirmar(
+          `faixa ${nome} vira FALHA, e nunca zero — um zero inventado liberaria a exclusão`,
+          r.ok === false && r.codigo === "ContagemIlegivel",
+          `ok: ${r.ok} | codigo: ${r.codigo}`,
+        );
+      }
+    }
+  }
+}
+
+/* ─── (c7) As operações de Categoria (Story 2.14) ────────────────────────── */
+
+secao("(c7) Categorias: vocabulário fechado de cor e de ícone, e a recusa que conta");
+
+{
+
+  /* — `totalDaFaixa`, EXECUTADA sobre cada forma de faixa — */
+  //
+  // Ela é exportada, e nenhuma outra asserção a chamava: a contagem chegava
+  // pelo caminho do acesso, então trocar a expressão por uma que devolvesse
+  // sempre `0` faria "nenhum post depende desta categoria" ser dito sobre
+  // qualquer resposta — a frase que LIBERA uma exclusão.
+  {
+    const CASOS = [
+      ["0-0/12", 12],
+      ["*/0", 0],
+      ["0-24/25", 25],
+      ["  0-0/7  ", 7],
+      ["0-0/*", null],
+      ["", null],
+      [null, null],
+      [undefined, null],
+      ["não é faixa", null],
+      ["0-0/", null],
+      [12, null],
+    ];
+    const divergentes = CASOS.filter(([faixa, esperado]) => totalDaFaixa(faixa) !== esperado);
+    afirmar(
+      "`totalDaFaixa` lê o total das faixas legíveis e devolve AUSÊNCIA para as demais — nunca zero",
+      divergentes.length === 0,
+      divergentes
+        .map(([f, e]) => JSON.stringify(f) + ": " + totalDaFaixa(f) + " (esperado " + e + ")"),
+    );
+    afirmar(
+      "o corpus tem os DOIS vereditos representados — uma função que devolvesse sempre `null` também 'concordaria'",
+      CASOS.some(([f]) => totalDaFaixa(f) !== null) &&
+        CASOS.some(([f]) => totalDaFaixa(f) === null),
+    );
+  }
+
+  /* — E A AGREGAÇÃO EMBUTIDA DO LADO DA LEITURA, pela MESMA regra — */
+  //
+  // `totalEmbutido` inventava o zero que `totalDaFaixa` se recusa a inventar: a
+  // TELA lia `0` como "pode excluir" e oferecia excluir uma Categoria
+  // possivelmente em uso. O `restrict` do banco salvaria o dado; a tela teria
+  // mentido antes.
+  {
+    const CASOS = [
+      [[{ count: 3 }], 3],
+      [{ count: 0 }, 0],
+      [[], null],
+      [null, null],
+      [undefined, null],
+      [[{ count: "3" }], null],
+      [[{ count: -1 }], null],
+      [[{ count: 1.5 }], null],
+      [[{}], null],
+      ["3", null],
+    ];
+    const divergentes = CASOS.filter(([bruto, esperado]) => totalEmbutido(bruto) !== esperado);
+    afirmar(
+      "`totalEmbutido` devolve AUSÊNCIA para agregação ilegível — e nunca zero, que a tela leria como 'pode excluir'",
+      divergentes.length === 0,
+      divergentes.map(([b]) => JSON.stringify(b) + ": " + totalEmbutido(b)),
+    );
+  }
+
+  /* — A DECISÃO QUE SUSTENTA DUAS GRAVAÇÕES SIMULTÂNEAS — */
+  //
+  // `resolverTags` insere TODAS as tags com `resolution=ignore-duplicates` e
+  // relê depois. Trocar por `merge-duplicates` reescreveria o NOME de uma Tag
+  // que já existe porque alguém digitou com outra caixa — "SEO" viraria "seo"
+  // para todos os posts que já a usavam. E `on_conflict=slug` é o que diz ao
+  // banco qual restrição ignorar; sem ele o `insert` estoura por unicidade.
+  {
+    const enderecos = [];
+    const cabecalhos = [];
+    const acesso = criarAcesso({
+      url: "https://nao-existe.invalido",
+      chavePublicavel: "sb_publishable_x",
+      chaveDeServico: "sb_secret_x",
+      buscar: async (endereco, opcoes) => {
+        enderecos.push(String(endereco));
+        cabecalhos.push(opcoes.headers ?? {});
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+    await acesso.inserirTags([{ nome: "Uma", slug: "uma" }]);
+    afirmar(
+      "a criação de Tag declara `on_conflict=slug` e IGNORA duplicata — mesclar reescreveria a grafia de quem cadastrou primeiro",
+      enderecos.length === 1 &&
+        enderecos[0].includes("on_conflict=slug") &&
+        /resolution=ignore-duplicates/.test(String(cabecalhos[0].Prefer ?? "")) &&
+        !/merge-duplicates/.test(String(cabecalhos[0].Prefer ?? "")),
+      enderecos.join(" | ") + " | Prefer: " + String(cabecalhos[0]?.Prefer ?? ""),
+    );
+    /* LISTA VAZIA NÃO VAI À REDE — nem para inserir, nem para ler. */
+    const antes = enderecos.length;
+    await acesso.inserirTags([]);
+    await acesso.tagsPorSlugs([]);
+    afirmar(
+      "lista vazia de Tag não emite pedido nenhum — pedir 'nenhuma tag' é legítimo, e custaria duas idas por gravação",
+      enderecos.length === antes,
+      enderecos.slice(antes).join(" | "),
+    );
+  }
+  /* — A LEITURA DO CORPO: lista fechada, cor e ícone por lista de permissão — */
+
+  afirmar(
+    "a lista de campos aceitos de uma Categoria é fechada e congelada",
+    Object.isFrozen(CAMPOS_DA_CATEGORIA) &&
+      mesmoConjunto(CAMPOS_DA_CATEGORIA, [
+        "id",
+        "nome",
+        "slug",
+        "icone",
+        "cor",
+        "ordem",
+        "operacao",
+      ]),
+    CAMPOS_DA_CATEGORIA.join(", "),
+  );
+
+  {
+    const r = lerCorpoDaCategoria(
+      { nome: "  Inteligência   Artificial  ", inventado: 1, criado_em: "1999-01-01" },
+      { criando: true },
+    );
+    afirmar(
+      "o nome é aparado e tem o espaço interno colapsado antes de virar dado",
+      r.ok === true && r.campos.nome === "Inteligência Artificial",
+      r.ok ? r.campos.nome : r.mensagem,
+    );
+    afirmar(
+      "o endereço é DERIVADO do nome pela mesma `gerarSlug` que o Post usa",
+      r.ok === true && r.campos.slug === "inteligencia-artificial",
+      r.ok ? r.campos.slug : r.mensagem,
+    );
+    afirmar(
+      "cor e ícone ausentes na criação recebem o padrão do vocabulário",
+      r.ok === true && r.campos.cor === COR_PADRAO && r.campos.icone === ICONE_PADRAO,
+      r.ok ? `${r.campos.cor} | ${r.campos.icone}` : r.mensagem,
+    );
+    afirmar(
+      "campo fora da lista é IGNORADO com nome, e não chega às colunas",
+      r.ok === true &&
+        mesmoConjunto(r.ignorados, ["inventado", "criado_em"]) &&
+        !Object.hasOwn(r.campos, "criado_em"),
+      JSON.stringify(r.ignorados ?? r.mensagem),
+    );
+  }
+
+  for (const [nome, corpo, padrao] of [
+    ["criar sem nome", {}, /precisa de um nome/i],
+    ["nome vazio", { nome: "   " }, /precisa de um nome/i],
+    ["nome longo demais", { nome: "a".repeat(200) }, /caracteres/i],
+    ["nome que não vira endereço", { nome: "!!! ???" }, /letra|endereço/i],
+    ["endereço fora do formato", { nome: "Boa", slug: "Com Espaço" }, /endereço/i],
+    ["cor fora do vocabulário", { nome: "Boa", cor: "red" }, /cor/i],
+    ["cor que é classe utilitária", { nome: "Boa", cor: "bg-red-500" }, /cor/i],
+    ["cor que é hex solto", { nome: "Boa", cor: "#ff0000" }, /cor/i],
+    ["ícone fora do mapa", { nome: "Boa", icone: "flask" }, /ícone/i],
+    ["ícone com nome herdado do protótipo", { nome: "Boa", icone: "constructor" }, /ícone/i],
+    ["ordem negativa", { nome: "Boa", ordem: -1 }, /ordem/i],
+    ["ordem fracionária", { nome: "Boa", ordem: 1.5 }, /ordem/i],
+    [
+      "ordem acima do teto",
+      { nome: "Boa", ordem: ORDEM_MAXIMA_DA_CATEGORIA + 1 },
+      /ordem/i,
+    ],
+  ]) {
+    const r = lerCorpoDaCategoria(corpo, { criando: true });
+    afirmar(
+      `${nome} é recusado com a frase que nomeia o campo`,
+      r.ok === false && padrao.test(r.mensagem),
+      r.ok ? "ACEITOU" : r.mensagem,
+    );
+  }
+
+  afirmar(
+    "toda cor do vocabulário É aceita — a lista de permissão não pode recusar o que ela mesma declara",
+    CORES_DE_CATEGORIA.every(
+      (cor) => lerCorpoDaCategoria({ nome: "Boa", cor }, { criando: true }).ok === true,
+    ),
+    CORES_DE_CATEGORIA.filter(
+      (cor) => lerCorpoDaCategoria({ nome: "Boa", cor }, { criando: true }).ok !== true,
+    ).join(", "),
+  );
+  afirmar(
+    "e todo ícone do mapa também",
+    CHAVES_DE_ICONE_DE_CATEGORIA.every(
+      (icone) => lerCorpoDaCategoria({ nome: "Boa", icone }, { criando: true }).ok === true,
+    ),
+    CHAVES_DE_ICONE_DE_CATEGORIA.filter(
+      (icone) => lerCorpoDaCategoria({ nome: "Boa", icone }, { criando: true }).ok !== true,
+    ).join(", "),
+  );
+
+  /* Editar preserva o que não veio — e um pedido que não muda nada é recusado
+     em vez de virar um `PATCH` vazio que o PostgREST responde com 2xx. */
+  {
+    const so = lerCorpoDaCategoria({ nome: "Novo Nome" }, { criando: false });
+    afirmar(
+      "editar só o nome não inventa cor, ícone nem endereço",
+      so.ok === true &&
+        Object.keys(so.campos).length === 1 &&
+        so.campos.nome === "Novo Nome",
+      JSON.stringify(so.campos ?? so.mensagem),
+    );
+    const nada = lerCorpoDaCategoria({}, { criando: false });
+    afirmar(
+      "pedido de edição sem nada para mudar é recusado, e não vira comando vazio",
+      nada.ok === false && /nada para mudar/i.test(nada.mensagem),
+      nada.ok ? "ACEITOU" : nada.mensagem,
+    );
+  }
+
+  /* — AS DUAS OPERAÇÕES, EXECUTADAS COM ACESSO DE MENTIRA — */
+
+  /* A ORDEM DA AUTORIZAÇÃO: token válido E cadastro, nessa ordem, SEMPRE antes
+     de escrever. É a mesma exigência das operações de Post, e ela precisa de
+     asserção própria aqui — apagar `perfilOuFalha` de uma operação nova não
+     quebraria nada das outras. */
+  for (const [nome, executar] of [
+    ["salvar", (a, t) => salvarCategoria({ token: t, corpo: { nome: "X" }, acesso: a })],
+    ["excluir", (a, t) => excluirCategoria({ token: t, corpo: { id: randomUUID() }, acesso: a })],
+  ]) {
+    {
+      const acesso = acessoDeTeste();
+      const r = await executar(acesso, "");
+      afirmar(
+        `${nome} categoria SEM token é recusado por permissão, e nada foi pedido ao banco`,
+        r.ok === false && r.erro.tipo === ERRO_PERMISSAO && acesso.escritas().length === 0,
+        r.ok ? "PASSOU" : `tipo ${r.erro.tipo} | escritas: ${acesso.escritas().length}`,
+      );
+      afirmar(
+        `e a frase de ${nome} fala de CATEGORIA, não de post`,
+        r.ok === false && /categoria/i.test(r.erro.mensagem) && !/post/i.test(r.erro.mensagem),
+        r.ok ? "" : r.erro.mensagem,
+      );
+    }
+    {
+      const acesso = acessoDeTeste({ perfil: null });
+      const r = await executar(acesso, "bom");
+      afirmar(
+        `${nome} categoria por Conta SEM cadastro é recusado — autenticar não é autorizar`,
+        r.ok === false &&
+          r.erro.tipo === ERRO_PERMISSAO &&
+          /cadastrada no Painel/i.test(r.erro.mensagem) &&
+          acesso.escritas().length === 0,
+        r.ok ? "PASSOU" : `tipo ${r.erro.tipo}: ${r.erro.mensagem}`,
+      );
+      afirmar(
+        `e o cadastro é conferido ANTES de a tabela ser tocada em ${nome}`,
+        acesso.chamadas.findIndex((c) => c.nome === "perfilDaConta") <
+          (acesso.chamadas.findIndex((c) =>
+            ["inserirCategoria", "atualizarCategoria", "excluirCategoria"].includes(c.nome),
+          ) === -1
+            ? Number.POSITIVE_INFINITY
+            : acesso.chamadas.findIndex((c) =>
+                ["inserirCategoria", "atualizarCategoria", "excluirCategoria"].includes(c.nome),
+              )),
+        acesso.chamadas.map((c) => c.nome).join(" > "),
+      );
+    }
+  }
+
+  /* AS COLUNAS SÃO MONTADAS À MÃO. O corpo não é espalhado sobre o comando: se
+     fosse, `criado_em` e `id` viajariam de carona num pedido que só queria
+     renomear — é a mesma regra que `definirDestaque` fixou na Story 2.12. */
+  {
+    const acesso = acessoDeTeste({ categoria: { id: "ok", nome: "Antiga" } });
+    const r = await salvarCategoria({
+      token: "bom",
+      corpo: {
+        nome: "Nova",
+        criado_em: "1999-01-01T00:00:00Z",
+        atualizado_em: "1999-01-01T00:00:00Z",
+        posts: 0,
+        operacao: OPERACAO_SALVAR_CATEGORIA,
+      },
+      acesso,
+    });
+    const enviado = acesso.chamadas.find((c) => c.nome === "inserirCategoria")?.argumentos[0] ?? {};
+    afirmar(
+      "o comando de Categoria carrega SÓ as colunas montadas à mão — nada de carona",
+      r.ok === true &&
+        mesmoConjunto(Object.keys(enviado), ["nome", "slug", "cor", "icone"]) &&
+        !Object.hasOwn(enviado, "criado_em"),
+      JSON.stringify(Object.keys(enviado)),
+    );
+    afirmar(
+      "`operacao` não é relatada como ignorada — ela é o campo que escolheu esta porta",
+      r.ok === true && !r.dados.ignorados.includes("operacao"),
+      JSON.stringify(r.dados?.ignorados),
+    );
+  }
+
+  /* A COLISÃO DIZ QUAL JÁ EXISTE. "Já existe uma categoria assim" manda a
+     pessoa procurar; dizer o nome resolve na hora. */
+  {
+    const acesso = acessoDeTeste({
+      donoDoNome: { id: randomUUID(), nome: "Analytics", slug: "analytics" },
+    });
+    const r = await salvarCategoria({ token: "bom", corpo: { nome: "Analytics" }, acesso });
+    afirmar(
+      "nome repetido é CONFLITO, e a recusa nomeia a categoria que já existe",
+      r.ok === false &&
+        r.erro.tipo === ERRO_CONFLITO &&
+        r.erro.mensagem.includes("Analytics"),
+      r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+    afirmar(
+      "e nada foi criado",
+      acesso.escritas().length === 0,
+      acesso.escritas().map((c) => c.nome).join(", "),
+    );
+  }
+  {
+    const acesso = acessoDeTeste({
+      donoDoSlug: { id: randomUUID(), nome: "Análise de Dados", slug: "analytics" },
+    });
+    const r = await salvarCategoria({
+      token: "bom",
+      corpo: { nome: "Outro Nome", slug: "analytics" },
+      acesso,
+    });
+    afirmar(
+      "endereço repetido é CONFLITO, e a recusa nomeia a dona dele",
+      r.ok === false &&
+        r.erro.tipo === ERRO_CONFLITO &&
+        r.erro.mensagem.includes("Análise de Dados"),
+      r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+  }
+  /* E EDITAR A SI MESMA NÃO É COLISÃO: renomear "Analytics" para "Analytics"
+     (ou mexer só na cor) não pode bater na própria linha. */
+  {
+    const eu = { id: randomUUID(), nome: "Analytics", slug: "analytics" };
+    const acesso = acessoDeTeste({ categoria: eu, donoDoNome: eu, donoDoSlug: eu });
+    const r = await salvarCategoria({
+      token: "bom",
+      corpo: { id: eu.id, nome: "Analytics", cor: CORES_DE_CATEGORIA[1] },
+      acesso,
+    });
+    afirmar(
+      "editar a própria Categoria mantendo o nome NÃO é conflito consigo mesma",
+      r.ok === true,
+      r.ok ? "" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+  }
+
+  /* — EXCLUIR: a recusa CONTA, e diz o número — */
+
+  {
+    const alvo = { id: randomUUID(), nome: "Estratégia", slug: "estrategia" };
+    for (const [quantos, esperado] of [
+      [1, "1 post depende"],
+      [3, "3 posts dependem"],
+    ]) {
+      const acesso = acessoDeTeste({ categoria: alvo, postsDaCategoria: quantos });
+      const r = await excluirCategoria({ token: "bom", corpo: { id: alvo.id }, acesso });
+      afirmar(
+        `excluir Categoria usada por ${quantos} Post(s) é recusado DIZENDO o número`,
+        r.ok === false &&
+          r.erro.tipo === ERRO_CONFLITO &&
+          r.erro.mensagem.includes(esperado) &&
+          r.erro.mensagem.includes(alvo.nome),
+        r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+      );
+      afirmar(
+        `e o comando de exclusão NÃO chegou a ser emitido para ${quantos}`,
+        !acesso.chamadas.some((c) => c.nome === "excluirCategoria"),
+        acesso.chamadas.map((c) => c.nome).join(" > "),
+      );
+    }
+    /* A frase é EXECUTADA, e não casada por regex sobre o texto do arquivo:
+       singular e plural são a marca de um texto que alguém leu. */
+    afirmar(
+      "a frase da recusa por uso concorda em número, e nomeia a Categoria",
+      fraseDeCategoriaEmUso("Analytics", 1).includes("1 post depende") &&
+        fraseDeCategoriaEmUso("Analytics", 2).includes("2 posts dependem") &&
+        fraseDeCategoriaEmUso("Analytics", 1).includes("Analytics"),
+      `${fraseDeCategoriaEmUso("Analytics", 1)} | ${fraseDeCategoriaEmUso("Analytics", 2)}`,
+    );
+
+    const acesso = acessoDeTeste({ categoria: alvo, postsDaCategoria: 0 });
+    const r = await excluirCategoria({ token: "bom", corpo: { id: alvo.id }, acesso });
+    afirmar(
+      "Categoria SEM uso é excluída, e a resposta carrega a linha que saiu",
+      r.ok === true &&
+        r.dados.operacao === OPERACAO_EXCLUIR_CATEGORIA &&
+        r.dados.categoria?.id === alvo.id,
+      r.ok ? "" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+
+    /* E A CORRIDA: a contagem disse zero e o banco recusou mesmo assim. É o
+       caso em que `on delete restrict` é a única defesa — e a frase precisa
+       dizer o que houve, não "algo saiu do previsto". */
+    const emCorrida = acessoDeTeste({
+      categoria: alvo,
+      postsDaCategoria: 0,
+      respostaDaExclusaoDeCategoria: {
+        ok: false,
+        status: 409,
+        codigo: "23503",
+        mensagem:
+          'update or delete on table "categorias" violates foreign key constraint "posts_categoria_id_fkey" on table "posts"',
+        dados: null,
+      },
+    });
+    const perdeu = await excluirCategoria({ token: "bom", corpo: { id: alvo.id }, acesso: emCorrida });
+    afirmar(
+      "quando o BANCO recusa mesmo assim, a frase diz que há posts usando — e não “algo saiu do previsto”",
+      perdeu.ok === false &&
+        perdeu.erro.tipo === ERRO_CONFLITO &&
+        /posts usando/i.test(perdeu.erro.mensagem),
+      perdeu.ok ? "ACEITOU" : `${perdeu.erro.tipo}: ${perdeu.erro.mensagem}`,
+    );
+  }
+
+  /* Categoria que já saiu é AUSÊNCIA, e não sucesso silencioso — o caminho
+     normal de duas abas do Painel abertas. */
+  {
+    const acesso = acessoDeTeste({ categoria: null });
+    const r = await excluirCategoria({ token: "bom", corpo: { id: randomUUID() }, acesso });
+    afirmar(
+      "excluir Categoria que já não existe é AUSÊNCIA, e nada é pedido ao banco",
+      r.ok === false &&
+        r.erro.tipo === ERRO_NAO_ENCONTRADO &&
+        acesso.escritas().length === 0,
+      r.ok ? "PASSOU" : `${r.erro.tipo} | escritas: ${acesso.escritas().length}`,
+    );
+    const editar = await salvarCategoria({
+      token: "bom",
+      corpo: { id: randomUUID(), nome: "Qualquer" },
+      acesso: acessoDeTeste({ categoria: null }),
+    });
+    afirmar(
+      "editar Categoria que já não existe também é AUSÊNCIA, não defeito",
+      editar.ok === false && editar.erro.tipo === ERRO_NAO_ENCONTRADO,
+      editar.ok ? "PASSOU" : editar.erro.tipo,
+    );
+  }
+
+  /* — TAG POR NOME: reaproveita a que existe, cria a que falta — */
+
+  {
+    const existente = {
+      id: randomUUID(),
+      nome: "Atendimento",
+      slug: "atendimento",
+    };
+    /* O "banco" do dublê: ele começa com UMA Tag e é ele que diz quantas
+       passaram a existir depois. Contar aqui é o que distingue "reaproveitou"
+       de "criou uma segunda com o mesmo assunto". */
+    const bancoDeTags = [existente];
+    const acesso = acessoDeTeste({ tagsExistentes: bancoDeTags });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ tags: ["atendimento", "Inteligência Artificial"] }),
+      acesso,
+    });
+    const criadas = acesso.chamadas.find((c) => c.nome === "inserirTags")?.argumentos[0] ?? [];
+    const gravadas = acesso.chamadas.find((c) => c.nome === "definirTags")?.argumentos[0].tags ?? [];
+    afirmar(
+      "a Tag que JÁ EXISTE é reaproveitada — o identificador gravado é o dela",
+      r.ok === true && gravadas.includes(existente.id),
+      `gravadas: ${JSON.stringify(gravadas)} | existente: ${existente.id}`,
+    );
+    afirmar(
+      "e a grafia dela NÃO é reescrita: quem cadastrou primeiro escolheu o nome",
+      r.ok === true && r.dados.tags.includes("Atendimento"),
+      JSON.stringify(r.dados?.tags),
+    );
+    /* O PEDIDO DE INSERÇÃO CARREGA AS DUAS, e isso é deliberado: o banco tem
+       `on conflict (slug) do nothing`, e mandar só as que "faltam" exigiria
+       ler antes — deixando uma janela em que duas gravações simultâneas do
+       mesmo nome tentam inserir a mesma linha e a segunda estoura por
+       unicidade. Quem decide o que existe é o banco, não esta função. */
+    afirmar(
+      "o pedido de inserção carrega TODAS as tags digitadas, com nome e endereço do domínio",
+      criadas.length === 2 &&
+        criadas.every((t) => t.slug === chaveDaTag(t.nome)) &&
+        criadas.map((t) => t.slug).join(",") === "atendimento,inteligencia-artificial",
+      JSON.stringify(criadas),
+    );
+    afirmar(
+      "e só a que NÃO existia passa a existir — a duplicata é ignorada pelo banco",
+      bancoDeTags.length === 2 &&
+        bancoDeTags.filter((t) => t.slug === "atendimento").length === 1,
+      JSON.stringify(bancoDeTags.map((t) => t.slug)),
+    );
+    afirmar(
+      "e as duas viram associação — nenhuma Tag some no caminho",
+      r.ok === true && gravadas.length === 2,
+      JSON.stringify(gravadas),
+    );
+  }
+
+  /* TAG QUE NÃO VOLTA DO BANCO É FALHA, e nunca descarte silencioso: o Autor
+     salvaria cinco tags e reabriria com quatro. */
+  {
+    const acesso = acessoDeTeste({
+      respostaDaLeituraDeTags: { ok: true, status: 200, dados: [] },
+    });
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ tags: ["Alguma"] }),
+      acesso,
+    });
+    afirmar(
+      "Tag que não volta do banco vira FALHA — nenhuma some em silêncio",
+      r.ok === false && /tags/i.test(r.erro.mensagem),
+      r.ok ? "ACEITOU" : `${r.erro.tipo}: ${r.erro.mensagem}`,
+    );
+    afirmar(
+      "e `definirTags` não chegou a ser chamada com a lista incompleta",
+      !acesso.chamadas.some((c) => c.nome === "definirTags"),
+      acesso.chamadas.map((c) => c.nome).join(" > "),
+    );
+  }
+
+  /* LISTA VAZIA NÃO VAI À REDE. Pedir "nenhuma tag" é legítimo (é como se
+     limpam as tags de um Post), e virar duas chamadas inúteis por pedido
+     custaria prazo num orçamento que já é compartilhado. */
+  {
+    const acesso = acessoDeTeste();
+    const r = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ tags: [] }),
+      acesso,
+    });
+    afirmar(
+      "pedir nenhuma tag não consulta nem cria nada — mas AINDA chama `definirTags`, que é o que limpa",
+      r.ok === true &&
+        !acesso.chamadas.some((c) => c.nome === "inserirTags") &&
+        !acesso.chamadas.some((c) => c.nome === "tagsPorSlugs") &&
+        acesso.chamadas.some((c) => c.nome === "definirTags"),
+      acesso.chamadas.map((c) => c.nome).join(" > "),
+    );
   }
 }
 
@@ -3896,7 +4781,8 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
     token: "bom",
     corpo: corpoValido({
       categoria_id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
-      tags: ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"],
+      // Story 2.14: NOMES, e não identificadores.
+      tags: ["Atendimento", "Automação"],
       publicado_em: "2026-08-17T03:30:00Z",
       tempo_leitura: 7,
       estado: "publicado",
@@ -3922,6 +4808,28 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       acesso.chamadas.some((c) => c.nome === "definirTags" && c.argumentos[0].tags.length === 2),
     Object.keys(enviado).join(", "),
   );
+  /* E O QUE CHEGA À FUNÇÃO DE BANCO SÃO IDENTIFICADORES, não os nomes que a
+     tela digitou: `definir_tags_do_post` recusa identificador inexistente com
+     23503, e mandar nome para lá viraria erro de tipo. Quem traduz é
+     `resolverTags`, e é ele que cria a Tag que ainda não existia. */
+  {
+    const idsGravados =
+      acesso.chamadas.find((c) => c.nome === "definirTags")?.argumentos[0].tags ?? [];
+    afirmar(
+      "o que chega a `definirTags` são IDENTIFICADORES, resolvidos a partir dos nomes",
+      idsGravados.length === 2 && idsGravados.every((id) => PADRAO_UUID.test(id)),
+      JSON.stringify(idsGravados),
+    );
+    const criadas =
+      acesso.chamadas.find((c) => c.nome === "inserirTags")?.argumentos[0] ?? [];
+    afirmar(
+      "as Tags digitadas são criadas com nome E endereço, e o endereço é o slug do domínio",
+      criadas.length === 2 &&
+        criadas.every((t) => t.slug === chaveDaTag(t.nome)) &&
+        criadas.map((t) => t.slug).join(",") === "atendimento,automacao",
+      JSON.stringify(criadas),
+    );
+  }
   /* O Post NASCE PUBLICADO quando o Autor pede a transição junto da criação —
      é o "Publicar agora" de um Post que ainda não existe. A partida é
      `rascunho`, o padrão da coluna, e a máquina declara esse caminho. A data
@@ -3986,10 +4894,16 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
 {
   const casos = [
     ["tags que não são lista", { tags: "a,b" }, /lista/i],
-    ["tag fora do formato de identificador", { tags: ["nao-e-uuid"] }, /tags/i],
+    /* Story 2.14: a lista é de NOMES. O que se recusa deixou de ser "não é
+       identificador" e passou a ser "não vira Tag": vazia, longa demais, ou sem
+       letra nenhuma para virar endereço. */
+    ["tag vazia", { tags: ["   "] }, /vazia/i],
+    ["tag sem letra nem número", { tags: ["!!! ???"] }, /letra ou número/i],
+    ["tag longa demais", { tags: ["a".repeat(200)] }, /caracteres/i],
+    ["tag que não é texto", { tags: [42] }, /texto/i],
     [
       "mais tags que o teto",
-      { tags: Array.from({ length: 40 }, () => randomUUID()) },
+      { tags: Array.from({ length: 40 }, (_, i) => `tag numero ${i}`) },
       /no máximo/i,
     ],
     ["tempo de leitura negativo", { tempo_leitura: -3 }, /tempo de leitura/i],
@@ -4007,22 +4921,59 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       r.ok ? "ACEITOU" : r.mensagem,
     );
   }
-  const repetidas = randomUUID();
+  /* REPETIDA COLAPSA, E A CHAVE DE IGUALDADE É O SLUG.
+     "Vendas", "vendas" e "VENDAS " produzem a mesma linha em `tags` — o slug é
+     a identidade, o nome é a grafia de quem cadastrou primeiro. Colapsar por
+     texto exato deixaria as três passarem, e a segunda estouraria a unicidade
+     do banco com o Autor lendo um erro sobre um espaço que ele não vê. */
   const dedup = lerCorpo(
     {
       titulo: "t",
       slug: "s",
       resumo: "r",
       conteudo: DOCUMENTO_COMPLETO,
-      tags: [repetidas, repetidas],
+      tags: ["Vendas", "vendas", "  VENDAS  ", "vendas!"],
     },
     { criando: true },
   );
   afirmar(
-    "tag repetida vira uma só — o par (post, tag) é chave primária, e duas iguais seriam erro de banco",
-    dedup.ok === true && dedup.campos.tags.length === 1,
+    "tag repetida vira uma só, pela CHAVE (slug) e não pelo texto — e a grafia que fica é a primeira",
+    dedup.ok === true &&
+      dedup.campos.tags.length === 1 &&
+      dedup.campos.tags[0] === "Vendas",
     JSON.stringify(dedup.campos?.tags ?? null),
   );
+  /* E a MESMA regra vale na tela: a função é uma só, do domínio, e as duas
+     pontas precisam concordar sobre o que é a mesma Tag. Sem esta comparação, a
+     tela mostraria duas pílulas e o banco gravaria uma. */
+  {
+    const naTela = separarTags("Vendas, vendas,   VENDAS  , vendas!").nomes;
+    afirmar(
+      "a tela e o servidor colapsam a repetida do mesmo jeito — é a mesma função do domínio",
+      JSON.stringify(naTela) === JSON.stringify(dedup.campos?.tags ?? null),
+      `tela: ${JSON.stringify(naTela)} | servidor: ${JSON.stringify(dedup.campos?.tags ?? null)}`,
+    );
+  }
+  /* Espaço interno colapsado: sem isso, "inteligência  artificial" e
+     "inteligência artificial" produziriam o MESMO slug e a segunda seria
+     recusada por unicidade. */
+  {
+    const espacos = lerCorpo(
+      {
+        titulo: "t",
+        slug: "s",
+        resumo: "r",
+        conteudo: DOCUMENTO_COMPLETO,
+        tags: ["  inteligência   artificial  "],
+      },
+      { criando: true },
+    );
+    afirmar(
+      "o nome da Tag é aparado e tem o espaço interno colapsado antes de virar dado",
+      espacos.ok === true && espacos.campos.tags[0] === "inteligência artificial",
+      JSON.stringify(espacos.campos?.tags ?? espacos.mensagem),
+    );
+  }
 }
 
 // A edição, com acesso de mentira: o Autor não é tocado.
@@ -4604,8 +5555,10 @@ if (!temToken) {
       token,
       `with p as (delete from public.posts where slug like ${literal(MARCA_TESTE)} returning 1),
             t as (delete from public.tags where slug like ${literal(MARCA_TESTE)} returning 1),
+            c as (delete from public.categorias where slug like ${literal(MARCA_TESTE)} returning 1),
             u as (delete from auth.users where email like ${literal(EMAIL_TESTE)} returning 1)
-       select (select count(*) from p) + (select count(*) from t) + (select count(*) from u) as n`,
+       select (select count(*) from p) + (select count(*) from t) + (select count(*) from c)
+            + (select count(*) from u) as n`,
     );
     const quantos = restos.ok ? Number(restos.dados?.[0]?.n ?? 0) : -1;
     afirmar(
@@ -5754,6 +6707,469 @@ if (!temToken) {
         adiar("excluir e alternar Destaque contra o projeto", MOTIVO_SEM_SESSAO);
       }
 
+      /* ── (e3) As Categorias e as Tags, contra o projeto ────────────────── */
+
+      secao("(e3) Categorias e Tags: a mesma porta, e o banco defendendo atrás dela");
+
+      /** O que o BANCO tem sobre uma Categoria, lido por SQL — nunca a resposta. */
+      const linhaDaCategoria = async (id) => {
+        const r = await executarSql(
+          token,
+          `select id, nome, slug, icone, cor, ordem
+             from public.categorias where id = ${literal(id)}`,
+        );
+        return r.ok ? (r.dados?.[0] ?? null) : null;
+      };
+
+      /** Uma Categoria criada pela porta única. Devolve a linha, ou `null`. */
+      const criarCategoriaReal = async (campos) => {
+        const r = await salvarCategoria({
+          token: contas[0].jwt,
+          corpo: campos,
+          acesso: acessoReal(),
+        });
+        return r.ok ? r.dados.categoria : null;
+      };
+
+      let idDaCategoriaParaRls = null;
+
+      if (contas[0].jwt) {
+        /* — CRIAR — */
+
+        const criada = await salvarCategoria({
+          token: contas[0].jwt,
+          corpo: {
+            nome: `Categoria ${prefixo}`,
+            slug: slug("categoria"),
+            cor: CORES_DE_CATEGORIA[1],
+            icone: CHAVES_DE_ICONE_DE_CATEGORIA[1],
+            ordem: 42,
+          },
+          acesso: acessoReal(),
+        });
+        const idCategoria = criada.ok ? criada.dados.categoria.id : null;
+        idDaCategoriaParaRls = idCategoria;
+        const noBanco = idCategoria ? await linhaDaCategoria(idCategoria) : null;
+        afirmar(
+          "criar uma Categoria pela porta única grava de verdade — nome, endereço, cor e ícone na COLUNA",
+          criada.ok === true &&
+            criada.dados.criada === true &&
+            noBanco?.nome === `Categoria ${prefixo}` &&
+            noBanco?.slug === slug("categoria") &&
+            noBanco?.cor === CORES_DE_CATEGORIA[1] &&
+            noBanco?.icone === CHAVES_DE_ICONE_DE_CATEGORIA[1] &&
+            noBanco?.ordem === 42,
+          criada.ok
+            ? `banco: ${JSON.stringify(noBanco)}`
+            : `tipo ${criada.erro.tipo}: ${criada.erro.detalhe.slice(0, 200)}`,
+        );
+
+        if (idCategoria) {
+          /* — COR E ÍCONE FORA DO VOCABULÁRIO SÃO RECUSADOS, CONTRA O REAL — */
+
+          for (const [nome, corpo] of [
+            ["uma cor que não está no vocabulário", { nome: `Cor ruim ${prefixo}`, cor: "#ff0000" }],
+            [
+              "uma classe utilitária no lugar da cor",
+              { nome: `Classe ${prefixo}`, cor: "bg-red-500" },
+            ],
+            ["um ícone que não está no mapa", { nome: `Icone ruim ${prefixo}`, icone: "flask" }],
+          ]) {
+            const r = await salvarCategoria({
+              token: contas[0].jwt,
+              corpo,
+              acesso: acessoReal(),
+            });
+            const criou = await executarSql(
+              token,
+              `select count(*)::int as n from public.categorias where nome = ${literal(corpo.nome)}`,
+            );
+            afirmar(
+              `criar Categoria com ${nome} é recusado, e nada é gravado`,
+              r.ok === false &&
+                r.erro.tipo === ERRO_DADOS_INVALIDOS &&
+                Number(criou.dados?.[0]?.n ?? -1) === 0,
+              r.ok ? "ACEITOU" : `tipo ${r.erro.tipo} | gravadas: ${criou.dados?.[0]?.n}`,
+            );
+          }
+
+          /* — RENOMEAR ACERTA TODOS OS POSTS SOZINHO — */
+          //
+          // O Post aponta para a Categoria e NÃO guarda o nome dela. É isto que
+          // faz renomear valer para todos de uma vez — e é isto que quebraria
+          // se algum consumidor copiasse o nome para uma coluna de `posts`.
+
+          const postDaCategoria = await salvarPost({
+            token: contas[0].jwt,
+            corpo: corpoValido({
+              slug: slug("post-da-categoria"),
+              titulo: "Post que usa a categoria",
+              categoria_id: idCategoria,
+            }),
+            acesso: acessoReal(),
+          });
+          const idDoPostDaCategoria = postDaCategoria.ok ? postDaCategoria.dados.post.id : null;
+          afirmar(
+            "o Post que usa a Categoria foi semeado pela função única",
+            Boolean(idDoPostDaCategoria),
+            postDaCategoria.ok
+              ? ""
+              : `tipo ${postDaCategoria.erro.tipo}: ${postDaCategoria.erro.detalhe.slice(0, 160)}`,
+          );
+
+          /** O que o Post mostra como Categoria, LIDO PELA JUNÇÃO — não pelo nome. */
+          const categoriaDoPost = async (idPost) => {
+            const r = await executarSql(
+              token,
+              `select c.nome as nome, p.atualizado_em::text as tocado
+                 from public.posts p join public.categorias c on c.id = p.categoria_id
+                where p.id = ${literal(idPost)}`,
+            );
+            return r.ok ? (r.dados?.[0] ?? null) : null;
+          };
+
+          if (idDoPostDaCategoria) {
+            const antes = await categoriaDoPost(idDoPostDaCategoria);
+            const renomeada = await salvarCategoria({
+              token: contas[0].jwt,
+              corpo: { id: idCategoria, nome: `Renomeada ${prefixo}` },
+              acesso: acessoReal(),
+            });
+            const depois = await categoriaDoPost(idDoPostDaCategoria);
+            afirmar(
+              "renomear a Categoria muda o nome que o Post mostra — sem que o Post seja tocado",
+              renomeada.ok === true &&
+                renomeada.dados.criada === false &&
+                antes?.nome === `Categoria ${prefixo}` &&
+                depois?.nome === `Renomeada ${prefixo}` &&
+                /* `atualizado_em` do POST é a prova de que ele não foi
+                   escrito: o gatilho o move a cada UPDATE, e ele não se moveu. */
+                depois?.tocado === antes?.tocado,
+              renomeada.ok
+                ? `antes: ${JSON.stringify(antes)} | depois: ${JSON.stringify(depois)}`
+                : `tipo ${renomeada.erro.tipo}: ${renomeada.erro.detalhe.slice(0, 160)}`,
+            );
+
+            /* E O ENDEREÇO NÃO MUDA SOZINHO: renomear é renomear. */
+            afirmar(
+              "renomear NÃO muda o endereço da Categoria — quem já usa o filtro continua chegando nela",
+              (await linhaDaCategoria(idCategoria))?.slug === slug("categoria"),
+              JSON.stringify(await linhaDaCategoria(idCategoria)),
+            );
+
+            /* — EXCLUIR EM USO É RECUSADO, COM O NÚMERO CERTO — */
+
+            const emUso = await excluirCategoria({
+              token: contas[0].jwt,
+              corpo: { id: idCategoria },
+              acesso: acessoReal(),
+            });
+            afirmar(
+              "excluir Categoria em uso é recusado contra o projeto real, DIZENDO quantos Posts dependem dela",
+              emUso.ok === false &&
+                emUso.erro.tipo === ERRO_CONFLITO &&
+                emUso.erro.mensagem.includes("1 post depende"),
+              emUso.ok ? "ACEITOU" : `${emUso.erro.tipo}: ${emUso.erro.mensagem}`,
+            );
+            afirmar(
+              "e a Categoria continua no banco, com o Post ainda apontando para ela",
+              (await linhaDaCategoria(idCategoria)) !== null &&
+                (await categoriaDoPost(idDoPostDaCategoria))?.nome === `Renomeada ${prefixo}`,
+              JSON.stringify(await categoriaDoPost(idDoPostDaCategoria)),
+            );
+
+            /* O SEGUNDO POST muda o NÚMERO da recusa. Sem ele, "1 post" poderia
+               ser uma constante escrita na frase. */
+            const segundo = await salvarPost({
+              token: contas[0].jwt,
+              corpo: corpoValido({
+                slug: slug("segundo-da-categoria"),
+                titulo: "Segundo post da mesma categoria",
+                categoria_id: idCategoria,
+              }),
+              acesso: acessoReal(),
+            });
+            const comDois = await excluirCategoria({
+              token: contas[0].jwt,
+              corpo: { id: idCategoria },
+              acesso: acessoReal(),
+            });
+            afirmar(
+              "com DOIS Posts, a recusa diz dois — o número é contado, não escrito na frase",
+              segundo.ok === true &&
+                comDois.ok === false &&
+                comDois.erro.mensagem.includes("2 posts dependem"),
+              comDois.ok ? "ACEITOU" : `${comDois.erro?.tipo}: ${comDois.erro?.mensagem}`,
+            );
+
+            /* — E SEM USO, ELA SAI — */
+
+            const soltou = await executarSql(
+              token,
+              `update public.posts set categoria_id = null
+                where categoria_id = ${literal(idCategoria)}`,
+            );
+            const saiu = await excluirCategoria({
+              token: contas[0].jwt,
+              corpo: { id: idCategoria },
+              acesso: acessoReal(),
+            });
+            afirmar(
+              "sem Post usando, a Categoria é excluída — e some do banco",
+              soltou.ok &&
+                saiu.ok === true &&
+                saiu.dados.operacao === OPERACAO_EXCLUIR_CATEGORIA &&
+                (await linhaDaCategoria(idCategoria)) === null,
+              saiu.ok ? "" : `${saiu.erro.tipo}: ${saiu.erro.detalhe.slice(0, 160)}`,
+            );
+            /* E os Posts continuam lá: a exclusão de Categoria nunca apaga Post. */
+            afirmar(
+              "e os Posts que a usavam continuam existindo — excluir Categoria nunca apaga Post",
+              (await linhaDoPost(idDoPostDaCategoria)) !== null,
+              JSON.stringify(await linhaDoPost(idDoPostDaCategoria)),
+            );
+            /* A Categoria já saiu; a prova de RLS abaixo precisa de uma linha
+               que EXISTA, senão a recusa passaria por vacuidade. */
+            idDaCategoriaParaRls = null;
+          }
+
+          /* — NOME REPETIDO, CONTRA A RESTRIÇÃO REAL — */
+
+          const primeira = await criarCategoriaReal({
+            nome: `Repetida ${prefixo}`,
+            slug: slug("repetida"),
+          });
+          const segunda = await salvarCategoria({
+            token: contas[0].jwt,
+            corpo: { nome: `Repetida ${prefixo}`, slug: slug("repetida-2") },
+            acesso: acessoReal(),
+          });
+          afirmar(
+            "duas Categorias com o mesmo NOME é recusado contra o banco real, dizendo qual já existe",
+            primeira !== null &&
+              segunda.ok === false &&
+              segunda.erro.tipo === ERRO_CONFLITO &&
+              segunda.erro.mensagem.includes(`Repetida ${prefixo}`),
+            segunda.ok ? "ACEITOU" : `${segunda.erro?.tipo}: ${segunda.erro?.mensagem}`,
+          );
+          const mesmoEndereco = await salvarCategoria({
+            token: contas[0].jwt,
+            corpo: { nome: `Outra ${prefixo}`, slug: slug("repetida") },
+            acesso: acessoReal(),
+          });
+          afirmar(
+            "e dois com o mesmo ENDEREÇO também",
+            mesmoEndereco.ok === false && mesmoEndereco.erro.tipo === ERRO_CONFLITO,
+            mesmoEndereco.ok ? "ACEITOU" : `${mesmoEndereco.erro?.tipo}: ${mesmoEndereco.erro?.mensagem}`,
+          );
+          if (primeira) idDaCategoriaParaRls = primeira.id;
+
+          /* — TAG DIGITADA, CONTRA O BANCO REAL — */
+
+          /** As Tags de um Post, lidas por SQL pelo slug delas. */
+          const tagsDoPostNoBanco = async (idPost) => {
+            const r = await executarSql(
+              token,
+              `select t.nome as nome, t.slug as slug
+                 from public.posts_tags pt join public.tags t on t.id = pt.tag_id
+                where pt.post_id = ${literal(idPost)} order by t.slug`,
+            );
+            return r.ok ? (r.dados ?? []) : [];
+          };
+
+          const comTags = await salvarPost({
+            token: contas[0].jwt,
+            corpo: corpoValido({
+              slug: slug("post-com-tags"),
+              titulo: "Post com tags digitadas",
+              tags: [`Atendimento ${prefixo}`, `Automação ${prefixo}`],
+            }),
+            acesso: acessoReal(),
+          });
+          const idComTags = comTags.ok ? comTags.dados.post.id : null;
+          const gravadasNoBanco = idComTags ? await tagsDoPostNoBanco(idComTags) : [];
+          afirmar(
+            "Tag DIGITADA vira Tag no banco: as duas foram criadas e associadas ao Post",
+            comTags.ok === true &&
+              gravadasNoBanco.length === 2 &&
+              gravadasNoBanco.some((t) => t.nome === `Atendimento ${prefixo}`) &&
+              gravadasNoBanco.some((t) => t.nome === `Automação ${prefixo}`),
+            comTags.ok
+              ? JSON.stringify(gravadasNoBanco)
+              : `tipo ${comTags.erro.tipo}: ${comTags.erro.detalhe.slice(0, 200)}`,
+          );
+
+          if (idComTags) {
+            /* REAPROVEITAR, E NÃO DUPLICAR. O segundo Post digita a MESMA Tag
+               com outra caixa: ela precisa ser a mesma linha de `tags`, e a
+               grafia de quem cadastrou primeiro precisa sobreviver. */
+            const outro = await salvarPost({
+              token: contas[0].jwt,
+              corpo: corpoValido({
+                slug: slug("outro-com-tags"),
+                titulo: "Outro post com a mesma tag",
+                tags: [`atendimento ${prefixo}`.toUpperCase(), `Novidade ${prefixo}`],
+              }),
+              acesso: acessoReal(),
+            });
+            const quantasComEsseSlug = await executarSql(
+              token,
+              `select count(*)::int as n from public.tags
+                where slug = ${literal(chaveDaTag(`Atendimento ${prefixo}`))}`,
+            );
+            const doOutro = outro.ok ? await tagsDoPostNoBanco(outro.dados.post.id) : [];
+            afirmar(
+              "a MESMA Tag digitada com outra caixa é REAPROVEITADA — uma linha só em `tags`",
+              outro.ok === true && Number(quantasComEsseSlug.dados?.[0]?.n ?? -1) === 1,
+              outro.ok
+                ? `linhas com o slug: ${quantasComEsseSlug.dados?.[0]?.n}`
+                : `tipo ${outro.erro.tipo}: ${outro.erro.detalhe.slice(0, 160)}`,
+            );
+            afirmar(
+              "e a grafia gravada continua sendo a de quem cadastrou primeiro",
+              doOutro.some((t) => t.nome === `Atendimento ${prefixo}`),
+              JSON.stringify(doOutro),
+            );
+
+            /* E O CONJUNTO É SUBSTITUÍDO, não acrescentado: salvar com uma tag
+               a menos tira a associação, que é o que a gaveta promete. */
+            const menos = await salvarPost({
+              token: contas[0].jwt,
+              corpo: corpoValido({
+                id: idComTags,
+                slug: slug("post-com-tags"),
+                titulo: "Post com tags digitadas",
+                tags: [`Atendimento ${prefixo}`],
+              }),
+              acesso: acessoReal(),
+            });
+            const agora = await tagsDoPostNoBanco(idComTags);
+            afirmar(
+              "salvar com uma Tag a menos TIRA a associação — o conjunto é substituído, não somado",
+              menos.ok === true &&
+                agora.length === 1 &&
+                agora[0].nome === `Atendimento ${prefixo}`,
+              menos.ok ? JSON.stringify(agora) : `tipo ${menos.erro.tipo}`,
+            );
+          }
+        }
+
+        /* — A RLS CONTINUA NEGANDO ESCRITA DE TAXONOMIA A `authenticated` — */
+        //
+        // É a mesma defesa da Story 2.5, e ela precisa continuar valendo com as
+        // tabelas novas: se a tela pudesse criar Categoria pelo cliente, a
+        // função de servidor seria decoração.
+
+        if (idDaCategoriaParaRls) {
+          /** Pedido cru ao PostgREST com o JWT da sessão do Painel. */
+          const comSessao = async (caminho, metodo, corpo) => {
+            try {
+              const r = await fetch(`${URL_PROJETO}/rest/v1/${caminho}`, {
+                method: metodo,
+                signal: AbortSignal.timeout(TIMEOUT_MS),
+                headers: {
+                  apikey: chaves.publicavel,
+                  Authorization: `Bearer ${contas[0].jwt}`,
+                  "Content-Type": "application/json",
+                  Prefer: "return=representation",
+                },
+                ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+              });
+              return { status: r.status, corpo: sanitizar(await r.text()) };
+            } catch (erro) {
+              return { status: 0, corpo: String(erro?.message ?? erro) };
+            }
+          };
+
+          /* CONTROLE POSITIVO: a MESMA credencial LÊ a Categoria. Sem ele, uma
+             chave errada faria as três recusas abaixo passarem sem política
+             nenhuma em pé. */
+          const leitura = await comSessao(
+            `categorias?id=eq.${encodeURIComponent(idDaCategoriaParaRls)}`,
+            "GET",
+            undefined,
+          );
+          afirmar(
+            "controle positivo: a sessão do Painel ENXERGA a Categoria que as tentativas abaixo tentam mudar",
+            leitura.status === 200 && leitura.corpo.includes(idDaCategoriaParaRls),
+            `HTTP ${leitura.status} ${leitura.corpo.slice(0, 160)}`,
+          );
+
+          const recusou = (r) =>
+            r.status === 401 ||
+            r.status === 403 ||
+            (r.status >= 400 &&
+              r.status < 500 &&
+              /42501|permission denied|row-level security/i.test(r.corpo)) ||
+            (r.status >= 200 && r.status < 300 && /^\s*\[\s*\]\s*$/.test(r.corpo));
+
+          const criacao = await comSessao("categorias", "POST", {
+            nome: `Criada por authenticated ${prefixo}`,
+            slug: slug("intrusa"),
+          });
+          const intrusa = await executarSql(
+            token,
+            `select count(*)::int as n from public.categorias where slug = ${literal(slug("intrusa"))}`,
+          );
+          afirmar(
+            "criar Categoria pelo cliente autenticado, direto no PostgREST, é RECUSADO — e nada foi criado",
+            recusou(criacao) && Number(intrusa.dados?.[0]?.n ?? -1) === 0,
+            `HTTP ${criacao.status} ${criacao.corpo.slice(0, 160)} | criadas: ${intrusa.dados?.[0]?.n}`,
+          );
+
+          const renomeacao = await comSessao(
+            `categorias?id=eq.${encodeURIComponent(idDaCategoriaParaRls)}`,
+            "PATCH",
+            { nome: `Renomeada por authenticated ${prefixo}` },
+          );
+          const aindaComNome = await linhaDaCategoria(idDaCategoriaParaRls);
+          afirmar(
+            "renomear Categoria pelo cliente autenticado é RECUSADO — e o nome não mudou",
+            recusou(renomeacao) &&
+              aindaComNome?.nome !== `Renomeada por authenticated ${prefixo}`,
+            `HTTP ${renomeacao.status} ${renomeacao.corpo.slice(0, 160)} | banco: ${JSON.stringify(aindaComNome)}`,
+          );
+
+          const exclusao = await comSessao(
+            `categorias?id=eq.${encodeURIComponent(idDaCategoriaParaRls)}`,
+            "DELETE",
+            undefined,
+          );
+          afirmar(
+            "excluir Categoria pelo cliente autenticado é RECUSADO — e ela continua no banco",
+            recusou(exclusao) && (await linhaDaCategoria(idDaCategoriaParaRls)) !== null,
+            `HTTP ${exclusao.status} ${exclusao.corpo.slice(0, 160)}`,
+          );
+
+          const tagIntrusa = await comSessao("tags", "POST", {
+            nome: `Tag por authenticated ${prefixo}`,
+            slug: slug("tag-intrusa"),
+          });
+          const tagCriada = await executarSql(
+            token,
+            `select count(*)::int as n from public.tags where slug = ${literal(slug("tag-intrusa"))}`,
+          );
+          afirmar(
+            "criar Tag pelo cliente autenticado também é RECUSADO — a taxonomia inteira passa pela porta única",
+            recusou(tagIntrusa) && Number(tagCriada.dados?.[0]?.n ?? -1) === 0,
+            `HTTP ${tagIntrusa.status} ${tagIntrusa.corpo.slice(0, 160)} | criadas: ${tagCriada.dados?.[0]?.n}`,
+          );
+        } else {
+          afirmar(
+            "a Categoria da prova de RLS pôde ser semeada",
+            false,
+            "sem linha existente, as recusas passariam por vacuidade",
+          );
+        }
+      } else {
+        adiar("as operações de Categoria contra o projeto", MOTIVO_SEM_SESSAO);
+        adiar("a Tag digitada contra o projeto", MOTIVO_SEM_SESSAO);
+        adiar(
+          "escrita de taxonomia pelo cliente autenticado é recusada pela RLS",
+          MOTIVO_SEM_SESSAO,
+        );
+      }
+
       /* ── (f) A linha do BANCO: escrita por fora da função ──────────────── */
 
       secao("(f) a linha do banco: escrita por fora da função é recusada");
@@ -6396,6 +7812,11 @@ if (!temToken) {
              a cascata vai de `posts` para `posts_tags`, e não de `posts` para
              `tags` — que é o certo, porque uma Tag é de todos os Posts. */
           `delete from public.tags where slug like ${literal(marca)}`,
+          /* As Categorias da Story 2.14. Elas saem DEPOIS dos Posts, e a ordem
+             não é estilo: com `on delete restrict`, apagar Categoria antes do
+             Post que a usa é recusado pelo banco — e a limpeza inteira, que é
+             uma transação só, falharia deixando resíduo em produção. */
+          `delete from public.categorias where slug like ${literal(marca)}`,
           // Pelo MESMO SQL do `conta:remover`, e não por um `delete` escrito
           // aqui: a Conta de teste sai pelo caminho que uma Conta real sai.
           ...contas.map((conta) => sqlDeRemocaoDeConta(conta.email)),
@@ -6412,6 +7833,7 @@ if (!temToken) {
       `select
          (select count(*)::int from public.posts where slug like ${literal(marca)}) as posts,
          (select count(*)::int from public.tags where slug like ${literal(marca)}) as tags,
+         (select count(*)::int from public.categorias where slug like ${literal(marca)}) as categorias,
          (select count(*)::int from auth.users where email like ${literal(`verificacao.escrita+${nonce}-%@chatclean.com.br`)}) as contas`,
     );
     const linha = sobrou.ok ? (sobrou.dados?.[0] ?? null) : null;
@@ -6420,9 +7842,10 @@ if (!temToken) {
       linha !== null &&
         Number(linha.posts) === 0 &&
         Number(linha.tags) === 0 &&
+        Number(linha.categorias) === 0 &&
         Number(linha.contas) === 0,
       linha
-        ? `posts: ${linha.posts} | tags: ${linha.tags} | contas: ${linha.contas}`
+        ? `posts: ${linha.posts} | tags: ${linha.tags} | categorias: ${linha.categorias} | contas: ${linha.contas}`
         : (sobrou.erro ?? ""),
     );
   }

@@ -65,6 +65,14 @@ import {
   resolver,
   semCR,
 } from "./css-comum.mjs";
+/* O vocabulário de cor de Categoria vem do DOMÍNIO, importado e executado.
+   Reescrever a lista aqui mediria uma segunda lista, e a cor nova entraria no
+   produto sem passar por medida nenhuma — que é exatamente o que esta seção
+   existe para impedir. */
+import {
+  CORES_DE_CATEGORIA,
+  aparenciaDaCor,
+} from "../src/domain/blog/categorias.js";
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const acharCssCompilado = () => acharCssEm(raiz);
@@ -1038,6 +1046,32 @@ if (temCss) {
       `var(--state-${estado}-bg)`,
       escopoPainel,
     );
+  }
+
+  /* ─── O par de cada cor de Categoria (Story 2.14) ──────────────────────
+     Cor que ninguém mede é cor que ninguém sabe se dá para ler. O vocabulário
+     é FECHADO justamente para caber aqui: "valor CSS aplicado por style"
+     permite qualquer cor, e qualquer cor inclui as ilegíveis. A lista é
+     IMPORTADA do domínio — reescrevê-la aqui mediria uma segunda lista, e a
+     cor nova entraria sem passar por medida nenhuma. */
+  {
+    afirmar(
+      "o vocabulário de cor de Categoria não está vazio",
+      CORES_DE_CATEGORIA.length > 0,
+      "sem cores declaradas, as medidas abaixo passariam por vacuidade",
+    );
+    for (const cor of CORES_DE_CATEGORIA) {
+      const { rotulo, fundo, tinta } = aparenciaDaCor(cor);
+      /* A cor gravada em `categorias.cor` é o FUNDO. Se ela deixar de ser uma
+         referência a token, a resolução falha e a asserção acusa em vez de
+         medir outra coisa. */
+      afirmar(
+        `categoria ${rotulo}: a cor gravada é o token do fundo, nunca hex solto`,
+        cor === fundo && /^var\(--categoria-[a-z]+-bg\)$/.test(fundo),
+        `cor: ${cor} | fundo: ${fundo}`,
+      );
+      conferir(`categoria ${rotulo}: tinta sobre fundo`, tinta, fundo, escopoPainel);
+    }
   }
 
   // Pares que o próprio bloco `.painel` cria.

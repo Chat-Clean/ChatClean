@@ -396,6 +396,17 @@ afirmar(
        tivesse falhado. */
     ["posts.js", "lerPostDoPainelPorId"],
     ["taxonomia.js", "listarTagsDoPostNoPainel"],
+    /* Story 2.14: a leitura de Categorias do PAINEL traz a CONTAGEM de Posts de
+       cada uma, e a contagem roda sob a RLS de `posts`. Pelo cliente anônimo
+       ela contaria só o que está no ar, e a tela diria "nenhum post usa esta
+       categoria" sobre uma Categoria com três rascunhos — bem na hora em que
+       alguém decide se pode excluí-la. */
+    ["taxonomia.js", "listarCategoriasDoPainel"],
+    /* E as Tags SUGERIDAS também (Story 2.14). Elas vinham do cliente público,
+       e a política anônima de `tags` só devolve Tag associada a Post visível:
+       uma Tag criada num rascunho nunca era sugerida — que é exatamente o caso
+       em que o Autor recria "Atendimento" com outra grafia. */
+    ["taxonomia.js", "listarTagsDoPainel"],
   ];
   const corpoDe = ([arquivo, nome]) => {
     const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";
@@ -564,8 +575,61 @@ const {
   listarPostsPublicos,
   ordenarListagem,
 } = postsMod;
-const { listarCategorias, listarTags } = taxonomiaMod;
+const {
+  listarCategorias,
+  listarCategoriasDoPainel,
+  listarTags,
+  listarTagsDoPostNoPainel,
+  problemaNaTagDoPost,
+} = taxonomiaMod;
 const { resolverSlugAposentado } = slugsMod;
+
+/* ─── A REGRA QUE IMPEDE UMA TAG DE SUMIR DA GAVETA (Story 2.14) ─────────── */
+//
+// `listarTagsDoPostNoPainel` exigia só `tag_id`, e transformava nome ausente em
+// texto vazio: a linha sumia do campo, e como o salvamento manda a lista
+// INTEIRA, o salvamento seguinte apagava a associação. É o mesmo defeito que
+// `resolverTags` bloqueia no servidor sob a frase "nenhuma tag some em
+// silêncio". A regra é executada aqui, caso a caso.
+{
+  const ACEITAS = [
+    { tag_id: "t1", tags: { nome: "Atendimento" } },
+    { tag_id: "t1", tags: [{ nome: "Atendimento" }] },
+  ];
+  const RECUSADAS = [
+    null,
+    undefined,
+    "t1",
+    [],
+    { tags: { nome: "Atendimento" } },
+    { tag_id: "", tags: { nome: "Atendimento" } },
+    { tag_id: "t1" },
+    { tag_id: "t1", tags: null },
+    { tag_id: "t1", tags: [] },
+    { tag_id: "t1", tags: {} },
+    { tag_id: "t1", tags: { nome: "" } },
+    { tag_id: "t1", tags: { nome: "   " } },
+    { tag_id: "t1", tags: { nome: 42 } },
+  ];
+  const aceitasQueFalharam = ACEITAS.filter((l) => problemaNaTagDoPost(l) !== null);
+  const recusadasQuePassaram = RECUSADAS.filter((l) => problemaNaTagDoPost(l) === null);
+  afirmar(
+    "linha de tag COM nome é aceita, nas duas formas que o PostgREST devolve a relação embutida",
+    aceitasQueFalharam.length === 0,
+    aceitasQueFalharam.map((l) => JSON.stringify(l) + ": " + problemaNaTagDoPost(l)).join(" | "),
+  );
+  afirmar(
+    "e tag SEM nome é RECUSADA em vez de encolher — encolher faria o próximo salvamento apagar a associação",
+    recusadasQuePassaram.length === 0,
+    recusadasQuePassaram.map((l) => JSON.stringify(l)).join(" | "),
+  );
+  afirmar(
+    "a recusa por nome ausente DIZ que a tag sumiria — a frase é o que explica um erro que ninguém esperava",
+    /sem nome/.test(problemaNaTagDoPost({ tag_id: "t1", tags: {} }) ?? ""),
+    String(problemaNaTagDoPost({ tag_id: "t1", tags: {} })),
+  );
+}
+
 
 /**
  * Executa uma função da camada registrando as duas promessas transversais:
@@ -1291,6 +1355,15 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "com sessão, o Painel abre o rascunho pelo identificador",
   "identificador inexistente devolve NÃO ENCONTRADO, não null cru",
   "identificador malformado devolve NÃO ENCONTRADO sem ir ao servidor",
+  // A taxonomia do Painel (Story 2.14). A contagem de uso e o nome da Tag só
+  // são o que a tela precisa QUANDO há sessão — sem ela, a contagem contaria
+  // apenas o que está no ar, e a tela ofereceria excluir uma Categoria que
+  // classifica três rascunhos.
+  "listarCategoriasDoPainel devolve a Categoria semeada",
+  "e ela vem com a CONTAGEM de Posts que a usam, como número",
+  "a contagem do Painel inclui Post que o visitante não vê",
+  "as Categorias do Painel vêm ordenadas por `ordem`",
+  "listarTagsDoPostNoPainel devolve as tags do rascunho com id E nome",
   "a janela de visibilidade foi aberta",
   "a sessão continua ATIVA no exato momento da leitura pública",
   "a listagem pública respondeu com sucesso",
@@ -1488,7 +1561,7 @@ if (temToken && ambienteCompleto) {
     const semeadura = await executarSql(
       token,
       `insert into public.categorias (slug, nome, icone, cor, ordem) values
-         (${literal(slug("categoria"))}, 'Categoria da camada de dados', 'flask', 'oklch(0.7 0.1 200)', 99);
+         (${literal(slug("categoria"))}, 'Categoria da camada de dados', 'etiqueta', 'var(--categoria-cinza-bg)', 99);
 
        insert into public.posts
          (slug, titulo, resumo, estado, publicado_em, atualizado_em, categoria_id)
@@ -1723,6 +1796,73 @@ if (temToken && ambienteCompleto) {
               "identificador malformado devolve NÃO ENCONTRADO sem ir ao servidor",
               falhouCom(lixo, ERRO_NAO_ENCONTRADO),
               JSON.stringify(lixo).slice(0, 200),
+            );
+          }
+
+          /* — A TAXONOMIA DO PAINEL (Story 2.14) — */
+          {
+            /* A contagem de uso, que é o número que a recusa de excluir precisa
+               dizer e que a tela mostra ANTES de a pessoa tentar. Ela roda sob a
+               RLS de `posts`: com sessão, ela conta rascunho também — e é
+               justamente o rascunho que faria a tela mentir se a leitura fosse
+               anônima. */
+            const doPainel = await chamar("listarCategoriasDoPainel", () =>
+              listarCategoriasDoPainel(),
+            );
+            const semeada = (doPainel?.dados ?? []).find(
+              (c) => c.slug === slug("categoria"),
+            );
+            afirmar(
+              "listarCategoriasDoPainel devolve a Categoria semeada",
+              doPainel?.ok === true && semeada !== undefined,
+              JSON.stringify(doPainel?.erro ?? (doPainel?.dados ?? []).map((c) => c.slug)).slice(0, 200),
+            );
+            afirmar(
+              "e ela vem com a CONTAGEM de Posts que a usam, como número",
+              typeof semeada?.posts === "number" && semeada.posts > 0,
+              `posts: ${JSON.stringify(semeada?.posts)}`,
+            );
+            /* A contagem inclui o que NÃO está no ar. Sem esta asserção, uma
+               leitura pelo cliente anônimo passaria — e a tela ofereceria
+               excluir uma Categoria que classifica três rascunhos. */
+            const publicosDaSemeada = (
+              await chamar("listarPostsPublicos (para comparar a contagem)", () =>
+                listarPostsPublicos({ limite: 100 }),
+              )
+            )?.dados?.filter((p) => p.categoria?.slug === slug("categoria")).length;
+            afirmar(
+              "a contagem do Painel inclui Post que o visitante não vê",
+              typeof semeada?.posts === "number" &&
+                typeof publicosDaSemeada === "number" &&
+                semeada.posts > publicosDaSemeada,
+              `painel: ${semeada?.posts} | público: ${publicosDaSemeada}`,
+            );
+            afirmar(
+              "as Categorias do Painel vêm ordenadas por `ordem`",
+              (() => {
+                const ordens = (doPainel?.dados ?? [])
+                  .map((c) => Number(c.ordem))
+                  .filter((n) => Number.isFinite(n));
+                return ordens.every((v, i) => i === 0 || ordens[i - 1] <= v);
+              })(),
+              (doPainel?.dados ?? []).map((c) => c.ordem).join(", "),
+            );
+
+            /* As Tags do Post, COM O NOME. Sem o nome, o campo de tags da gaveta
+               abriria vazio e o primeiro salvamento apagaria as que existiam —
+               o pedido diz "estas são as tags", e uma lista vazia é um pedido de
+               nenhuma tag. */
+            const tagsDoRascunho = await chamar("listarTagsDoPostNoPainel", () =>
+              listarTagsDoPostNoPainel(idDe.get(slug("rascunho"))),
+            );
+            afirmar(
+              "listarTagsDoPostNoPainel devolve as tags do rascunho com id E nome",
+              tagsDoRascunho?.ok === true &&
+                tagsDoRascunho.dados.length > 0 &&
+                tagsDoRascunho.dados.every(
+                  (t) => typeof t.id === "string" && typeof t.nome === "string" && t.nome !== "",
+                ),
+              JSON.stringify(tagsDoRascunho?.erro ?? tagsDoRascunho?.dados).slice(0, 250),
             );
           }
 

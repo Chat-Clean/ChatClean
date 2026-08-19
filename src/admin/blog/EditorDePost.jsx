@@ -118,7 +118,7 @@ import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
 import { lerPostDoPainelPorId } from "@/data/blog/posts";
-import { listarCategorias, listarTags, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
+import { listarCategorias, listarTagsDoPainel, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
 import { paraCampoDeInstante } from "@/domain/blog/formato";
 import { documentoVazio } from "@/domain/blog/schema";
 import { gerarSlug, problemaNoSlug } from "@/domain/blog/slug";
@@ -159,6 +159,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
   const [documento, setDocumento] = useState(documentoVazio);
   const [chaveDoEditor, setChaveDoEditor] = useState("novo");
 
+  /* A leitura das Tags do Post falhou? O campo abriria vazio, e uma lista
+     vazia é um pedido legítimo de "nenhuma tag" — o salvamento apagaria todas.
+     Enquanto isto estiver ligado, `tags` NÃO viaja no pedido, e o servidor
+     preserva o que está gravado. */
+  const [tagsIndisponiveis, setTagsIndisponiveis] = useState(false);
   const [categorias, setCategorias] = useState([]);
   const [tags, setTags] = useState([]);
 
@@ -246,7 +251,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     let vivo = true;
 
     (async () => {
-      const [c, t] = await Promise.all([listarCategorias(), listarTags()]);
+      /* AS SUGESTÕES VÊM DO PAINEL, e não do cliente público: a política
+         anônima de `tags` só devolve Tag associada a Post visível, então uma
+         Tag criada num rascunho nunca seria sugerida — que é exatamente o caso
+         em que o Autor recria "Atendimento" com outra grafia. */
+      const [c, t] = await Promise.all([listarCategorias(), listarTagsDoPainel()]);
       if (!vivo) return;
       if (c.ok) setCategorias(c.dados);
       if (t.ok) setTags(t.dados);
@@ -257,6 +266,16 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         notificarErro(
           "Não deu para carregar as categorias",
           "Você pode escrever normalmente; escolha a categoria depois de recarregar o Painel.",
+        );
+      }
+      /* A FALHA DAS TAGS DEIXOU DE SER SILENCIOSA (Story 2.14). Ela nunca
+         impediu escrever — as tags passaram a ser digitadas, e digitar não
+         depende da lista —, mas o que se perde é a SUGESTÃO das já usadas, e
+         quem não sabe disso acaba recriando "Atendimento" com outra grafia. */
+      if (!t.ok) {
+        notificarErro(
+          "Não deu para carregar as tags já usadas",
+          "Você pode digitar tags normalmente; as sugestões voltam quando o Painel recarregar.",
         );
       }
     })();
@@ -287,6 +306,18 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         setErroDeCarga(post.erro);
         setCarregando(false);
         return;
+      }
+      /* AS TAGS DO POST, E O QUE ACONTECE SE ELAS NÃO VIEREM.
+         O campo abriria vazio, e o primeiro salvamento APAGARIA as que existiam
+         — o pedido diz "estas são as tags", e uma lista vazia é um pedido de
+         nenhuma tag. A falha continua não travando o Editor, mas ela é DITA:
+         quem lê o aviso sabe que precisa recarregar antes de salvar. */
+      setTagsIndisponiveis(!tagsDoPost.ok);
+      if (!tagsDoPost.ok) {
+        notificarErro(
+          "Não deu para carregar as tags deste post",
+          "Elas ficam como estão: o salvamento não mexe nelas até o Painel recarregar.",
+        );
       }
       const doBanco = valoresDoPost(post.dados, tagsDoPost.ok ? tagsDoPost.dados : []);
       const conteudo = post.dados.conteudo ?? documentoVazio();
@@ -427,6 +458,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       valores,
       documento,
       estado: acao.destino,
+      omitirTags: tagsIndisponiveis,
     });
     if (!pedido.ok) {
       setFaltando([pedido.campo]);
@@ -526,7 +558,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     }
 
     aoSalvar?.(gravado);
-  }, [salvando, valores, documento, criando, id, estado, aoSalvar]);
+  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis]);
 
   useEffect(() => {
     salvarDeNovo.current = salvar;

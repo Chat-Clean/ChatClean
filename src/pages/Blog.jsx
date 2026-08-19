@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -12,16 +12,75 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import { getPostsByCategory } from "@/lib/blogStore";
+import { CATEGORIA_TODOS, getPostsByCategory } from "@/lib/blogStore";
+import { listarCategorias } from "@/data/blog/taxonomia";
 
 const WHATSAPP_LINK =
   "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
 
-const categorias = ["Todos", "Tecnologia", "Estratégia", "Analytics", "Automação", "Tendências"];
+/* ─── AS CATEGORIAS VÊM DO BANCO (Story 2.14) ──────────────────────────────
+ *
+ * A constante que vivia aqui — `["Todos", "Tecnologia", "Estratégia",
+ * "Analytics", "Automação", "Tendências"]` — SAIU. Ela era a terceira cópia da
+ * lista de Categorias, e as três já divergiam entre si: esta tinha CINCO, e
+ * "Novidades" não estava nela. Um post publicado em "Novidades" não era
+ * alcançável por filtro nenhum no site, e ninguém percebeu, porque não havia um
+ * lugar só que dissesse quais Categorias existem. Agora há: a tabela.
+ *
+ * "Todos" continua fora do banco porque ele não é uma Categoria — é a ausência
+ * de filtro, e cadastrá-lo criaria uma Categoria que ninguém pode usar num
+ * post. Mas ele é IMPORTADO de onde a comparação mora (`blogStore`), e não
+ * reescrito aqui: dois literais que precisam ser idênticos, sem nada ligando os
+ * dois, é a visão padrão filtrando zero posts no dia em que alguém renomeia um
+ * deles.
+ */
+const TODOS = CATEGORIA_TODOS;
 
 export default function Blog() {
-  const [categoriaAtiva, setCategoriaAtiva] = useState("Todos");
+  const [categoriaAtiva, setCategoriaAtiva] = useState(TODOS);
   const [termoBusca, setTermoBusca] = useState("");
+  const [nomesDeCategoria, setNomesDeCategoria] = useState([]);
+  /* A FALHA É DITA. Ela era silenciosa: o filtro colapsava para só "Todos" e o
+     visitante concluía que o blog tem uma categoria só — no mesmo diff em que o
+     Editor passou a anunciar a falha equivalente. */
+  const [falhouAoCarregar, setFalhouAoCarregar] = useState(false);
+
+  /* Os POSTS continuam vindo de onde vêm hoje — migrá-los para o Supabase é a
+     Story 2.15. O que muda aqui é a origem do vocabulário do filtro. */
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      let resultado;
+      try {
+        resultado = await listarCategorias();
+      } catch {
+        resultado = { ok: false };
+      }
+      if (!vivo) return;
+      if (!resultado.ok) {
+        setFalhouAoCarregar(true);
+        return;
+      }
+      setFalhouAoCarregar(false);
+      /* NOMES ÚNICOS, E NENHUM DELES É "Todos".
+         Uma Categoria cadastrada com esse nome produziria duas pastilhas
+         iguais, chave de React repetida e um filtro ambíguo — o clique numa
+         delas mostraria tudo. "Todos" é o rótulo da AUSÊNCIA de filtro, e por
+         isso não pode ser também o rótulo de uma categoria. */
+      const nomes = [];
+      for (const categoria of resultado.dados) {
+        const nome = String(categoria.nome ?? "").trim();
+        if (nome === "" || nome === TODOS || nomes.includes(nome)) continue;
+        nomes.push(nome);
+      }
+      setNomesDeCategoria(nomes);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const categorias = [TODOS, ...nomesDeCategoria];
 
   const postsExibidos = getPostsByCategory(categoriaAtiva).filter(
     (post) =>
@@ -95,6 +154,16 @@ export default function Blog() {
       <section className="bg-white border-b border-zinc-100 sticky top-20 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex flex-wrap gap-2 justify-center">
+            {falhouAoCarregar ? (
+              <p
+                role="status"
+                data-papel="falha-das-categorias"
+                className="w-full text-center text-sm text-zinc-500"
+              >
+                Não deu para carregar as categorias. Recarregue a página para
+                filtrar por categoria — a busca por texto continua funcionando.
+              </p>
+            ) : null}
             {categorias.map((cat) => (
               <button
                 key={cat}
@@ -120,7 +189,7 @@ export default function Blog() {
             <p className="text-zinc-500 text-lg mb-6">Nenhum artigo encontrado.</p>
             <Button
               variant="outline"
-              onClick={() => { setCategoriaAtiva("Todos"); setTermoBusca(""); }}
+              onClick={() => { setCategoriaAtiva(TODOS); setTermoBusca(""); }}
               className="rounded-full"
             >
               Limpar filtros
