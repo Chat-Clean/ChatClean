@@ -83,6 +83,17 @@ const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 /* A listagem da Story 2.10 e as regras puras dela. */
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 const CAMINHO_MODULO_DA_LISTAGEM = "src/admin/blog/listagem.js";
+/* As regras puras das ações por linha (Story 2.12). Módulo próprio pela mesma
+   razão que `listagem.js`: função pura em arquivo de componente quebra a
+   recarga rápida — e, aqui, tornaria "a confirmação nomeia o Post" uma frase
+   sobre JSX em vez de uma regra executável. */
+const CAMINHO_MODULO_DAS_ACOES = "src/admin/blog/acoes.js";
+/* O ponto único de notificação. Ele é DUBLADO na montagem: a única coisa que
+   o alvo indisponível de "Ver no site" FAZ é notificar, e sem o dublê apagar
+   o `onClick` dele não quebrava asserção nenhuma. O mesmo vale para a
+   confirmação da exclusão e para as duas direções do Destaque — trocar o valor
+   gravado pelo pedido faria a estrela dizer uma coisa e o aviso outra. */
+const CAMINHO_NOTIFICACOES = "src/admin/shell/Notificacoes.jsx";
 
 /* A fronteira de dados que a tela consome. Ela é DUBLADA na montagem — ver o
    comentário de `compilarComponentes` — e os módulos reais entram junto para
@@ -1714,6 +1725,21 @@ async function compilarComponentes() {
          e os Estados chegam à camada — e que uma rajada de teclas não vira uma
          ida por tecla (Story 2.11). */
       "  pedidos_da_listagem: [],\n" +
+      /* As operações da Story 2.12, pela MESMA porta. `pedidos_de_*` guarda o
+         que a tela pediu — é por aí que se prova que ela manda o identificador
+         do Post certo e o valor DESEJADO do Destaque, e não um pedido de
+         inversão. `ao*`, quando é função, tem precedência: é ela que permite
+         SEGURAR a resposta e observar o alvo desabilitado enquanto o pedido
+         corre. */
+      "  pedidos_de_exclusao: [],\n" +
+      "  pedidos_de_destaque: [],\n" +
+      "  exclusao: { ok: true, dados: { operacao: 'excluir', id: null, post: null } },\n" +
+      "  destaque: { ok: true, dados: { operacao: 'destacar', id: null, destaque: true, post: null } },\n" +
+      "  aoExcluir: null,\n" +
+      "  aoDestacar: null,\n" +
+      /* O que a tela ANUNCIOU, em ordem. `{ tom, oQueHouve, oQueFazer }` — as
+         duas metades separadas, como `notificarErro` as exige. */
+      "  avisos: [],\n" +
       "};\n",
   );
 
@@ -1725,6 +1751,38 @@ async function compilarComponentes() {
       "export async function salvarPost(corpo) {\n" +
       "  controle.pedidos.push(corpo);\n" +
       "  return controle.resposta;\n" +
+      "}\n" +
+      "export async function excluirPost(id) {\n" +
+      "  controle.pedidos_de_exclusao.push(id);\n" +
+      "  if (typeof controle.aoExcluir === 'function') return controle.aoExcluir(id);\n" +
+      "  return controle.exclusao;\n" +
+      "}\n" +
+      "export async function definirDestaque(id, destaque) {\n" +
+      "  controle.pedidos_de_destaque.push({ id, destaque });\n" +
+      "  if (typeof controle.aoDestacar === 'function') return controle.aoDestacar(id, destaque);\n" +
+      "  return controle.destaque;\n" +
+      "}\n",
+  );
+
+  const arquivoDasNotificacoes = path.join(pasta, "duble-notificacoes.js");
+  writeFileSync(
+    arquivoDasNotificacoes,
+    `export * from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      `export { default } from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      'import { controle } from "./controle.js";\n' +
+      /* As GUARDAS DE VOZ continuam valendo: o dublê chama as reais antes de
+         registrar, senão ele viraria um jeito de a tela dizer qualquer coisa
+         sem ninguém cobrar. O que ele troca é só o transporte. */
+      `import { notificarSucesso as sucessoReal, notificarErro as erroReal } from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      "export function notificarSucesso(oQueAconteceu, detalhe) {\n" +
+      "  const saida = sucessoReal(oQueAconteceu, detalhe);\n" +
+      "  controle.avisos.push({ tom: 'sucesso', oQueHouve: oQueAconteceu, oQueFazer: detalhe ?? '' });\n" +
+      "  return saida;\n" +
+      "}\n" +
+      "export function notificarErro(oQueHouve, oQueFazer, saidaExtra) {\n" +
+      "  const saida = erroReal(oQueHouve, oQueFazer, saidaExtra ?? null);\n" +
+      "  controle.avisos.push({ tom: 'erro', oQueHouve, oQueFazer });\n" +
+      "  return saida;\n" +
       "}\n",
   );
 
@@ -1775,7 +1833,10 @@ async function compilarComponentes() {
          asserção passaria a provar outra coisa. */
       `export { ESPERA_DA_BUSCA_MS } from ${caminhoReal(CAMINHO_LISTA)};\n` +
       `export * as regrasDaListagem from ${caminhoReal(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
+      `export * as regrasDasAcoes from ${caminhoReal(CAMINHO_MODULO_DAS_ACOES)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
+      `export * as notificacoesReal from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      `export * as notificacoesDuble from ${comoModulo(arquivoDasNotificacoes)};\n` +
       `export * as escritaReal from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
       `export * as escritaDuble from ${comoModulo(arquivoDaEscrita)};\n` +
       `export * as postsReal from ${caminhoReal(CAMINHO_POSTS)};\n` +
@@ -1801,6 +1862,7 @@ async function compilarComponentes() {
          (e a asserção de que ele entrou é o que denuncia isso). */
       resolve: {
         alias: {
+          "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
           "@/data/blog/escrita": arquivoDaEscrita,
           "@/data/blog/posts": arquivoDosPosts,
           "@/data/blog/taxonomia": arquivoDaTaxonomia,
@@ -4865,6 +4927,902 @@ if (janela && schema && configuracao && compilado) {
         "a listagem nova não conhece `blogStore` nem armazenamento do navegador — a origem é uma só",
         achados.length === 0,
         achados.join(", "),
+      );
+    }
+
+    /* ─── (m) As ações por linha (Story 2.12) ─────────────────────────── */
+
+    secao("(m) as ações por linha: alvos permanentes, e a exclusão que nomeia");
+
+    const acoes = modulo.regrasDasAcoes ?? null;
+
+    afirmar(
+      "`acoes.js` é módulo próprio e chega ao pacote — as frases das ações são executáveis, não JSX lido",
+      acoes !== null && typeof acoes.motivoDeNaoVerNoSite === "function",
+    );
+
+    /* ─── NENHUM BLOCO DESTA SEÇÃO PASSA POR VACUIDADE ────────────────────
+       Os blocos abaixo são guardados por `if (acoes && …)`. Sem esta linha, um
+       módulo que não carregasse faria dezenas de asserções da Story 2.12
+       simplesmente não rodarem, com a suíte verde — que é a forma mais
+       silenciosa de uma verificação deixar de verificar. */
+    afirmar(
+      "e os quatro módulos de que esta seção depende carregaram — sem eles, as asserções abaixo não rodariam e ninguém saberia",
+      acoes !== null &&
+        regras !== null &&
+        estadosDoDominio !== null &&
+        voz !== null &&
+        foco !== null,
+      `acoes: ${acoes !== null} | listagem: ${regras !== null} | estados: ${estadosDoDominio !== null} | voz: ${voz !== null} | foco: ${foco !== null}`,
+    );
+
+    /* ── As regras puras, EXECUTADAS ──────────────────────────────────── */
+    if (acoes && estadosDoDominio) {
+      const PUBLICADO = { id: "x", titulo: "Guia de atalhos", slug: "guia-de-atalhos", estado: "publicado", destaque: true };
+      const RASCUNHO = { id: "y", titulo: "Rascunho sem categoria", slug: "rascunho-sem-categoria", estado: "rascunho", destaque: false };
+      const SEM_ENDERECO = { id: "z", titulo: "Post sem endereço", slug: "   ", estado: "publicado" };
+
+      afirmar(
+        "Post sem título vira “post sem título” nas frases — uma confirmação que diz “Excluir “”?” é pior que nenhuma",
+        acoes.tituloParaFrase({ titulo: "   " }) === "post sem título" &&
+          acoes.tituloParaFrase({}) === "post sem título" &&
+          acoes.tituloParaFrase(null) === "post sem título" &&
+          acoes.tituloParaFrase({ titulo: "  Um título  " }) === "Um título",
+        JSON.stringify(acoes.tituloParaFrase({})),
+      );
+
+      afirmar(
+        "o endereço público é montado UMA vez, e Post sem endereço não produz link nenhum",
+        acoes.enderecoPublico(PUBLICADO) === "/blog/guia-de-atalhos" &&
+          acoes.enderecoPublico(SEM_ENDERECO) === "" &&
+          acoes.enderecoPublico({}) === "" &&
+          acoes.enderecoPublico(null) === "",
+        acoes.enderecoPublico(PUBLICADO),
+      );
+
+      afirmar(
+        "só Post PUBLICADO com endereço abre no site — rascunho, agendado e arquivado não",
+        acoes.podeVerNoSite(PUBLICADO) === true &&
+          acoes.podeVerNoSite(SEM_ENDERECO) === false &&
+          ["rascunho", "agendado", "arquivado"].every(
+            (estado) => acoes.podeVerNoSite({ ...PUBLICADO, estado }) === false,
+          ),
+      );
+
+      afirmar(
+        "e o motivo da indisponibilidade tem as DUAS metades: o que houve e o que fazer",
+        acoes.motivoDeNaoVerNoSite(PUBLICADO) === null &&
+          ["rascunho", "agendado", "arquivado"].every((estado) => {
+            const motivo = acoes.motivoDeNaoVerNoSite({ ...PUBLICADO, estado });
+            return (
+              motivo !== null &&
+              typeof motivo.oQueHouve === "string" &&
+              motivo.oQueHouve.includes("Guia de atalhos") &&
+              motivo.oQueHouve
+                .toLowerCase()
+                .includes(estadosDoDominio.rotuloDoEstado(estado).toLowerCase()) &&
+              typeof motivo.oQueFazer === "string" &&
+              motivo.oQueFazer.trim() !== ""
+            );
+          }),
+        JSON.stringify(acoes.motivoDeNaoVerNoSite(RASCUNHO)),
+      );
+      afirmar(
+        "a palavra do motivo vem do VOCABULÁRIO fechado, e Post sem endereço tem motivo PRÓPRIO — são dois problemas diferentes",
+        acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)?.oQueHouve !==
+          acoes.motivoDeNaoVerNoSite(RASCUNHO)?.oQueHouve &&
+          acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)?.oQueFazer !==
+            acoes.motivoDeNaoVerNoSite(RASCUNHO)?.oQueFazer,
+        JSON.stringify(acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)),
+      );
+
+      afirmar(
+        "o controle de Destaque diz o que FARÁ, não o estado em que o Post está",
+        acoes.rotuloDeDestaque(PUBLICADO) !== acoes.rotuloDeDestaque(RASCUNHO) &&
+          /tirar/i.test(acoes.rotuloDeDestaque(PUBLICADO)) &&
+          !/tirar/i.test(acoes.rotuloDeDestaque(RASCUNHO)),
+        `${acoes.rotuloDeDestaque(PUBLICADO)} | ${acoes.rotuloDeDestaque(RASCUNHO)}`,
+      );
+
+      {
+        /* NUMA LISTA DE VINTE LINHAS, vinte controles chamados "Excluir" são
+           vinte controles indistinguíveis para quem ouve a tela. Cada rótulo
+           nomeia o Post, e os quatro são distintos entre si. */
+        const rotulos = [
+          regras.rotuloParaAbrir(PUBLICADO),
+          acoes.rotuloDeVerNoSite(PUBLICADO),
+          acoes.rotuloDeDestaque(PUBLICADO),
+          acoes.rotuloDeExcluir(PUBLICADO),
+        ];
+        afirmar(
+          "os quatro rótulos NOMEIAM o Post e são distintos entre si",
+          rotulos.every((r) => r.includes("Guia de atalhos")) &&
+            new Set(rotulos).size === 4,
+          rotulos.join(" | "),
+        );
+        afirmar(
+          "e o rótulo do controle indisponível diz o MOTIVO, não só que não dá",
+          acoes.rotuloDeVerIndisponivel(RASCUNHO).includes("Rascunho sem categoria") &&
+            acoes
+              .rotuloDeVerIndisponivel(RASCUNHO)
+              .includes(acoes.motivoDeNaoVerNoSite(RASCUNHO).oQueHouve),
+          acoes.rotuloDeVerIndisponivel(RASCUNHO),
+        );
+      }
+
+      afirmar(
+        "a pergunta da exclusão traz o TÍTULO dentro dela — “tem certeza?” ensina a clicar sem ler",
+        acoes.tituloDaExclusao(PUBLICADO).includes("Guia de atalhos") &&
+          acoes.tituloDaExclusao({}).includes("post sem título"),
+        acoes.tituloDaExclusao(PUBLICADO),
+      );
+      afirmar(
+        "e a consequência é dita ANTES, com o aviso do link só para quem está no ar",
+        acoes.descricaoDaExclusao(PUBLICADO) !== acoes.descricaoDaExclusao(RASCUNHO) &&
+          /link/i.test(acoes.descricaoDaExclusao(PUBLICADO)) &&
+          !/link/i.test(acoes.descricaoDaExclusao(RASCUNHO)) &&
+          /desfazer/i.test(acoes.descricaoDaExclusao(RASCUNHO)),
+        acoes.descricaoDaExclusao(PUBLICADO),
+      );
+
+      /* ─── E A CONSEQUÊNCIA ANUNCIADA É A QUE ACONTECE ───────────────────
+         A frase prometia que o Post saía "junto com as tags". Não é o que a
+         cascata faz: ela vai de `posts` para `posts_tags` — a ASSOCIAÇÃO —, e
+         as Tags continuam, porque uma Tag é de todos os Posts.
+         `verificar:escrita` prova o fato contra o banco, com a Tag lida depois
+         da exclusão; esta linha prova que a frase continua dizendo isso.
+         Aviso de consequência que exagera é aviso que ensina a desconfiar do
+         aviso — e este é o único que a pessoa lê antes de algo irreversível. */
+      {
+        const frase = acoes.descricaoDaExclusao(RASCUNHO);
+        const PROMESSA_EXAGERADA =
+          /(junto com|junto das|leva|apaga|remove|exclui)\s+(as\s+)?tags/i;
+        afirmar(
+          "a consequência NÃO promete que as Tags somem — a cascata alcança a associação, e a Tag é de todos os Posts",
+          !PROMESSA_EXAGERADA.test(frase) && /tags?\b/i.test(frase),
+          frase,
+        );
+        afirmar(
+          "e diz explicitamente que elas continuam — o que sai é o Post, e o lugar dele nas tags",
+          /tags[^.]*continuam|continuam[^.]*tags/i.test(frase),
+          frase,
+        );
+        /* AUTOTESTE: o detector precisa acusar a frase que existia antes. */
+        afirmar(
+          "o detector de promessa exagerada acusa a frase que a story trocou",
+          PROMESSA_EXAGERADA.test(
+            "O post sai do Painel junto com as tags e os endereços antigos dele.",
+          ),
+        );
+      }
+
+      afirmar(
+        "o que está em curso é dito, e cada operação diz uma coisa — alvo desabilitado sem explicação é alvo que parou de funcionar",
+        acoes.textoDaAcaoEmCurso(PUBLICADO, "excluir").includes("Guia de atalhos") &&
+          acoes.textoDaAcaoEmCurso(PUBLICADO, "destacar").includes("Guia de atalhos") &&
+          acoes.textoDaAcaoEmCurso(PUBLICADO, "excluir") !==
+            acoes.textoDaAcaoEmCurso(PUBLICADO, "destacar") &&
+          acoes.textoDaAcaoEmCurso(PUBLICADO, "salvar") === "",
+        acoes.textoDaAcaoEmCurso(PUBLICADO, "excluir"),
+      );
+
+      if (voz) {
+        afirmar(
+          "as frases de confirmação e de falha passam pelas guardas de voz, e o rótulo do diálogo nomeia o que o botão faz",
+          voz.diagnosticarMensagem("o que aconteceu", acoes.confirmacaoDaExclusao(PUBLICADO)) === null &&
+            voz.diagnosticarMensagem("o que aconteceu", acoes.confirmacaoDeDestaque(PUBLICADO, true)) === null &&
+            voz.diagnosticarMensagem("o que aconteceu", acoes.confirmacaoDeDestaque(PUBLICADO, false)) === null &&
+            voz.diagnosticarMensagem("o que houve", acoes.falhaDaExclusao(PUBLICADO)) === null &&
+            voz.diagnosticarMensagem("o que houve", acoes.falhaDeDestaque(PUBLICADO, true)) === null &&
+            voz.diagnosticarRotuloDeAcao(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO) === null,
+          `${acoes.confirmacaoDaExclusao(PUBLICADO)} | ${acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO}`,
+        );
+        afirmar(
+          "e as duas direções do Destaque dizem coisas diferentes — “Destaque alterado” não conta o que aconteceu",
+          acoes.confirmacaoDeDestaque(PUBLICADO, true) !==
+            acoes.confirmacaoDeDestaque(PUBLICADO, false) &&
+            acoes.falhaDeDestaque(PUBLICADO, true) !== acoes.falhaDeDestaque(PUBLICADO, false),
+          `${acoes.confirmacaoDeDestaque(PUBLICADO, true)} | ${acoes.confirmacaoDeDestaque(PUBLICADO, false)}`,
+        );
+      }
+
+      afirmar(
+        "nada aqui lança com dado corrompido — uma linha estragada não pode derrubar a listagem inteira",
+        tentar(
+          "as regras das ações com lixo",
+          () => {
+            for (const lixo of [null, undefined, {}, { titulo: 42 }, { estado: 7 }, []]) {
+              acoes.tituloParaFrase(lixo);
+              acoes.enderecoPublico(lixo);
+              acoes.podeVerNoSite(lixo);
+              acoes.motivoDeNaoVerNoSite(lixo);
+              acoes.rotuloDeDestaque(lixo);
+              acoes.rotuloDeExcluir(lixo);
+              acoes.rotuloDeVerIndisponivel(lixo);
+              acoes.tituloDaExclusao(lixo);
+              acoes.descricaoDaExclusao(lixo);
+              acoes.textoDaAcaoEmCurso(lixo, "excluir");
+            }
+            return true;
+          },
+          false,
+        ),
+      );
+    }
+
+    /* ── O ENDEREÇO PÚBLICO É ESCRITO UMA VEZ ─────────────────────────── */
+    //
+    // O comentário de `acoes.js` promete "escrito uma vez, aqui", e o Editor
+    // mantinha a cópia dele: `estado === 'publicado' && valores.slug` de um
+    // lado, `podeVerNoSite` do outro. Duas montagens do mesmo endereço divergem
+    // no dia em que o prefixo do blog mudar, e a divergência aparece como um
+    // link que erra — que é exatamente o que a ação de ver não pode ser.
+    {
+      const telas = [CAMINHO_LISTA, CAMINHO_TELA];
+      const comCopia = telas.filter((relativo) =>
+        /["'`]\/blog\//.test(mascararComentariosJs(ler(relativo))),
+      );
+      afirmar(
+        "nenhuma tela do Painel monta o endereço público por conta própria — as duas perguntam a `acoes.js`",
+        comCopia.length === 0,
+        comCopia.join(", "),
+      );
+      const semImportar = telas.filter(
+        (relativo) => !/enderecoPublico|podeVerNoSite/.test(ler(relativo)),
+      );
+      afirmar(
+        "e as duas usam as MESMAS funções para decidir se dá para ver e para montar o endereço",
+        semImportar.length === 0,
+        semImportar.join(", "),
+      );
+      /* AUTOTESTE: o detector precisa acusar a cópia que existia. */
+      afirmar(
+        "o detector de endereço montado à mão acusa a forma que o Editor usava",
+        /["'`]\/blog\//.test('href={`/blog/${valores.slug}`}'),
+      );
+    }
+
+    /* ── OS ALVOS NA TELA: 40×40, contorno permanente, sem hover ──────── */
+    if (acoes && regras && foco) {
+      modulo.controle.aoListar = null;
+      modulo.controle.aoExcluir = null;
+      modulo.controle.aoDestacar = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      const abertos = [];
+      const tela = await montarLista({ aoAbrirPost: (post) => abertos.push(post?.id ?? null) });
+
+      const alvosDa = (id) => [...(tela.linha(id)?.querySelectorAll("[data-acao]") ?? [])];
+      const ORDEM_DAS_ACOES = ["editar", "ver", "destacar", "excluir"];
+
+      afirmar(
+        "cada linha oferece as QUATRO ações, na ordem em que a listagem as declara",
+        POSTS_DE_PROVA.every((p) =>
+          igual(
+            alvosDa(p.id).map((a) => a.getAttribute("data-acao")),
+            ORDEM_DAS_ACOES,
+          ),
+        ),
+        alvosDa(ID_A).map((a) => a.getAttribute("data-acao")).join(", "),
+      );
+
+      {
+        /* O CONTORNO É A ENTREGA. Nada de `group-hover`, nada nascendo
+           transparente, nada nascendo escondido: ação revelada por ponteiro não
+           existe no celular nem para quem navega por teclado. */
+        const exigidas = [...foco.ALVO_DE_TOQUE.split(" "), ...foco.ANEL_DE_FOCO.split(" ")]
+          .filter((t) => t !== "");
+        const REVELADAS_POR_PONTEIRO =
+          /^(group-hover:|hover:opacity|opacity-0$|invisible$|hidden$|sr-only$)/;
+        const problemas = [];
+        for (const post of POSTS_DE_PROVA) {
+          for (const alvo of alvosDa(post.id)) {
+            const classes = (alvo.className ?? "").split(/\s+/u).filter((c) => c !== "");
+            const faltando = exigidas.filter((t) => !classes.includes(t));
+            const nome = `${post.estado}/${alvo.getAttribute("data-acao")}`;
+            if (faltando.length > 0) problemas.push(`${nome} sem ${faltando.join("+")}`);
+            if (!classes.includes("size-10")) problemas.push(`${nome} sem os 40×40 exatos`);
+            if (!classes.some((c) => c === "border" || /^border-(?!.*:)/.test(c))) {
+              problemas.push(`${nome} sem contorno`);
+            }
+            const escondida = classes.find((c) => REVELADAS_POR_PONTEIRO.test(c));
+            if (escondida) problemas.push(`${nome} revelada por ponteiro (${escondida})`);
+          }
+        }
+        afirmar(
+          "os alvos têm 40×40 e CONTORNO PERMANENTE — nenhum deles nasce escondido nem depende do ponteiro",
+          problemas.length === 0,
+          problemas.slice(0, 4).join(" | "),
+        );
+        /* AUTOTESTE do detector de revelação por ponteiro: sem ele, um padrão
+           quebrado deixaria a asserção acima passar sobre alvos invisíveis. */
+        afirmar(
+          "o detector de “só aparece no hover” acusa as formas que ele existe para pegar",
+          ["group-hover:opacity-100", "opacity-0", "invisible", "hidden", "sr-only"].every(
+            (c) => REVELADAS_POR_PONTEIRO.test(c),
+          ) && !REVELADAS_POR_PONTEIRO.test("hover:bg-surface-sunk"),
+        );
+      }
+
+      {
+        const problemas = [];
+        for (const post of POSTS_DE_PROVA) {
+          for (const alvo of alvosDa(post.id)) {
+            const nome = `${post.estado}/${alvo.getAttribute("data-acao")}`;
+            if (!["BUTTON", "A"].includes(alvo.tagName)) problemas.push(`${nome} é ${alvo.tagName}`);
+            if (Number(alvo.getAttribute("tabindex")) < 0) problemas.push(`${nome} fora da ordem de tabulação`);
+            const rotulo = alvo.getAttribute("aria-label") ?? "";
+            if (rotulo.trim() === "" || !rotulo.includes(post.titulo)) {
+              problemas.push(`${nome} sem nome que nomeie o Post: ${JSON.stringify(rotulo)}`);
+            }
+          }
+        }
+        afirmar(
+          "os alvos são alcançáveis por teclado e cada um tem nome acessível que NOMEIA o Post",
+          problemas.length === 0,
+          problemas.slice(0, 4).join(" | "),
+        );
+      }
+
+      /* ── EDITAR ─────────────────────────────────────────────────────── */
+      {
+        const editar = tela.linha(ID_A)?.querySelector('[data-acao="editar"]');
+        afirmar(
+          "editar é o MESMO controle que abre o Post, agora num alvo de 40×40",
+          editar !== null && editar.getAttribute("data-abrir") === ID_A,
+          String(editar?.getAttribute("data-abrir")),
+        );
+        if (editar) {
+          await tela.clicar(editar);
+          afirmar(
+            "e ele abre EXATAMENTE aquele Post no Editor",
+            igual(abertos, [ID_A]),
+            abertos.join(", "),
+          );
+        }
+        afirmar(
+          "e não há um SEGUNDO controle para a mesma ação — o vão que cobria o cartão inteiro saiu junto",
+          (tela.linha(ID_A)?.querySelectorAll(`[data-abrir="${ID_A}"]`) ?? []).length === 1,
+          String((tela.linha(ID_A)?.querySelectorAll(`[data-abrir="${ID_A}"]`) ?? []).length),
+        );
+      }
+
+      /* ── VER NO SITE: link de verdade, ou motivo ────────────────────── */
+      {
+        const ver = tela.linha(ID_A)?.querySelector('[data-acao="ver"]');
+        afirmar(
+          "Post publicado abre `/blog/:slug` em ABA NOVA, como link de verdade",
+          ver?.tagName === "A" &&
+            ver.getAttribute("href") === "/blog/guia-de-atalhos" &&
+            ver.getAttribute("target") === "_blank" &&
+            /noopener/.test(ver.getAttribute("rel") ?? ""),
+          `${ver?.tagName} href=${ver?.getAttribute("href")} target=${ver?.getAttribute("target")}`,
+        );
+
+        const problemas = [];
+        for (const id of [ID_B, ID_C, ID_D]) {
+          const alvo = tela.linha(id)?.querySelector('[data-acao="ver"]');
+          const post = POSTS_DE_PROVA.find((p) => p.id === id);
+          if (alvo?.tagName !== "BUTTON") problemas.push(`${post.estado}: é ${alvo?.tagName}`);
+          if (alvo?.hasAttribute("href")) problemas.push(`${post.estado}: tem endereço`);
+          if (alvo?.getAttribute("aria-disabled") !== "true") {
+            problemas.push(`${post.estado}: não se declara indisponível`);
+          }
+          const motivo = acoes.motivoDeNaoVerNoSite(post)?.oQueHouve ?? "";
+          if (!(alvo?.getAttribute("aria-label") ?? "").includes(motivo)) {
+            problemas.push(`${post.estado}: o rótulo não diz o motivo`);
+          }
+        }
+        afirmar(
+          "e Post NÃO publicado tem a ação INDISPONÍVEL dizendo o motivo — nunca um link que erra",
+          problemas.length === 0,
+          problemas.join(" | "),
+        );
+        afirmar(
+          "o alvo indisponível continua alcançável pelo teclado — `aria-disabled`, e não `disabled`: quem some não explica nada",
+          [ID_B, ID_C, ID_D].every((id) => {
+            const alvo = tela.linha(id)?.querySelector('[data-acao="ver"]');
+            return alvo !== null && !alvo.hasAttribute("disabled");
+          }),
+        );
+
+        /* E ELE DIZ O MOTIVO AO SER ACIONADO — que é a única coisa que ele
+           FAZ. Sem esta asserção, apagar o `onClick` dele deixava um botão que
+           não faz nada, com a suíte verde: o rótulo continuaria explicando, e
+           quem clicasse não receberia resposta alguma. */
+        modulo.controle.avisos = [];
+        await tela.clicar(tela.linha(ID_C)?.querySelector('[data-acao="ver"]'));
+        {
+          const motivo = acoes.motivoDeNaoVerNoSite(
+            POSTS_DE_PROVA.find((x) => x.id === ID_C),
+          );
+          const aviso = modulo.controle.avisos[0] ?? null;
+          afirmar(
+            "acionar o alvo indisponível ANUNCIA o motivo, nas duas metades — o que houve e o que fazer",
+            modulo.controle.avisos.length === 1 &&
+              aviso?.tom === "erro" &&
+              aviso.oQueHouve === motivo.oQueHouve &&
+              aviso.oQueFazer === motivo.oQueFazer,
+            JSON.stringify(modulo.controle.avisos),
+          );
+        }
+      }
+
+      await tela.desmontar();
+    }
+
+    /* ── ALTERNAR DESTAQUE: efeito imediato, e reversão honesta ───────── */
+    if (acoes && regras) {
+      modulo.controle.aoListar = null;
+      modulo.controle.aoDestacar = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      modulo.controle.pedidos_de_destaque = [];
+      const tela = await montarLista({});
+
+      const alvoDoDestaque = (id) =>
+        tela.linha(id)?.querySelector('[data-acao="destacar"]') ?? null;
+
+      afirmar(
+        "o alvo do Destaque declara o estado atual — `aria-pressed`, e não só um desenho de estrela",
+        alvoDoDestaque(ID_A)?.getAttribute("aria-pressed") === "true" &&
+          alvoDoDestaque(ID_C)?.getAttribute("aria-pressed") === "false",
+        `publicado: ${alvoDoDestaque(ID_A)?.getAttribute("aria-pressed")} | rascunho: ${alvoDoDestaque(ID_C)?.getAttribute("aria-pressed")}`,
+      );
+
+      /* O pedido fica SEGURO no ar: é a única forma de observar o efeito
+         imediato e o alvo desabilitado ao mesmo tempo. */
+      let liberar = null;
+      modulo.controle.aoDestacar = () =>
+        new Promise((resolver) => {
+          liberar = resolver;
+        });
+
+      await tela.clicar(alvoDoDestaque(ID_C));
+
+      afirmar(
+        "o pedido vai para a camada com o identificador certo e o valor DESEJADO — não um pedido de inversão",
+        modulo.controle.pedidos_de_destaque.length === 1 &&
+          modulo.controle.pedidos_de_destaque[0].id === ID_C &&
+          modulo.controle.pedidos_de_destaque[0].destaque === true,
+        JSON.stringify(modulo.controle.pedidos_de_destaque),
+      );
+      afirmar(
+        "o efeito é IMEDIATO: a estrela muda antes de a resposta chegar",
+        alvoDoDestaque(ID_C)?.getAttribute("aria-pressed") === "true" &&
+          tela.linha(ID_C)?.querySelector('[data-destaque="true"]') !== null,
+        `aria-pressed: ${alvoDoDestaque(ID_C)?.getAttribute("aria-pressed")}`,
+      );
+      afirmar(
+        "e o alvo desabilita enquanto o pedido corre, dizendo o que está acontecendo",
+        alvoDoDestaque(ID_C)?.hasAttribute("disabled") === true &&
+          alvoDoDestaque(ID_C)?.getAttribute("aria-busy") === "true" &&
+          (tela.alvo.querySelector('[data-papel="acao-em-curso"]')?.textContent ?? "").includes(
+            "Rascunho sem categoria",
+          ),
+        `anúncio: ${tela.alvo.querySelector('[data-papel="acao-em-curso"]')?.textContent}`,
+      );
+
+      /* CLIQUE REPETIDO NÃO DUPLICA. O segundo clique no meio do primeiro é o
+         caminho normal para "post inexistente" — e para dois pedidos onde o
+         Autor pediu um. */
+      await tela.clicar(alvoDoDestaque(ID_C));
+      await tela.clicar(tela.linha(ID_A)?.querySelector('[data-acao="destacar"]'));
+      afirmar(
+        "clique repetido — no mesmo alvo e no de outra linha — NÃO produz um segundo pedido",
+        modulo.controle.pedidos_de_destaque.length === 1,
+        JSON.stringify(modulo.controle.pedidos_de_destaque),
+      );
+
+      /* ─── E O IMPEDIMENTO APARECE, EM TODAS AS LINHAS ────────────────────
+         O trinco é global: um pedido de cada vez na listagem inteira. Enquanto
+         ele estava preso, os alvos das OUTRAS linhas continuavam habilitados e
+         o clique caía num `return` silencioso — sem notificação, sem
+         `aria-busy`, sem nada. É o mesmo "alvo que parou de funcionar sem
+         explicar" que a story existe para consertar, e no caso de excluir
+         ainda abria um diálogo que a confirmação não conseguia fechar. */
+      {
+        const habilitadosDeOutraLinha = [ID_A, ID_B, ID_D].flatMap((id) =>
+          [...(tela.linha(id)?.querySelectorAll('[data-acao="destacar"], [data-acao="excluir"]') ?? [])].filter(
+            (alvo) => !alvo.hasAttribute("disabled"),
+          ),
+        );
+        afirmar(
+          "enquanto um pedido corre, os alvos que escrevem desabilitam em TODAS as linhas — clique que não acontece precisa parecer que não vai acontecer",
+          habilitadosDeOutraLinha.length === 0,
+          habilitadosDeOutraLinha
+            .map((a) => a.getAttribute("aria-label"))
+            .join(" | ")
+            .slice(0, 200),
+        );
+        afirmar(
+          "e editar e ver continuam disponíveis — eles não escrevem, e travá-los seria travar a leitura por causa de uma gravação",
+          [ID_A, ID_B, ID_D].every((id) =>
+            [...(tela.linha(id)?.querySelectorAll('[data-acao="editar"], [data-acao="ver"]') ?? [])].every(
+              (alvo) => !alvo.hasAttribute("disabled"),
+            ),
+          ),
+        );
+      }
+
+      /* A RECUSA REVERTE. Efeito imediato que não volta atrás é efeito imediato
+         que mente: o Autor sai da tela achando que destacou. */
+      await act(async () => {
+        liberar({
+          ok: false,
+          erro: {
+            tipo: "rede",
+            mensagem: "Não conseguimos falar com o servidor. Confira a conexão e tente de novo.",
+          },
+        });
+      });
+      afirmar(
+        "a recusa REVERTE a estrela, e o alvo volta a funcionar",
+        alvoDoDestaque(ID_C)?.getAttribute("aria-pressed") === "false" &&
+          tela.linha(ID_C)?.querySelector('[data-destaque="true"]') === null &&
+          alvoDoDestaque(ID_C)?.hasAttribute("disabled") === false,
+        `aria-pressed: ${alvoDoDestaque(ID_C)?.getAttribute("aria-pressed")} | desabilitado: ${alvoDoDestaque(ID_C)?.hasAttribute("disabled")}`,
+      );
+
+      /* E O QUE FICA É O VALOR GRAVADO, lido da resposta — não o que a tela
+         pediu. Aqui o servidor responde `false` para um pedido de `true`, e é o
+         `false` que precisa aparecer. */
+      modulo.controle.aoDestacar = null;
+      modulo.controle.destaque = {
+        ok: true,
+        dados: { operacao: "destacar", id: ID_C, destaque: false, post: null },
+      };
+      modulo.controle.pedidos_de_destaque = [];
+      await tela.clicar(alvoDoDestaque(ID_C));
+      afirmar(
+        "o que fica na tela é o valor GRAVADO que voltou — confirmar o próprio pedido seria a tela conferindo a si mesma",
+        modulo.controle.pedidos_de_destaque[0]?.destaque === true &&
+          alvoDoDestaque(ID_C)?.getAttribute("aria-pressed") === "false",
+        `pediu true, o servidor gravou false, a tela mostra ${alvoDoDestaque(ID_C)?.getAttribute("aria-pressed")}`,
+      );
+      afirmar(
+        "e o AVISO acompanha o valor gravado, não o pedido — senão a estrela diria uma coisa e o aviso outra",
+        modulo.controle.avisos.at(-1)?.oQueHouve ===
+          acoes.confirmacaoDeDestaque(
+            POSTS_DE_PROVA.find((x) => x.id === ID_C),
+            false,
+          ),
+        JSON.stringify(modulo.controle.avisos.at(-1)),
+      );
+
+      /* ─── POST QUE JÁ NÃO EXISTE, TAMBÉM AQUI ────────────────────────────
+         A matriz diz "Post inexistente → erro que diz isso, e a lista se
+         acerta", e não distingue operação. A reconciliação existia só em
+         excluir: destacar deixava na tela uma linha que o banco já não tem. */
+      modulo.controle.aoDestacar = async () => ({
+        ok: false,
+        erro: { tipo: "nao_encontrado", mensagem: "Este post já não está no Painel." },
+      });
+      modulo.controle.avisos = [];
+      {
+        const antes = tela.linhas().length;
+        await tela.clicar(alvoDoDestaque(ID_B));
+        afirmar(
+          "destacar um Post que JÁ NÃO EXISTE tira a linha da lista, e avisa — insistir nela é a tela mostrando o que não está lá",
+          tela.linha(ID_B) === null &&
+            tela.linhas().length === antes - 1 &&
+            modulo.controle.avisos.at(-1)?.tom === "erro",
+          `linhas: ${antes} → ${tela.linhas().length} | aviso: ${JSON.stringify(modulo.controle.avisos.at(-1))}`,
+        );
+      }
+      modulo.controle.aoDestacar = null;
+
+      afirmar(
+        "o React não reclamou ao alternar o Destaque",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+      modulo.controle.destaque = {
+        ok: true,
+        dados: { operacao: "destacar", id: null, destaque: true, post: null },
+      };
+    }
+
+    /* ── EXCLUIR: a confirmação que nomeia, e a lista que se acerta ───── */
+    if (acoes && regras) {
+      /** O conteúdo do diálogo vive em PORTAL, preso ao `body`. */
+      const dialogo = () =>
+        janela.document.querySelector('[data-slot="alert-dialog-content"]');
+      const botaoDoDialogo = (texto) =>
+        [...(dialogo()?.querySelectorAll("button") ?? [])].find(
+          (b) => (b.textContent ?? "").trim() === texto,
+        ) ?? null;
+
+      modulo.controle.aoListar = null;
+      modulo.controle.aoExcluir = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      modulo.controle.pedidos_de_exclusao = [];
+      const contagens = [];
+      const tela = await montarLista({ aoContar: (n) => contagens.push(n) });
+
+      const excluirDe = (id) => tela.linha(id)?.querySelector('[data-acao="excluir"]') ?? null;
+
+      afirmar(
+        "antes de qualquer clique não há diálogo nenhum aberto",
+        dialogo() === null,
+      );
+
+      await tela.clicar(excluirDe(ID_A));
+      afirmar(
+        "acionar excluir abre o diálogo do sistema, e ele NOMEIA o Post e diz a consequência",
+        dialogo() !== null &&
+          (dialogo()?.textContent ?? "").includes("Guia de atalhos") &&
+          (dialogo()?.textContent ?? "").includes(
+            acoes.descricaoDaExclusao(POSTS_DE_PROVA.find((p) => p.id === ID_A)),
+          ),
+        (dialogo()?.textContent ?? "").slice(0, 200),
+      );
+      afirmar(
+        "e é o `alert-dialog` do shadcn — com papel de alerta e o botão de confirmação nomeando o que faz",
+        dialogo()?.getAttribute("role") === "alertdialog" &&
+          botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO) !== null,
+        `role: ${dialogo()?.getAttribute("role")}`,
+      );
+      afirmar(
+        "nada foi excluído só por abrir a pergunta",
+        modulo.controle.pedidos_de_exclusao.length === 0,
+        JSON.stringify(modulo.controle.pedidos_de_exclusao),
+      );
+
+      /* CANCELAR NÃO EXCLUI NADA. */
+      const cancelar = botaoDoDialogo("Cancelar");
+      afirmar("o diálogo oferece cancelar, e o foco inicial é dele", cancelar !== null);
+      if (cancelar) {
+        await tela.clicar(cancelar);
+        afirmar(
+          "cancelar fecha a pergunta e NÃO exclui — e a linha continua na lista",
+          modulo.controle.pedidos_de_exclusao.length === 0 &&
+            tela.linha(ID_A) !== null &&
+            tela.linhas().length === POSTS_DE_PROVA.length,
+          `pedidos: ${modulo.controle.pedidos_de_exclusao.length} | linhas: ${tela.linhas().length}`,
+        );
+      }
+
+      /* A FALHA MANTÉM A LINHA. */
+      modulo.controle.aoExcluir = async () => ({
+        ok: false,
+        erro: {
+          tipo: "rede",
+          mensagem: "Não conseguimos falar com o servidor. Confira a conexão e tente de novo.",
+        },
+      });
+      await tela.clicar(excluirDe(ID_B));
+      await tela.clicar(botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO));
+      afirmar(
+        "exclusão RECUSADA mantém a linha na lista — sumir com ela seria mentir sobre o que aconteceu",
+        igual(modulo.controle.pedidos_de_exclusao, [ID_B]) &&
+          tela.linha(ID_B) !== null &&
+          tela.linhas().length === POSTS_DE_PROVA.length,
+        `linhas: ${tela.linhas().length}`,
+      );
+
+      /* A EXCLUSÃO DE VERDADE: a lista se acerta SEM recarregar. */
+      modulo.controle.aoExcluir = null;
+      modulo.controle.pedidos_de_exclusao = [];
+      const idasAntes = modulo.controle.listagens;
+      await tela.clicar(excluirDe(ID_A));
+      await tela.clicar(botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO));
+      afirmar(
+        "confirmada, a exclusão sai pela camada e a linha SOME da lista — sem recarregar nada",
+        igual(modulo.controle.pedidos_de_exclusao, [ID_A]) &&
+          tela.linha(ID_A) === null &&
+          tela.linhas().length === POSTS_DE_PROVA.length - 1 &&
+          modulo.controle.listagens === idasAntes,
+        `linhas: ${tela.linhas().length} | releituras: ${modulo.controle.listagens - idasAntes}`,
+      );
+      afirmar(
+        "e o Autor é AVISADO, com o Post nomeado — ação irreversível sem confirmação depois do fato deixa a pessoa sem saber o que saiu",
+        modulo.controle.avisos.at(-1)?.tom === "sucesso" &&
+          modulo.controle.avisos.at(-1)?.oQueHouve ===
+            acoes.confirmacaoDaExclusao(POSTS_DE_PROVA.find((x) => x.id === ID_A)),
+        JSON.stringify(modulo.controle.avisos.at(-1)),
+      );
+      {
+        /* O FOCO NÃO CAI NO `body`. A linha, o alvo que abriu a ação e o
+           diálogo desmontam juntos; sem destino, quem navega por teclado perde
+           o lugar e recomeça do topo da página. */
+        await act(async () => {
+          await new Promise((resolver) => setTimeout(resolver, 40));
+        });
+        const focado = janela.document.activeElement;
+        afirmar(
+          "o foco volta para um ponto estável da lista, e não para o `body` — a linha que o tinha acabou de sair",
+          focado !== null &&
+            focado !== janela.document.body &&
+            tela.alvo.contains(focado),
+          `foco em: ${focado?.tagName}${focado?.getAttribute?.("data-acao") ? `[${focado.getAttribute("data-acao")}]` : ""}`,
+        );
+      }
+      afirmar(
+        "e a contagem da aba acompanha: o número que a aba Blog mostra é o de Posts que sobraram",
+        contagens[contagens.length - 1] === POSTS_DE_PROVA.length - 1,
+        JSON.stringify(contagens),
+      );
+      afirmar(
+        "o diálogo fecha depois de excluir — a pergunta não fica pendurada sobre uma linha que já saiu",
+        dialogo() === null,
+      );
+
+      /* POST QUE JÁ NÃO EXISTE: erro que diz isso, E a lista se acerta. */
+      modulo.controle.aoExcluir = async () => ({
+        ok: false,
+        erro: { tipo: "nao_encontrado", mensagem: "Este post já não está no Painel." },
+      });
+      modulo.controle.pedidos_de_exclusao = [];
+      await tela.clicar(excluirDe(ID_B));
+      await tela.clicar(botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO));
+      afirmar(
+        "excluir um Post que JÁ NÃO EXISTE também tira a linha — insistir nela seria a tela mostrando o que o banco não tem",
+        igual(modulo.controle.pedidos_de_exclusao, [ID_B]) &&
+          tela.linha(ID_B) === null &&
+          tela.linhas().length === POSTS_DE_PROVA.length - 2,
+        `linhas: ${tela.linhas().length}`,
+      );
+
+      afirmar(
+        "o React não reclamou ao excluir",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      modulo.controle.aoExcluir = null;
+      await tela.desmontar();
+    }
+
+    /* ── EXCLUIR SOB FILTRO ATIVO: a aba conta quantos EXISTEM ────────── */
+    //
+    // O guarda `if (!haBuscaAtiva(...))` da leitura existe para a aba não
+    // anunciar o tamanho do RECORTE — e estava certo. Mas o efeito era a aba
+    // continuar contando um Post que já não existe até a próxima leitura
+    // completa. Decrementar o total CONHECIDO é diferente de anunciar o
+    // recorte, e é o que esta asserção cobra. Sem ela, remover o guarda não
+    // quebrava nada.
+    if (acoes && regras) {
+      const dialogo = () =>
+        janela.document.querySelector('[data-slot="alert-dialog-content"]');
+      const botaoDoDialogo = (texto) =>
+        [...(dialogo()?.querySelectorAll("button") ?? [])].find(
+          (b) => (b.textContent ?? "").trim() === texto,
+        ) ?? null;
+
+      const contagens = [];
+      modulo.controle.aoListar = null;
+      modulo.controle.aoExcluir = null;
+      modulo.controle.pedidos_de_exclusao = [];
+
+      /* Primeiro SEM filtro, para a listagem saber quantos existem. */
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      const tela = await montarLista({ aoContar: (n) => contagens.push(n) });
+      afirmar(
+        "a listagem sem filtro anuncia o total — é o número que a aba Blog mostra",
+        contagens.at(-1) === POSTS_DE_PROVA.length,
+        JSON.stringify(contagens),
+      );
+
+      /* Agora COM filtro: o recorte traz duas linhas das quatro. */
+      const RECORTE = POSTS_DE_PROVA.filter((x) => [ID_A, ID_B].includes(x.id));
+      modulo.controle.listagem = { ok: true, dados: RECORTE };
+      await tela.reRenderizar({
+        termo: "automação",
+        aoContar: (n) => contagens.push(n),
+      });
+      /* A ESPERA DA DIGITAÇÃO é real e vale aqui: sem deixar o relógio correr,
+         o termo ainda não virou consulta e a tela continua mostrando o resultado
+         anterior — a asserção estaria olhando para a lista errada. */
+      await act(async () => {
+        await new Promise((resolver) =>
+          setTimeout(resolver, modulo.ESPERA_DA_BUSCA_MS * 3),
+        );
+      });
+      const depoisDoFiltro = contagens.length;
+      afirmar(
+        "e sob filtro ela NÃO anuncia o tamanho do recorte — a aba diria 2 para quem tem 4",
+        contagens.at(-1) === POSTS_DE_PROVA.length && tela.linhas().length === 2,
+        `contagens: ${JSON.stringify(contagens)} | linhas: ${tela.linhas().length}`,
+      );
+
+      await tela.clicar(tela.linha(ID_A)?.querySelector('[data-acao="excluir"]'));
+      await tela.clicar(botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO));
+      afirmar(
+        "excluir sob filtro DECREMENTA o total conhecido — a aba deixa de contar um Post que já não existe",
+        igual(modulo.controle.pedidos_de_exclusao, [ID_A]) &&
+          contagens.length > depoisDoFiltro &&
+          contagens.at(-1) === POSTS_DE_PROVA.length - 1 &&
+          tela.linhas().length === 1,
+        `contagens: ${JSON.stringify(contagens)} | linhas: ${tela.linhas().length}`,
+      );
+      await tela.desmontar();
+    }
+
+    /* ── O DIÁLOGO NÃO FICA MUDO NEM PENDURADO ────────────────────────── */
+    //
+    // A região viva da listagem fica FORA do `alert-dialog`, que é
+    // `aria-modal`: quem confirmou a exclusão está dentro dele e não a ouve —
+    // e é exatamente quem ela existiria para servir.
+    if (acoes && regras) {
+      const dialogo = () =>
+        janela.document.querySelector('[data-slot="alert-dialog-content"]');
+      const botaoDoDialogo = (texto) =>
+        [...(dialogo()?.querySelectorAll("button") ?? [])].find(
+          (b) => (b.textContent ?? "").trim() === texto,
+        ) ?? null;
+
+      modulo.controle.aoListar = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      modulo.controle.pedidos_de_exclusao = [];
+      let liberar = null;
+      modulo.controle.aoExcluir = () =>
+        new Promise((resolver) => {
+          liberar = resolver;
+        });
+
+      const tela = await montarLista({});
+      await tela.clicar(tela.linha(ID_A)?.querySelector('[data-acao="excluir"]'));
+      await tela.clicar(botaoDoDialogo(acoes.ROTULO_DE_CONFIRMAR_EXCLUSAO));
+
+      const emCurso = acoes.textoDaAcaoEmCurso(
+        POSTS_DE_PROVA.find((x) => x.id === ID_A),
+        "excluir",
+      );
+      afirmar(
+        "com a exclusão em voo, o que está acontecendo é dito DENTRO do modal — fora dele, quem confirmou não ouviria",
+        dialogo() !== null &&
+          (dialogo()?.querySelector('[data-papel="dialogo-em-curso"]')?.textContent ?? "") === emCurso &&
+          emCurso !== "",
+        `no diálogo: ${JSON.stringify(dialogo()?.querySelector('[data-papel="dialogo-em-curso"]')?.textContent)}`,
+      );
+      afirmar(
+        "e o botão de confirmar desabilita, dizendo o que está em curso — a segunda confirmação não sai por cima da primeira",
+        dialogo()?.querySelector('[data-papel="confirmar"]')?.hasAttribute("disabled") === true &&
+          (dialogo()?.querySelector('[data-papel="confirmar"]')?.textContent ?? "").trim() === emCurso,
+        `botão: ${JSON.stringify(dialogo()?.querySelector('[data-papel="confirmar"]')?.textContent)}`,
+      );
+
+      /* Clicar de novo no botão desabilitado não produz um segundo pedido. */
+      await tela.clicar(dialogo()?.querySelector('[data-papel="confirmar"]'));
+      afirmar(
+        "confirmar duas vezes não exclui duas vezes",
+        modulo.controle.pedidos_de_exclusao.length === 1,
+        JSON.stringify(modulo.controle.pedidos_de_exclusao),
+      );
+
+      await act(async () => {
+        liberar({ ok: true, dados: { operacao: "excluir", id: ID_A, post: null } });
+      });
+      afirmar(
+        "e o diálogo FECHA quando a exclusão termina — pergunta pendurada sobre uma linha que já saiu é pior que nenhuma",
+        dialogo() === null && tela.linha(ID_A) === null,
+        `diálogo: ${dialogo() === null ? "fechado" : "aberto"}`,
+      );
+      modulo.controle.aoExcluir = null;
+      await tela.desmontar();
+    }
+
+    /* ── E A LISTAGEM CONTINUA SEM ESCREVER NO BANCO ──────────────────── */
+    {
+      const codigo = mascararComentariosJs(ler(CAMINHO_LISTA));
+      const puro = mascararComentariosJs(ler(CAMINHO_MODULO_DAS_ACOES));
+      /* `Array` sai da mira pelo nome: `Array.from` é a construção do esqueleto
+         da listagem, e não uma seleção de tabela. Sem a exceção, a asserção
+         acusaria a própria tela que ela existe para proteger — e uma asserção
+         que grita sem motivo acaba desligada. */
+      const escritaCrua =
+        /(?<!Array)\.from\s*\(|createClient|\.delete\s*\(|\.update\s*\(|\bfetch\s*\(/;
+      afirmar(
+        "a listagem exclui e destaca pela CAMADA — ela não fala com o banco nem com a rede por conta própria",
+        !escritaCrua.test(codigo) &&
+          !escritaCrua.test(puro) &&
+          /from "@\/data\/blog\/escrita"/.test(ler(CAMINHO_LISTA)),
+        (escritaCrua.exec(`${codigo}${puro}`) ?? [])[0] ?? "",
+      );
+      afirmar(
+        "e o detector acusa uma escrita crua de verdade, sem confundi-la com `Array.from`",
+        escritaCrua.test('cliente.from("posts").delete()') &&
+          escritaCrua.test("await fetch(rota)") &&
+          !escritaCrua.test("Array.from({ length: 4 }, (_, i) => i)"),
       );
     }
 

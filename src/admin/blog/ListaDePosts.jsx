@@ -61,17 +61,68 @@
  * empate — o caso que ninguém testa e que faz a lista trocar de sequência entre
  * dois carregamentos.
  *
+ * ─── AS AÇÕES RESOLVEM NA LINHA (Story 2.12) ───────────────────────────────
+ *
+ * Quatro alvos por linha — editar, ver no site, alternar Destaque e excluir —
+ * de 40×40, **com contorno permanente**. Ação revelada por hover não existe no
+ * celular, não existe para quem navega por teclado e não existe para quem não
+ * sabe que deve passar o ponteiro por cima: o contorno é o que transforma
+ * "descobrir" em "ver".
+ *
+ * **Nenhuma delas escreve no banco.** Excluir e destacar viajam por
+ * `data/blog/escrita.js`, que fala com a MESMA função de servidor que salva —
+ * a operação é um campo do corpo, conferido contra o vocabulário fechado de
+ * `domain/blog/operacoes.js`, e não um endereço a mais. A RLS que nega escrita
+ * a `anon` e a `authenticated` continua intacta.
+ *
+ * **A lista se acerta sozinha.** Depois de excluir, a linha sai daqui; depois
+ * de destacar, a estrela reflete o valor que o servidor GRAVOU — lido da
+ * resposta, não o que a tela pediu. Nenhuma das duas recarrega a página.
+ *
+ * **Um pedido de cada vez.** O trinco é `emCurso`, e ele é uma referência, não
+ * um estado: dois cliques no mesmo tique do relógio veriam o mesmo estado
+ * antigo e disparariam duas exclusões, e a segunda voltaria como "post não
+ * encontrado" sobre um Post que a primeira acabou de apagar.
+ *
  * ─── O QUE ESTA TELA NÃO FAZ ────────────────────────────────────────────────
  *
- * Não filtra em memória o que veio do recorte. Não oferece ações por linha além
- * de abrir o Post (Story 2.12). E não escreve nada: nenhum cliente escreve no
- * banco.
+ * Não filtra em memória o que veio do recorte. Não abre pré-visualização de
+ * Post não publicado — isso é a Story 2.13, e até lá a ação diz por que ainda
+ * não dá, em vez de oferecer um link que erra. E não escreve no banco: nenhum
+ * cliente escreve.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, FileText, SearchX, Star } from "lucide-react";
+import {
+  AlertCircle,
+  ExternalLink,
+  FileText,
+  Loader2,
+  SearchX,
+  SquarePen,
+  Star,
+  Trash2,
+} from "lucide-react";
 
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
+import {
+  ROTULO_DE_CONFIRMAR_EXCLUSAO,
+  confirmacaoDaExclusao,
+  confirmacaoDeDestaque,
+  descricaoDaExclusao,
+  enderecoPublico,
+  estaDestacado,
+  falhaDaExclusao,
+  falhaDeDestaque,
+  motivoDeNaoVerNoSite,
+  podeVerNoSite,
+  rotuloDeDestaque,
+  rotuloDeExcluir,
+  rotuloDeVerIndisponivel,
+  rotuloDeVerNoSite,
+  textoDaAcaoEmCurso,
+  tituloDaExclusao,
+} from "@/admin/blog/acoes";
 import {
   DESCRICAO_DO_VAZIO,
   ROTULO_DE_LIMPAR_BUSCA,
@@ -89,8 +140,13 @@ import {
   textoDoAgendamento,
   textoDoTempoDeLeitura,
 } from "@/admin/blog/listagem";
+import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
+import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
+import { definirDestaque, excluirPost } from "@/data/blog/escrita";
 import { listarPostsDoPainel, ordenarListagem } from "@/data/blog/posts";
+import { ERRO_NAO_ENCONTRADO } from "@/data/blog/resultado";
+import { OPERACAO_DESTACAR, OPERACAO_EXCLUIR } from "@/domain/blog/operacoes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -109,6 +165,28 @@ const LINHAS_DO_ESQUELETO = 4;
  * inteira digitada em rajada virar UMA consulta.
  */
 export const ESPERA_DA_BUSCA_MS = 250;
+
+/**
+ * A aparência de um alvo de ação da linha — 40×40 e **contorno permanente**.
+ *
+ * O contorno é a entrega, não o enfeite: nada aqui é condicionado a `hover`,
+ * nada nasce transparente e nada nasce escondido. A verificação monta a lista e
+ * confere a lista de classes do elemento renderizado — se alguém trocar a borda
+ * por uma que só aparece com o ponteiro em cima, a asserção acusa antes de o
+ * defeito voltar ao celular.
+ *
+ * `size-10` são os 40×40 exatos; `ALVO_DE_TOQUE` é o piso que sobrevive a um
+ * ícone maior ou a um `padding` diferente. Os dois juntos, de propósito.
+ */
+const CLASSE_DO_ALVO_DE_ACAO = cn(
+  ANEL_DE_FOCO,
+  ALVO_DE_TOQUE,
+  "inline-flex size-10 shrink-0 items-center justify-center rounded-controle",
+  "border border-border-strong bg-surface text-ink-secondary",
+  "transition-colors hover:bg-surface-sunk hover:text-ink",
+  "disabled:pointer-events-none disabled:opacity-60",
+  "aria-disabled:cursor-not-allowed aria-disabled:text-ink-muted",
+);
 
 export default function ListaDePosts({
   aoAbrirPost,
@@ -199,6 +277,7 @@ export default function ListaDePosts({
          filtro. Anunciar o recorte faria a aba dizer "3" para quem tem doze — e
          o número mudaria a cada tecla, sem que nada tivesse sido apagado. */
       if (!haBuscaAtiva({ termo: termoAplicado, estados: estadosAplicados })) {
+        totalConhecido.current = ordenados.length;
         contar.current?.(ordenados.length);
       }
     })();
@@ -209,6 +288,172 @@ export default function ListaDePosts({
   }, [recarregarEm, tentativa, termoAplicado, estadosAplicados]);
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
+
+  /* ── As ações por linha (Story 2.12) ────────────────────────────────────
+     `emCurso` é a ação em voo — `{ id, operacao }` — e existe DUAS vezes de
+     propósito: em referência, para o trinco, e em estado, para a tela. O
+     trinco precisa ser lido e escrito no mesmo tique do clique; o estado só
+     chega no render seguinte, e é por essa fresta que o duplo-clique
+     dispararia duas exclusões.
+
+     ─── E O TRINCO APARECE NA TELA ────────────────────────────────────────
+     Ele é GLOBAL — um pedido de cada vez na listagem inteira —, então os
+     alvos de TODAS as linhas desabilitam enquanto ele está preso. A versão
+     anterior desabilitava só a linha em voo: acionar destacar noutra linha
+     caía no trinco e voltava sem notificação, sem `aria-busy` e sem nada —
+     o mesmo "alvo que parou de funcionar sem explicar" que a story existe
+     para consertar. E, no caso de excluir, ainda ABRIA um diálogo que a
+     confirmação não conseguia fechar. */
+  const trinco = useRef(null);
+  const [emCurso, setEmCurso] = useState(null);
+  /* O Post que o diálogo está perguntando sobre. `null` fecha o diálogo — a
+     pergunta NOMEIA o Post, então ela não existe sem um. */
+  const [paraExcluir, setParaExcluir] = useState(null);
+
+  /* ── O total CONHECIDO de Posts, que é o que a aba mostra ───────────────
+     A aba conta quantos Posts EXISTEM, não quantos sobraram do filtro — por
+     isso a leitura só o anuncia quando não há busca em curso. Mas excluir sob
+     um filtro ativo reduz o total de verdade, e não anunciar nada deixava a
+     aba contando um Post que já não existe até a próxima leitura completa.
+     Decrementar o total conhecido é diferente de anunciar o recorte: o número
+     que sai daqui continua sendo "quantos existem". */
+  const totalConhecido = useRef(null);
+
+  const abrirAcao = useCallback((post, operacao) => {
+    if (trinco.current !== null) return false;
+    trinco.current = { id: post.id, operacao };
+    setEmCurso(trinco.current);
+    return true;
+  }, []);
+
+  const fecharAcao = useCallback(() => {
+    trinco.current = null;
+    setEmCurso(null);
+  }, []);
+
+  /* ── Tirar uma linha da lista, e acertar a contagem ─────────────────────
+     A atualização é FUNCIONAL, e isso não é estilo: uma releitura concluída
+     durante a ação em voo — busca com atraso, troca de filtro, "tentar de
+     novo" — já substituiu `posts`, e escrever por cima do fechamento antigo
+     ressuscitaria linhas que a releitura tinha trocado. */
+  const removerDaLista = useCallback((id) => {
+    setPosts((atuais) => atuais.filter((p) => p.id !== id));
+    if (typeof totalConhecido.current === "number") {
+      totalConhecido.current = Math.max(0, totalConhecido.current - 1);
+      contar.current?.(totalConhecido.current);
+    }
+  }, []);
+
+  /* ── Devolver o foco depois de a linha sair ─────────────────────────────
+     A linha, o alvo que abriu a ação e o diálogo desmontam juntos, e o foco
+     cai no `body`: quem navega por teclado perde o lugar e recomeça do topo
+     da página. O destino é o primeiro alvo da lista que sobrou — e, se não
+     sobrou nenhuma, a própria região da lista, que existe em todas as telas. */
+  const raizDaLista = useRef(null);
+  const devolverFoco = useCallback(() => {
+    /* Num quadro à frente: o elemento de destino só existe depois de o React
+       ter aplicado a remoção. */
+    const agendar =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (fn) => setTimeout(fn, 0);
+    agendar(() => {
+      const raiz = raizDaLista.current;
+      if (!raiz) return;
+      const primeiro = raiz.querySelector('[data-acao="editar"]');
+      (primeiro ?? raiz).focus?.();
+    });
+  }, []);
+
+  /**
+   * Liga ou desliga o Destaque, pela função de servidor.
+   *
+   * O efeito é imediato e **honesto**: a estrela muda antes da resposta, e se o
+   * servidor recusar ela volta ao que era, com a notificação dizendo o que
+   * houve e o que fazer. Efeito imediato que não reverte é efeito imediato que
+   * mente — o Autor sai da tela achando que destacou.
+   *
+   * O que fica no fim é o valor GRAVADO, lido da linha que voltou. Confirmar o
+   * próprio pedido seria a tela conferindo a si mesma.
+   */
+  const alternarDestaque = useCallback(
+    async (post) => {
+      if (!abrirAcao(post, OPERACAO_DESTACAR)) return;
+
+      const desejado = !estaDestacado(post);
+      const marcar = (valor) =>
+        setPosts((atuais) =>
+          atuais.map((p) => (p.id === post.id ? { ...p, destaque: valor } : p)),
+        );
+
+      marcar(desejado);
+      const resultado = await definirDestaque(post.id, desejado);
+      fecharAcao();
+
+      if (!resultado.ok) {
+        /* POST QUE JÁ NÃO EXISTE: a lista se acerta aqui também, e não só na
+           exclusão. A matriz não distingue operação — insistir numa linha que
+           o banco não tem é a tela mostrando o que não está lá, venha a
+           ausência de onde vier. */
+        if (resultado.erro.tipo === ERRO_NAO_ENCONTRADO) {
+          removerDaLista(post.id);
+        } else {
+          marcar(!desejado);
+        }
+        notificarErro(falhaDeDestaque(post, desejado), resultado.erro.mensagem);
+        return;
+      }
+      const gravado = resultado.dados?.destaque === true;
+      marcar(gravado);
+      notificarSucesso(confirmacaoDeDestaque(post, gravado));
+    },
+    [abrirAcao, fecharAcao, removerDaLista],
+  );
+
+  /**
+   * Exclui o Post — depois da confirmação que o nomeou.
+   *
+   * Post que já não existe **também some da lista**: é o caminho normal de duas
+   * abas do Painel abertas, e deixar a linha lá seria a tela insistindo num
+   * Post que o banco já não tem. A mensagem diz o que houve; a lista se acerta
+   * de qualquer jeito.
+   */
+  const excluir = useCallback(
+    async (post) => {
+      if (!abrirAcao(post, OPERACAO_EXCLUIR)) return;
+
+      const resultado = await excluirPost(post.id);
+      fecharAcao();
+      setParaExcluir(null);
+
+      const sumiu = resultado.ok || resultado.erro.tipo === ERRO_NAO_ENCONTRADO;
+      if (sumiu) {
+        removerDaLista(post.id);
+        devolverFoco();
+      }
+
+      if (!resultado.ok) {
+        notificarErro(falhaDaExclusao(post), resultado.erro.mensagem);
+        return;
+      }
+      notificarSucesso(confirmacaoDaExclusao(post));
+    },
+    [abrirAcao, fecharAcao, removerDaLista, devolverFoco],
+  );
+
+  /**
+   * Ver um Post que ainda não está no ar.
+   *
+   * A ação **existe** e diz o motivo, em vez de sumir: controle que desaparece
+   * deixa a pessoa procurando o que fez de errado. E não vira link: a
+   * pré-visualização de Post não publicado é a Story 2.13, e um botão que abre
+   * uma página quebrada é pior que um botão que explica.
+   */
+  const explicarIndisponivel = useCallback((post) => {
+    const motivo = motivoDeNaoVerNoSite(post);
+    if (motivo === null) return;
+    notificarErro(motivo.oQueHouve, motivo.oQueFazer);
+  }, []);
 
   /* A pergunta é sobre o que foi PEDIDO, e sobre o pedido que produziu ESTAS
      linhas — não sobre o que está no campo neste instante. Usar o termo ainda
@@ -326,23 +571,88 @@ export default function ListaDePosts({
   }
 
   /* ── A lista ──────────────────────────────────────────────────────────── */
+  const postEmCurso =
+    emCurso === null ? null : (posts.find((p) => p.id === emCurso.id) ?? null);
+
   return (
-    <ul data-estado-da-lista="lista" className="flex flex-col gap-3">
-      {posts.map((post) => (
-        <Linha key={post.id} post={post} aoAbrir={() => aoAbrirPost?.(post)} />
-      ))}
-    </ul>
+    <>
+      {/* `tabIndex` de -1: a lista não entra na ordem de tabulação, mas pode
+          RECEBER foco por código — é o destino de emergência quando a última
+          linha sai e não há mais alvo nenhum para onde mandar o foco. */}
+      <ul
+        ref={raizDaLista}
+        tabIndex={-1}
+        data-estado-da-lista="lista"
+        className="flex flex-col gap-3 outline-hidden"
+      >
+        {posts.map((post) => (
+          <Linha
+            key={post.id}
+            post={post}
+            emCurso={emCurso?.id === post.id ? emCurso.operacao : null}
+            /* O TRINCO É GLOBAL, então o impedimento também é: enquanto há
+               pedido em voo, os alvos que escrevem desabilitam em TODAS as
+               linhas. Clique que não acontece precisa PARECER que não vai
+               acontecer — silêncio é a forma pior do mesmo impedimento. */
+            ocupado={emCurso !== null}
+            aoAbrir={() => aoAbrirPost?.(post)}
+            aoAlternarDestaque={() => alternarDestaque(post)}
+            aoExplicarIndisponivel={() => explicarIndisponivel(post)}
+            aoPedirExclusao={() => setParaExcluir(post)}
+          />
+        ))}
+      </ul>
+
+      {/* O QUE ESTÁ ACONTECENDO, PARA QUEM OUVE A TELA.
+          O alvo desabilitado já diz "espere" a quem vê o giro; quem navega por
+          leitor de tela ouviria apenas um botão que parou de responder. A
+          região viva fala uma vez, e nomeia o Post. */}
+      <p role="status" aria-live="polite" className="sr-only" data-papel="acao-em-curso">
+        {postEmCurso === null ? "" : textoDaAcaoEmCurso(postEmCurso, emCurso.operacao)}
+      </p>
+
+      {/* A CONFIRMAÇÃO É O COMPONENTE DO SISTEMA, e ela NOMEIA o Post.
+          `DialogoDeConfirmacao` é o `alert-dialog` do shadcn com as três
+          decisões que já foram tomadas uma vez: foco inicial no Cancelar,
+          `.painel` no conteúdo em portal, e rótulo que diz o que o botão faz.
+          Um diálogo próprio aqui reabriria as três. */}
+      <DialogoDeConfirmacao
+        aberto={paraExcluir !== null}
+        aoMudarAbertura={(aberto) => {
+          /* Cancelar não exclui nada — e nem fecha por baixo de uma exclusão em
+             curso, que deixaria a pessoa sem saber se aconteceu. */
+          if (!aberto && trinco.current === null) setParaExcluir(null);
+        }}
+        titulo={paraExcluir === null ? "" : tituloDaExclusao(paraExcluir)}
+        descricao={paraExcluir === null ? "" : descricaoDaExclusao(paraExcluir)}
+        rotuloDeConfirmacao={ROTULO_DE_CONFIRMAR_EXCLUSAO}
+        /* O QUE ESTÁ ACONTECENDO, DITO DE DENTRO DO MODAL. A região viva da
+           listagem fica fora do `aria-modal`, e quem confirmou está dentro:
+           é justamente quem ela existiria para servir que não a ouviria. */
+        ocupado={
+          paraExcluir !== null && emCurso?.id === paraExcluir.id
+            ? textoDaAcaoEmCurso(paraExcluir, emCurso.operacao)
+            : ""
+        }
+        aoConfirmar={() => {
+          if (paraExcluir !== null) excluir(paraExcluir);
+        }}
+      />
+    </>
   );
 }
 
 /**
  * Uma linha da listagem.
  *
- * **Um único controle por linha, e ele cobre o cartão inteiro.** O título é o
- * botão, e um vão posicionado dentro dele estica a área clicável sobre todo o
- * cartão sem inventar um segundo alvo para a mesma ação — dois controles que
- * fazem a mesma coisa são dois anúncios para quem navega por leitor de tela. As
- * ações por linha (ver, arquivar, excluir) são da Story 2.12.
+ * **Um controle por ação, e nenhum a mais.** Até a Story 2.11 o título era um
+ * botão com um vão posicionado que esticava a área clicável sobre o cartão
+ * inteiro. Com quatro alvos de ação na mesma linha esse vão passou a ser um
+ * problema em vez de uma conveniência: ele cobre tudo o que não é alvo, então
+ * um toque que erra o botão de excluir por três pixels abre o Editor, e quem
+ * ouve a tela passaria a encontrar dois controles que fazem exatamente a mesma
+ * coisa — o cartão inteiro e o alvo de editar. O título voltou a ser título, e
+ * quem abre o Post é o primeiro dos quatro alvos.
  *
  * **Comentário aqui é código para o Tailwind.** Ele varre o fonte como TEXTO e
  * não distingue prosa de classe: a primeira versão deste comentário citava o
@@ -351,7 +661,15 @@ export default function ListaDePosts({
  * `*`, que vale para o site público inteiro. A verificação de fundação acusou.
  * Nome de classe não se cita em prosa; descreve-se.
  */
-function Linha({ post, aoAbrir }) {
+function Linha({
+  post,
+  emCurso = null,
+  ocupado = false,
+  aoAbrir,
+  aoAlternarDestaque,
+  aoExplicarIndisponivel,
+  aoPedirExclusao,
+}) {
   const categoria = nomeDaCategoria(post);
   const monograma = monogramaDaCategoria(post);
   const capa = typeof post.imagem_url === "string" ? post.imagem_url.trim() : "";
@@ -360,11 +678,21 @@ function Linha({ post, aoAbrir }) {
   const tempo = textoDoTempoDeLeitura(post);
   const autor = String(post.autor_nome ?? "").trim();
 
+  /* As perguntas da Story 2.12, respondidas pelo módulo puro. Nenhuma delas é
+     a política de visibilidade do banco reescrita aqui — ver `acoes.js`. */
+  const noAr = podeVerNoSite(post);
+  const destacado = estaDestacado(post);
+  const destacando = emCurso === OPERACAO_DESTACAR;
+  const excluindo = emCurso === OPERACAO_EXCLUIR;
+
   return (
     <li
       data-post={post.id}
       className={cn(
-        "relative flex items-center gap-4 rounded-cartao",
+        /* `flex-wrap` é a regra de tela estreita, e ela não é responsiva
+           separada: com quatro alvos de 40px o bloco de ações não cabe ao lado
+           do texto num telefone, e envolver é melhor que espremer o alvo. */
+        "flex flex-wrap items-center gap-4 rounded-cartao",
         "border border-border-soft bg-surface p-4",
         "transition-colors hover:border-border-strong",
       )}
@@ -399,31 +727,11 @@ function Linha({ post, aoAbrir }) {
       {/* ── O que a linha diz ───────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="min-w-0 text-sm font-bold text-ink">
-            <button
-              type="button"
-              data-abrir={post.id}
-              aria-label={rotuloParaAbrir(post)}
-              onClick={() => aoAbrir?.()}
-              className={cn(
-                ANEL_DE_FOCO,
-                "block max-w-full truncate rounded-controle text-left",
-              )}
-            >
-              {/* A área clicável cobre o CARTÃO INTEIRO, e continua sendo um só
-                  controle: o vão é filho do botão, então o toque em qualquer
-                  ponto da linha aciona este botão. Dois controles para a mesma
-                  ação seriam dois anúncios para quem navega por leitor de tela.
-
-                  É um `span` posicionado, e não um `::after`: o pseudo-elemento
-                  obrigaria o Tailwind a registrar `--tw-content` na camada base,
-                  sobre `*` — a regra que vale para o site público inteiro, e que
-                  a verificação de fundação compara com o baseline. Um efeito
-                  colateral global por causa de um vão de clique numa linha do
-                  Painel é preço alto demais por um pseudo-elemento. */}
-              <span aria-hidden="true" className="absolute inset-0 rounded-cartao" />
-              {post.titulo}
-            </button>
+          <h3
+            data-papel="titulo"
+            className="min-w-0 max-w-full truncate text-sm font-bold text-ink"
+          >
+            {post.titulo}
           </h3>
           {post.destaque ? (
             /* Destaque não é só o desenho da estrela: a palavra vai junto, pela
@@ -473,6 +781,101 @@ function Linha({ post, aoAbrir }) {
              continuar. */
           <span className="dado text-xs text-ink-muted" data-papel="agendado-para">{agendamento}</span>
         ) : null}
+      </div>
+
+      {/* ── As ações, sempre à vista ────────────────────────────────────── */}
+      <div data-papel="acoes" className="flex shrink-0 items-center gap-1.5">
+        {/* EDITAR — o controle que abre o Post, agora como alvo de 40×40.
+            `data-abrir` continua sendo o nome dele: é o mesmo controle da
+            Story 2.10, com o mesmo rótulo, num alvo maior. */}
+        <button
+          type="button"
+          data-acao="editar"
+          data-abrir={post.id}
+          aria-label={rotuloParaAbrir(post)}
+          onClick={() => aoAbrir?.()}
+          className={CLASSE_DO_ALVO_DE_ACAO}
+        >
+          <SquarePen aria-hidden="true" className="size-4" />
+        </button>
+
+        {/* VER NO SITE — link de verdade quando há o que ver, e um controle que
+            EXPLICA quando não há. O link é `a` e não `button` porque abrir em
+            aba nova é o que um endereço faz: o menu do meio, o toque longo e o
+            "abrir em nova janela" continuam funcionando. */}
+        {noAr ? (
+          <a
+            data-acao="ver"
+            href={enderecoPublico(post)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={rotuloDeVerNoSite(post)}
+            className={CLASSE_DO_ALVO_DE_ACAO}
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+          </a>
+        ) : (
+          <button
+            type="button"
+            data-acao="ver"
+            data-indisponivel="true"
+            /* `aria-disabled` e não `disabled`: o alvo continua alcançável pelo
+               teclado e continua podendo dizer o motivo. Um controle desligado
+               de verdade some da navegação e explica coisa nenhuma. */
+            aria-disabled="true"
+            aria-label={rotuloDeVerIndisponivel(post)}
+            onClick={() => aoExplicarIndisponivel?.()}
+            className={CLASSE_DO_ALVO_DE_ACAO}
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+          </button>
+        )}
+
+        {/* DESTAQUE — alterna direto, sem passar pelo Editor. O controle
+            declara o que É (`aria-pressed`) e o rótulo diz o que FARÁ. */}
+        <button
+          type="button"
+          data-acao="destacar"
+          data-destaque-atual={destacado ? "true" : "false"}
+          aria-pressed={destacado}
+          aria-label={rotuloDeDestaque(post)}
+          aria-busy={destacando ? "true" : undefined}
+          disabled={ocupado}
+          onClick={() => aoAlternarDestaque?.()}
+          className={cn(
+            CLASSE_DO_ALVO_DE_ACAO,
+            destacado && "border-brand-action bg-brand-wash text-brand-action",
+          )}
+        >
+          {destacando ? (
+            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+          ) : (
+            <Star
+              aria-hidden="true"
+              className={cn("size-4", destacado && "fill-current")}
+            />
+          )}
+        </button>
+
+        {/* EXCLUIR — abre a confirmação, e só ela exclui. */}
+        <button
+          type="button"
+          data-acao="excluir"
+          aria-label={rotuloDeExcluir(post)}
+          aria-busy={excluindo ? "true" : undefined}
+          disabled={ocupado}
+          onClick={() => aoPedirExclusao?.()}
+          className={cn(
+            CLASSE_DO_ALVO_DE_ACAO,
+            "hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive",
+          )}
+        >
+          {excluindo ? (
+            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+          ) : (
+            <Trash2 aria-hidden="true" className="size-4" />
+          )}
+        </button>
       </div>
     </li>
   );

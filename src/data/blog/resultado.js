@@ -57,7 +57,17 @@ export const TIPOS_DE_ERRO = Object.freeze([
  * Quem chama pode trocar a frase, mas nunca o tipo — é o tipo que decide o
  * comportamento da tela.
  */
-const MENSAGENS = Object.freeze({
+/**
+ * As frases padrão da LEITURA.
+ *
+ * Exportadas porque a ESCRITA precisa reconhecê-las para não repeti-las: "Esta
+ * leitura exige uma sessão válida" chegando a quem tentou excluir um Post manda
+ * a pessoa procurar o problema numa consulta que ela não fez. O caminho de
+ * escrita compara a frase recebida com estas e a troca pela da operação —
+ * comparar com o conjunto é o que impede a troca de virar uma segunda lista
+ * escrita à mão que divergiria destas na primeira correção de texto.
+ */
+export const MENSAGENS_DE_LEITURA = Object.freeze({
   [ERRO_REDE]:
     "Não conseguimos falar com o servidor. Verifique a conexão e tente de novo.",
   [ERRO_PERMISSAO]:
@@ -67,6 +77,9 @@ const MENSAGENS = Object.freeze({
   [ERRO_INESPERADO]:
     "Algo saiu do previsto ao ler os dados. Tente de novo em instantes.",
 });
+
+/** O nome curto de dentro do módulo. `MENSAGENS_DE_LEITURA` é o nome público. */
+const MENSAGENS = MENSAGENS_DE_LEITURA;
 
 export function ehTipoDeErro(valor) {
   return typeof valor === "string" && TIPOS_DE_ERRO.includes(valor);

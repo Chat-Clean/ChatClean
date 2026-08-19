@@ -56,6 +56,17 @@ export const VARIAVEIS = Object.freeze({
  * antes de a plataforma desistir.
  */
 export const PRAZO_TOTAL_PADRAO_MS = 9000;
+
+/**
+ * O formato de identificador, para a guarda do `DELETE`.
+ *
+ * Escrito aqui, e não importado de `salvarPost.js`, porque este módulo é o
+ * TRANSPORTE e não conhece o núcleo — a direção de dependência é a outra. A
+ * verificação compara os dois padrões sobre um corpus, que é o que impede as
+ * duas cópias de divergirem em silêncio.
+ */
+export const PADRAO_DE_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const PRAZO_POR_CHAMADA_PADRAO_MS = 5000;
 
 /**
@@ -75,6 +86,12 @@ export const COLUNAS_DO_POST = Object.freeze([
   "conteudo_html",
   "estado",
   "publicado_em",
+  /* Story 2.12: `destaque` é COLUNA de saída porque ele passou a ser escrito
+     por esta porta. Sem ele na lista, a resposta de um "alternar Destaque"
+     voltaria sem o valor que a operação acabou de gravar, e a tela teria de
+     acreditar no que pediu em vez de ler o que ficou — que é exatamente o
+     "efeito imediato que mente" que a story proíbe. */
+  "destaque",
   "autor_id",
   "autor_nome",
   "criado_em",
@@ -429,6 +446,55 @@ export function criarAcesso({
           {
             metodo: "PATCH",
             corpo: campos,
+            cabecalhos: comServico({ Prefer: "return=representation" }),
+          },
+        ),
+      );
+    },
+
+    /**
+     * Apaga um Post (Story 2.12). Um comando só, e ele devolve a linha apagada.
+     *
+     * ─── Por que a resposta precisa carregar a linha ────────────────────────
+     *
+     * Sem `return=representation`, apagar um Post que já não existe e apagar um
+     * Post de verdade respondem a MESMA coisa (204, sem corpo), e o núcleo não
+     * teria como distinguir "excluído" de "não estava lá". A tela precisa da
+     * distinção: uma diz "Post excluído" e a outra diz que ele já tinha sumido
+     * — que é o caso normal do segundo clique numa exclusão em curso.
+     *
+     * ─── O que este comando arrasta junto, e por quê ────────────────────────
+     *
+     * `posts_tags` e `slugs_antigos` referenciam `posts (id) on delete cascade`
+     * desde a Story 2.1, então as associações e os endereços aposentados saem
+     * na mesma transação do banco. Apagá-los aqui, um a um, seria reimplementar
+     * em três chamadas o que a chave estrangeira faz em uma — e deixar rastro
+     * quando a segunda falhasse.
+     */
+    async excluirPost(id) {
+      /* ─── A GUARDA DO TRANSPORTE ─────────────────────────────────────────
+         Esta é a única chamada destrutiva do projeto, e um filtro ausente ou
+         malformado no PostgREST não é um erro: é um `DELETE` na tabela inteira.
+         O chamador já confere o identificador (`idDoCorpo`), e confiar nisso é
+         exatamente a suposição que um caminho novo — uma operação futura, um
+         script — quebraria sem ninguém notar. A conferência é barata e mora no
+         lugar onde o comando é montado. */
+      const alvo = typeof id === "string" ? id.trim() : "";
+      if (!PADRAO_DE_UUID.test(alvo)) {
+        return {
+          ok: false,
+          status: 0,
+          codigo: "IdentificadorInvalido",
+          mensagem:
+            "exclusão recusada no transporte: identificador ausente ou fora do formato",
+          dados: null,
+        };
+      }
+      return primeira(
+        await pedir(
+          `/rest/v1/posts?select=${SELECAO_DO_POST}&id=eq.${encodeURIComponent(alvo)}`,
+          {
+            metodo: "DELETE",
             cabecalhos: comServico({ Prefer: "return=representation" }),
           },
         ),

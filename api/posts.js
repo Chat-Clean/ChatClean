@@ -11,9 +11,15 @@
  * diretório com `_` no começo não são rotas, e é por isso que o núcleo mora em
  * `api/_nucleo/`.
  *
- * ─── Duas coisas que este arquivo decide, e só ele ──────────────────────────
+ * ─── Três coisas que este arquivo decide, e só ele ──────────────────────────
  *
- * **1. O que a resposta revela.** O erro tipado carrega `detalhe` para
+ * **1. QUAL operação está sendo pedida.** Desde a Story 2.12 esta porta faz
+ * três coisas — salvar, excluir e alternar Destaque —, escolhidas por um campo
+ * do corpo conferido contra o vocabulário fechado de `domain/blog/operacoes.js`.
+ * A escolha mora aqui, e não no núcleo, porque é aqui que o corpo chega da
+ * rede: é o ponto exato em que a lista de permissão precisa existir.
+ *
+ * **2. O que a resposta revela.** O erro tipado carrega `detalhe` para
  * diagnóstico — SQLSTATE, mensagem do PostgREST, nome de restrição. Isso vai
  * para o log do servidor e **não** para o corpo da resposta: quem chama recebe
  * `tipo` e `mensagem`, que é o suficiente para a tela agir.
@@ -22,7 +28,15 @@
  * A tradução é uma tabela, aqui.
  */
 
+import {
+  OPERACAO_DESTACAR,
+  OPERACAO_EXCLUIR,
+  OPERACAO_SALVAR,
+  OPERACOES,
+  operacaoPedida,
+} from "../src/domain/blog/operacoes.js";
 import { acessoDoAmbiente, VARIAVEIS } from "./_nucleo/acesso.js";
+import { definirDestaque, excluirPost } from "./_nucleo/operacoesDoPost.js";
 import {
   ERRO_CONFIGURACAO,
   ERRO_CONFLITO,
@@ -51,6 +65,62 @@ export const CODIGO_HTTP = Object.freeze({
   [ERRO_REDE]: 502,
   [ERRO_INESPERADO]: 500,
 });
+
+/**
+ * A TABELA DE DESPACHO — a lista de permissão das operações desta porta.
+ *
+ * ─── Por que uma operação a mais não é uma rota a mais ──────────────────────
+ *
+ * "Nenhum cliente escreve no banco, e o único caminho é a função em `api/`" é a
+ * regra que sustenta a RLS inteira. Excluir e alternar Destaque poderiam ter
+ * ganhado `api/posts-excluir.js` e `api/posts-destacar.js`, e cada uma delas
+ * teria de repetir a conferência do token, a exigência de cadastro, a
+ * classificação do erro e a ocultação do detalhe — quatro coisas que a segunda
+ * cópia faz pior. Então a operação é **dado**, não endereço.
+ *
+ * ─── E por que a escolha é por lista de PERMISSÃO ───────────────────────────
+ *
+ * O corpo vem da rede. `EXECUTORES[operacao]` sozinho é uma armadilha
+ * conhecida: `operacao: "constructor"` devolveria uma função que ninguém
+ * declarou, e `"__proto__"` alcançaria o protótipo. Por isso a chave é
+ * conferida contra a LISTA congelada do domínio ANTES do acesso, e o acesso é
+ * conferido de novo com `Object.hasOwn`. Lista de proibição sempre tem uma
+ * forma de evasão que ninguém pensou ainda.
+ *
+ * As três funções têm a MESMA assinatura (`{ token, corpo, acesso }`) e o mesmo
+ * contrato de retorno, e é isso que permite ao invólucro continuar sem saber
+ * qual delas está chamando.
+ */
+export const EXECUTORES = Object.freeze({
+  [OPERACAO_SALVAR]: salvarPost,
+  [OPERACAO_EXCLUIR]: excluirPost,
+  [OPERACAO_DESTACAR]: definirDestaque,
+});
+
+/**
+ * O executor da operação, ou `null`.
+ *
+ * A dupla conferência é deliberada — ver o comentário de `EXECUTORES`. O
+ * vocabulário vem do domínio, e é o mesmo que o cliente usa para nomear o que
+ * pede: uma segunda lista aqui seria a divergência que só aparece no dia em que
+ * uma operação nova é declarada de um lado só.
+ */
+export function executorDe(operacao) {
+  if (!OPERACOES.includes(operacao)) return null;
+  if (!Object.hasOwn(EXECUTORES, operacao)) return null;
+  const executor = EXECUTORES[operacao];
+  return typeof executor === "function" ? executor : null;
+}
+
+/**
+ * A recusa de operação para quem NÃO apresentou credencial.
+ *
+ * Não enumera as operações e não repete o que veio. Quem tem sessão recebe a
+ * frase completa de `operacaoPedida`, que nomeia as três — é informação útil
+ * para quem está integrando o Painel, e inútil para quem está sondando.
+ */
+export const RECUSA_SEM_CREDENCIAL =
+  "Não reconhecemos este pedido. Entre no Painel e tente de novo.";
 
 /** O token do chamador, extraído do cabeçalho. Nunca do corpo do pedido. */
 export function tokenDoCabecalho(cabecalhos = {}) {
@@ -121,9 +191,14 @@ export function respostaDeErro(erro) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
+    /* CONTINUA SÓ POST, e isso não é descuido depois da Story 2.12: excluir não
+       virou `DELETE` e destacar não virou `PATCH`. O método HTTP é transporte;
+       a operação é dado, conferido contra o vocabulário fechado. Espalhar as
+       operações por verbos criaria três caminhos de entrada onde a regra do
+       projeto pede um. */
     res.setHeader("Allow", "POST");
     const erro = falha(ERRO_DADOS_INVALIDOS, {
-      mensagem: "Esta rota grava posts e aceita apenas POST.",
+      mensagem: "Esta rota escreve posts e aceita apenas POST.",
     }).erro;
     res.status(405).json(respostaDeErro(erro));
     return;
@@ -143,9 +218,48 @@ export default async function handler(req, res) {
     return;
   }
 
-  const resultado = await salvarPost({
-    token: tokenDoCabecalho(req.headers ?? {}),
-    corpo: corpoComoObjeto(req.body),
+  const corpo = corpoComoObjeto(req.body);
+  const token = tokenDoCabecalho(req.headers ?? {});
+
+  /* ─── A OPERAÇÃO É ESCOLHIDA ANTES DE QUALQUER ESCRITA ───────────────────
+     Corpo forjado com operação fora do vocabulário morre aqui, sem ida ao banco
+     e sem nada gravado — a recusa é por construção, não por revisão.
+
+     ─── MAS QUEM NÃO SE IDENTIFICOU NÃO OUVE O VOCABULÁRIO ────────────────
+     A recusa antes trazia a lista completa das operações e registrava o valor
+     recebido no log — as duas coisas para quem não apresentou credencial
+     nenhuma. Enumerar dava o mapa da porta de graça, e o log virava um lugar
+     onde qualquer um escreve à vontade, um pedido por linha. Agora a frase
+     detalhada e o registro dependem de haver credencial; sem ela a recusa é
+     seca e silenciosa. Continua sem escrever nada, que é o que importa. */
+  const pedida = operacaoPedida(corpo);
+  if (!pedida.ok) {
+    const identificado = token !== "";
+    if (identificado) console.error(`[api/posts] operação recusada: ${pedida.detalhe}`);
+    const erro = falha(ERRO_DADOS_INVALIDOS, {
+      mensagem: identificado ? pedida.mensagem : RECUSA_SEM_CREDENCIAL,
+    }).erro;
+    res.status(CODIGO_HTTP[ERRO_DADOS_INVALIDOS]).json(respostaDeErro(erro));
+    return;
+  }
+
+  const executor = executorDe(pedida.operacao);
+  if (executor === null) {
+    /* O vocabulário declara uma operação que a tabela não executa. Não é pedido
+       mal formado — é defeito de programação, e dizer "dados inválidos" a quem
+       chamou mandaria a pessoa procurar o erro no próprio pedido. */
+    console.error(
+      `[api/posts] operação sem executor: ${pedida.operacao}. ` +
+        `Declaradas: ${OPERACOES.join(", ")}; executáveis: ${Object.keys(EXECUTORES).join(", ")}.`,
+    );
+    const erro = falha(ERRO_INESPERADO, {}).erro;
+    res.status(CODIGO_HTTP[ERRO_INESPERADO]).json(respostaDeErro(erro));
+    return;
+  }
+
+  const resultado = await executor({
+    token,
+    corpo,
     acesso: montagem.acesso,
   });
 
@@ -153,14 +267,16 @@ export default async function handler(req, res) {
     const { erro } = resultado;
     if (erro.detalhe) {
       console.error(
-        `[api/posts] ${erro.tipo}${erro.codigo ? ` (${erro.codigo})` : ""}: ${erro.detalhe}`,
+        `[api/posts] ${pedida.operacao} | ${erro.tipo}${erro.codigo ? ` (${erro.codigo})` : ""}: ${erro.detalhe}`,
       );
     }
     res.status(CODIGO_HTTP[erro.tipo] ?? 500).json(respostaDeErro(erro));
     return;
   }
 
-  res.status(resultado.dados.criado ? 201 : 200).json({
+  // 201 é só do Post que NASCEU. As operações que mexem no que já existe saem
+  // com 200 — `criado` nem existe na resposta delas.
+  res.status(resultado.dados.criado === true ? 201 : 200).json({
     ok: true,
     dados: resultado.dados,
   });

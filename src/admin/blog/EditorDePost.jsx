@@ -88,6 +88,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
 
+/* A pergunta "dá para ver este Post no site?" e o endereço público moram em
+   `acoes.js`, e a listagem faz a MESMA pergunta pelas mesmas funções. Enquanto
+   cada tela montava a sua, o comentário de lá prometia "escrito uma vez" e o
+   projeto tinha duas — e duas divergem no dia em que o prefixo do blog mudar,
+   com a divergência aparecendo como um link que erra. */
+import { enderecoPublico, podeVerNoSite } from "@/admin/blog/acoes";
 import Editor from "@/admin/blog/Editor";
 import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
@@ -574,12 +580,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
            listagem e do filtro — a palavra por extenso, sem sinônimo. */
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <PilulaDeEstado estado={estado} />
-          {estado === "publicado" && valores.slug ? (
+          {podeVerNoSite({ estado, slug: valores.slug }) ? (
             /* Aba nova, de propósito: o Autor continua AQUI, com o que ainda
                não foi salvo intacto. Navegar na mesma aba logo depois de
                publicar seria trocar a confirmação por uma perda. */
             <a
-              href={`/blog/${valores.slug}`}
+              data-acao-ver="site"
+              href={enderecoPublico({ slug: valores.slug })}
               target="_blank"
               rel="noopener noreferrer"
               className={cn(

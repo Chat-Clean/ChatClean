@@ -24,6 +24,15 @@
  *   regra vive em `voz.js`, e a violação lança em desenvolvimento e fica
  *   registrada em produção: derrubar o Painel por causa de um rótulo ruim
  *   custaria mais que o rótulo ruim.
+ *
+ * ─── E O QUE ESTÁ ACONTECENDO SE OUVE DE DENTRO ─────────────────────────────
+ *
+ * `ocupado` desabilita o botão de confirmação e troca o rótulo pelo texto do
+ * que está em curso. Ele existe porque o diálogo é `aria-modal`: uma região
+ * viva que fique FORA dele não é lida por quem está dentro — e quem está dentro
+ * é exatamente quem acabou de confirmar uma ação irreversível e precisa saber
+ * que ela começou. O anúncio mora aqui, dentro do modal, e o botão desabilitado
+ * é o que impede a segunda confirmação de sair enquanto a primeira corre.
  */
 
 import { useRef } from "react";
@@ -51,6 +60,7 @@ import { diagnosticarRotuloDeAcao, exigir } from "./voz";
  * @param {string}   rotuloDeConfirmacao  o que o botão faz ("Excluir post")
  * @param {Function} aoConfirmar
  * @param {boolean}  perigo               destrutivo (vermelho) ou não
+ * @param {string}   ocupado              o que está acontecendo agora, ou `""`
  */
 export default function DialogoDeConfirmacao({
   aberto,
@@ -61,6 +71,7 @@ export default function DialogoDeConfirmacao({
   aoConfirmar,
   perigo = true,
   rotuloDeCancelamento = "Cancelar",
+  ocupado = "",
 }) {
   const refDeCancelar = useRef(null);
 
@@ -87,8 +98,21 @@ export default function DialogoDeConfirmacao({
           <AlertDialogDescription>{descricao}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
+          {/* O ANÚNCIO VIVE DENTRO DO MODAL. Fora dele, `aria-modal` esconde a
+              região de quem está no diálogo — que é justamente quem precisa
+              ouvi-la. Fica no rodapé, antes dos botões, e some quando não há
+              nada em curso. */}
+          <p
+            role="status"
+            aria-live="polite"
+            data-papel="dialogo-em-curso"
+            className="sr-only"
+          >
+            {ocupado}
+          </p>
           <AlertDialogCancel
             ref={refDeCancelar}
+            disabled={ocupado !== ""}
             className={cn("min-h-10 rounded-controle", ANEL_DE_FOCO)}
           >
             {rotuloDeCancelamento}
@@ -100,9 +124,12 @@ export default function DialogoDeConfirmacao({
           <Button
             variant={perigo ? "destructive" : "default"}
             onClick={aoConfirmar}
+            disabled={ocupado !== ""}
+            aria-busy={ocupado !== "" ? "true" : undefined}
+            data-papel="confirmar"
             className={cn("min-h-10 rounded-controle font-semibold", ANEL_DE_FOCO)}
           >
-            {rotuloDeConfirmacao}
+            {ocupado !== "" ? ocupado : rotuloDeConfirmacao}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

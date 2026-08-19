@@ -69,6 +69,7 @@ import {
   COLUNAS_DO_POST,
   criarAcesso,
   lerAmbiente,
+  PADRAO_DE_UUID,
   problemaNaUrl,
   VARIAVEIS,
 } from "../api/_nucleo/acesso.js";
@@ -81,16 +82,54 @@ import {
   lerCorpo,
   LIMITE_DE_IGNORADOS,
   MARGEM_DE_RELOGIO_MS,
+  PADRAO_UUID,
   salvarPost,
   TAMANHO_MAXIMO_DO_CONTEUDO,
   TIPOS_DE_ERRO,
 } from "../api/_nucleo/salvarPost.js";
+/* As operações da Story 2.12 — excluir e alternar Destaque — moram fora de
+   `salvarPost.js` e são chamadas pelo MESMO invólucro. Elas são importadas e
+   executadas aqui pela mesma razão que o núcleo: uma função que existe não é
+   uma função que faz o que a story diz. */
+import { definirDestaque, excluirPost } from "../api/_nucleo/operacoesDoPost.js";
+/* O invólucro INTEIRO, e não só as peças dele: sem o export padrão, o
+   despacho — a linha que escolhe qual executor roda — nunca é exercitado, e
+   trocá-lo por uma chamada fixa a `salvarPost` deixaria excluir virar salvar
+   com a suíte verde. */
+import handler from "../api/posts.js";
 import {
   CODIGO_HTTP,
   corpoComoObjeto,
+  EXECUTORES,
+  executorDe,
+  RECUSA_SEM_CREDENCIAL,
   respostaDeErro,
   tokenDoCabecalho,
 } from "../api/posts.js";
+/* O vocabulário FECHADO das operações. Ele vem do domínio, e o cliente e o
+   servidor importam o mesmo módulo — comparar duas listas escritas em lugares
+   diferentes é justamente o que este arquivo existe para evitar. */
+import {
+  ehOperacao,
+  OPERACAO_DESTACAR,
+  OPERACAO_EXCLUIR,
+  OPERACAO_PADRAO,
+  OPERACAO_SALVAR,
+  OPERACOES,
+  operacaoPedida,
+} from "../src/domain/blog/operacoes.js";
+/* O cliente da porta única. Ele importa em Node — a configuração do Supabase é
+   lida com guarda e a falta dela vira erro TIPADO, não exceção —, e é isso que
+   permite executar as recusas dele aqui em vez de lê-las. */
+import * as clienteDaEscrita from "../src/data/blog/escrita.js";
+/* O formato de identificador do CLIENTE, para ser comparado com os dois do
+   servidor: três cópias da mesma regra é o que o cabeçalho de
+   `operacoesDoPost.js` argumenta contra em outro assunto. */
+import { ehUuid } from "../src/data/blog/comum.js";
+/* As guardas de voz do Painel. As frases de falha do CLIENTE passam por elas
+   — uma frase que diz \"tente salvar de novo\" a quem tentou excluir é a
+   mesma classe de defeito que \"algo deu errado\". */
+import { diagnosticarMensagem } from "../src/admin/shell/voz.js";
 import {
   ATRIBUTOS_EMITIDOS,
   derivarHtml,
@@ -117,6 +156,7 @@ import {
   ERRO_NAO_ENCONTRADO,
   ERRO_PERMISSAO,
   ERRO_REDE,
+  MENSAGENS_DE_LEITURA,
 } from "../src/data/blog/resultado.js";
 /* A máquina de transições da Story 2.8, IMPORTADA. As asserções de transição
    comparam o que o núcleo faz com o que ela declara — reescrever a tabela aqui
@@ -146,6 +186,10 @@ const CAMINHO_RENDERIZADOR = "src/render/blog/paraHtml.js";
 const CAMINHO_NUCLEO = "api/_nucleo/salvarPost.js";
 const CAMINHO_ACESSO = "api/_nucleo/acesso.js";
 const CAMINHO_INVOLUCRO = "api/posts.js";
+/* Story 2.12: o vocabulário das operações e as duas operações novas. */
+const CAMINHO_OPERACOES = "src/domain/blog/operacoes.js";
+const CAMINHO_OPERACOES_DO_POST = "api/_nucleo/operacoesDoPost.js";
+const CAMINHO_CLIENTE_DA_ESCRITA = "src/data/blog/escrita.js";
 /**
  * A migração VIGENTE da higienização.
  *
@@ -775,6 +819,9 @@ function acessoDeTeste({
   post = null,
   respostaDoToken = null,
   respostaDaEscrita = null,
+  /* Story 2.12: a leitura do perfil falhando por REDE — ramo distinto de
+     "conta sem perfil", e o único em que a frase da indisponibilidade vale. */
+  respostaDoPerfil = null,
   // Story 2.6: quem é o dono do endereço, entre os ativos e entre os
   // aposentados. `null` significa "ninguém", que é o caso comum.
   donoAtivo = null,
@@ -811,6 +858,7 @@ function acessoDeTeste({
     },
     perfilDaConta(id) {
       reg("perfilDaConta", [id]);
+      if (respostaDoPerfil) return respostaDoPerfil;
       return { ok: true, status: 200, dados: perfil };
     },
     lerPost(id) {
@@ -1457,13 +1505,27 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
     !CAMPOS_ACEITOS.includes("conteudo_html"),
     CAMPOS_ACEITOS.join(", "),
   );
-  for (const campo of ["conteudo_html", "autor_id", "autor_nome"]) {
+  /* `destaque` entrou nesta lista na Story 2.12, e pelo mesmo motivo dos três
+     primeiros: é COLUNA que a porta escreve, mas só pela operação `destacar`.
+     Sem ele aqui, um salvamento que o traga — o Editor devolvendo ao servidor
+     um Post que leu do banco — cairia no relatório genérico de campo
+     desconhecido em vez de ser nomeado. */
+  for (const campo of ["conteudo_html", "autor_id", "autor_nome", "destaque"]) {
     afirmar(
       `\`${campo}\` está declarado como ignorado, com nome`,
       CAMPOS_IGNORADOS.includes(campo),
       CAMPOS_IGNORADOS.join(", "),
     );
   }
+  /* E `operacao` é ACEITO sem ser campo do Post: ele diz qual operação está
+     sendo pedida, e quem o lê é o invólucro. Está na lista para NÃO ser
+     relatado como ignorado — sem isso, toda gravação avisaria o Autor de que
+     descartou um campo que o próprio Painel manda de propósito. */
+  afirmar(
+    "`operacao` é ACEITO e não ignorado — ele é o que escolhe a operação, não um campo descartado",
+    CAMPOS_ACEITOS.includes("operacao") && !CAMPOS_IGNORADOS.includes("operacao"),
+    `aceitos: ${CAMPOS_ACEITOS.join(", ")} | ignorados: ${CAMPOS_IGNORADOS.join(", ")}`,
+  );
   for (const campo of ["categoria_id", "tags", "publicado_em", "tempo_leitura"]) {
     afirmar(
       `\`${campo}\` é ACEITO — é metadado da gaveta da Story 2.6`,
@@ -2067,17 +2129,1198 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
   const nucleoLido = mascararComentariosJs(tentar(`${CAMINHO_NUCLEO} legível`, () => ler(CAMINHO_NUCLEO), ""));
   const remocao = /"DELETE"|'DELETE'|apagarPost|excluirPost|removerPost|\/rest\/v1\/rpc\/apagar/;
   afirmar(
-    "arquivar não pode apagar: o caminho de escrita não tem verbo de remoção",
-    !remocao.test(acessoLido) && !remocao.test(nucleoLido),
-    (remocao.exec(`${acessoLido}${nucleoLido}`) ?? [])[0] ?? "",
+    "arquivar não pode apagar: o núcleo da GRAVAÇÃO não tem verbo de remoção nenhum",
+    !remocao.test(nucleoLido),
+    (remocao.exec(nucleoLido) ?? [])[0] ?? "",
   );
   afirmar(
     "e o detector de remoção acusa uma chamada real",
     remocao.test(`metodo: ${'"DELETE"'}`),
   );
+  /* ─── A FRONTEIRA MUDOU NA STORY 2.12, e não afrouxou ────────────────────
+     Apagar passou a existir — mas fora do caminho de salvar, numa operação com
+     nome próprio, alcançável só pelo vocabulário fechado.
+
+     ─── E A CONFERÊNCIA É LISTA DE PERMISSÃO, não de proibição ───────────
+     A primeira versão desta asserção contava ocorrências de um literal:
+     `/metodo:\s*"DELETE"/g === 1`. Isso é lista de proibição de uma forma só,
+     e escapa com aspas simples, template, método guardado em variável, ou um
+     `apagarPost` que chame RPC — exatamente a evasão que a regra 3 do projeto
+     proíbe. Agora o que se declara é o CONJUNTO das remoções que existem e a
+     quem elas pertencem, e qualquer forma de remoção fora dele é acusada. */
+
+  {
+    /**
+     * Toda remoção que um transporte pode emitir, em qualquer forma.
+     *
+     * Cada entrada é `[rótulo, padrão]`, e o padrão cobre a forma escrita E as
+     * variações que a fariam passar despercebida: aspas de qualquer tipo,
+     * método em variável, verbo em minúsculas, e chamada de função de banco
+     * com nome de remoção.
+     */
+    const FORMAS_DE_REMOCAO = Object.freeze([
+      ["método DELETE em literal", /['"`]delete['"`]/i],
+      ["método DELETE sem aspas", /\bmetodo\s*:\s*[A-Za-z_$][\w$]*\b/],
+      ["nome de remoção", /\b(apagar|remover|excluir|deletar)[A-Za-z]*\s*\(/i],
+      ["função de banco de remoção", /rpc\/[a-z_]*(apagar|remover|excluir|deletar)/i],
+      ["truncate ou drop", /\b(truncate|drop\s+table)\b/i],
+    ]);
+
+    /** As remoções que EXISTEM, declaradas: rótulo → onde e por quê. */
+    const REMOCOES_DECLARADAS = Object.freeze({
+      "api/_nucleo/acesso.js": ["excluirPost"],
+      "api/_nucleo/salvarPost.js": [],
+    });
+
+    /** Os nomes de função de remoção que um arquivo declara ou chama. */
+    const remocoesEm = (codigo) => [
+      ...new Set(
+        [...codigo.matchAll(/\b((?:apagar|remover|excluir|deletar)[A-Za-z]*)\s*\(/gi)].map(
+          (m) => m[1],
+        ),
+      ),
+    ];
+
+    for (const [arquivo, esperadas] of Object.entries(REMOCOES_DECLARADAS)) {
+      const codigo = arquivo === CAMINHO_ACESSO ? acessoLido : nucleoLido;
+      const achadas = remocoesEm(codigo);
+      afirmar(
+        `${arquivo} tem EXATAMENTE as remoções declaradas: ${esperadas.join(", ") || "nenhuma"}`,
+        mesmoConjunto(achadas, esperadas),
+        `achadas: ${achadas.join(", ") || "nenhuma"}`,
+      );
+    }
+
+    /* E NENHUMA OUTRA FORMA de remoção existe nos dois arquivos — nem `drop`,
+       nem `truncate`, nem função de banco com nome de remoção. */
+    const forasteiras = [];
+    for (const [arquivo, codigo] of [
+      [CAMINHO_ACESSO, acessoLido],
+      [CAMINHO_NUCLEO, nucleoLido],
+    ]) {
+      for (const [rotulo, padrao] of FORMAS_DE_REMOCAO) {
+        if (rotulo === "nome de remoção") continue; // já coberto, por igualdade
+        if (rotulo === "método DELETE sem aspas") continue; // idem, adiante
+        const achado = padrao.exec(codigo);
+        if (!achado) continue;
+        const permitido =
+          arquivo === CAMINHO_ACESSO && /^['"`]delete['"`]$/i.test(achado[0]);
+        if (!permitido) forasteiras.push(`${arquivo}: ${rotulo} (${achado[0]})`);
+      }
+    }
+    afirmar(
+      "e não existe outra forma de remoção nos dois arquivos — nem literal escapado, nem `drop`, nem função de banco",
+      forasteiras.length === 0,
+      forasteiras.join(" | "),
+    );
+
+    /* O MÉTODO NUNCA SAI DE UMA VARIÁVEL. É a forma de evasão que a contagem
+       de literal não via: `const m = "DELETE"; { metodo: m }` passava. */
+    afirmar(
+      "todo método HTTP do transporte é literal — método vindo de variável esconderia a remoção da leitura",
+      [...acessoLido.matchAll(/metodo\s*:\s*([^,\n}]+)/g)].every((m) =>
+        /^\s*['"`]/.test(m[1]),
+      ),
+      [...acessoLido.matchAll(/metodo\s*:\s*([^,\n}]+)/g)]
+        .map((m) => m[1].trim())
+        .join(" | "),
+    );
+
+    /* AUTOTESTE DO DETECTOR NOVO, nos dois sentidos — o autoteste antigo cobria
+       só o detector antigo, e um extrator quebrado deixaria as quatro linhas
+       acima passarem por vacuidade. */
+    afirmar(
+      "o extrator de remoções acha o que existe e não inventa o que não existe",
+      mesmoConjunto(remocoesEm("async excluirPost(id) { return apagarTudo(); }"), [
+        "excluirPost",
+        "apagarTudo",
+      ]) && remocoesEm("async lerPost(id) { return primeira(x); }").length === 0,
+      remocoesEm("async excluirPost(id) { return apagarTudo(); }").join(", "),
+    );
+    afirmar(
+      "e as formas de evasão que a contagem de literal não via são reconhecidas",
+      FORMAS_DE_REMOCAO.some(([, padrao]) => padrao.test("metodo: 'delete'")) &&
+        FORMAS_DE_REMOCAO.some(([, padrao]) => padrao.test("metodo: verbo")) &&
+        FORMAS_DE_REMOCAO.some(([, padrao]) =>
+          padrao.test("/rest/v1/rpc/apagar_post"),
+        ) &&
+        FORMAS_DE_REMOCAO.some(([, padrao]) => padrao.test("truncate table posts")),
+    );
+  }
+
+  afirmar(
+    "e quem alcança a remoção é o módulo da operação `excluir` — a gravação não a menciona",
+    /acesso\.excluirPost\(/.test(
+      mascararComentariosJs(tentar(`${CAMINHO_OPERACOES_DO_POST} legível`, () => ler(CAMINHO_OPERACOES_DO_POST), "")),
+    ) && !/acesso\.excluirPost\(/.test(nucleoLido),
+  );
+
+  /* E A PROVA EXECUTADA: arquivar de verdade, com um transporte que ACUSA se
+     alguém tentar apagar. Sem esta linha, "arquivar não apaga" seria uma
+     afirmação sobre texto — e texto não é o que roda em produção. */
+  {
+    const acessoQueAcusa = acessoDeTeste({
+      post: {
+        id: "11111111-2222-4333-8444-555555555555",
+        slug: "um-post-de-teste",
+        estado: "publicado",
+        publicado_em: "2026-01-01T00:00:00.000Z",
+        autor_id: CONTA_FALSA.id,
+        autor_nome: "Autor Original",
+      },
+    });
+    let tentouApagar = false;
+    acessoQueAcusa.excluirPost = () => {
+      tentouApagar = true;
+      return { ok: true, status: 200, dados: null };
+    };
+    const arquivou = await salvarPost({
+      token: "bom",
+      corpo: corpoValido({ id: "11111111-2222-4333-8444-555555555555", estado: "arquivado" }),
+      acesso: acessoQueAcusa,
+    });
+    afirmar(
+      "arquivar EXECUTADO: o Post é atualizado para arquivado e nada é apagado",
+      arquivou.ok === true &&
+        arquivou.dados.post.estado === "arquivado" &&
+        tentouApagar === false &&
+        acessoQueAcusa.chamadas.every((c) => c.nome !== "excluirPost"),
+      arquivou.ok
+        ? `tentou apagar: ${tentouApagar}`
+        : `tipo ${arquivou.erro.tipo}: ${arquivou.erro.detalhe?.slice(0, 160)}`,
+    );
+  }
 }
 
 /* ─── (d) O núcleo, executado sem rede ───────────────────────────────────── */
+
+/* ─── (c5) O vocabulário fechado das operações (Story 2.12) ──────────────── */
+
+secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
+
+{
+  /* — A LISTA É A LISTA, e ela é completa — */
+
+  afirmar(
+    "o vocabulário declara as TRÊS operações da porta única, e nenhuma a mais",
+    mesmoConjunto(OPERACOES, [OPERACAO_SALVAR, OPERACAO_EXCLUIR, OPERACAO_DESTACAR]) &&
+      OPERACOES.length === 3,
+    OPERACOES.join(", "),
+  );
+  afirmar(
+    "a lista é congelada — quem importa não consegue acrescentar uma quarta operação em tempo de execução",
+    Object.isFrozen(OPERACOES) &&
+      (() => {
+        try {
+          OPERACOES.push("apagar-tudo");
+        } catch {
+          /* modo estrito: lançar é o comportamento desejado */
+        }
+        return OPERACOES.length === 3;
+      })(),
+    OPERACOES.join(", "),
+  );
+  afirmar(
+    "a operação padrão é `salvar` — o corpo da Story 2.5 nunca teve o campo, e exigi-lo agora recusaria toda gravação em voo",
+    OPERACAO_PADRAO === OPERACAO_SALVAR,
+    OPERACAO_PADRAO,
+  );
+
+  /* — LISTA DE PERMISSÃO, e não de proibição — */
+  //
+  // A evasão clássica de quem usa objeto como tabela de despacho: nome herdado
+  // do protótipo de `Object`. `ehOperacao` responde sobre a LISTA, e é isso que
+  // faz `constructor` e `__proto__` serem "não" em vez de "sim".
+
+  const FORA_DO_VOCABULARIO = [
+    "constructor",
+    "__proto__",
+    "toString",
+    "valueOf",
+    "hasOwnProperty",
+    "apagar",
+    "delete",
+    "Excluir",
+    "EXCLUIR",
+    "excluir; drop table posts",
+    "excluir-tudo",
+  ];
+
+  /* O NOME COM ESPAÇO é caso à parte, e a diferença é deliberada: `ehOperacao`
+     e a tabela de despacho comparam o nome EXATO, e a leitura do corpo apara
+     antes de comparar. Se a aparagem morasse na comparação, ela valeria também
+     para a tabela — e a chave espaçada passaria a alcançar um executor. */
+  const ESPACADOS = [" excluir", "excluir ", "\texcluir\n", "  salvar  "];
+  const aceitosPorEngano = FORA_DO_VOCABULARIO.filter((v) => ehOperacao(v));
+  afirmar(
+    `nenhum dos ${FORA_DO_VOCABULARIO.length} nomes fora do vocabulário é aceito — inclusive os herdados do protótipo`,
+    aceitosPorEngano.length === 0,
+    aceitosPorEngano.join(", "),
+  );
+  afirmar(
+    "e o que não é texto também não é operação",
+    ![null, undefined, 0, 1, true, {}, [], Symbol.iterator].some((v) => {
+      try {
+        return ehOperacao(v);
+      } catch {
+        return true; // lançar já é falha: quem pergunta é o servidor, sobre valor de fora
+      }
+    }),
+  );
+  afirmar(
+    "as três declaradas SÃO aceitas — a lista de permissão não pode recusar o que ela mesma declara",
+    OPERACOES.every((o) => ehOperacao(o)),
+  );
+  afirmar(
+    "nome com espaço em volta não é operação para quem compara o nome exato — a aparagem é da leitura do corpo, e só dela",
+    ESPACADOS.every((v) => ehOperacao(v) === false && executorDe(v) === null),
+    ESPACADOS.filter((v) => ehOperacao(v) || executorDe(v) !== null).join(" | "),
+  );
+
+  /* — A LEITURA DO CORPO: o que a porta faz com o campo — */
+
+  afirmar(
+    "corpo sem `operacao` é pedido de SALVAR — a compatibilidade com a Story 2.5 é explícita, não acidental",
+    operacaoPedida({}).operacao === OPERACAO_SALVAR &&
+      operacaoPedida({ operacao: undefined }).operacao === OPERACAO_SALVAR &&
+      operacaoPedida({ operacao: null }).operacao === OPERACAO_SALVAR &&
+      operacaoPedida({ operacao: "" }).operacao === OPERACAO_SALVAR,
+    JSON.stringify(operacaoPedida({})),
+  );
+  afirmar(
+    "corpo que NÃO é objeto não é recusado aqui — ele é um salvamento mal formado, e quem o descreve é a leitura do corpo",
+    operacaoPedida(null).operacao === OPERACAO_SALVAR &&
+      operacaoPedida("texto solto").operacao === OPERACAO_SALVAR &&
+      operacaoPedida([]).operacao === OPERACAO_SALVAR,
+    JSON.stringify(operacaoPedida("texto solto")),
+  );
+  afirmar(
+    "cada operação declarada é reconhecida pelo corpo, com espaços aparados",
+    OPERACOES.every(
+      (o) =>
+        operacaoPedida({ operacao: o }).ok === true &&
+        operacaoPedida({ operacao: o }).operacao === o &&
+        operacaoPedida({ operacao: `  ${o}  ` }).operacao === o,
+    ) &&
+      ESPACADOS.every((v) => operacaoPedida({ operacao: v }).ok === true),
+    ESPACADOS.map((v) => JSON.stringify(operacaoPedida({ operacao: v }))).join(" | "),
+  );
+  {
+    const recusados = FORA_DO_VOCABULARIO.filter(
+      (v) => operacaoPedida({ operacao: v }).ok !== false,
+    );
+    afirmar(
+      "corpo FORJADO com operação fora do vocabulário é recusado, e a recusa nomeia as operações que existem",
+      recusados.length === 0 &&
+        OPERACOES.every((o) =>
+          operacaoPedida({ operacao: "apagar" }).mensagem.includes(o),
+        ),
+      recusados.length > 0
+        ? `aceitos: ${recusados.join(", ")}`
+        : operacaoPedida({ operacao: "apagar" }).mensagem,
+    );
+    afirmar(
+      "e a recusa não lança: exceção daqui viraria 500 sem tipo, e a tela ficaria sem saber o que fazer",
+      [null, undefined, 0, {}, [], Symbol("x")].every((v) => {
+        try {
+          return operacaoPedida({ operacao: v }).ok !== undefined;
+        } catch {
+          return false;
+        }
+      }),
+    );
+  }
+
+  /* — A TABELA DE DESPACHO do invólucro — */
+
+  afirmar(
+    "a tabela de despacho tem EXATAMENTE as operações declaradas — nenhuma declarada sem executor, nenhum executor sem declaração",
+    mesmoConjunto(Object.keys(EXECUTORES), OPERACOES),
+    `declaradas: ${OPERACOES.join(", ")} | executáveis: ${Object.keys(EXECUTORES).join(", ")}`,
+  );
+  afirmar(
+    "e cada uma delas resolve para uma função de verdade",
+    OPERACOES.every((o) => typeof executorDe(o) === "function"),
+    OPERACOES.map((o) => `${o}: ${typeof executorDe(o)}`).join(", "),
+  );
+  afirmar(
+    "as três funções são DISTINTAS — uma tabela que aponta duas chaves para o mesmo executor faria excluir salvar",
+    new Set(OPERACOES.map((o) => executorDe(o))).size === OPERACOES.length,
+  );
+  afirmar(
+    "excluir e destacar são as funções do módulo delas, e salvar é o núcleo — não há terceira implementação escondida na tabela",
+    executorDe(OPERACAO_EXCLUIR) === excluirPost &&
+      executorDe(OPERACAO_DESTACAR) === definirDestaque &&
+      executorDe(OPERACAO_SALVAR) === salvarPost,
+  );
+  {
+    const alcancados = FORA_DO_VOCABULARIO.filter((v) => executorDe(v) !== null);
+    afirmar(
+      "nome fora do vocabulário não alcança executor NENHUM — nem pelo protótipo de `Object`",
+      alcancados.length === 0 && executorDe(undefined) === null && executorDe(null) === null,
+      alcancados.join(", "),
+    );
+  }
+  /* AUTOTESTE DA ASSERÇÃO ACIMA. Sem ele, um `executorDe` que devolvesse
+     sempre `null` faria a linha anterior passar por vacuidade — e a porta
+     inteira pararia de funcionar com a suíte verde. */
+  afirmar(
+    "o detector acima não passa por vacuidade: a mesma função devolve executor para as operações reais",
+    executorDe(OPERACAO_EXCLUIR) !== null && executorDe(OPERACAO_SALVAR) !== null,
+  );
+
+  /* — AS TRÊS TÊM A MESMA FORMA, e é isso que faz o invólucro não saber qual chamou — */
+
+  afirmar(
+    "as três operações recebem o mesmo pacote: `{ token, corpo, acesso }`",
+    OPERACOES.map((o) => executorDe(o)).every((f) => f.length === 1),
+    OPERACOES.map((o) => `${o}/${executorDe(o).length}`).join(", "),
+  );
+
+  /* — O CLIENTE FALA A MESMA LÍNGUA, e pela mesma porta — */
+
+  afirmar(
+    "o cliente expõe as três operações, e nenhuma delas é uma rota a mais",
+    typeof clienteDaEscrita.salvarPost === "function" &&
+      typeof clienteDaEscrita.excluirPost === "function" &&
+      typeof clienteDaEscrita.definirDestaque === "function" &&
+      clienteDaEscrita.ROTA_DE_ESCRITA === "/api/posts",
+    `rota: ${clienteDaEscrita.ROTA_DE_ESCRITA}`,
+  );
+  {
+    /* LEITURA ESTÁTICA, e está escrito por quê: o que o cliente PÕE no corpo só
+       é observável com sessão aberta, e `tokenDoPainelOuFalha` recusa antes de
+       montar o pedido. O que se pode afirmar sem sessão — e é o que importa
+       para "não existe segunda grafia" — é que as palavras vêm do módulo do
+       domínio e não são digitadas aqui. As recusas ANTES do pedido, logo
+       abaixo, são executadas de verdade. */
+    const cliente = mascararComentariosJs(ler(CAMINHO_CLIENTE_DA_ESCRITA));
+    afirmar(
+      "o cliente importa o vocabulário do DOMÍNIO — a mesma lista que a função de servidor confere",
+      /from\s+"\.\.\/\.\.\/domain\/blog\/operacoes\.js"/.test(cliente) &&
+        /OPERACAO_EXCLUIR/.test(cliente) &&
+        /OPERACAO_DESTACAR/.test(cliente),
+    );
+    const literais = OPERACOES.filter((o) =>
+      new RegExp(`["'\`]${o}["'\`]`).test(cliente),
+    );
+    afirmar(
+      "e não escreve nenhuma delas à mão — a segunda grafia é a divergência que só aparece no dia da renomeação",
+      literais.length === 0,
+      literais.join(", "),
+    );
+    const nucleoDasOperacoes = mascararComentariosJs(ler(CAMINHO_OPERACOES_DO_POST));
+    afirmar(
+      "o servidor também não: as operações novas leem o vocabulário do domínio e reaproveitam o classificador do núcleo",
+      /from\s+"\.\.\/\.\.\/src\/domain\/blog\/operacoes\.js"/.test(nucleoDasOperacoes) &&
+        /from\s+"\.\/salvarPost\.js"/.test(nucleoDasOperacoes) &&
+        /falhaDaEscrita/.test(nucleoDasOperacoes) &&
+        !/function\s+classificar/.test(nucleoDasOperacoes),
+    );
+    const dominio = mascararComentariosJs(ler(CAMINHO_OPERACOES));
+    afirmar(
+      "e o módulo do vocabulário é PURO: sem React, sem rede, sem armazenamento",
+      !/\bfrom\s+["']react|fetch\s*\(|localStorage|createClient/.test(dominio),
+    );
+  }
+
+  /* — AS RECUSAS DO CLIENTE, EXECUTADAS: nada sai para a rede — */
+  //
+  // O que vem da tela chega ao servidor. Recusar cedo dá uma frase melhor que a
+  // resposta de um filtro malformado — e o contador prova que o pedido nem
+  // chegou a ser montado.
+
+  {
+    let idas = 0;
+    const buscar = async () => {
+      idas += 1;
+      return new Response("{}", { status: 200 });
+    };
+    const semId = await clienteDaEscrita.excluirPost("nao-e-um-uuid", { buscar });
+    const semIdNoDestaque = await clienteDaEscrita.definirDestaque("nao-e-um-uuid", true, {
+      buscar,
+    });
+    afirmar(
+      "excluir com identificador fora do formato é recusado ANTES de qualquer pedido, com `dados_invalidos`",
+      semId.ok === false &&
+        semId.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        semIdNoDestaque.ok === false &&
+        semIdNoDestaque.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        idas === 0,
+      `idas à rede: ${idas} | ${semId.ok ? "PASSOU" : `${semId.erro.tipo}: ${semId.erro.mensagem}`}`,
+    );
+    afirmar(
+      "e NUNCA com `nao_encontrado`: ausência é veredito do servidor, e a tela age sobre ela tirando a linha da lista",
+      semId.erro.tipo !== ERRO_NAO_ENCONTRADO &&
+        semIdNoDestaque.erro.tipo !== ERRO_NAO_ENCONTRADO,
+      `${semId.erro.tipo} | ${semIdNoDestaque.erro.tipo}`,
+    );
+
+    const naoBooleano = await clienteDaEscrita.definirDestaque(
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      "true",
+      { buscar },
+    );
+    afirmar(
+      "destaque que não é booleano é recusado ANTES do pedido — `Boolean(\"false\")` é `true`, e a conversão silenciosa vira o oposto do que se pediu",
+      naoBooleano.ok === false &&
+        naoBooleano.erro.tipo === ERRO_DADOS_INVALIDOS &&
+        idas === 0,
+      `idas à rede: ${idas} | ${naoBooleano.ok ? "PASSOU" : naoBooleano.erro.mensagem}`,
+    );
+
+    const semSessao = await clienteDaEscrita.excluirPost(
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      { buscar },
+    );
+    afirmar(
+      "e sem sessão nenhum pedido sai: o token vem do ponto único, e sem ele a operação morre no cliente",
+      semSessao.ok === false && idas === 0,
+      `idas à rede: ${idas} | tipo ${semSessao.ok ? "PASSOU" : semSessao.erro.tipo}`,
+    );
+    /* AUTOTESTE do contador. Sem esta linha, um `buscar` que nunca fosse
+       chamado por defeito da ferramenta faria as três asserções acima passarem
+       sem provar nada. */
+    await buscar();
+    afirmar("o contador de idas à rede conta de verdade", idas === 1, `idas: ${idas}`);
+  }
+
+  /* — O CORPO QUE SAI PARA A REDE, OBSERVADO — */
+  //
+  // Era leitura estática, e a justificativa não se sustentava: `buscar` já era
+  // injetável, e o token ganhou a mesma costura. Sem isto, trocar
+  // `{ ...corpo, operacao }` por `corpo` deixava TODO pedido de exclusão chegar
+  // ao servidor como salvamento, com a suíte inteira verde.
+
+  {
+    const ID = "aaaaaaaa-1111-4111-8111-111111111111";
+    const TOKEN = "jwt-de-mentira-da-sessao";
+    const pedidos = [];
+    const buscar = async (rota, opcoes) => {
+      pedidos.push({ rota, opcoes, corpo: JSON.parse(opcoes.body) });
+      return new Response(JSON.stringify({ ok: true, dados: { id: ID } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const obterToken = async () => ({ ok: true, dados: TOKEN });
+    const costura = { buscar, obterToken };
+
+    await clienteDaEscrita.salvarPost({ id: ID, titulo: "Um post" }, costura);
+    await clienteDaEscrita.excluirPost(ID, costura);
+    await clienteDaEscrita.definirDestaque(ID, true, costura);
+
+    afirmar(
+      "as três operações saem pela MESMA porta: mesma rota, mesmo método, e o token da sessão no cabeçalho",
+      pedidos.length === 3 &&
+        pedidos.every(
+          (q) =>
+            q.rota === clienteDaEscrita.ROTA_DE_ESCRITA &&
+            q.opcoes.method === "POST" &&
+            q.opcoes.headers.Authorization === `Bearer ${TOKEN}`,
+        ),
+      pedidos.map((q) => `${q.opcoes.method} ${q.rota}`).join(" | "),
+    );
+    afirmar(
+      "e cada uma DECLARA a operação no corpo, com a palavra do vocabulário fechado",
+      pedidos[0]?.corpo.operacao === OPERACAO_SALVAR &&
+        pedidos[1]?.corpo.operacao === OPERACAO_EXCLUIR &&
+        pedidos[2]?.corpo.operacao === OPERACAO_DESTACAR,
+      pedidos.map((q) => JSON.stringify(q.corpo.operacao)).join(", "),
+    );
+    afirmar(
+      "o pedido de exclusão leva o identificador e MAIS NADA — corpo enxuto é corpo que não carrega surpresa",
+      mesmoConjunto(Object.keys(pedidos[1]?.corpo ?? {}), ["id", "operacao"]) &&
+        pedidos[1]?.corpo.id === ID,
+      JSON.stringify(pedidos[1]?.corpo),
+    );
+    afirmar(
+      "e o de Destaque leva o valor DESEJADO, como booleano",
+      mesmoConjunto(Object.keys(pedidos[2]?.corpo ?? {}), ["id", "destaque", "operacao"]) &&
+        pedidos[2]?.corpo.destaque === true,
+      JSON.stringify(pedidos[2]?.corpo),
+    );
+
+    /* A DEFESA DE ORDEM. `{ ...corpo, operacao }` e não `{ operacao, ...corpo }`:
+       um corpo que traga `operacao` por engano — um Post lido do banco e
+       devolvido inteiro, por exemplo — não pode escolher a operação no lugar de
+       quem chamou. Inverter a ordem passava despercebido antes desta linha. */
+    pedidos.length = 0;
+    await clienteDaEscrita.salvarPost(
+      { id: ID, titulo: "Um post", operacao: OPERACAO_EXCLUIR },
+      costura,
+    );
+    afirmar(
+      "um `operacao` forjado DENTRO do corpo não sequestra a escolha — quem chamou decide, e escreve por último",
+      pedidos[0]?.corpo.operacao === OPERACAO_SALVAR,
+      `saiu como: ${JSON.stringify(pedidos[0]?.corpo.operacao)}`,
+    );
+  }
+
+  /* — CLIENTE E SERVIDOR CLASSIFICAM O MESMO DEFEITO IGUAL — */
+  //
+  // O cliente dizia `nao_encontrado` para identificador malformado, e a tela
+  // trata ausência tirando a linha da lista: um id estragado fazia a linha sumir
+  // e a contagem cair sem que pedido nenhum tivesse saído. O servidor sempre
+  // disse `dados_invalidos`. Dois vereditos para o mesmo defeito são duas telas.
+
+  {
+    const MALFORMADOS = ["nao-e-uuid", "", "   ", "123", null, undefined, 42, {}];
+    const acesso = acessoDeTeste();
+    const divergentes = [];
+    for (const id of MALFORMADOS) {
+      const noCliente = await clienteDaEscrita.excluirPost(id, {
+        buscar: async () => new Response("{}", { status: 200 }),
+        obterToken: async () => ({ ok: true, dados: "t" }),
+      });
+      const noServidor = await excluirPost({ token: "bom", corpo: { id }, acesso });
+      if (noCliente.ok || noServidor.ok) {
+        divergentes.push(`${JSON.stringify(id)}: alguém ACEITOU`);
+        continue;
+      }
+      if (noCliente.erro.tipo !== noServidor.erro.tipo) {
+        divergentes.push(
+          `${JSON.stringify(id)}: cliente ${noCliente.erro.tipo} × servidor ${noServidor.erro.tipo}`,
+        );
+      }
+      if (noCliente.erro.tipo !== ERRO_DADOS_INVALIDOS) {
+        divergentes.push(
+          `${JSON.stringify(id)}: cliente disse ${noCliente.erro.tipo}, e ausência é veredito do servidor`,
+        );
+      }
+    }
+    afirmar(
+      `identificador malformado é dados_invalidos nos DOIS lados, nos ${MALFORMADOS.length} casos — e nunca ausência`,
+      divergentes.length === 0,
+      divergentes.slice(0, 3).join(" | "),
+    );
+    afirmar(
+      "e nada foi pedido ao banco por nenhum deles",
+      acesso.escritas().length === 0,
+      JSON.stringify(acesso.escritas().map((c) => c.nome)),
+    );
+  }
+
+  /* — OS TRÊS FORMATOS DE IDENTIFICADOR CONCORDAM — */
+
+  {
+    const CORPUS = [
+      randomUUID(),
+      randomUUID().toUpperCase(),
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      "aaaaaaaa11114111811111111111111",
+      "aaaaaaaa-1111-4111-8111-11111111111",
+      "aaaaaaaa-1111-4111-8111-1111111111111",
+      "gggggggg-1111-4111-8111-111111111111",
+      "",
+      "nao-e-uuid",
+    ];
+    const divergentes = CORPUS.filter(
+      (v) =>
+        !(
+          PADRAO_UUID.test(v) === PADRAO_DE_UUID.test(v) &&
+          PADRAO_DE_UUID.test(v) === ehUuid(v)
+        ),
+    );
+    afirmar(
+      `os três formatos de identificador — núcleo, transporte e cliente — concordam nos ${CORPUS.length} casos do corpus`,
+      divergentes.length === 0,
+      divergentes
+        .map((v) => `${JSON.stringify(v)}: ${PADRAO_UUID.test(v)}/${PADRAO_DE_UUID.test(v)}/${ehUuid(v)}`)
+        .join(" | "),
+    );
+    afirmar(
+      "o corpus tem os DOIS vereditos representados — três padrões que recusassem tudo também concordariam",
+      CORPUS.some((v) => ehUuid(v)) && CORPUS.some((v) => !ehUuid(v)),
+    );
+
+    /* O ESPAÇO EM VOLTA não é divergência, é normalização — e a distinção
+       precisa estar escrita, senão a próxima pessoa "conserta" o cliente para
+       recusar o que ele hoje apara. O cliente aceita e APARA antes de mandar;
+       os dois padrões do servidor comparam o nome exato, e é isso que faz o
+       espaço nunca chegar a virar filtro. */
+    {
+      const COM_ESPACO = " aaaaaaaa-1111-4111-8111-111111111111 ";
+      const cru = COM_ESPACO.trim();
+      const pedidos = [];
+      const r = await clienteDaEscrita.excluirPost(COM_ESPACO, {
+        buscar: async (rota, opcoes) => {
+          pedidos.push(JSON.parse(opcoes.body));
+          return new Response(JSON.stringify({ ok: true, dados: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        },
+        obterToken: async () => ({ ok: true, dados: "t" }),
+      });
+      afirmar(
+        "identificador com espaço em volta é APARADO pelo cliente antes de viajar — e é por isso que os padrões do servidor podem ser exatos",
+        r.ok === true &&
+          pedidos[0]?.id === cru &&
+          ehUuid(COM_ESPACO) === true &&
+          PADRAO_UUID.test(COM_ESPACO) === false &&
+          PADRAO_UUID.test(cru) === true &&
+          PADRAO_DE_UUID.test(cru) === true,
+        `enviado: ${JSON.stringify(pedidos[0]?.id)}`,
+      );
+    }
+  }
+
+  /* — CADA OPERAÇÃO TEM FRASE PRÓPRIA EM CADA RAMO DE FALHA — */
+  //
+  // As frases genéricas do cliente diziam "salvar" e as da leitura diziam
+  // "leitura", e alcançavam excluir e destacar sempre que o servidor não mandava
+  // a dele: 5xx, 401 sem corpo JSON, proxy no caminho.
+
+  {
+    const TIPOS_DA_ESCRITA = clienteDaEscrita.TIPOS_DE_ERRO_DE_ESCRITA;
+    const problemas = [];
+    for (const tipo of TIPOS_DA_ESCRITA) {
+      const frases = OPERACOES.map((o) => clienteDaEscrita.fraseDaEscrita(o, tipo));
+      for (const [i, frase] of frases.entries()) {
+        const ruim = diagnosticarMensagem("o que houve", frase);
+        if (ruim) problemas.push(`${OPERACOES[i]}/${tipo}: ${ruim.slice(0, 80)}`);
+      }
+      /* `conflito` é o único que NÃO se especializa: ele só acontece ao gravar
+         um endereço, e dizer "ao excluir" ali inventaria um modo de falha que a
+         operação não tem. */
+      if (tipo !== ERRO_CONFLITO && new Set(frases).size !== frases.length) {
+        problemas.push(`${tipo}: as três operações repetem a mesma frase`);
+      }
+    }
+    afirmar(
+      `cada operação tem frase própria em cada um dos ${TIPOS_DA_ESCRITA.length} ramos de falha, e todas passam pelas guardas de voz`,
+      problemas.length === 0,
+      problemas.slice(0, 3).join(" | "),
+    );
+    afirmar(
+      "nenhuma delas manda quem excluiu ou destacou tentar SALVAR de novo",
+      TIPOS_DA_ESCRITA.every(
+        (tipo) =>
+          tipo === ERRO_CONFLITO ||
+          [OPERACAO_EXCLUIR, OPERACAO_DESTACAR].every(
+            (o) => !/salvar/i.test(clienteDaEscrita.fraseDaEscrita(o, tipo)),
+          ),
+      ),
+      TIPOS_DA_ESCRITA.map((t) => clienteDaEscrita.fraseDaEscrita(OPERACAO_EXCLUIR, t))
+        .join(" | ")
+        .slice(0, 240),
+    );
+
+    /* E A FRASE DA LEITURA NÃO ATRAVESSA. */
+    const semSessao = await clienteDaEscrita.excluirPost(
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      {
+        buscar: async () => new Response("{}", { status: 200 }),
+        obterToken: async () => ({
+          ok: false,
+          erro: {
+            tipo: ERRO_PERMISSAO,
+            mensagem: MENSAGENS_DE_LEITURA[ERRO_PERMISSAO],
+            operacao: "excluirPost",
+            detalhe: "sem sessão",
+            codigo: "",
+            status: null,
+          },
+        }),
+      },
+    );
+    afirmar(
+      "sem sessão, quem tentou EXCLUIR não ouve a frase da leitura — a frase é a da operação",
+      semSessao.ok === false &&
+        semSessao.erro.tipo === ERRO_PERMISSAO &&
+        semSessao.erro.mensagem !== MENSAGENS_DE_LEITURA[ERRO_PERMISSAO] &&
+        /excluir/i.test(semSessao.erro.mensagem),
+      semSessao.ok ? "PASSOU" : semSessao.erro.mensagem,
+    );
+
+    /* E FRASE PRÓPRIA DO MÓDULO DE ORIGEM ATRAVESSA INTACTA: a da configuração
+       ausente NOMEIA as variáveis que faltam. */
+    const PROPRIA = "Configuração do Supabase ausente: VITE_SUPABASE_URL.";
+    const semConfig = await clienteDaEscrita.excluirPost(
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      {
+        buscar: async () => new Response("{}", { status: 200 }),
+        obterToken: async () => ({
+          ok: false,
+          erro: {
+            tipo: ERRO_CONFIGURACAO,
+            mensagem: PROPRIA,
+            operacao: "excluirPost",
+            detalhe: "",
+            codigo: "",
+            status: null,
+          },
+        }),
+      },
+    );
+    afirmar(
+      "e a frase PRÓPRIA do módulo de origem atravessa intacta — só as genéricas da leitura são trocadas",
+      semConfig.ok === false && semConfig.erro.mensagem === PROPRIA,
+      semConfig.ok ? "PASSOU" : semConfig.erro.mensagem,
+    );
+
+    /* E O RAMO SEM CLASSIFICAÇÃO DO SERVIDOR: 5xx sem corpo JSON. */
+    const quinhentos = await clienteDaEscrita.excluirPost(
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      {
+        buscar: async () => new Response("<html>proxy</html>", { status: 502 }),
+        obterToken: async () => ({ ok: true, dados: "t" }),
+      },
+    );
+    afirmar(
+      "servidor que não classificou (502 sem JSON) também produz a frase da OPERAÇÃO, não a de salvar",
+      quinhentos.ok === false &&
+        quinhentos.erro.mensagem ===
+          clienteDaEscrita.fraseDaEscrita(OPERACAO_EXCLUIR, quinhentos.erro.tipo) &&
+        !/salvar/i.test(quinhentos.erro.mensagem),
+      quinhentos.ok ? "PASSOU" : `${quinhentos.erro.tipo}: ${quinhentos.erro.mensagem}`,
+    );
+  }
+
+  /* — AUTENTICAR NÃO É AUTORIZAR, TAMBÉM NAS OPERAÇÕES NOVAS — */
+  //
+  // A exigência de perfil valia só para `salvarPost` nas asserções. Apagar a
+  // chamada de `perfilOuFalha` de `autorizar` não quebrava nada, porque toda
+  // Conta usada contra excluir e destacar já tinha perfil.
+
+  for (const [nome, executar, corpo] of [
+    ["excluir", excluirPost, { id: randomUUID() }],
+    ["destacar", definirDestaque, { id: randomUUID(), destaque: true }],
+  ]) {
+    const acesso = acessoDeTeste({ perfil: null });
+    const r = await executar({ token: "bom", corpo, acesso });
+    afirmar(
+      `${nome}: Conta autenticada SEM cadastro no Painel é recusada, e nada é gravado`,
+      r.ok === false && r.erro.tipo === ERRO_PERMISSAO && acesso.escritas().length === 0,
+      r.ok ? "PASSOU" : `tipo ${r.erro.tipo} | escritas: ${acesso.escritas().length}`,
+    );
+    afirmar(
+      `${nome}: e a frase é a de CADASTRO, e não a de assinar um post`,
+      r.ok === false &&
+        /cadastrada no Painel/i.test(r.erro.mensagem) &&
+        !/assinar um post/i.test(r.erro.mensagem),
+      r.ok ? "PASSOU" : r.erro.mensagem,
+    );
+    /* E A ORDEM: o cadastro é conferido ANTES de a tabela de posts ser tocada.
+       Recusar depois seria "recusado, mas o banco já respondeu sobre uma linha
+       que esta Conta não podia nem saber que existe". */
+    afirmar(
+      `${nome}: o cadastro é conferido antes de a tabela de posts ser tocada`,
+      acesso.chamadas.every(
+        (c) => !["lerPost", "excluirPost", "atualizarPost"].includes(c.nome),
+      ),
+      acesso.chamadas.map((c) => c.nome).join(", "),
+    );
+
+    /* ─── OS DOIS RAMOS DE REDE TAMBÉM FALAM A LÍNGUA DA OPERAÇÃO ────────
+       Supabase fora do ar não é sessão inválida, e o vocabulário genérico do
+       núcleo diz "para salvar" em todos os casos. São dois ramos, e cada um
+       ignorava a frase por um motivo diferente: a conferência do token a
+       forçava para vazio, e a leitura do perfil nem a recebia. */
+    for (const [ondeFalha, opcoes] of [
+      [
+        "a conferência do token",
+        {
+          respostaDoToken: {
+            ok: false,
+            status: 0,
+            codigo: "TypeError",
+            mensagem: "fetch failed",
+          },
+        },
+      ],
+      ["a leitura do perfil", { respostaDoPerfil: { ok: false, status: 0, codigo: "TypeError", mensagem: "fetch failed" } }],
+    ]) {
+      const acessoRuim = acessoDeTeste(opcoes);
+      const caiu = await executar({ token: "bom", corpo, acesso: acessoRuim });
+      afirmar(
+      `${nome}: rede fora em ${ondeFalha} não vira "entre de novo" nem manda SALVAR — a frase é da operação`,
+        caiu.ok === false &&
+          caiu.erro.tipo === ERRO_REDE &&
+          !/salvar/i.test(caiu.erro.mensagem) &&
+          new RegExp(nome === "excluir" ? "excluir" : "destaque", "i").test(caiu.erro.mensagem) &&
+          diagnosticarMensagem("o que houve", caiu.erro.mensagem) === null,
+        caiu.ok ? "PASSOU" : `${caiu.erro.tipo}: ${caiu.erro.mensagem}`,
+      );
+    }
+  }
+}
+
+/* ─── (c6) O invólucro, DIRIGIDO de ponta a ponta ────────────────────────── */
+
+secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que vai ao log");
+
+{
+  /**
+   * Requisição e resposta de mentira, no formato que a plataforma entrega.
+   *
+   * O invólucro nunca era EXECUTADO: as asserções importavam `EXECUTORES`,
+   * `executorDe` e `operacaoPedida` e chamavam as operações diretamente. Trocar
+   * `await executor({...})` por `await salvarPost({...})` deixava as três peças
+   * intactas, a suíte verde, e toda exclusão virando salvamento em produção. A
+   * linha que escolhe o executor é a entrega da story, e ela precisa rodar.
+   */
+  const dirigir = async ({ metodo = "POST", corpo = {}, cabecalhos = {}, ambiente = null }) => {
+    const registro = { status: null, corpo: null, cabecalhos: {}, log: [] };
+    const req = { method: metodo, headers: cabecalhos, body: corpo };
+    const res = {
+      setHeader(nome, valor) { registro.cabecalhos[nome] = valor; },
+      status(codigo) { registro.status = codigo; return res; },
+      json(saida) { registro.corpo = saida; return res; },
+    };
+    /* O ambiente do processo é restaurado sempre: a ferramenta inteira roda no
+       mesmo processo, e deixar `SUPABASE_*` remendado envenenaria as seções
+       seguintes. */
+    const antes = {};
+    if (ambiente) {
+      for (const [nome, valor] of Object.entries(ambiente)) {
+        antes[nome] = process.env[nome];
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    }
+    const erroOriginal = console.error;
+    console.error = (...partes) => registro.log.push(partes.join(" "));
+    try {
+      await handler(req, res);
+    } finally {
+      console.error = erroOriginal;
+      for (const [nome, valor] of Object.entries(antes)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    }
+    return registro;
+  };
+
+  /* O ambiente COMPLETO, mas apontando para um host que não existe: o despacho
+     é observado pelo executor alcançado, não pela gravação — e uma ida à rede
+     de verdade aqui tornaria a seção dependente de rede. */
+  const AMBIENTE = {
+    SUPABASE_URL: "https://nao-existe.invalido",
+    SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_x",
+    SUPABASE_CHAVE_DE_SERVICO: "sb_secret_x",
+    VITE_SUPABASE_URL: undefined,
+    VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+  };
+
+  /* ── QUAL EXECUTOR FOI ALCANÇADO, provado pelo que chega ao banco ────── */
+  //
+  // Um Supabase de MENTIRA que atende de verdade: um servidor HTTP local que
+  // responde como o GoTrue e como o PostgREST. Ele existe porque o despacho é a
+  // entrega da story e não dá para observá-lo de fora — sem token válido as
+  // três operações recusam igual, e a resposta não diz qual executor rodou.
+  // Com o servidor, quem responde a pergunta é o COMANDO que chega ao banco:
+  // `salvar` manda POST, `destacar` manda PATCH com uma coluna, `excluir` manda
+  // DELETE. Trocar `await executor({...})` por `await salvarPost({...})` faz
+  // três asserções gritarem.
+  //
+  // É local, é http em 127.0.0.1 (que `problemaNaUrl` permite de propósito), e
+  // fecha no `finally`.
+
+  {
+    const { createServer } = await import("node:http");
+    const ID = randomUUID();
+    const CONTA = randomUUID();
+    const recebidos = [];
+
+    const linhaDoPost = {
+      id: ID,
+      slug: "um-post-de-teste",
+      titulo: "Um post de teste",
+      resumo: "Resumo",
+      conteudo: DOCUMENTO_COMPLETO,
+      conteudo_html: "<p>x</p>",
+      estado: "rascunho",
+      publicado_em: null,
+      destaque: false,
+      autor_id: CONTA,
+      autor_nome: "Autor do Perfil",
+      criado_em: "2026-01-01T00:00:00.000Z",
+      atualizado_em: "2026-01-01T00:00:00.000Z",
+    };
+
+    const servidor = createServer((req, res) => {
+      let corpoBruto = "";
+      req.on("data", (pedaco) => { corpoBruto += pedaco; });
+      req.on("end", () => {
+        let corpo = null;
+        try { corpo = corpoBruto === "" ? null : JSON.parse(corpoBruto); } catch { corpo = corpoBruto; }
+        recebidos.push({ metodo: req.method, url: req.url, corpo });
+        const responder = (status, dados) => {
+          res.writeHead(status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(dados));
+        };
+        if (req.url.startsWith("/auth/v1/user")) {
+          return responder(200, { id: CONTA, email: "quem@chatclean.com.br" });
+        }
+        if (req.url.startsWith("/rest/v1/perfis")) {
+          return responder(200, [{ id: CONTA, nome_exibicao: "Autor do Perfil" }]);
+        }
+        if (req.url.startsWith("/rest/v1/posts")) {
+          /* Consulta por ENDEREÇO devolve vazio: é a pergunta "alguém já usa
+             este slug?", e responder que sim faria toda gravação virar conflito
+             antes de o despacho ser observado. Consulta por id devolve a linha,
+             que é o Post existente que destacar e excluir alcançam. */
+          if (req.method === "GET") {
+            return responder(200, req.url.includes("slug=eq.") ? [] : [linhaDoPost]);
+          }
+          if (req.method === "POST") return responder(201, [linhaDoPost]);
+          if (req.method === "PATCH") return responder(200, [{ ...linhaDoPost, ...corpo }]);
+          if (req.method === "DELETE") return responder(200, [linhaDoPost]);
+        }
+        if (req.url.startsWith("/rest/v1/")) return responder(200, []);
+        return responder(404, { message: "rota de mentira não prevista" });
+      });
+    });
+
+    const porta = await new Promise((resolver, rejeitar) => {
+      servidor.once("error", rejeitar);
+      servidor.listen(0, "127.0.0.1", () => resolver(servidor.address().port));
+    }).catch(() => null);
+
+    if (porta === null) {
+      afirmar(
+        "o Supabase de mentira sobe em 127.0.0.1 para o despacho ser exercitado",
+        false,
+        "não foi possível abrir porta local — o despacho ficaria sem prova",
+      );
+    } else {
+      try {
+        const AMBIENTE_LOCAL = {
+          SUPABASE_URL: `http://127.0.0.1:${porta}`,
+          SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_x",
+          SUPABASE_CHAVE_DE_SERVICO: "sb_secret_x",
+          VITE_SUPABASE_URL: undefined,
+          VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+        };
+        const COMO_SESSAO = { authorization: "Bearer jwt-de-mentira" };
+
+        /** Os comandos que chegaram à tabela `posts` — o que o banco viu. */
+        const naTabela = () =>
+          recebidos.filter((r) => r.url.startsWith("/rest/v1/posts"));
+
+        /* — SALVAR — */
+        recebidos.length = 0;
+        const salvou = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            slug: "um-post-de-teste",
+            titulo: "Um post de teste",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const daSalvar = naTabela();
+        afirmar(
+          "SALVAR pelo invólucro chega ao banco como INSERÇÃO, e a resposta sai com 201",
+          salvou.status === 201 &&
+            salvou.corpo?.ok === true &&
+            daSalvar.some((r) => r.metodo === "POST") &&
+            !daSalvar.some((r) => r.metodo === "DELETE"),
+          `HTTP ${salvou.status} | comandos: ${daSalvar.map((r) => r.metodo).join(", ")}`,
+        );
+
+        /* — DESTACAR — */
+        recebidos.length = 0;
+        const destacou = await dirigir({
+          corpo: { operacao: OPERACAO_DESTACAR, id: ID, destaque: true },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const patch = naTabela().find((r) => r.metodo === "PATCH");
+        afirmar(
+          "DESTACAR pelo invólucro chega ao banco como ATUALIZAÇÃO de UMA coluna, com 200",
+          destacou.status === 200 &&
+            destacou.corpo?.ok === true &&
+            destacou.corpo.dados.operacao === OPERACAO_DESTACAR &&
+            patch !== undefined &&
+            mesmoConjunto(Object.keys(patch.corpo ?? {}), ["destaque"]) &&
+            patch.url.includes(`id=eq.${ID}`),
+          `HTTP ${destacou.status} | corpo do comando: ${JSON.stringify(patch?.corpo)}`,
+        );
+
+        /* — EXCLUIR — */
+        recebidos.length = 0;
+        const excluiu = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const del = naTabela().find((r) => r.metodo === "DELETE");
+        afirmar(
+          "EXCLUIR pelo invólucro chega ao banco como REMOÇÃO filtrada por id, com 200 — e não como salvamento",
+          excluiu.status === 200 &&
+            excluiu.corpo?.ok === true &&
+            excluiu.corpo.dados.operacao === OPERACAO_EXCLUIR &&
+            del !== undefined &&
+            del.url.includes(`id=eq.${ID}`) &&
+            !naTabela().some((r) => r.metodo === "POST"),
+          `HTTP ${excluiu.status} | comandos: ${naTabela().map((r) => r.metodo).join(", ")}`,
+        );
+
+        afirmar(
+          "as três operações produziram comandos DIFERENTES no banco — é isso que prova que o despacho escolhe, e não repete",
+          daSalvar.some((r) => r.metodo === "POST") && patch !== undefined && del !== undefined,
+          `salvar: POST | destacar: ${patch?.metodo} | excluir: ${del?.metodo}`,
+        );
+
+        /* — E O 201 É SÓ DE QUEM NASCEU — */
+        afirmar(
+          "201 é só do Post que nasceu: as operações que mexem no que já existe saem com 200",
+          salvou.status === 201 && destacou.status === 200 && excluiu.status === 200,
+          `${salvou.status} / ${destacou.status} / ${excluiu.status}`,
+        );
+
+        /* — E O `detalhe` NUNCA VIAJA NA RESPOSTA — */
+        const recusado = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: "nao-e-uuid" },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "a recusa do invólucro traz tipo e mensagem, e nunca o `detalhe` interno",
+          recusado.corpo?.ok === false &&
+            mesmoConjunto(Object.keys(recusado.corpo.erro), ["tipo", "mensagem"]) &&
+            recusado.log.length > 0,
+          JSON.stringify(recusado.corpo),
+        );
+      } finally {
+        await new Promise((resolver) => servidor.close(resolver));
+      }
+    }
+  }
+
+  /* ── E AS RECUSAS QUE NÃO PRECISAM DE BANCO ──────────────────────────── */
+
+  {
+    const semNada = await dirigir({ corpo: { operacao: OPERACAO_SALVAR }, ambiente: AMBIENTE });
+    afirmar(
+      "pedido sem credencial é recusado pelo invólucro antes de qualquer ida ao banco",
+      semNada.status === CODIGO_HTTP[ERRO_PERMISSAO] && semNada.corpo?.ok === false,
+      `HTTP ${semNada.status} ${JSON.stringify(semNada.corpo)}`,
+    );
+  }
+
+  /* ── OPERAÇÃO FORJADA: 4xx, e NADA de vocabulário para quem não se identificou ── */
+
+  {
+    const anonimo = await dirigir({
+      corpo: { operacao: "apagar-tudo" },
+      ambiente: AMBIENTE,
+    });
+    afirmar(
+      "operação forjada é recusada pelo invólucro, com o código de dados inválidos",
+      anonimo.status === CODIGO_HTTP[ERRO_DADOS_INVALIDOS] && anonimo.corpo?.ok === false,
+      `HTTP ${anonimo.status} ${JSON.stringify(anonimo.corpo)}`,
+    );
+    afirmar(
+      "e quem NÃO se identificou não recebe o vocabulário de volta — a lista das operações não é informação de quem sonda",
+      anonimo.corpo?.erro?.mensagem === RECUSA_SEM_CREDENCIAL &&
+        !OPERACOES.some((o) => String(anonimo.corpo?.erro?.mensagem).includes(o)),
+      String(anonimo.corpo?.erro?.mensagem),
+    );
+    afirmar(
+      "nem consegue escrever no log do servidor: sem credencial, a recusa é silenciosa",
+      anonimo.log.length === 0,
+      anonimo.log.join(" | ").slice(0, 200),
+    );
+
+    const comSessao = await dirigir({
+      corpo: { operacao: "apagar-tudo" },
+      cabecalhos: { authorization: "Bearer jwt-de-mentira" },
+      ambiente: AMBIENTE,
+    });
+    afirmar(
+      "quem TEM credencial recebe a frase completa, que nomeia as operações — é informação útil para quem integra",
+      OPERACOES.every((o) => String(comSessao.corpo?.erro?.mensagem).includes(o)) &&
+        comSessao.log.length > 0,
+      String(comSessao.corpo?.erro?.mensagem),
+    );
+    afirmar(
+      "e nem um nem outro revela o `detalhe` interno na resposta",
+      !Object.hasOwn(anonimo.corpo?.erro ?? {}, "detalhe") &&
+        !Object.hasOwn(comSessao.corpo?.erro ?? {}, "detalhe"),
+      JSON.stringify(comSessao.corpo?.erro),
+    );
+  }
+
+  /* ── OS DOIS RAMOS QUE ERAM MORTOS ───────────────────────────────────── */
+
+  {
+    const semPost = await dirigir({ metodo: "GET", ambiente: AMBIENTE });
+    afirmar(
+      "método diferente de POST sai com 405 e o cabeçalho `Allow` — a operação é dado, e não verbo",
+      semPost.status === 405 && semPost.cabecalhos.Allow === "POST",
+      `HTTP ${semPost.status} Allow=${semPost.cabecalhos.Allow}`,
+    );
+
+    const semAmbiente = await dirigir({
+      corpo: { operacao: OPERACAO_EXCLUIR },
+      ambiente: {
+        SUPABASE_URL: undefined,
+        SUPABASE_CHAVE_PUBLICAVEL: undefined,
+        SUPABASE_CHAVE_DE_SERVICO: undefined,
+        VITE_SUPABASE_URL: undefined,
+        VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+      },
+    });
+    afirmar(
+      "configuração ausente sai com 500 e o que falta vai para o LOG, nunca para a resposta",
+      semAmbiente.status === CODIGO_HTTP[ERRO_CONFIGURACAO] &&
+        semAmbiente.log.join(" ").includes("SUPABASE") &&
+        !JSON.stringify(semAmbiente.corpo).includes("SUPABASE"),
+      `HTTP ${semAmbiente.status} | resposta: ${JSON.stringify(semAmbiente.corpo)}`,
+    );
+  }
+
+  /* ── E A GUARDA DO TRANSPORTE: DELETE sem filtro é impossível de emitir ── */
+  //
+  // Esta é a única chamada destrutiva do projeto, e um filtro ausente no
+  // PostgREST não é um erro: é um `DELETE` na tabela inteira. A guarda mora no
+  // lugar onde o comando é montado, e não depende de o chamador ter conferido.
+
+  {
+    const enderecos = [];
+    const acesso = criarAcesso({
+      url: "https://nao-existe.invalido",
+      chavePublicavel: "sb_publishable_x",
+      chaveDeServico: "sb_secret_x",
+      buscar: async (endereco) => {
+        enderecos.push(String(endereco));
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    });
+
+    const RUINS = ["", "   ", "nao-e-uuid", "*", null, undefined, 42, {}, "1=1"];
+    const aceitos = [];
+    for (const ruim of RUINS) {
+      const r = await acesso.excluirPost(ruim);
+      if (r.ok !== false) aceitos.push(JSON.stringify(ruim));
+    }
+    afirmar(
+      `identificador ruim NÃO vira comando: nenhum dos ${RUINS.length} chegou à rede, e nenhum foi aceito`,
+      aceitos.length === 0 && enderecos.length === 0,
+      `aceitos: ${aceitos.join(", ")} | endereços emitidos: ${enderecos.join(" | ")}`,
+    );
+
+    /* CONTROLE POSITIVO. Sem ele, um `excluirPost` que recusasse TUDO faria a
+       linha acima passar por vacuidade — e a exclusão pararia de funcionar com
+       a suíte verde. */
+    const bom = randomUUID();
+    await acesso.excluirPost(bom);
+    afirmar(
+      "e o identificador bom vira comando COM filtro por id — nunca um DELETE na tabela inteira",
+      enderecos.length === 1 &&
+        enderecos[0].includes(`id=eq.${bom}`) &&
+        enderecos[0].includes("/rest/v1/posts?"),
+      enderecos.join(" | "),
+    );
+  }
+}
 
 secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
 
@@ -2265,6 +3508,12 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       autor_id: "99999999-9999-9999-9999-999999999999",
       autor_nome: "Nome de Outra Pessoa",
       campo_inventado: 1,
+      /* Story 2.12. `destaque` precisa ser IGNORADO com nome — aceitá-lo faria
+         a gaveta mudar o Destaque de passagem. E `operacao` precisa NÃO ser
+         relatado: ele é o campo que o próprio cliente manda de propósito, e
+         avisar que ele foi descartado seria a tela pedindo desculpa por si. */
+      destaque: true,
+      operacao: OPERACAO_SALVAR,
     }),
     acesso,
   });
@@ -2314,11 +3563,17 @@ secao("(d) o núcleo executado: cada recusa da matriz, e nada gravado");
       Object.keys(enviado).join(", "),
     );
     afirmar(
+      "`destaque` e `operacao` NÃO chegam ao banco — um é da outra operação, o outro nem é campo do Post",
+      !Object.hasOwn(enviado, "destaque") && !Object.hasOwn(enviado, "operacao"),
+      Object.keys(enviado).join(", "),
+    );
+    afirmar(
       "a resposta relata o que foi ignorado, com nome",
       mesmoConjunto(r.dados.ignorados, [
         "conteudo_html",
         "autor_id",
         "autor_nome",
+        "destaque",
         "campo_inventado",
       ]),
       (r.dados.ignorados ?? []).join(", "),
@@ -3315,8 +4570,9 @@ if (!temToken) {
     const restos = await executarSql(
       token,
       `with p as (delete from public.posts where slug like ${literal(MARCA_TESTE)} returning 1),
+            t as (delete from public.tags where slug like ${literal(MARCA_TESTE)} returning 1),
             u as (delete from auth.users where email like ${literal(EMAIL_TESTE)} returning 1)
-       select (select count(*) from p) + (select count(*) from u) as n`,
+       select (select count(*) from p) + (select count(*) from t) + (select count(*) from u) as n`,
     );
     const quantos = restos.ok ? Number(restos.dados?.[0]?.n ?? 0) : -1;
     afirmar(
@@ -4169,6 +5425,302 @@ if (!temToken) {
         );
       }
 
+      /* ── (e2) As operações da Story 2.12, contra o projeto ─────────────── */
+
+      secao("(e2) excluir e alternar Destaque: a mesma porta, o mesmo banco");
+
+      /**
+       * O que o BANCO tem sobre um Post, lido por SQL.
+       *
+       * A resposta da própria operação NÃO serve de prova: ela é o que a função
+       * diz que fez. O que a story cobra é o que ficou na coluna, e para isso a
+       * pergunta precisa vir de fora da função.
+       */
+      const linhaDoPost = async (id) => {
+        const r = await executarSql(
+          token,
+          `select id, slug, titulo, estado, destaque, autor_id, autor_nome
+             from public.posts where id = ${literal(id)}`,
+        );
+        return r.ok ? (r.dados?.[0] ?? null) : null;
+      };
+
+      /* O Post do Destaque SOBREVIVE a esta seção: ele é o alvo da prova de RLS
+         da seção (f), que precisa de uma linha existente para que a recusa não
+         possa ser confundida com "não havia o que alterar". */
+      let idParaRls = null;
+
+      if (contas[0].jwt) {
+        /* — Alternar Destaque, nas duas direções, com a coluna conferida — */
+
+        const nascimento = await salvarPost({
+          token: contas[0].jwt,
+          corpo: corpoValido({
+            slug: slug("destaque"),
+            titulo: "Post para alternar o destaque",
+          }),
+          acesso: acessoReal(),
+        });
+        const idDestaque = nascimento.ok ? nascimento.dados.post.id : null;
+        idParaRls = idDestaque;
+        const semeou = afirmar(
+          "o Post do Destaque foi semeado pela função única",
+          Boolean(idDestaque),
+          nascimento.ok ? "" : `tipo ${nascimento.erro.tipo}: ${nascimento.erro.detalhe.slice(0, 160)}`,
+        );
+
+        if (semeou) {
+          const antes = await linhaDoPost(idDestaque);
+          afirmar(
+            "ele nasce SEM destaque — a coluna tem padrão, e a função não o liga por conta própria",
+            antes !== null && antes.destaque === false,
+            JSON.stringify(antes),
+          );
+
+          const ligou = await definirDestaque({
+            token: contas[0].jwt,
+            corpo: { id: idDestaque, destaque: true },
+            acesso: acessoReal(),
+          });
+          const depoisDeLigar = await linhaDoPost(idDestaque);
+          afirmar(
+            "alternar o Destaque grava de verdade: a COLUNA passa a `true`, e a resposta carrega o valor gravado",
+            ligou.ok === true &&
+              ligou.dados.destaque === true &&
+              ligou.dados.operacao === OPERACAO_DESTACAR &&
+              depoisDeLigar?.destaque === true,
+            ligou.ok
+              ? `banco: ${JSON.stringify(depoisDeLigar)}`
+              : `tipo ${ligou.erro.tipo}: ${ligou.erro.detalhe.slice(0, 160)}`,
+          );
+
+          /* IDEMPOTÊNCIA. O valor é o DESEJADO, não um pedido de inversão: com
+             inversão, o segundo clique de um duplo-clique desfaria o primeiro e
+             o Autor veria a estrela voltar sozinha. */
+          const deNovo = await definirDestaque({
+            token: contas[0].jwt,
+            corpo: { id: idDestaque, destaque: true },
+            acesso: acessoReal(),
+          });
+          afirmar(
+            "pedir o MESMO valor outra vez tem o mesmo efeito — o clique repetido não desfaz o primeiro",
+            deNovo.ok === true &&
+              deNovo.dados.destaque === true &&
+              (await linhaDoPost(idDestaque))?.destaque === true,
+            deNovo.ok ? "" : `tipo ${deNovo.erro.tipo}`,
+          );
+
+          /* O CORPO NÃO É ESPALHADO SOBRE O COMANDO. Se fosse, este pedido
+             publicaria um Post e trocaria o endereço dele sem passar pela
+             máquina de transições nem pela conferência de slug — a transição
+             pela porta de trás. */
+          const carona = await definirDestaque({
+            token: contas[0].jwt,
+            corpo: {
+              id: idDestaque,
+              destaque: false,
+              estado: "publicado",
+              slug: slug("endereco-pela-porta-de-tras"),
+              titulo: "Título que veio de carona",
+              autor_nome: "Quem não escreveu",
+            },
+            acesso: acessoReal(),
+          });
+          const depoisDaCarona = await linhaDoPost(idDestaque);
+          afirmar(
+            "alternar o Destaque de volta muda UMA coluna: Estado, endereço, título e Autor ficam como estavam",
+            carona.ok === true &&
+              depoisDaCarona?.destaque === false &&
+              antes !== null &&
+              depoisDaCarona?.estado === antes?.estado &&
+              depoisDaCarona?.slug === antes?.slug &&
+              depoisDaCarona?.titulo === antes?.titulo &&
+              /* O Autor viajou no MESMO pedido de carona, e é o campo que
+                 ninguém confere por reflexo: sem ele no `select`, a asserção
+                 aprovava um comando que reescrevia a autoria. */
+              depoisDaCarona?.autor_id === antes?.autor_id &&
+              depoisDaCarona?.autor_nome === antes?.autor_nome,
+            carona.ok
+              ? `antes: ${JSON.stringify(antes)} | depois: ${JSON.stringify(depoisDaCarona)}`
+              : `tipo ${carona.erro.tipo}: ${carona.erro.detalhe.slice(0, 160)}`,
+          );
+
+          /* — As recusas, com a coluna conferida depois de cada uma — */
+
+          for (const [nome, pedido, tipoEsperado] of [
+            ["sem token", { token: "", corpo: { id: idDestaque, destaque: true } }, ERRO_PERMISSAO],
+            [
+              "com token forjado",
+              { token: "nao.e.um.jwt", corpo: { id: idDestaque, destaque: true } },
+              ERRO_PERMISSAO,
+            ],
+            [
+              "com destaque que não é booleano",
+              { token: contas[0].jwt, corpo: { id: idDestaque, destaque: "true" } },
+              ERRO_DADOS_INVALIDOS,
+            ],
+            [
+              "sem identificador",
+              { token: contas[0].jwt, corpo: { destaque: true } },
+              ERRO_DADOS_INVALIDOS,
+            ],
+            [
+              "com identificador que não existe",
+              { token: contas[0].jwt, corpo: { id: randomUUID(), destaque: true } },
+              ERRO_NAO_ENCONTRADO,
+            ],
+          ]) {
+            const r = await definirDestaque({ ...pedido, acesso: acessoReal() });
+            const agora = await linhaDoPost(idDestaque);
+            afirmar(
+              `alternar Destaque ${nome} é recusado, e a coluna continua onde estava`,
+              r.ok === false && r.erro.tipo === tipoEsperado && agora?.destaque === false,
+              r.ok
+                ? "PASSOU"
+                : `tipo ${r.erro.tipo} (esperado ${tipoEsperado}) | banco: ${JSON.stringify(agora)}`,
+            );
+          }
+        }
+
+        /* — Excluir de verdade, com a linha conferida antes e depois — */
+
+        const paraExcluir = await salvarPost({
+          token: contas[0].jwt,
+          corpo: corpoValido({
+            slug: slug("para-excluir"),
+            titulo: "Post que vai ser excluído",
+          }),
+          acesso: acessoReal(),
+        });
+        const idExcluir = paraExcluir.ok ? paraExcluir.dados.post.id : null;
+        const semeouExcluir = afirmar(
+          "o Post da exclusão foi semeado pela função única",
+          Boolean(idExcluir),
+          paraExcluir.ok
+            ? ""
+            : `tipo ${paraExcluir.erro.tipo}: ${paraExcluir.erro.detalhe.slice(0, 160)}`,
+        );
+
+        if (semeouExcluir) {
+          /* Uma Tag associada, para que a exclusão tenha o que ARRASTAR. Sem
+             ela, "as associações saem junto" seria verdade por não haver
+             nenhuma — a forma mais silenciosa de uma asserção não verificar
+             nada. A Tag nasce por SQL porque ela não é assunto desta porta. */
+          const idDaTag = randomUUID();
+          const semeouTag = await executarSql(
+            token,
+            `insert into public.tags (id, nome, slug)
+               values (${literal(idDaTag)}, ${literal(`Tag de verificação ${prefixo}`)}, ${literal(slug("tag"))});
+             insert into public.posts_tags (post_id, tag_id)
+               values (${literal(idExcluir)}, ${literal(idDaTag)})`,
+          );
+          const associou = await executarSql(
+            token,
+            `select count(*)::int as n from public.posts_tags where post_id = ${literal(idExcluir)}`,
+          );
+          afirmar(
+            "controle positivo: o Post a excluir TEM uma associação de Tag antes da exclusão",
+            semeouTag.ok && Number(associou.dados?.[0]?.n ?? -1) === 1,
+            semeouTag.erro ?? `associações: ${associou.dados?.[0]?.n}`,
+          );
+
+          /* As recusas vêm ANTES da exclusão de verdade: se viessem depois, a
+             linha já não existiria e cada uma delas passaria por ausência. */
+          for (const [nome, pedido, tipoEsperado] of [
+            ["sem token", { token: "", corpo: { id: idExcluir } }, ERRO_PERMISSAO],
+            [
+              "com token forjado",
+              { token: "nao.e.um.jwt", corpo: { id: idExcluir } },
+              ERRO_PERMISSAO,
+            ],
+            [
+              "sem identificador",
+              { token: contas[0].jwt, corpo: {} },
+              ERRO_DADOS_INVALIDOS,
+            ],
+            [
+              "com identificador fora do formato",
+              { token: contas[0].jwt, corpo: { id: "nao-e-uuid" } },
+              ERRO_DADOS_INVALIDOS,
+            ],
+          ]) {
+            const r = await excluirPost({ ...pedido, acesso: acessoReal() });
+            afirmar(
+              `excluir ${nome} é recusado, e o Post continua lá`,
+              r.ok === false &&
+                r.erro.tipo === tipoEsperado &&
+                (await linhaDoPost(idExcluir)) !== null,
+              r.ok ? "PASSOU" : `tipo ${r.erro.tipo} (esperado ${tipoEsperado})`,
+            );
+          }
+
+          const saiu = await excluirPost({
+            token: contas[0].jwt,
+            corpo: { id: idExcluir },
+            acesso: acessoReal(),
+          });
+          const sobrou = await linhaDoPost(idExcluir);
+          afirmar(
+            "excluir SOME com o Post: a linha não está mais no banco, e a resposta carrega o que saiu",
+            saiu.ok === true &&
+              saiu.dados.operacao === OPERACAO_EXCLUIR &&
+              saiu.dados.post?.id === idExcluir &&
+              sobrou === null,
+            saiu.ok
+              ? `no banco: ${JSON.stringify(sobrou)}`
+              : `tipo ${saiu.erro.tipo}: ${saiu.erro.detalhe.slice(0, 160)}`,
+          );
+
+          const associacoes = await executarSql(
+            token,
+            `select
+               (select count(*)::int from public.posts_tags where post_id = ${literal(idExcluir)}) as tags,
+               (select count(*)::int from public.slugs_antigos where post_id = ${literal(idExcluir)}) as enderecos`,
+          );
+          afirmar(
+            "e leva junto as ASSOCIAÇÕES de Tag e os endereços aposentados — a chave estrangeira faz em uma transação o que três chamadas fariam pela metade",
+            associacoes.ok &&
+              Number(associacoes.dados?.[0]?.tags ?? -1) === 0 &&
+              Number(associacoes.dados?.[0]?.enderecos ?? -1) === 0,
+            JSON.stringify(associacoes.dados?.[0] ?? associacoes.erro),
+          );
+
+          /* ─── MAS A TAG EM SI CONTINUA, E ISSO É O QUE A TELA PROMETE ──
+             A cascata vai de `posts` para `posts_tags`, e não para `tags`: uma
+             Tag é de todos os Posts, e apagá-la levaria junto os artigos dos
+             outros. A confirmação da exclusão dizia que o Post saía "junto com
+             as tags", prometendo uma consequência que não acontece — e aviso
+             que exagera é aviso que ensina a desconfiar do aviso. A prova de
+             que a frase agora diz a verdade é esta linha; a de que a FRASE
+             continua dizendo isso está em `verificar:editor`. */
+          const tagSobreviveu = await executarSql(
+            token,
+            `select count(*)::int as n from public.tags where id = ${literal(idDaTag)}`,
+          );
+          afirmar(
+            "e a TAG EM SI continua existindo — a cascata alcança a associação, nunca a Tag, que é de todos os Posts",
+            tagSobreviveu.ok && Number(tagSobreviveu.dados?.[0]?.n ?? -1) === 1,
+            tagSobreviveu.erro ?? `tags restantes: ${tagSobreviveu.dados?.[0]?.n}`,
+          );
+
+          /* O SEGUNDO CLIQUE. Excluir o que já saiu é ausência, e não sucesso
+             silencioso: a tela precisa distinguir para acertar a lista sem
+             anunciar duas exclusões. */
+          const outraVez = await excluirPost({
+            token: contas[0].jwt,
+            corpo: { id: idExcluir },
+            acesso: acessoReal(),
+          });
+          afirmar(
+            "excluir o que já saiu é AUSÊNCIA, não um segundo sucesso",
+            outraVez.ok === false && outraVez.erro.tipo === ERRO_NAO_ENCONTRADO,
+            outraVez.ok ? "PASSOU" : `tipo ${outraVez.erro.tipo}`,
+          );
+        }
+      } else {
+        adiar("excluir e alternar Destaque contra o projeto", MOTIVO_SEM_SESSAO);
+      }
+
       /* ── (f) A linha do BANCO: escrita por fora da função ──────────────── */
 
       secao("(f) a linha do banco: escrita por fora da função é recusada");
@@ -4710,8 +6262,91 @@ if (!temToken) {
               /42501|permission denied|row-level security/i.test(resposta.corpo)),
           `HTTP ${resposta.status} ${resposta.corpo.slice(0, 160)}`,
         );
+
+        /* — E OS VERBOS NOVOS DA STORY 2.12 pela MESMA porta de trás — */
+        //
+        // A defesa da Story 2.5 valia para o `insert`. Excluir e alternar
+        // Destaque são `delete` e `update`, e uma política que só nega o
+        // primeiro deixaria as duas operações novas escreverem pelo cliente —
+        // que é exatamente o "só para esta operação" que a story proíbe.
+        //
+        // O alvo é uma linha que EXISTE: contra um identificador inventado, o
+        // PostgREST responderia "nada alterado" com 2xx mesmo sem política, e a
+        // recusa passaria por vacuidade.
+
+        if (idParaRls) {
+          /** Pedido cru ao PostgREST com o JWT da sessão do Painel. */
+          const pelaSessao = async (metodo, corpo) => {
+            try {
+              const r = await fetch(
+                `${URL_PROJETO}/rest/v1/posts?id=eq.${encodeURIComponent(idParaRls)}`,
+                {
+                  method: metodo,
+                  signal: AbortSignal.timeout(TIMEOUT_MS),
+                  headers: {
+                    apikey: chaves.publicavel,
+                    Authorization: `Bearer ${contas[0].jwt}`,
+                    "Content-Type": "application/json",
+                    Prefer: "return=representation",
+                  },
+                  ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+                },
+              );
+              return { status: r.status, corpo: sanitizar(await r.text()) };
+            } catch (erro) {
+              return { status: 0, corpo: String(erro?.message ?? erro) };
+            }
+          };
+
+          /* CONTROLE POSITIVO: a MESMA credencial LÊ a linha. Sem ele, uma
+             chave errada ou um identificador errado fariam as duas recusas
+             abaixo passarem sem que política nenhuma estivesse em pé. */
+          const leitura = await pelaSessao("GET", undefined);
+          afirmar(
+            "controle positivo: a sessão do Painel ENXERGA a linha que as duas tentativas abaixo tentam mudar",
+            leitura.status === 200 && leitura.corpo.includes(idParaRls),
+            `HTTP ${leitura.status} ${leitura.corpo.slice(0, 160)}`,
+          );
+
+          const recusou = (r) =>
+            r.status === 401 ||
+            r.status === 403 ||
+            (r.status >= 400 &&
+              r.status < 500 &&
+              /42501|permission denied|row-level security/i.test(r.corpo)) ||
+            /* PostgREST responde 200 com lista VAZIA quando a política esconde
+               a linha da escrita. Nada alterado também é recusa — mas só vale
+               como recusa porque o controle positivo acima provou que a linha
+               está lá e é visível para esta mesma credencial. */
+            (r.status >= 200 && r.status < 300 && /^\s*\[\s*\]\s*$/.test(r.corpo));
+
+          const exclusao = await pelaSessao("DELETE", undefined);
+          const aindaExiste = await linhaDoPost(idParaRls);
+          afirmar(
+            "excluir pelo cliente autenticado, direto no PostgREST, é RECUSADO — e o Post continua no banco",
+            recusou(exclusao) && aindaExiste !== null,
+            `HTTP ${exclusao.status} ${exclusao.corpo.slice(0, 160)} | no banco: ${JSON.stringify(aindaExiste)}`,
+          );
+
+          const destaque = await pelaSessao("PATCH", { destaque: true });
+          const colunaAgora = await linhaDoPost(idParaRls);
+          afirmar(
+            "alternar Destaque pelo cliente autenticado, direto no PostgREST, é RECUSADO — e a coluna não mudou",
+            recusou(destaque) && colunaAgora?.destaque === false,
+            `HTTP ${destaque.status} ${destaque.corpo.slice(0, 160)} | no banco: ${JSON.stringify(colunaAgora)}`,
+          );
+        } else {
+          adiar(
+            "excluir e destacar pelo cliente autenticado são recusados pela RLS",
+            "o Post da seção (e2) não pôde ser semeado — sem linha existente, a recusa passaria por vacuidade",
+          );
+        }
       } else {
         adiar("uma Conta autenticada continua sem poder escrever direto", MOTIVO_SEM_SESSAO);
+        adiar(
+          "excluir e destacar pelo cliente autenticado são recusados pela RLS",
+          MOTIVO_SEM_SESSAO,
+        );
       }
 
       if (!abriuSessao) {
@@ -4724,6 +6359,10 @@ if (!temToken) {
         token,
         [
           `delete from public.posts where slug like ${literal(marca)}`,
+          /* A Tag da prova de cascata (Story 2.12). Ela não sai junto do Post:
+             a cascata vai de `posts` para `posts_tags`, e não de `posts` para
+             `tags` — que é o certo, porque uma Tag é de todos os Posts. */
+          `delete from public.tags where slug like ${literal(marca)}`,
           // Pelo MESMO SQL do `conta:remover`, e não por um `delete` escrito
           // aqui: a Conta de teste sai pelo caminho que uma Conta real sai.
           ...contas.map((conta) => sqlDeRemocaoDeConta(conta.email)),
@@ -4739,13 +6378,19 @@ if (!temToken) {
       token,
       `select
          (select count(*)::int from public.posts where slug like ${literal(marca)}) as posts,
+         (select count(*)::int from public.tags where slug like ${literal(marca)}) as tags,
          (select count(*)::int from auth.users where email like ${literal(`verificacao.escrita+${nonce}-%@chatclean.com.br`)}) as contas`,
     );
     const linha = sobrou.ok ? (sobrou.dados?.[0] ?? null) : null;
     afirmar(
       "nenhum resíduo da prova comportamental ficou no projeto",
-      linha !== null && Number(linha.posts) === 0 && Number(linha.contas) === 0,
-      linha ? `posts: ${linha.posts} | contas: ${linha.contas}` : (sobrou.erro ?? ""),
+      linha !== null &&
+        Number(linha.posts) === 0 &&
+        Number(linha.tags) === 0 &&
+        Number(linha.contas) === 0,
+      linha
+        ? `posts: ${linha.posts} | tags: ${linha.tags} | contas: ${linha.contas}`
+        : (sobrou.erro ?? ""),
     );
   }
 }

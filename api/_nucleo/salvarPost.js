@@ -246,6 +246,13 @@ export const CAMPOS_ACEITOS = Object.freeze([
      máquina de transições — não gravado como veio. É a única coisa do corpo
      cujo valor é conferido contra o que já está no banco. */
   "estado",
+  /* Story 2.12. `operacao` não é campo do Post: é o que diz QUAL operação está
+     sendo pedida, e quem o lê é o invólucro, contra o vocabulário fechado de
+     `domain/blog/operacoes.js`. Ele está aqui para não ser relatado como
+     "ignorado" num salvamento que o declara — o que faria a tela avisar que
+     descartou algo que ela mesma mandou de propósito. Ele nunca chega ao banco:
+     `lerCorpo` não o copia para `campos`, e o comando só carrega o que está lá. */
+  "operacao",
 ]);
 
 /**
@@ -256,6 +263,11 @@ export const CAMPOS_ACEITOS = Object.freeze([
  *
  *   `conteudo_html` — HTML nunca é entrada; o gravado é o derivado.
  *   `autor_id`, `autor_nome` — o Autor é resolvido no servidor, sempre.
+ *   `destaque`      — Story 2.12: coluna que esta porta escreve, mas só pela
+ *                    operação `destacar`. Um salvamento que o traga é o Editor
+ *                    devolvendo ao servidor um Post que ele leu do banco, e
+ *                    aceitá-lo faria a gaveta mudar o Destaque de passagem, sem
+ *                    ninguém ter pedido.
  *
  * `publicado_em` saiu desta lista na Story 2.6 e `estado` na 2.8 — mas as duas
  * saídas são de naturezas diferentes, e confundi-las seria destravar a segunda
@@ -268,6 +280,7 @@ export const CAMPOS_IGNORADOS = Object.freeze([
   "conteudo_html",
   "autor_id",
   "autor_nome",
+  "destaque",
 ]);
 
 const TAMANHO_MAXIMO_DO_TITULO = 300;
@@ -311,7 +324,17 @@ export const LIMITE_DE_IGNORADOS = 40;
 export const LIMITE_DE_TAGS = 30;
 const TEMPO_DE_LEITURA_MAXIMO = 1000;
 
-const PADRAO_UUID =
+/**
+ * O formato de identificador, declarado UMA vez no servidor.
+ *
+ * Exportado porque `operacoesDoPost.js` precisa exatamente do mesmo, e a
+ * terceira cópia da regra é a que diverge — é o mesmo argumento que o cabeçalho
+ * daquele arquivo usa contra um segundo classificador de erro. A verificação
+ * compara este padrão com o `FORMATO_DE_UUID` de `src/data/blog/comum.js` sobre
+ * um corpus, porque servidor e cliente recusando identificadores diferentes
+ * apareceria como um pedido que o Painel monta e a porta não entende.
+ */
+export const PADRAO_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** O vocabulário, por extenso, para a frase de recusa. Vem do domínio. */
@@ -375,7 +398,7 @@ export function classificar({ status = 0, codigo = "" } = {}) {
 }
 
 /** Detalhe legível de uma resposta do acesso, para o log do servidor. */
-function detalhar(resultado, oQue) {
+export function detalhar(resultado, oQue) {
   const partes = [oQue, `HTTP ${resultado?.status ?? "?"}`];
   if (resultado?.codigo) partes.push(String(resultado.codigo));
   if (resultado?.mensagem) partes.push(String(resultado.mensagem));
@@ -732,16 +755,39 @@ export async function salvarPost({ token, corpo, acesso }) {
   }
 }
 
-async function gravar({ token, corpo, acesso }) {
-  /* ── 1. Quem está pedindo ──────────────────────────────────────────────── */
-  //
-  // Ausência de token e token forjado dão o MESMO erro, com a MESMA frase. E
-  // nada de identidade vinda do corpo do pedido: quem manda o pedido também
-  // mandaria o nome de quem ele quisesse ser.
-
+/**
+ * Quem está pedindo, conferido **contra o Supabase, no servidor**.
+ *
+ * Devolve `{ ok: true, conta }` ou uma falha tipada, pronta para quem chama
+ * repassar. Mora fora de `gravar` porque toda operação da porta única faz
+ * exatamente esta pergunta, e uma segunda cópia dela divergiria na primeira
+ * mudança de política — a operação nova que "esqueceu" de conferir o token é
+ * o defeito que este arquivo existe para tornar impossível.
+ *
+ * Ausência de token, token forjado e token vencido dão o MESMO erro, com a
+ * MESMA frase: distinguir os três na resposta diria a quem tenta se o token
+ * que ele inventou tem forma válida. `mensagem` troca a frase para todos de
+ * uma vez, nunca para um só — é por isso que ela é um argumento da função e
+ * não um parâmetro de cada recusa.
+ *
+ * E nada de identidade vinda do corpo do pedido: quem manda o pedido também
+ * mandaria o nome de quem ele quisesse ser.
+ */
+export async function identificarChamador({
+  token,
+  acesso,
+  mensagem = "",
+  /* A FRASE DA INDISPONIBILIDADE é outra frase, e também é da operação.
+     Antes ela era forçada a `""` aqui, e o vocabulário genérico devolvia "Não
+     conseguimos falar com o servidor para SALVAR" a quem tentou excluir — a
+     mesma fuga que a story mandou fechar do outro lado. Padrão vazio mantém o
+     comportamento de quem não passa nada: cai no genérico. */
+  mensagemDeRede = "",
+}) {
   const credencial = typeof token === "string" ? token.trim() : "";
   if (credencial === "") {
     return falha(ERRO_PERMISSAO, {
+      mensagem,
       detalhe: "pedido sem credencial no cabeçalho Authorization",
     });
   }
@@ -753,6 +799,7 @@ async function gravar({ token, corpo, acesso }) {
     // indisponibilidade, e confundir as duas mandaria a pessoa entrar de novo
     // quando o problema é o servidor.
     return falha(tipo === ERRO_REDE ? ERRO_REDE : ERRO_PERMISSAO, {
+      mensagem: tipo === ERRO_REDE ? mensagemDeRede : mensagem,
       detalhe: detalhar(identidade, "conferência do token no Supabase"),
       codigo: identidade.codigo,
       status: identidade.status,
@@ -762,9 +809,20 @@ async function gravar({ token, corpo, acesso }) {
   const conta = identidade.dados ?? {};
   if (typeof conta.id !== "string" || conta.id === "") {
     return falha(ERRO_PERMISSAO, {
+      mensagem,
       detalhe: "o Supabase confirmou o token mas não devolveu identificador de Conta",
     });
   }
+
+  return { ok: true, conta };
+}
+
+async function gravar({ token, corpo, acesso }) {
+  /* ── 1. Quem está pedindo ──────────────────────────────────────────────── */
+
+  const chamador = await identificarChamador({ token, acesso });
+  if (!chamador.ok) return chamador;
+  const conta = chamador.conta;
 
   /* ── 2. O que ele está pedindo ─────────────────────────────────────────── */
 
@@ -1234,7 +1292,7 @@ async function gravarTags({ acesso, id, lido }) {
 }
 
 /** Falha de uma chamada de escrita, já classificada e com frase certa. */
-function falhaDaEscrita(resultado, oQue) {
+export function falhaDaEscrita(resultado, oQue) {
   const tipo = classificar(resultado);
   return falha(tipo, {
     mensagem:
@@ -1246,44 +1304,82 @@ function falhaDaEscrita(resultado, oQue) {
 }
 
 /**
- * O Autor de um Post NOVO, resolvido no servidor.
+ * O PERFIL DA CONTA — a única autorização que existe nesta porta.
  *
- * O nome vem do perfil da Conta autenticada, sem digitação. Se ele viesse do
- * cliente, qualquer detentor de sessão assinaria um Post com o nome de outra
- * pessoa — e é por isso que `autor_nome` está na lista de campos ignorados.
+ * ─── Autenticar não é autorizar ─────────────────────────────────────────────
  *
- * ─── O PERFIL É EXIGIDO, e é a única autorização que existe aqui ────────────
- *
- * Autenticar não é autorizar: um token válido, por si, só diz que existe uma
- * Conta. A versão anterior aceitava Conta SEM perfil e gravava com `autor_id`
- * nulo — um Post sem autoria rastreável, escrito por alguém que o Painel nunca
- * cadastrou. A barreira que sobrava era o registro público estar fechado, que é
- * configuração de projeto e não código: uma mudança de configuração passaria a
- * permitir escrita sem que uma linha de código mudasse.
+ * Um token válido, por si, só diz que existe uma Conta. A versão anterior
+ * aceitava Conta SEM perfil e gravava com `autor_id` nulo — um Post sem autoria
+ * rastreável, escrito por alguém que o Painel nunca cadastrou. A barreira que
+ * sobrava era o registro público estar fechado, que é configuração de projeto e
+ * não código: uma mudança de configuração passaria a permitir escrita sem que
+ * uma linha de código mudasse.
  *
  * Ter perfil é o que significa "estar cadastrado no Painel": o gatilho
  * `on_auth_user_created` da Story 1.2 o cria junto da Conta, e `conta:criar`
  * falha alto se ele não nascer. Conta sem perfil é, portanto, uma das duas
  * coisas: gatilho que falhou (defeito a investigar) ou Conta que entrou por
- * fora do onboarding. Nenhuma das duas deve assinar um artigo publicado.
+ * fora do onboarding. Nenhuma das duas deve assinar um artigo publicado — nem
+ * excluir um, que é por que a exigência mora aqui, fora de `resolverAutor`, e
+ * vale para as operações da Story 2.12 também.
+ *
+ * ─── O QUE ESTA PORTA **NÃO** VERIFICA: autoria ─────────────────────────────
+ *
+ * Estar cadastrado no Painel é toda a autorização que existe aqui. Qualquer
+ * Conta cadastrada edita, arquiva e exclui o Post de qualquer outra — o Painel
+ * é confiança compartilhada entre a equipe, e isso é escolha, não esquecimento.
+ * `autor_nome` registra quem escreveu; ele não é dono. Escrito para que a
+ * próxima pessoa não leia "perfil exigido" como "só o Autor mexe".
+ *
+ * Devolve `{ ok: true, perfil }` ou uma falha tipada.
  */
-async function resolverAutor({ acesso, conta }) {
+export async function perfilOuFalha({
+  acesso,
+  conta,
+  mensagem = "",
+  mensagemDeRede = "",
+}) {
   const perfil = await acesso.perfilDaConta(conta.id);
   if (!perfil.ok) {
     /* Não adivinhar. O critério de aceite diz que o Autor é a Conta
        autenticada; gravar um Post assinado por palpite porque a leitura do
-       nome falhou seria cumprir a letra e quebrar o sentido. */
-    return falhaDaEscrita(perfil, "leitura do perfil da Conta");
+       nome falhou seria cumprir a letra e quebrar o sentido.
+
+       E a FRASE é a da operação. Este ramo — a leitura do perfil falhando por
+       rede ou por banco — ignorava `mensagem` e devolvia a frase de
+       salvamento para quem tentou excluir. */
+    const recusa = falhaDaEscrita(perfil, "leitura do perfil da Conta");
+    if (mensagemDeRede === "") return recusa;
+    return falha(recusa.erro.tipo, {
+      mensagem: mensagemDeRede,
+      detalhe: recusa.erro.detalhe,
+      codigo: recusa.erro.codigo,
+      status: recusa.erro.status,
+    });
   }
   if (perfil.dados === null) {
     return falha(ERRO_PERMISSAO, {
       mensagem:
+        mensagem ||
         "Esta conta não está cadastrada no Painel, então não pode assinar um post. Avise quem cuida das contas.",
       detalhe: `conta ${conta.id} autenticada mas sem linha em public.perfis`,
     });
   }
+  return { ok: true, perfil: perfil.dados };
+}
 
-  const doPerfil = texto(perfil.dados.nome_exibicao);
+/**
+ * O Autor de um Post NOVO, resolvido no servidor.
+ *
+ * O nome vem do perfil da Conta autenticada, sem digitação. Se ele viesse do
+ * cliente, qualquer detentor de sessão assinaria um Post com o nome de outra
+ * pessoa — e é por isso que `autor_nome` está na lista de campos ignorados.
+ */
+async function resolverAutor({ acesso, conta }) {
+  const perfil = await perfilOuFalha({ acesso, conta });
+  if (!perfil.ok) return perfil;
+
+  const doPerfil = texto(perfil.perfil.nome_exibicao);
   const dosMetadados = texto(conta.user_metadata?.nome_exibicao);
   const doEmail = texto(conta.email);
 

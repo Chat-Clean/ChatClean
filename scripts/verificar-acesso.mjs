@@ -345,6 +345,136 @@ secao("(b) a arquitetura de acesso está onde deveria");
   );
 }
 
+/* ─── O CAMINHO ÚNICO DE ESCRITA, e os verbos que ele ganhou ─────────────── */
+//
+// "Nenhum cliente escreve no banco" é a regra que sustenta a RLS inteira: não
+// existe política de escrita para `anon` nem para `authenticated`. A Story 2.12
+// acrescentou dois verbos — excluir e alternar Destaque — e é exatamente no dia
+// de acrescentar um verbo que alguém precisa "só desta vez" chamar o PostgREST
+// direto: `delete()` de uma linha parece pequeno demais para justificar uma ida
+// à função de servidor. Esta varredura existe para esse dia.
+
+{
+  const VERBOS_DE_ESCRITA = ["insert", "update", "upsert", "delete"];
+
+  /**
+   * As escritas do PostgREST num texto — e só elas.
+   *
+   * A busca é pela CORRENTE, e não pelo verbo solto: `.delete(` sozinho acusa
+   * `Map.prototype.delete`, que a casca usa duas vezes para esquecer aba e
+   * token, e uma asserção que grita sobre um `Map` é uma asserção que alguém
+   * desliga. O que caracteriza escrita no banco é o verbo pendurado numa
+   * seleção de tabela — `.from("posts").delete()` —, então a janela começa no
+   * `.from(` e vai até onde a corrente costuma acabar.
+   *
+   * `Array.from(` é excluído pelo nome: ele não é seleção de tabela nenhuma.
+   */
+  const escritasDoPostgrest = (texto) => {
+    const achados = [];
+    for (const m of texto.matchAll(/(\w*)\.from\s*\(/g)) {
+      if (m[1] === "Array") continue;
+      const janela = texto.slice(m.index, m.index + 400);
+      for (const verbo of VERBOS_DE_ESCRITA) {
+        if (new RegExp(`\\.${verbo}\\s*\\(`).test(janela)) achados.push(verbo);
+      }
+    }
+    return achados;
+  };
+
+  const comEscritaDireta = [];
+  for (const arquivo of fontes) {
+    let texto;
+    try {
+      texto = readFileSync(arquivo, "utf8");
+    } catch {
+      continue;
+    }
+    for (const verbo of escritasDoPostgrest(texto)) {
+      comEscritaDireta.push(`${rel(arquivo)} → ${verbo}`);
+    }
+  }
+  afirmar(
+    "nenhum módulo de src/ escreve no banco pelo cliente — nem `insert`, nem `update`, nem `upsert`, nem `delete`",
+    comEscritaDireta.length === 0,
+    comEscritaDireta.join(", "),
+  );
+  /* AUTOTESTE DO DETECTOR, nos dois sentidos. Sem o positivo, um detector
+     quebrado deixaria a varredura passar por vacuidade; sem o negativo, ela
+     acusaria `Map.delete` e seria desligada por incômodo — que dá no mesmo. */
+  afirmar(
+    "o detector acusa uma escrita de verdade e ignora o `delete` de um `Map`",
+    escritasDoPostgrest('cliente.from("posts").delete().eq("id", id)').includes("delete") &&
+      escritasDoPostgrest('cliente.from("posts").select("id")').length === 0 &&
+      escritasDoPostgrest("mapa.delete(chave)").length === 0 &&
+      escritasDoPostgrest("Array.from(lista).filter(Boolean)").length === 0,
+  );
+
+  /* `rpc` é caso à parte: a busca sem acento da Story 2.11 é uma FUNÇÃO do
+     banco, e chamá-la é leitura. O que não pode é uma segunda chamada aparecer
+     sem ninguém reparar — função de banco é o caminho natural para "escrever
+     sem escrever". */
+  const comRpc = [
+    ...new Set(ocorrencias(fontes, /\.rpc\s*\(/).map((o) => o.split(":")[0])),
+  ];
+  afirmar(
+    "a única função de banco chamada por src/ é a busca da listagem, e ela é leitura",
+    comRpc.length === 1 && comRpc[0] === "src/data/blog/posts.js",
+    comRpc.join(", ") || "nenhuma — a busca da Story 2.11 deveria estar aqui",
+  );
+
+  /* E A ROTA DA FUNÇÃO tem UM cliente. Dois módulos falando com `/api/posts`
+     seriam dois lugares para autenticar, classificar erro e traduzir mensagem —
+     e o segundo sempre fica para trás do primeiro. */
+  const comRota = [
+    ...new Set(ocorrencias(fontes, /["'`]\/api\/posts["'`]/).map((o) => o.split(":")[0])),
+  ];
+  afirmar(
+    "só um módulo de src/ conhece o endereço da função de escrita, e ele é `data/blog/escrita.js`",
+    comRota.length === 1 && comRota[0] === "src/data/blog/escrita.js",
+    comRota.join(", ") || "nenhum módulo conhece a rota — a escrita não teria por onde sair",
+  );
+
+  /* E AS TELAS chegam à escrita por ele, nunca por um `fetch` próprio. O Painel
+     tem duas superfícies que escrevem — o Editor e a listagem — e as duas
+     importam as funções da camada. */
+  const escritoras = [
+    "src/admin/blog/EditorDePost.jsx",
+    "src/admin/blog/ListaDePosts.jsx",
+  ];
+  /* ARQUIVO AUSENTE NÃO É APROVAÇÃO. As duas varreduras abaixo devolviam
+     `false` em silêncio para caminho inexistente: renomear uma das telas
+     fazia as asserções passarem sem ler nada — a forma mais silenciosa de uma
+     asserção deixar de verificar. */
+  const ausentes = escritoras.filter((r) => !existsSync(path.join(raiz, r)));
+  afirmar(
+    `as ${escritoras.length} telas que escrevem existem onde a varredura procura`,
+    ausentes.length === 0,
+    `${ausentes.join(", ")} — arquivo movido ou renomeado deixaria as duas asserções abaixo sem objeto`,
+  );
+  const comFetchProprio = escritoras.filter((relativo) => {
+    const completo = path.join(raiz, relativo);
+    if (!existsSync(completo)) return false;
+    return /\bfetch\s*\(|XMLHttpRequest|navigator\.sendBeacon/.test(
+      readFileSync(completo, "utf8"),
+    );
+  });
+  afirmar(
+    "nem o Editor nem a listagem falam com a rede por conta própria — as duas passam pela camada de dados",
+    comFetchProprio.length === 0,
+    comFetchProprio.join(", "),
+  );
+  const semImportarAEscrita = escritoras.filter((relativo) => {
+    const completo = path.join(raiz, relativo);
+    if (!existsSync(completo)) return false;
+    return !/from\s+["']@\/data\/blog\/escrita["']/.test(readFileSync(completo, "utf8"));
+  });
+  afirmar(
+    "e as duas importam a escrita da camada — a listagem exclui e destaca pela MESMA porta que o Editor salva",
+    semImportarAEscrita.length === 0,
+    semImportarAEscrita.join(", "),
+  );
+}
+
 const clientes = lerOuFalhar(
   path.join(DIR_SRC, "data", "supabase", "clientes.js"),
   "src/data/supabase/clientes.js existe",
