@@ -37,6 +37,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-ink: var(--destructive-ink);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -104,6 +105,20 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* --- Tinta de perigo sobre superfície CLARA (Story 2.13) --------------
+     ADIÇÃO PURA: nenhuma declaração acima muda.
+
+     `--destructive` é o vermelho de SUPERFÍCIE do sistema — ele existe para
+     ser fundo de botão destrutivo, com tinta clara por cima, e nesse papel ele
+     está certo. O cartão de erro usa o papel oposto: a mesma cor como TINTA,
+     sobre um tom dela mesma a 10%. Medido, esse par dá 3,71:1 — abaixo do piso
+     de 4,5:1 para texto, e por isso a mensagem que mais importa ler era a menos
+     legível da tela.
+
+     Este token existe para esse papel, e só para ele. A razão sobre o cartão é
+     5,03:1, calculada em `verificar:interface` com a composição por alfa — não
+     afirmada aqui. */
+  --destructive-ink: #b91c1c;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);

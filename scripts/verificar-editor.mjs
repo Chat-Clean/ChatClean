@@ -37,18 +37,20 @@
  * Saída: uma linha por asserção; código 0 se todas passarem, 1 caso contrário.
  */
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { JSDOM } from "jsdom";
+/* O arranjo de montagem de tela mora em `montagem-comum.mjs` desde a Story
+   2.13: `verificar-acesso.mjs` passou a montar a rota da pré-visualização, e
+   dois JSDOM configurados à parte divergiriam no primeiro ajuste de um deles. */
+import {
+  caminhoDeModulo,
+  comoModulo,
+  compilarParaNode,
+  criarPastaDeCompilacao,
+  montarNavegador,
+} from "./montagem-comum.mjs";
 
 // O leitor de CSS já auditado da Story 2.3 — com máscara de comentário e 25
 // autotestes próprios. Reler `.artigo` por regex aqui repetiria um trabalho
@@ -88,6 +90,16 @@ const CAMINHO_MODULO_DA_LISTAGEM = "src/admin/blog/listagem.js";
    recarga rápida — e, aqui, tornaria "a confirmação nomeia o Post" uma frase
    sobre JSX em vez de uma regra executável. */
 const CAMINHO_MODULO_DAS_ACOES = "src/admin/blog/acoes.js";
+/* A pré-visualização da Story 2.13: a tela e as regras puras dela. O
+   renderizador entra junto para PROVAR que a tela mostra o HTML gravado e não
+   um derivado na hora — as duas coisas só se distinguem quando divergem. */
+const CAMINHO_PREVIA = "src/admin/blog/PreVisualizacaoDePost.jsx";
+const CAMINHO_MODULO_DA_PREVIA = "src/admin/blog/previa.js";
+/* Os endereços do Painel: vocabulário compartilhado entre a listagem, o Editor
+   e a declaração de rotas. Eles NÃO moram no módulo da tela — um módulo
+   compartilhado apontando para o módulo de uma tela é seta invertida. */
+const CAMINHO_MODULO_DAS_ROTAS = "src/admin/blog/rotas.js";
+const CAMINHO_RENDERIZADOR = "src/render/blog/paraHtml.js";
 /* O ponto único de notificação. Ele é DUBLADO na montagem: a única coisa que
    o alvo indisponível de "Ver no site" FAZ é notificar, e sem o dublê apagar
    o `onClick` dele não quebrava asserção nenhuma. O mesmo vale para a
@@ -1551,128 +1563,19 @@ if (schema) {
 
 secao("(e) o editor real: só existe nele o que o schema conhece");
 
-/** Um navegador de mentira, mas um DOM de verdade. */
-function montarNavegador() {
-  const dom = new JSDOM(
-    "<!doctype html><html><body><div id='area'></div></body></html>",
-    { pretendToBeVisual: true, url: "https://painel.local/" },
-  );
-  const w = dom.window;
-  const expor = (nome, valor) => {
-    try {
-      Object.defineProperty(globalThis, nome, {
-        value: valor,
-        configurable: true,
-        writable: true,
-      });
-    } catch {
-      /* propriedade sem escrita no Node: o jsdom já supre a maioria */
-    }
-  };
-  for (const nome of Object.getOwnPropertyNames(w)) {
-    if (nome in globalThis) continue;
-    try {
-      expor(nome, w[nome]);
-    } catch {
-      /* getters que estouram ao serem lidos não interessam aqui */
-    }
-  }
-  /* Os construtores de evento do JSDOM sobrepõem os do Node, e a sobreposição
-     é obrigatória, não cosmética. O Node 22+ já traz `Event` e `CustomEvent`
-     globais, então o laço acima os pula (`nome in globalThis` é verdadeiro) — e
-     uma biblioteca que faça `new CustomEvent(...)` produz um objeto que o
-     `dispatchEvent` do jsdom RECUSA com "parameter 1 is not of type 'Event'".
-     É o que acontecia ao montar o diálogo do shadcn: o Radix dispara eventos
-     próprios ao abrir, e a tela inteira caía num erro que não é da tela. */
-  for (const nome of ["Event", "CustomEvent", "MouseEvent", "KeyboardEvent", "FocusEvent"]) {
-    if (w[nome]) expor(nome, w[nome]);
-  }
-  expor("window", w);
-  expor("document", w.document);
-  expor("navigator", w.navigator);
-  /* Geometria de mentira. O jsdom não faz layout, e o ProseMirror pergunta a
-     posição do cursor na tela sempre que um comando pede foco. Sem isto, cada
-     comando cospe uma pilha de `getClientRects is not a function` no meio da
-     saída — ruído que esconderia uma FALHA de verdade na hora de ler. */
-  const retangulo = () => ({
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    width: 0,
-    height: 0,
-    x: 0,
-    y: 0,
-  });
-  for (const prototipo of [w.Range.prototype, w.Element.prototype, w.Text.prototype]) {
-    if (typeof prototipo.getClientRects !== "function") {
-      prototipo.getClientRects = () => [retangulo()];
-    }
-    if (typeof prototipo.getBoundingClientRect !== "function") {
-      prototipo.getBoundingClientRect = retangulo;
-    }
-  }
-  w.Range.prototype.getClientRects = () => [retangulo()];
-
-  /* O jsdom não implementa `ClipboardEvent`, e é dele que o caminho de colagem
-     do ProseMirror depende: `view.pasteHTML` constrói um para disparar o
-     pipeline real. Sem este remendo a prova de colagem não roda — e trocá-la
-     por leitura de código é exatamente o que a story proíbe. */
-  if (typeof globalThis.ClipboardEvent !== "function") {
-    const Clipboard = class ClipboardEvent extends w.Event {
-      constructor(tipo, init = {}) {
-        super(tipo, init);
-        this.clipboardData = init.clipboardData ?? null;
-      }
-    };
-    expor("ClipboardEvent", Clipboard);
-    w.ClipboardEvent = Clipboard;
-  }
-  return w;
-}
+/* O navegador de mentira vem de `montagem-comum.mjs` — ver o comentário do
+   import, no topo desta ferramenta. */
 
 /**
  * Compila os componentes React para um pacote que o Node consegue importar.
  *
- * **Roda ANTES de o DOM falso subir, e essa ordem é deliberada.** O `build` do
- * Vite é um processo de construção: ele decide plugins, ambiente e resolução
- * olhando para o processo em que roda. Com `window` e `document` de mentira
- * instalados em `globalThis`, qualquer coisa na cadeia que pergunte "estou num
- * navegador?" recebe sim, e o pacote compilado deixa de ser o que a aplicação
- * usa. Compilar primeiro, poluir depois.
- *
- * O JSX não é importável pelo Node, então ele é compilado pelo MESMO
- * empacotador que a aplicação usa — não por um transformador paralelo que
- * poderia divergir do que vai para produção.
+ * O empacotador em si mora em `montagem-comum.mjs`: o que fica aqui é o que é
+ * DESTA ferramenta — quais módulos entram no pacote e quais dublês trocam a
+ * fronteira de dados.
  */
 async function compilarComponentes() {
-  const { build } = await import("vite");
-  const plugin = (await import("@vitejs/plugin-react")).default;
+  const pasta = criarPastaDeCompilacao("verificar-editor-");
 
-  /* A pasta fica DENTRO do projeto, sob `node_modules/.cache`, e não no
-     temporário do sistema: o pacote compilado importa `react` e `@tiptap/*`
-     como externos, e a resolução do Node procura `node_modules` subindo a
-     partir do arquivo. Fora do projeto, não há de onde resolver. */
-  const cache = path.join(raiz, "node_modules", ".cache");
-  mkdirSync(cache, { recursive: true });
-
-  /* Varre o que sobrou de execuções anteriores ANTES de criar a pasta nova.
-     No Windows, a pasta que acabou de ser importada fica presa pelo processo
-     que a carregou, e a remoção no fim da execução falha em silêncio — uma
-     execução por dia deixaria um rastro que ninguém percebe até o disco
-     reclamar. Limpar na entrada resolve sem depender de a saída dar certo. */
-  for (const entrada of readdirSync(cache, { withFileTypes: true })) {
-    if (!entrada.isDirectory() || !entrada.name.startsWith("verificar-editor-")) continue;
-    try {
-      rmSync(path.join(cache, entrada.name), { recursive: true, force: true });
-    } catch {
-      /* presa por outro processo: a próxima execução tenta de novo */
-    }
-  }
-
-  const pasta = mkdtempSync(path.join(cache, "verificar-editor-"));
-
-  const entrada = path.join(pasta, "entrada.jsx");
   const alvo = path.join(raiz, CAMINHO_EDITOR).split(path.sep).join("/");
   const alvoDaConfiguracao = path
     .join(raiz, CAMINHO_CONFIGURACAO)
@@ -1699,9 +1602,6 @@ async function compilarComponentes() {
      módulo real é acusado em vez de mentir em silêncio. O comportamento dos
      módulos reais é provado onde ele existe — `verificar:dados` e
      `verificar:escrita`, esta última contra o Supabase de verdade. */
-  const caminhoReal = (relativo) =>
-    JSON.stringify(path.join(raiz, relativo).split(path.sep).join("/"));
-
   const arquivoDoControle = path.join(pasta, "controle.js");
   writeFileSync(
     arquivoDoControle,
@@ -1710,6 +1610,10 @@ async function compilarComponentes() {
       "  pedidos: [],\n" +
       "  resposta: { ok: true, dados: { criado: false, post: null } },\n" +
       "  post: { ok: false, erro: { tipo: 'nao_encontrado', mensagem: 'sem post' } },\n" +
+      /* O que a prévia PEDIU, ida a ida (Story 2.13). É por aqui que se prova
+         que identificador fora do formato não produz pedido nenhum. */
+      "  pedidos_de_post: [],\n" +
+      "  aoLerPost: null,\n" +
       "  categorias: { ok: true, dados: [] },\n" +
       "  tags: { ok: true, dados: [] },\n" +
       "  tagsDoPost: { ok: true, dados: [] },\n" +
@@ -1746,7 +1650,7 @@ async function compilarComponentes() {
   const arquivoDaEscrita = path.join(pasta, "duble-escrita.js");
   writeFileSync(
     arquivoDaEscrita,
-    `export * from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
+    `export * from ${caminhoDeModulo(CAMINHO_ESCRITA)};\n` +
       'import { controle } from "./controle.js";\n' +
       "export async function salvarPost(corpo) {\n" +
       "  controle.pedidos.push(corpo);\n" +
@@ -1767,13 +1671,13 @@ async function compilarComponentes() {
   const arquivoDasNotificacoes = path.join(pasta, "duble-notificacoes.js");
   writeFileSync(
     arquivoDasNotificacoes,
-    `export * from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
-      `export { default } from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+    `export * from ${caminhoDeModulo(CAMINHO_NOTIFICACOES)};\n` +
+      `export { default } from ${caminhoDeModulo(CAMINHO_NOTIFICACOES)};\n` +
       'import { controle } from "./controle.js";\n' +
       /* As GUARDAS DE VOZ continuam valendo: o dublê chama as reais antes de
          registrar, senão ele viraria um jeito de a tela dizer qualquer coisa
          sem ninguém cobrar. O que ele troca é só o transporte. */
-      `import { notificarSucesso as sucessoReal, notificarErro as erroReal } from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      `import { notificarSucesso as sucessoReal, notificarErro as erroReal } from ${caminhoDeModulo(CAMINHO_NOTIFICACOES)};\n` +
       "export function notificarSucesso(oQueAconteceu, detalhe) {\n" +
       "  const saida = sucessoReal(oQueAconteceu, detalhe);\n" +
       "  controle.avisos.push({ tom: 'sucesso', oQueHouve: oQueAconteceu, oQueFazer: detalhe ?? '' });\n" +
@@ -1789,9 +1693,13 @@ async function compilarComponentes() {
   const arquivoDosPosts = path.join(pasta, "duble-posts.js");
   writeFileSync(
     arquivoDosPosts,
-    `export * from ${caminhoReal(CAMINHO_POSTS)};\n` +
+    `export * from ${caminhoDeModulo(CAMINHO_POSTS)};\n` +
       'import { controle } from "./controle.js";\n' +
-      "export async function lerPostDoPainelPorId() {\n" +
+      /* O identificador PEDIDO é registrado: é assim que se prova que um
+         identificador fora do formato não vira pedido à rede (Story 2.13). */
+      "export async function lerPostDoPainelPorId(id) {\n" +
+      "  controle.pedidos_de_post.push(id);\n" +
+      "  if (typeof controle.aoLerPost === 'function') return controle.aoLerPost(id);\n" +
       "  return controle.post;\n" +
       "}\n" +
       "export async function listarPostsDoPainel(pedido) {\n" +
@@ -1805,7 +1713,7 @@ async function compilarComponentes() {
   const arquivoDaTaxonomia = path.join(pasta, "duble-taxonomia.js");
   writeFileSync(
     arquivoDaTaxonomia,
-    `export * from ${caminhoReal(CAMINHO_TAXONOMIA)};\n` +
+    `export * from ${caminhoDeModulo(CAMINHO_TAXONOMIA)};\n` +
       'import { controle } from "./controle.js";\n' +
       "export async function listarCategorias() {\n" +
       "  return controle.categorias;\n" +
@@ -1818,71 +1726,46 @@ async function compilarComponentes() {
       "}\n",
   );
 
-  const comoModulo = (arquivo) =>
-    JSON.stringify(arquivo.split(path.sep).join("/"));
-
-  writeFileSync(
-    entrada,
+  const fonteDaEntrada =
     `export { default as Editor } from ${JSON.stringify(alvo)};\n` +
       `export { prepararConteudo } from ${JSON.stringify(alvoDoConteudo)};\n` +
       `export { controlesDaBarra } from ${JSON.stringify(alvoDaConfiguracao)};\n` +
-      `export { default as EditorDePost } from ${caminhoReal(CAMINHO_TELA)};\n` +
-      `export { default as ListaDePosts } from ${caminhoReal(CAMINHO_LISTA)};\n` +
+      `export { default as EditorDePost } from ${caminhoDeModulo(CAMINHO_TELA)};\n` +
+      `export { default as ListaDePosts } from ${caminhoDeModulo(CAMINHO_LISTA)};\n` +
       /* A espera da digitação vem DO COMPONENTE, não de um número escrito na
          ferramenta: dois números divergem no dia em que um deles mudar, e a
          asserção passaria a provar outra coisa. */
-      `export { ESPERA_DA_BUSCA_MS } from ${caminhoReal(CAMINHO_LISTA)};\n` +
-      `export * as regrasDaListagem from ${caminhoReal(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
-      `export * as regrasDasAcoes from ${caminhoReal(CAMINHO_MODULO_DAS_ACOES)};\n` +
+      `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n` +
+      `export * as regrasDaListagem from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
+      `export * as regrasDasAcoes from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ACOES)};\n` +
+      `export { default as PreVisualizacaoDePost } from ${caminhoDeModulo(CAMINHO_PREVIA)};\n` +
+      `export * as regrasDaPrevia from ${caminhoDeModulo(CAMINHO_MODULO_DA_PREVIA)};\n` +
+      `export * as regrasDasRotas from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ROTAS)};\n` +
+      `export * as renderizador from ${caminhoDeModulo(CAMINHO_RENDERIZADOR)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
-      `export * as notificacoesReal from ${caminhoReal(CAMINHO_NOTIFICACOES)};\n` +
+      `export * as notificacoesReal from ${caminhoDeModulo(CAMINHO_NOTIFICACOES)};\n` +
       `export * as notificacoesDuble from ${comoModulo(arquivoDasNotificacoes)};\n` +
-      `export * as escritaReal from ${caminhoReal(CAMINHO_ESCRITA)};\n` +
+      `export * as escritaReal from ${caminhoDeModulo(CAMINHO_ESCRITA)};\n` +
       `export * as escritaDuble from ${comoModulo(arquivoDaEscrita)};\n` +
-      `export * as postsReal from ${caminhoReal(CAMINHO_POSTS)};\n` +
+      `export * as postsReal from ${caminhoDeModulo(CAMINHO_POSTS)};\n` +
       `export * as postsDuble from ${comoModulo(arquivoDosPosts)};\n` +
-      `export * as taxonomiaReal from ${caminhoReal(CAMINHO_TAXONOMIA)};\n` +
-      `export * as taxonomiaDuble from ${comoModulo(arquivoDaTaxonomia)};\n`,
-  );
+      `export * as taxonomiaReal from ${caminhoDeModulo(CAMINHO_TAXONOMIA)};\n` +
+      `export * as taxonomiaDuble from ${comoModulo(arquivoDaTaxonomia)};\n`;
 
-  /* O `build` do Vite escreve `NODE_ENV=production` no processo INTEIRO, e
-     não desfaz. Isso importa aqui e é sutil: `react` já foi carregado (pelo
-     mapa de ícones) na variante de desenvolvimento, e `react-dom/client`
-     ainda não. Sem restaurar, cada um viria de uma variante diferente e o
-     React estouraria com `dispatcher.getOwner is not a function` — medido,
-     não suposto. */
-  const ambienteAntes = process.env.NODE_ENV;
-  try {
-    await build({
-      configFile: false,
-      logLevel: "silent",
-      plugins: [plugin()],
-      /* A ordem importa: o apelido específico precisa vir ANTES do genérico,
-         senão `@/data/blog/escrita` é resolvido por `@` e o dublê nunca entra
-         (e a asserção de que ele entrou é o que denuncia isso). */
-      resolve: {
-        alias: {
-          "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
-          "@/data/blog/escrita": arquivoDaEscrita,
-          "@/data/blog/posts": arquivoDosPosts,
-          "@/data/blog/taxonomia": arquivoDaTaxonomia,
-          "@": path.join(raiz, "src"),
-        },
-      },
-      build: {
-        ssr: entrada,
-        outDir: path.join(pasta, "saida"),
-        emptyOutDir: true,
-        minify: false,
-        rollupOptions: { output: { format: "es", entryFileNames: "entrada.js" } },
-      },
-    });
-  } finally {
-    if (ambienteAntes === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = ambienteAntes;
-  }
-
-  return { pasta, arquivo: path.join(pasta, "saida", "entrada.js") };
+  /* A ordem importa: o apelido específico precisa vir ANTES do genérico `@`,
+     senão `@/data/blog/escrita` é resolvido por ele e o dublê nunca entra (e a
+     asserção de que ele entrou é o que denuncia isso). O genérico é
+     acrescentado por último dentro de `compilarParaNode`. */
+  return compilarParaNode({
+    pasta,
+    fonte: fonteDaEntrada,
+    alias: {
+      "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
+      "@/data/blog/escrita": arquivoDaEscrita,
+      "@/data/blog/posts": arquivoDosPosts,
+      "@/data/blog/taxonomia": arquivoDaTaxonomia,
+    },
+  });
 }
 
 const compilado = await compilarComponentes().then(
@@ -3394,6 +3277,9 @@ if (janela && schema && configuracao && compilado) {
         acaoPorChave: (chave) => alvo.querySelector(`button[data-acao="${chave}"]`),
         pilula: () => alvo.querySelector("[data-estado]"),
         verNoSite: () => alvo.querySelector('a[href^="/blog/"]'),
+        /* A ação de ver, seja qual for o destino. Ela deixou de sumir quando o
+           Post não está publicado (Story 2.13): passou a levar à prévia. */
+        acaoDeVer: () => alvo.querySelector("a[data-acao-ver]"),
         salvar: () =>
           [...alvo.querySelectorAll("button")].find((b) =>
             (b.textContent ?? "").includes("Salvar"),
@@ -3868,6 +3754,20 @@ if (janela && schema && configuracao && compilado) {
             "um Post que não está no ar NÃO oferece link para o site — não há o que ver lá",
             tela.verNoSite() === null,
             String(tela.verNoSite()?.getAttribute("href")),
+          );
+          /* ─── MAS A AÇÃO DE VER DEIXOU DE SUMIR (Story 2.13) ───────────
+             Antes desta story ela simplesmente não existia para rascunho, e a
+             mesma decisão na listagem produzia um botão que explicava — duas
+             telas, dois tratamentos. Agora as duas levam ao mesmo lugar. */
+          afirmar(
+            "e a ação de ver NÃO some: ela leva à pré-visualização, sob o Painel e em aba nova",
+            tela.acaoDeVer()?.getAttribute("data-acao-ver") ===
+              modulo.regrasDasAcoes.DESTINO_PREVIA &&
+              tela.acaoDeVer()?.getAttribute("href") ===
+                `/admin/previa/${ID_DO_CICLO}` &&
+              tela.acaoDeVer()?.getAttribute("target") === "_blank" &&
+              /noopener/.test(tela.acaoDeVer()?.getAttribute("rel") ?? ""),
+            `${tela.acaoDeVer()?.getAttribute("data-acao-ver")} ${tela.acaoDeVer()?.getAttribute("href")}`,
           );
         }
         afirmar(
@@ -4449,7 +4349,10 @@ if (janela && schema && configuracao && compilado) {
       },
       {
         id: ID_C,
-        slug: "rascunho-sem-categoria",
+        /* SEM ENDEREÇO, de propósito: é o rascunho que a Story 2.12 recusava
+           com um motivo próprio ("ainda não tem endereço") e que a 2.13 abre
+           assim mesmo, porque a prévia é por identificador. */
+        slug: "",
         titulo: "Rascunho sem categoria",
         autor_nome: "Ana Ribeiro",
         categoria: null,
@@ -4938,7 +4841,7 @@ if (janela && schema && configuracao && compilado) {
 
     afirmar(
       "`acoes.js` é módulo próprio e chega ao pacote — as frases das ações são executáveis, não JSX lido",
-      acoes !== null && typeof acoes.motivoDeNaoVerNoSite === "function",
+      acoes !== null && typeof acoes.destinoDeVer === "function",
     );
 
     /* ─── NENHUM BLOCO DESTA SEÇÃO PASSA POR VACUIDADE ────────────────────
@@ -4958,9 +4861,20 @@ if (janela && schema && configuracao && compilado) {
 
     /* ── As regras puras, EXECUTADAS ──────────────────────────────────── */
     if (acoes && estadosDoDominio) {
-      const PUBLICADO = { id: "x", titulo: "Guia de atalhos", slug: "guia-de-atalhos", estado: "publicado", destaque: true };
-      const RASCUNHO = { id: "y", titulo: "Rascunho sem categoria", slug: "rascunho-sem-categoria", estado: "rascunho", destaque: false };
-      const SEM_ENDERECO = { id: "z", titulo: "Post sem endereço", slug: "   ", estado: "publicado" };
+      /* Os identificadores são `uuid` de verdade porque o endereço da prévia é
+         montado a partir deles, com a MESMA conferência de formato da camada de
+         dados. Um "x" no lugar faria a prévia parecer indisponível e a asserção
+         provaria o contrário do que a Story 2.13 entrega. */
+      const PUBLICADO = { id: "aaaaaaaa-1111-4111-8111-111111111111", titulo: "Guia de atalhos", slug: "guia-de-atalhos", estado: "publicado", destaque: true };
+      const RASCUNHO = { id: "cccccccc-3333-4333-8333-333333333333", titulo: "Rascunho sem categoria", slug: "rascunho-sem-categoria", estado: "rascunho", destaque: false };
+      const SEM_ENDERECO = { id: "eeeeeeee-5555-4555-8555-555555555555", titulo: "Post sem endereço", slug: "   ", estado: "publicado" };
+      /* OS DOIS casos que sobraram sem destino depois da Story 2.13. Eles são
+         diferentes, e por isso são dois: o Post que ainda não foi gravado (a
+         saída é salvar) e o Post cujo identificador está corrompido (mandar
+         salvar seria mandar refazer um trabalho já feito, por um defeito que
+         não é de quem está olhando). */
+      const SEM_IDENTIFICADOR = { id: null, titulo: "Post que nunca foi salvo", slug: "", estado: "rascunho" };
+      const IDENTIFICADOR_CORROMPIDO = { id: "nao-e-uuid", titulo: "Post com id estragado", slug: "", estado: "rascunho" };
 
       afirmar(
         "Post sem título vira “post sem título” nas frases — uma confirmação que diz “Excluir “”?” é pior que nenhuma",
@@ -4989,31 +4903,93 @@ if (janela && schema && configuracao && compilado) {
           ),
       );
 
+      /* ─── A AÇÃO DE VER TEM DESTINO PARA OS DOIS LADOS (Story 2.13) ────
+         Antes desta story, Post não publicado caía num beco: a ação existia,
+         ficava indisponível e explicava. Agora ela LEVA — e o vocabulário é um
+         só, consultado pela linha e pelo Editor. */
       afirmar(
-        "e o motivo da indisponibilidade tem as DUAS metades: o que houve e o que fazer",
-        acoes.motivoDeNaoVerNoSite(PUBLICADO) === null &&
+        "Post publicado vai para o SITE; rascunho, agendado e arquivado vão para a PRÉVIA — e a prévia é sob o Painel",
+        acoes.destinoDeVer(PUBLICADO)?.tipo === acoes.DESTINO_SITE &&
+          acoes.destinoDeVer(PUBLICADO)?.endereco === "/blog/guia-de-atalhos" &&
           ["rascunho", "agendado", "arquivado"].every((estado) => {
-            const motivo = acoes.motivoDeNaoVerNoSite({ ...PUBLICADO, estado });
+            const destino = acoes.destinoDeVer({ ...PUBLICADO, estado });
             return (
-              motivo !== null &&
-              typeof motivo.oQueHouve === "string" &&
-              motivo.oQueHouve.includes("Guia de atalhos") &&
-              motivo.oQueHouve
-                .toLowerCase()
-                .includes(estadosDoDominio.rotuloDoEstado(estado).toLowerCase()) &&
-              typeof motivo.oQueFazer === "string" &&
-              motivo.oQueFazer.trim() !== ""
+              destino?.tipo === acoes.DESTINO_PREVIA &&
+              destino.endereco === `/admin/previa/${PUBLICADO.id}` &&
+              destino.endereco.startsWith("/admin/")
             );
           }),
-        JSON.stringify(acoes.motivoDeNaoVerNoSite(RASCUNHO)),
+        JSON.stringify(acoes.destinoDeVer(RASCUNHO)),
       );
       afirmar(
-        "a palavra do motivo vem do VOCABULÁRIO fechado, e Post sem endereço tem motivo PRÓPRIO — são dois problemas diferentes",
-        acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)?.oQueHouve !==
-          acoes.motivoDeNaoVerNoSite(RASCUNHO)?.oQueHouve &&
-          acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)?.oQueFazer !==
-            acoes.motivoDeNaoVerNoSite(RASCUNHO)?.oQueFazer,
-        JSON.stringify(acoes.motivoDeNaoVerNoSite(SEM_ENDERECO)),
+        "e NÃO TER ENDEREÇO deixou de ser recusa: a prévia abre por identificador, que é o que o rascunho sempre tem",
+        acoes.enderecoPublico(SEM_ENDERECO) === "" &&
+          acoes.destinoDeVer(SEM_ENDERECO)?.tipo === acoes.DESTINO_PREVIA &&
+          acoes.destinoDeVer(SEM_ENDERECO)?.endereco ===
+            `/admin/previa/${SEM_ENDERECO.id}`,
+        JSON.stringify(acoes.destinoDeVer(SEM_ENDERECO)),
+      );
+      afirmar(
+        "os dois casos sem destino são reconhecidos, e quem TEM destino não produz motivo nenhum",
+        acoes.destinoDeVer(SEM_IDENTIFICADOR) === null &&
+          acoes.destinoDeVer(IDENTIFICADOR_CORROMPIDO) === null &&
+          acoes.motivoDeNaoVer(PUBLICADO) === null &&
+          acoes.motivoDeNaoVer(RASCUNHO) === null &&
+          acoes.motivoDeNaoVer(SEM_ENDERECO) === null,
+        JSON.stringify(acoes.motivoDeNaoVer(SEM_IDENTIFICADOR)),
+      );
+      /* ─── DUAS CAUSAS, DUAS FRASES ────────────────────────────────────
+         A primeira versão dizia "ainda não foi gravado no servidor" para os
+         dois — e para o identificador corrompido isso é FALSO: o Post foi
+         gravado, e mandar salvar de novo manda a pessoa refazer um trabalho
+         já feito por um defeito que não é dela. É o mesmo cuidado que o ramo
+         "sem endereço" da Story 2.12 tinha. */
+      {
+        const semId = acoes.motivoDeNaoVer(SEM_IDENTIFICADOR);
+        const corrompido = acoes.motivoDeNaoVer(IDENTIFICADOR_CORROMPIDO);
+        afirmar(
+          "cada uma das duas causas tem frase PRÓPRIA, com as duas metades e nomeando o Post",
+          [semId, corrompido].every(
+            (m) =>
+              typeof m?.oQueHouve === "string" &&
+              m.oQueHouve.trim() !== "" &&
+              typeof m.oQueFazer === "string" &&
+              m.oQueFazer.trim() !== "",
+          ) &&
+            semId.oQueHouve.includes("Post que nunca foi salvo") &&
+            corrompido.oQueHouve.includes("Post com id estragado") &&
+            semId.oQueHouve !== corrompido.oQueHouve &&
+            semId.oQueFazer !== corrompido.oQueFazer,
+          `${semId?.oQueHouve} | ${corrompido?.oQueHouve}`,
+        );
+        afirmar(
+          "e só a do Post não gravado manda SALVAR — a outra não pede um trabalho que já foi feito",
+          /salve o post/i.test(semId.oQueFazer) &&
+            !/salve o post/i.test(corrompido.oQueFazer),
+          corrompido.oQueFazer,
+        );
+      }
+      afirmar(
+        "identificador FORA do formato não vira endereço de prévia — o que o banco não pode ter emitido não vira link",
+        ["x", "", "  ", "1234", `${PUBLICADO.id}x`, "../../etc"].every(
+          (id) => acoes.destinoDeVer({ id, estado: "rascunho", titulo: "t" }) === null,
+        ),
+        JSON.stringify(acoes.destinoDeVer({ id: "x", estado: "rascunho" })),
+      );
+      /* ─── A PENDÊNCIA VIAJA NO ENDEREÇO, e só para a prévia ───────────
+         A prévia lê do BANCO. Quem a abre do Editor com texto pendente confere
+         uma versão que não é a que está na tela dele. O site nunca mostrou
+         nada além do gravado, então o aviso não faz sentido lá. */
+      afirmar(
+        "o endereço da prévia carrega o aviso de alterações pendentes, e o do site NÃO carrega — lá nunca houve o que avisar",
+        acoes.destinoDeVer(RASCUNHO, { pendente: true }).endereco ===
+          `/admin/previa/${RASCUNHO.id}?pendente=1` &&
+          acoes.destinoDeVer(RASCUNHO, { pendente: false }).endereco ===
+            `/admin/previa/${RASCUNHO.id}` &&
+          acoes.destinoDeVer(RASCUNHO).endereco === `/admin/previa/${RASCUNHO.id}` &&
+          acoes.destinoDeVer(PUBLICADO, { pendente: true }).endereco ===
+            "/blog/guia-de-atalhos",
+        acoes.destinoDeVer(RASCUNHO, { pendente: true }).endereco,
       );
 
       afirmar(
@@ -5030,7 +5006,7 @@ if (janela && schema && configuracao && compilado) {
            nomeia o Post, e os quatro são distintos entre si. */
         const rotulos = [
           regras.rotuloParaAbrir(PUBLICADO),
-          acoes.rotuloDeVerNoSite(PUBLICADO),
+          acoes.rotuloDeVer(PUBLICADO),
           acoes.rotuloDeDestaque(PUBLICADO),
           acoes.rotuloDeExcluir(PUBLICADO),
         ];
@@ -5041,12 +5017,22 @@ if (janela && schema && configuracao && compilado) {
           rotulos.join(" | "),
         );
         afirmar(
-          "e o rótulo do controle indisponível diz o MOTIVO, não só que não dá",
-          acoes.rotuloDeVerIndisponivel(RASCUNHO).includes("Rascunho sem categoria") &&
-            acoes
-              .rotuloDeVerIndisponivel(RASCUNHO)
-              .includes(acoes.motivoDeNaoVerNoSite(RASCUNHO).oQueHouve),
-          acoes.rotuloDeVerIndisponivel(RASCUNHO),
+          "o rótulo de ver diz PARA ONDE vai — site e prévia não podem soar a mesma coisa",
+          acoes.rotuloDeVer(PUBLICADO) !== acoes.rotuloDeVer(RASCUNHO) &&
+            /site/i.test(acoes.rotuloDeVer(PUBLICADO)) &&
+            /pr[ée]-?visualiz/i.test(acoes.rotuloDeVer(RASCUNHO)) &&
+            acoes.rotuloDeVer(RASCUNHO).includes("Rascunho sem categoria"),
+          `${acoes.rotuloDeVer(PUBLICADO)} | ${acoes.rotuloDeVer(RASCUNHO)}`,
+        );
+        afirmar(
+          "e quando não há destino o rótulo diz o MOTIVO — o de cada causa, não um genérico para as duas",
+          [SEM_IDENTIFICADOR, IDENTIFICADOR_CORROMPIDO].every((post) =>
+            acoes.rotuloDeVer(post).includes(acoes.motivoDeNaoVer(post).oQueHouve),
+          ) &&
+            acoes.rotuloDeVer(SEM_IDENTIFICADOR).includes("Post que nunca foi salvo") &&
+            acoes.rotuloDeVer(IDENTIFICADOR_CORROMPIDO) !==
+              acoes.rotuloDeVer(SEM_IDENTIFICADOR),
+          acoes.rotuloDeVer(IDENTIFICADOR_CORROMPIDO),
         );
       }
 
@@ -5135,10 +5121,11 @@ if (janela && schema && configuracao && compilado) {
               acoes.tituloParaFrase(lixo);
               acoes.enderecoPublico(lixo);
               acoes.podeVerNoSite(lixo);
-              acoes.motivoDeNaoVerNoSite(lixo);
+              acoes.destinoDeVer(lixo);
+              acoes.motivoDeNaoVer(lixo);
               acoes.rotuloDeDestaque(lixo);
               acoes.rotuloDeExcluir(lixo);
-              acoes.rotuloDeVerIndisponivel(lixo);
+              acoes.rotuloDeVer(lixo);
               acoes.tituloDaExclusao(lixo);
               acoes.descricaoDaExclusao(lixo);
               acoes.textoDaAcaoEmCurso(lixo, "excluir");
@@ -5167,11 +5154,15 @@ if (janela && schema && configuracao && compilado) {
         comCopia.length === 0,
         comCopia.join(", "),
       );
+      /* E A DECISÃO É A MESMA NAS DUAS TELAS (Story 2.13). Não basta que cada
+         uma monte o endereço pelo módulo puro: quem responde "dá para ver isto,
+         e como" precisa ser a MESMA função, senão a linha oferece a prévia e o
+         Editor esconde a ação para o mesmo Post. */
       const semImportar = telas.filter(
-        (relativo) => !/enderecoPublico|podeVerNoSite/.test(ler(relativo)),
+        (relativo) => !/destinoDeVer/.test(ler(relativo)) || !/rotuloDeVer/.test(ler(relativo)),
       );
       afirmar(
-        "e as duas usam as MESMAS funções para decidir se dá para ver e para montar o endereço",
+        "e as duas usam a MESMA função para decidir para onde ver leva, e o MESMO rótulo",
         semImportar.length === 0,
         semImportar.join(", "),
       );
@@ -5286,67 +5277,173 @@ if (janela && schema && configuracao && compilado) {
         );
       }
 
-      /* ── VER NO SITE: link de verdade, ou motivo ────────────────────── */
+      /* ── VER: dois destinos, os dois com link de verdade ─────────────── */
       {
         const ver = tela.linha(ID_A)?.querySelector('[data-acao="ver"]');
         afirmar(
-          "Post publicado abre `/blog/:slug` em ABA NOVA, como link de verdade",
+          "Post publicado abre o endereço público em ABA NOVA, como link de verdade",
           ver?.tagName === "A" &&
             ver.getAttribute("href") === "/blog/guia-de-atalhos" &&
+            ver.getAttribute("data-destino-de-ver") === acoes.DESTINO_SITE &&
             ver.getAttribute("target") === "_blank" &&
             /noopener/.test(ver.getAttribute("rel") ?? ""),
           `${ver?.tagName} href=${ver?.getAttribute("href")} target=${ver?.getAttribute("target")}`,
         );
 
+        /* ─── E POST NÃO PUBLICADO DEIXOU DE SER UM BECO (Story 2.13) ────
+           Até a Story 2.12 este alvo era um botão que só sabia explicar por que
+           não dava. Agora ele LEVA — para a prévia, sob o portão, por
+           identificador, inclusive quando o rascunho não tem endereço nenhum. */
         const problemas = [];
         for (const id of [ID_B, ID_C, ID_D]) {
           const alvo = tela.linha(id)?.querySelector('[data-acao="ver"]');
           const post = POSTS_DE_PROVA.find((p) => p.id === id);
-          if (alvo?.tagName !== "BUTTON") problemas.push(`${post.estado}: é ${alvo?.tagName}`);
-          if (alvo?.hasAttribute("href")) problemas.push(`${post.estado}: tem endereço`);
-          if (alvo?.getAttribute("aria-disabled") !== "true") {
-            problemas.push(`${post.estado}: não se declara indisponível`);
+          if (alvo?.tagName !== "A") problemas.push(`${post.estado}: é ${alvo?.tagName}`);
+          if (alvo?.getAttribute("data-destino-de-ver") !== acoes.DESTINO_PREVIA) {
+            problemas.push(`${post.estado}: destino ${alvo?.getAttribute("data-destino-de-ver")}`);
           }
-          const motivo = acoes.motivoDeNaoVerNoSite(post)?.oQueHouve ?? "";
-          if (!(alvo?.getAttribute("aria-label") ?? "").includes(motivo)) {
-            problemas.push(`${post.estado}: o rótulo não diz o motivo`);
+          if (alvo?.getAttribute("href") !== `/admin/previa/${id}`) {
+            problemas.push(`${post.estado}: endereço ${alvo?.getAttribute("href")}`);
+          }
+          if (alvo?.getAttribute("target") !== "_blank") {
+            problemas.push(`${post.estado}: não abre em aba nova`);
+          }
+          if (alvo?.hasAttribute("aria-disabled")) {
+            problemas.push(`${post.estado}: ainda se declara indisponível`);
+          }
+          if (alvo?.getAttribute("aria-label") !== acoes.rotuloDeVer(post)) {
+            problemas.push(`${post.estado}: rótulo fora do vocabulário`);
           }
         }
         afirmar(
-          "e Post NÃO publicado tem a ação INDISPONÍVEL dizendo o motivo — nunca um link que erra",
+          "Post NÃO publicado leva à PRÉ-VISUALIZAÇÃO, sob `/admin` e por identificador — a ação deixou de ser indisponível",
           problemas.length === 0,
           problemas.join(" | "),
         );
-        afirmar(
-          "o alvo indisponível continua alcançável pelo teclado — `aria-disabled`, e não `disabled`: quem some não explica nada",
-          [ID_B, ID_C, ID_D].every((id) => {
-            const alvo = tela.linha(id)?.querySelector('[data-acao="ver"]');
-            return alvo !== null && !alvo.hasAttribute("disabled");
-          }),
-        );
 
-        /* E ELE DIZ O MOTIVO AO SER ACIONADO — que é a única coisa que ele
-           FAZ. Sem esta asserção, apagar o `onClick` dele deixava um botão que
-           não faz nada, com a suíte verde: o rótulo continuaria explicando, e
-           quem clicasse não receberia resposta alguma. */
-        modulo.controle.avisos = [];
-        await tela.clicar(tela.linha(ID_C)?.querySelector('[data-acao="ver"]'));
+        /* O rascunho de prova (ID_C) NÃO tem endereço: é o caso que a Story
+           2.12 recusava por um motivo próprio, e que agora abre assim mesmo. */
         {
-          const motivo = acoes.motivoDeNaoVerNoSite(
-            POSTS_DE_PROVA.find((x) => x.id === ID_C),
-          );
-          const aviso = modulo.controle.avisos[0] ?? null;
+          const rascunho = POSTS_DE_PROVA.find((p) => p.id === ID_C);
           afirmar(
-            "acionar o alvo indisponível ANUNCIA o motivo, nas duas metades — o que houve e o que fazer",
-            modulo.controle.avisos.length === 1 &&
-              aviso?.tom === "erro" &&
-              aviso.oQueHouve === motivo.oQueHouve &&
-              aviso.oQueFazer === motivo.oQueFazer,
-            JSON.stringify(modulo.controle.avisos),
+            "e o rascunho SEM endereço abre a prévia do mesmo jeito — ela não depende de slug",
+            String(rascunho.slug ?? "").trim() === "" &&
+              tela
+                .linha(ID_C)
+                ?.querySelector('[data-acao="ver"]')
+                ?.getAttribute("href") === `/admin/previa/${ID_C}`,
+            `slug: ${JSON.stringify(rascunho.slug)}`,
           );
         }
+
+        /* NENHUM ALVO DE VER NOTIFICA MAIS: acionar um link não produz aviso.
+           Sem esta linha, um alvo que continuasse sendo botão-que-explica
+           passaria despercebido pelas asserções acima se alguém trocasse só o
+           ramo publicado. */
+        modulo.controle.avisos = [];
+        await tela.clicar(tela.linha(ID_C)?.querySelector('[data-acao="ver"]'));
+        afirmar(
+          "acionar ver num Post não publicado NÃO anuncia recusa nenhuma — não há mais o que recusar",
+          modulo.controle.avisos.length === 0,
+          JSON.stringify(modulo.controle.avisos),
+        );
       }
 
+      await tela.desmontar();
+    }
+
+    /* ── O RAMO INDISPONÍVEL DA LINHA, QUE CONTINUA VIVO ──────────────────
+       A Story 2.13 tirou o Estado do caminho, mas NÃO apagou o ramo: Post sem
+       identificador utilizável continua sem ter para onde levar, e o controle
+       continua existindo e explicando. Os quatro Posts de prova têm `uuid`
+       válido, então esse ramo nunca é desenhado por eles — e uma lista própria
+       é o que impede o `else` de virar código vivo sem prova. Sabotagem que
+       passaria sem estas linhas: apagar o `onClick` que anuncia o motivo. */
+    if (acoes && regras) {
+      const SEM_ID = {
+        id: "",
+        slug: "",
+        titulo: "Post que nunca foi salvo",
+        autor_nome: "Ana Ribeiro",
+        categoria: null,
+        imagem_url: null,
+        destaque: false,
+        tempo_leitura: 0,
+        estado: "rascunho",
+        publicado_em: null,
+        atualizado_em: "2027-03-10T12:00:00.000Z",
+      };
+      const ID_CORROMPIDO = {
+        ...SEM_ID,
+        id: "nao-e-uuid",
+        titulo: "Post com id estragado",
+      };
+      const SEM_DESTINO = [SEM_ID, ID_CORROMPIDO];
+
+      modulo.controle.aoListar = null;
+      modulo.controle.listagem = { ok: true, dados: SEM_DESTINO };
+      const tela = await montarLista({});
+
+      const alvoDeVer = (id) =>
+        tela.alvo.querySelector(`[data-post="${id}"] [data-acao="ver"]`);
+
+      const problemas = [];
+      for (const post of SEM_DESTINO) {
+        const alvo = alvoDeVer(post.id);
+        const nome = post.titulo;
+        if (alvo?.tagName !== "BUTTON") problemas.push(`${nome}: é ${alvo?.tagName}`);
+        if (alvo?.hasAttribute("href")) problemas.push(`${nome}: virou link`);
+        if (alvo?.getAttribute("aria-disabled") !== "true") {
+          problemas.push(`${nome}: não se declara indisponível`);
+        }
+        if (alvo?.getAttribute("aria-label") !== acoes.rotuloDeVer(post)) {
+          problemas.push(`${nome}: rótulo fora do vocabulário`);
+        }
+      }
+      afirmar(
+        "Post sem identificador utilizável mantém a ação INDISPONÍVEL dizendo o motivo — nunca um link que erra",
+        problemas.length === 0,
+        problemas.join(" | "),
+      );
+      afirmar(
+        "o alvo indisponível continua alcançável pelo teclado — `aria-disabled`, e não `disabled`: quem some não explica nada",
+        SEM_DESTINO.every((post) => {
+          const alvo = alvoDeVer(post.id);
+          return alvo !== null && !alvo.hasAttribute("disabled");
+        }),
+      );
+
+      /* E ELE DIZ O MOTIVO AO SER ACIONADO — que é a única coisa que ele FAZ.
+         Sem esta asserção, apagar o `onClick` dele deixava um botão que não faz
+         nada, com a suíte verde: o rótulo continuaria explicando, e quem
+         clicasse não receberia resposta alguma. */
+      for (const post of SEM_DESTINO) {
+        modulo.controle.avisos = [];
+        await tela.clicar(alvoDeVer(post.id));
+        const motivo = acoes.motivoDeNaoVer(post);
+        const aviso = modulo.controle.avisos[0] ?? null;
+        afirmar(
+          `acionar o alvo indisponível de “${post.titulo}” ANUNCIA o motivo, nas duas metades`,
+          modulo.controle.avisos.length === 1 &&
+            aviso?.tom === "erro" &&
+            aviso.oQueHouve === motivo.oQueHouve &&
+            aviso.oQueFazer === motivo.oQueFazer,
+          JSON.stringify(modulo.controle.avisos),
+        );
+      }
+      /* E as duas causas ANUNCIAM COISAS DIFERENTES: um anúncio só para as duas
+         mandaria salvar um Post que já foi salvo. */
+      afirmar(
+        "e as duas causas anunciam frases diferentes — o motivo é do Post, não do ramo",
+        acoes.motivoDeNaoVer(SEM_ID).oQueFazer !==
+          acoes.motivoDeNaoVer(ID_CORROMPIDO).oQueFazer,
+        acoes.motivoDeNaoVer(ID_CORROMPIDO).oQueFazer,
+      );
+      afirmar(
+        "o React não reclamou ao desenhar as linhas sem destino",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
       await tela.desmontar();
     }
 
@@ -5824,6 +5921,942 @@ if (janela && schema && configuracao && compilado) {
           escritaCrua.test("await fetch(rota)") &&
           !escritaCrua.test("Array.from({ length: 4 }, (_, i) => i)"),
       );
+    }
+
+    /* ─── (n) A PRÉ-VISUALIZAÇÃO (Story 2.13) ─────────────────────────── */
+
+    secao("(n) a pré-visualização: o que se vê é o que sairá");
+
+    const previa = modulo.regrasDaPrevia ?? null;
+    const rotas = modulo.regrasDasRotas ?? null;
+
+    afirmar(
+      "`previa.js` é módulo próprio e chega ao pacote — as frases e as situações são executáveis, não JSX lido",
+      previa !== null &&
+        typeof previa.falaDaSituacao === "function" &&
+        typeof previa.situacaoDoErro === "function" &&
+        typeof previa.aplicarNoindex === "function",
+    );
+    afirmar(
+      "e os ENDEREÇOS moram em `rotas.js`, não no módulo da tela — vocabulário compartilhado não pende de uma superfície só",
+      rotas !== null &&
+        typeof rotas.enderecoDaPrevia === "function" &&
+        typeof rotas.ehIdentificadorDePost === "function" &&
+        /* A seta aponta para o vocabulário, e não o contrário: se `rotas.js`
+           importasse a tela, o módulo que a listagem e o Editor consultam
+           passaria a depender de uma superfície. */
+        !/from\s+["']@\/admin\/blog\/previa["']/.test(ler(CAMINHO_MODULO_DAS_ROTAS)) &&
+        /from\s+["']@\/admin\/blog\/rotas["']/.test(ler(CAMINHO_MODULO_DAS_ACOES)),
+      "acoes.js precisa ler os endereços de rotas.js, e rotas.js não pode conhecer a tela",
+    );
+
+    if (previa && rotas) {
+      /* ── As regras puras, EXECUTADAS ────────────────────────────────── */
+      afirmar(
+        "a rota da prévia é RELATIVA ao pai `/admin` — é isso que a faz nascer dentro do portão, e não ao lado dele",
+        rotas.ROTA_DA_PREVIA === "previa/:id" &&
+          !rotas.ROTA_DA_PREVIA.startsWith("/") &&
+          rotas.BASE_DO_PAINEL === "/admin" &&
+          rotas.ROTA_DESCONHECIDA === "*",
+        `${rotas.BASE_DO_PAINEL} + ${rotas.ROTA_DA_PREVIA}`,
+      );
+      afirmar(
+        "erro tipado vira situação da tela, e as QUATRO são DISTINTAS — ausência, permissão, falha que passa e falha que fica",
+        previa.situacaoDoErro({ tipo: "nao_encontrado" }) === previa.SITUACAO_AUSENTE &&
+          previa.situacaoDoErro({ tipo: "permissao" }) === previa.SITUACAO_SEM_PERMISSAO &&
+          previa.situacaoDoErro({ tipo: "rede" }) === previa.SITUACAO_FALHA &&
+          previa.situacaoDoErro({ tipo: "configuracao" }) ===
+            previa.SITUACAO_FALHA_PERMANENTE &&
+          previa.situacaoDoErro({ tipo: "inesperado" }) ===
+            previa.SITUACAO_FALHA_PERMANENTE &&
+          previa.situacaoDoErro(null) === previa.SITUACAO_FALHA_PERMANENTE &&
+          new Set(previa.SITUACOES_SEM_ARTIGO).size === 4,
+        previa.SITUACOES_SEM_ARTIGO.join(", "),
+      );
+      /* A LEITURA É POR LISTA DE PERMISSÃO: tipo desconhecido não vira falha de
+         rede com um botão que promete o que não pode cumprir. */
+      afirmar(
+        "tipo de erro desconhecido cai na falha PERMANENTE, e não na que oferece repetir",
+        ["quem-sabe", "", undefined, 42].every(
+          (tipo) =>
+            previa.situacaoDoErro({ tipo }) === previa.SITUACAO_FALHA_PERMANENTE,
+        ),
+        String(previa.situacaoDoErro({ tipo: "quem-sabe" })),
+      );
+      /* ─── A ORDEM DOS RAMOS É REGRA, E ELA É EXECUTÁVEL ──────────────
+         Um identificador ruim que chega por NAVEGAÇÃO encontra `carregando`
+         ainda ligado do endereço anterior. Com `carregando` julgado primeiro, a
+         tela desenha o esqueleto de uma leitura que nunca vai sair — e o quadro
+         em que isso acontece é curto demais para qualquer asserção de DOM
+         pegar: o `act` do React descarrega o efeito antes de a leitura da tela
+         acontecer. Medido: com a ordem invertida, a montagem continuava verde.
+         Por isso a derivação saiu do ternário do JSX e virou tabela. */
+      afirmar(
+        "identificador inválido vence `carregando` na derivação — a combinação que a navegação produz não vira esqueleto eterno",
+        previa.situacaoDaTela({ valido: false, carregando: true }) ===
+          previa.SITUACAO_AUSENTE &&
+          previa.situacaoDaTela({ valido: false, carregando: true, post: { id: 1 } }) ===
+            previa.SITUACAO_AUSENTE &&
+          previa.situacaoDaTela({ valido: false, carregando: false }) ===
+            previa.SITUACAO_AUSENTE,
+        String(previa.situacaoDaTela({ valido: false, carregando: true })),
+      );
+      afirmar(
+        "e a tabela cobre as outras combinações: espera, erro tipado, pronta e ausência por resposta vazia",
+        previa.situacaoDaTela({ valido: true, carregando: true }) ===
+          previa.SITUACAO_CARREGANDO &&
+          previa.situacaoDaTela({ valido: true, erro: { tipo: "permissao" } }) ===
+            previa.SITUACAO_SEM_PERMISSAO &&
+          previa.situacaoDaTela({ valido: true, post: { id: 1 } }) ===
+            previa.SITUACAO_PRONTA &&
+          previa.situacaoDaTela({ valido: true }) === previa.SITUACAO_AUSENTE &&
+          previa.situacaoDaTela() === previa.SITUACAO_AUSENTE,
+        String(previa.situacaoDaTela({ valido: true, carregando: true })),
+      );
+      /* E O ERRO VENCE O POST ANTIGO: uma releitura que falha não pode deixar na
+         tela o artigo da leitura anterior como se ainda valesse. */
+      afirmar(
+        "erro vence post antigo — releitura que falha não deixa o artigo velho na tela como se ainda valesse",
+        previa.situacaoDaTela({
+          valido: true,
+          erro: { tipo: "rede" },
+          post: { id: 1 },
+        }) === previa.SITUACAO_FALHA,
+      );
+
+      /* ─── O ESTADO INICIAL, PELO MESMO MOTIVO ────────────────────────
+         Nascer `false` com identificador VÁLIDO faz o primeiro quadro dizer
+         "este post não existe" sobre um Post que está sendo lido naquele
+         instante — e o `act` descarrega o efeito antes de a tela ser lida, então
+         a montagem não vê. Medido: a sabotagem passava verde. */
+      afirmar(
+        "a tela só nasce esperando quando HÁ o que esperar — e nasce esperando quando há",
+        previa.nasceCarregando(true) === true &&
+          previa.nasceCarregando(false) === false &&
+          previa.nasceCarregando(undefined) === false &&
+          previa.nasceCarregando("sim") === false,
+        String(previa.nasceCarregando(true)),
+      );
+      afirmar(
+        "e é essa função que a tela usa como estado inicial — um literal ali reabriria o engano sem ninguém acusar",
+        /useState\(\s*\(\)\s*=>\s*nasceCarregando\(valido\)\s*\)/.test(ler(CAMINHO_PREVIA)),
+        (/const \[carregando[^;]*;/.exec(ler(CAMINHO_PREVIA)) ?? [])[0] ?? "",
+      );
+      afirmar(
+        "e a derivação da situação também vem do módulo — nenhum ternário de ramos na tela",
+        /situacaoDaTela\(\{\s*valido,\s*carregando,\s*erro,\s*post\s*\}\)/.test(
+          ler(CAMINHO_PREVIA),
+        ),
+        (/const situacao[^;]*;/.exec(ler(CAMINHO_PREVIA)) ?? [])[0] ?? "",
+      );
+
+      afirmar(
+        "cada situação diz o que houve E o que fazer, e só oferece repetir onde repetir pode dar certo",
+        previa.SITUACOES_SEM_ARTIGO.every((s) => {
+          const fala = previa.falaDaSituacao(s);
+          return (
+            typeof fala.oQueHouve === "string" &&
+            fala.oQueHouve.trim() !== "" &&
+            typeof fala.oQueFazer === "string" &&
+            fala.oQueFazer.trim() !== ""
+          );
+        }) &&
+          previa.falaDaSituacao(previa.SITUACAO_FALHA).repetir === true &&
+          previa.falaDaSituacao(previa.SITUACAO_AUSENTE).repetir === false &&
+          previa.falaDaSituacao(previa.SITUACAO_SEM_PERMISSAO).repetir === false &&
+          previa.falaDaSituacao(previa.SITUACAO_FALHA_PERMANENTE).repetir === false,
+        JSON.stringify(previa.falaDaSituacao(previa.SITUACAO_AUSENTE)),
+      );
+      /* E AS DUAS FALHAS DIZEM COISAS DIFERENTES. A permanente não pode culpar
+         a conexão: manda procurar o problema no lugar errado. */
+      afirmar(
+        "a falha permanente não MANDA conferir a conexão nem tentar de novo — a de rede é que faz isso",
+        !/\b(confira|verifique|tente|recarregue)\b/i.test(
+          previa.falaDaSituacao(previa.SITUACAO_FALHA_PERMANENTE).oQueFazer,
+        ) &&
+          /conex[ãa]o/i.test(previa.falaDaSituacao(previa.SITUACAO_FALHA).oQueFazer) &&
+          previa.falaDaSituacao(previa.SITUACAO_FALHA_PERMANENTE).oQueHouve !==
+            previa.falaDaSituacao(previa.SITUACAO_FALHA).oQueHouve,
+        previa.falaDaSituacao(previa.SITUACAO_FALHA_PERMANENTE).oQueFazer,
+      );
+      afirmar(
+        "e situação fora da lista fechada FALHA ALTO — objeto neutro produziria a tela em branco que esta story existe para impedir",
+        tentar(
+          "falaDaSituacao com situação inventada",
+          () => {
+            try {
+              previa.falaDaSituacao("quase-la");
+              return false;
+            } catch {
+              return true;
+            }
+          },
+          false,
+        ),
+      );
+      if (voz) {
+        afirmar(
+          "as frases das situações passam pelas guardas de voz — o que houve é fato, o que fazer tem saída",
+          previa.SITUACOES_SEM_ARTIGO.every((s) => {
+            const fala = previa.falaDaSituacao(s);
+            return (
+              voz.diagnosticarMensagem("o que houve", fala.oQueHouve) === null &&
+              voz.diagnosticarMensagem("o que fazer", fala.oQueFazer) === null
+            );
+          }) &&
+            voz.diagnosticarRotuloDeAcao(previa.ROTULO_DE_VOLTAR) === null &&
+            voz.diagnosticarRotuloDeAcao(previa.ROTULO_DE_REPETIR) === null,
+          `${previa.ROTULO_DE_VOLTAR} | ${previa.ROTULO_DE_REPETIR}`,
+        );
+        /* ─── E O RESTO DO VOCABULÁRIO NOVO TAMBÉM ────────────────────
+           Meia cobertura é o mesmo que nenhuma para o que ficou de fora: as
+           frases que a tela DIZ — o aviso permanente, o artigo vazio, o
+           anúncio de carregamento, o título da tela e o detalhe da ausência —
+           passam pelas mesmas guardas que as das situações. */
+        {
+          const frases = [
+            ["AVISO_DA_PREVIA", previa.AVISO_DA_PREVIA],
+            ["AVISO_DE_PENDENCIA", previa.AVISO_DE_PENDENCIA],
+            ["ARTIGO_VAZIO", previa.ARTIGO_VAZIO],
+            ["TEXTO_DE_CARREGANDO", previa.TEXTO_DE_CARREGANDO],
+            ["TITULO_DA_TELA", previa.TITULO_DA_TELA],
+            ["DETALHE_DE_IDENTIFICADOR_INVALIDO", previa.DETALHE_DE_IDENTIFICADOR_INVALIDO],
+          ];
+          const reprovadas = frases.filter(
+            ([, frase]) => voz.diagnosticarMensagem("o que houve", frase) !== null,
+          );
+          afirmar(
+            "e as SEIS frases restantes da tela passam pelas mesmas guardas — meia cobertura é nenhuma para o que ficou de fora",
+            reprovadas.length === 0 &&
+              frases.every(([, frase]) => typeof frase === "string" && frase.trim() !== ""),
+            reprovadas
+              .map(([nome, frase]) => `${nome}: ${voz.diagnosticarMensagem("o que houve", frase)}`)
+              .join(" | "),
+          );
+        }
+      }
+
+      /* ── A TELA, MONTADA ────────────────────────────────────────────── */
+      const roteador = await tentar(
+        "`react-router-dom` importa para montar a rota da prévia",
+        () => import("react-router-dom"),
+        null,
+      );
+
+      /** Monta a prévia no endereço pedido, com a rota declarada pelo módulo. */
+      /* AS ROTAS FILHAS SÃO AS DE `main.jsx`, inclusive a apanha-tudo: sem ela,
+         `/admin/previa` sem identificador e `/admin/qualquer-coisa` não casam
+         com filha nenhuma, o `Outlet` fica vazio e o Autor recebe página em
+         branco. Montar só a rota feliz esconderia exatamente esse buraco. */
+      const filhasDoPainel = () => [
+        React.createElement(roteador.Route, {
+          key: "previa",
+          path: `${rotas.BASE_DO_PAINEL}/${rotas.ROTA_DA_PREVIA}`,
+          element: React.createElement(modulo.PreVisualizacaoDePost),
+        }),
+        React.createElement(roteador.Route, {
+          key: "desconhecida",
+          path: `${rotas.BASE_DO_PAINEL}/${rotas.ROTA_DESCONHECIDA}`,
+          element: React.createElement(modulo.PreVisualizacaoDePost),
+        }),
+      ];
+
+      /** Monta a prévia. `endereco` é absoluto; `identificador` é o atalho. */
+      const montarPreviaEm = async (endereco) => {
+        const alvo = janela.document.createElement("div");
+        janela.document.body.appendChild(alvo);
+        const reclamacoes = [];
+        const erroOriginal = console.error;
+        console.error = (...partes) => reclamacoes.push(partes.join(" "));
+
+        const raizReact = createRoot(alvo);
+        /* O PILOTO existe para navegar DE VERDADE. `initialEntries` só vale na
+           primeira montagem: redesenhar o roteador com outro endereço não
+           navega, e uma asserção escrita assim provaria que nada aconteceu.
+           Ele fica fora de `Routes` e não desenha nada. */
+        let navegar = null;
+        const Piloto = () => {
+          navegar = roteador.useNavigate();
+          return null;
+        };
+        const desenhar = (onde) =>
+          React.createElement(
+            roteador.MemoryRouter,
+            { initialEntries: [onde] },
+            React.createElement(Piloto, { key: "piloto" }),
+            React.createElement(roteador.Routes, { key: "rotas" }, ...filhasDoPainel()),
+          );
+        await act(async () => {
+          raizReact.render(desenhar(endereco));
+        });
+        return {
+          alvo,
+          reclamacoes,
+          raiz: () => alvo.querySelector('[data-tela="previa"]'),
+          situacao: () =>
+            alvo.querySelector('[data-tela="previa"]')?.getAttribute("data-situacao") ?? null,
+          artigo: () => alvo.querySelector('[data-papel="artigo"]'),
+          artigoVazio: () => alvo.querySelector('[data-papel="artigo-vazio"]'),
+          esqueleto: () => alvo.querySelector('[data-papel="esqueleto"]'),
+          aviso: () =>
+            (alvo.querySelector('[data-papel="aviso-da-previa"]')?.textContent ?? "").trim(),
+          avisoDePendencia: () =>
+            alvo.querySelector('[data-papel="aviso-de-pendencia"]'),
+          resumo: () =>
+            (alvo.querySelector('[data-papel="resumo"]')?.textContent ?? "").trim(),
+          voltar: () => alvo.querySelector('[data-acao="voltar"]'),
+          repetir: () => alvo.querySelector('[data-acao="repetir"]'),
+          oQueHouve: () =>
+            (alvo.querySelector('[data-papel="o-que-houve"]')?.textContent ?? "").trim(),
+          oQueFazer: () =>
+            (alvo.querySelector('[data-papel="o-que-fazer"]')?.textContent ?? "").trim(),
+          detalhe: () =>
+            (alvo.querySelector('[data-papel="detalhe"]')?.textContent ?? "").trim(),
+          texto: () => alvo.textContent ?? "",
+          /* NAVEGAR SEM DESMONTAR. É o caminho que revela a ordem dos ramos:
+             um identificador ruim que chega por navegação, com `carregando`
+             ainda `true` do render anterior, mostraria o esqueleto de uma
+             leitura que nunca vai sair. */
+          async irPara(outro) {
+            await act(async () => {
+              navegar(outro);
+            });
+          },
+          async clicar(elemento) {
+            await act(async () => {
+              elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+            });
+          },
+          async desmontar() {
+            console.error = erroOriginal;
+            await act(async () => raizReact.unmount());
+            alvo.remove();
+          },
+        };
+      };
+
+      const montarPrevia = (identificador) =>
+        montarPreviaEm(
+          `${rotas.BASE_DO_PAINEL}/${rotas.SEGMENTO_DA_PREVIA}/${identificador}`,
+        );
+
+      if (roteador) {
+        const ID_DA_PREVIA = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+
+        /* ── O QUE SE VÊ É O QUE SAIRÁ ────────────────────────────────
+           O documento e o HTML gravado DIVERGEM de propósito. É a única
+           forma de distinguir "mostra o gravado" de "rederiva na hora":
+           enquanto os dois coincidem, as duas implementações passam. */
+        const TEXTO_GRAVADO = "ISTO VEIO DO CONTEUDO GRAVADO";
+        const TEXTO_DERIVADO = "ISTO SERIA DERIVADO AGORA";
+        const documentoDivergente = {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: TEXTO_DERIVADO }] },
+          ],
+        };
+        const postDaPrevia = {
+          id: ID_DA_PREVIA,
+          slug: "",
+          titulo: "Rascunho em conferência",
+          resumo: "O resumo do rascunho",
+          estado: "rascunho",
+          conteudo: documentoDivergente,
+          conteudo_html: `<h2>${TEXTO_GRAVADO}</h2><p>corpo do artigo</p>`,
+          publicado_em: null,
+          atualizado_em: "2027-03-10T12:00:00.000Z",
+        };
+
+        {
+          modulo.controle.aoLerPost = null;
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = { ok: true, dados: postDaPrevia };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+
+          afirmar(
+            "a prévia abre o Post PELO IDENTIFICADOR — é o que o rascunho tem desde que nasce, e o endereço ele pode não ter",
+            igual(modulo.controle.pedidos_de_post, [ID_DA_PREVIA]) &&
+              tela.situacao() === previa.SITUACAO_PRONTA,
+            `pedidos: ${JSON.stringify(modulo.controle.pedidos_de_post)} | situação: ${tela.situacao()}`,
+          );
+
+          afirmar(
+            "o artigo está dentro da classe global `.artigo` — a MESMA que o Editor veste e que o site vestirá",
+            /(^|\s)artigo(\s|$)/.test(tela.artigo()?.className ?? ""),
+            `classe: ${tela.artigo()?.className}`,
+          );
+
+          afirmar(
+            "e o HTML mostrado é o GRAVADO, não um derivado na hora — a promessa é o que sairá, não o que o renderizador de hoje produziria",
+            (tela.artigo()?.innerHTML ?? "").includes(TEXTO_GRAVADO) &&
+              !tela.texto().includes(TEXTO_DERIVADO),
+            (tela.artigo()?.innerHTML ?? "").slice(0, 160),
+          );
+
+          /* AUTOTESTE da divergência: se o renderizador produzisse o mesmo
+             texto do gravado, a asserção acima passaria por acidente. */
+          if (modulo.renderizador) {
+            const derivado = modulo.renderizador.htmlDoDocumento(documentoDivergente);
+            afirmar(
+              "e a prova não passa por acidente: rederivar o documento produziria um texto DIFERENTE do gravado",
+              derivado.includes(TEXTO_DERIVADO) && !derivado.includes(TEXTO_GRAVADO),
+              derivado.slice(0, 160),
+            );
+          }
+
+          afirmar(
+            "a tela não IMPORTA o renderizador — derivar em tempo de leitura é impossível, não apenas evitado",
+            !/from\s+["']@\/render\//.test(ler(CAMINHO_PREVIA)) &&
+              !/htmlDoDocumento/.test(mascararComentariosJs(ler(CAMINHO_PREVIA))),
+            "a prévia mostra a projeção gravada na mesma transação",
+          );
+
+          /* O ARTIGO É MOSTRADO SOBRE O FUNDO DO SITE, e não o do Painel.
+             "O que se vê é o que sairá" não vale só para o texto: o par
+             texto/fundo é o que decide contraste, e é o motivo de `.artigo` ser
+             global. A raiz desta tela é `.painel`, onde `--background` resolve
+             OUTRO valor — pintar o artigo com ele o mostraria sobre um fundo que
+             o site nunca usa. O par em si é medido em `verificar:artigo`. */
+          afirmar(
+            "o artigo é pintado com o token que `.painel` NÃO remapeia — o par texto/fundo é o mesmo que o visitante verá",
+            (tela.artigo()?.closest(`.${previa.CLASSE_DO_FUNDO_DO_ARTIGO}`) ?? null) !==
+              null,
+            `classe esperada: ${previa.CLASSE_DO_FUNDO_DO_ARTIGO}`,
+          );
+
+          afirmar(
+            "o Estado aparece por extenso, e a volta para a listagem existe",
+            tela.raiz()?.querySelector("[data-estado]")?.getAttribute("data-estado") ===
+              "rascunho" &&
+              tela.voltar()?.getAttribute("href") === rotas.BASE_DO_PAINEL,
+            `estado: ${tela.raiz()?.querySelector("[data-estado]")?.getAttribute("data-estado")} | volta: ${tela.voltar()?.getAttribute("href")}`,
+          );
+
+          /* O RESUMO É PARTE DO QUE SAI, e a prévia existe para conferir o que
+             sai. Sem esta linha, apagá-lo do JSX ficaria verde. */
+          afirmar(
+            "o resumo gravado aparece na prévia — ele também é conteúdo que vai ao ar",
+            tela.resumo() === postDaPrevia.resumo,
+            tela.resumo(),
+          );
+
+          /* O AVISO PERMANENTE é a ÚNICA marca que distingue esta página do
+             site publicado. Sem asserção, apagá-lo fica verde — e alguém confere
+             um rascunho, vê a página bonita e conclui que já está no ar. */
+          afirmar(
+            "o aviso permanente diz que isto é uma prévia sob o Painel — é a única marca que a distingue do site",
+            tela.aviso() === previa.AVISO_DA_PREVIA && previa.AVISO_DA_PREVIA.trim() !== "",
+            tela.aviso(),
+          );
+          /* E ele não é do ramo feliz: aparece TAMBÉM quando não há artigo. */
+          afirmar(
+            "e ele aparece mesmo quando não há artigo nenhum na tela",
+            await (async () => {
+              modulo.controle.post = {
+                ok: false,
+                erro: { tipo: "nao_encontrado", mensagem: "sumiu" },
+              };
+              const outra = await montarPrevia(ID_DA_PREVIA);
+              const visto = outra.aviso();
+              await outra.desmontar();
+              modulo.controle.post = { ok: true, dados: postDaPrevia };
+              return visto === previa.AVISO_DA_PREVIA;
+            })(),
+          );
+
+          /* SEM PENDÊNCIA DECLARADA, o aviso de versão antiga NÃO aparece: um
+             alarme que aparece sempre é ignorado em duas semanas. */
+          afirmar(
+            "sem o aviso de pendência no endereço, a tela não inventa um — alarme que aparece sempre é treinado a ser ignorado",
+            tela.avisoDePendencia() === null,
+          );
+
+          afirmar(
+            "o React não reclamou ao desenhar a prévia",
+            tela.reclamacoes.length === 0,
+            tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+          );
+
+          /* ── `noindex`, a SEGUNDA camada ───────────────────────────── */
+          {
+            const meta = janela.document.querySelector('meta[name="robots"]');
+            afirmar(
+              "a prévia declara `noindex` no documento ao montar — a segunda voz, dizendo o mesmo que o cabeçalho",
+              meta?.getAttribute("content") === previa.VALOR_DE_NOINDEX,
+              `meta: ${meta?.getAttribute("content") ?? "ausente"}`,
+            );
+          }
+
+          await tela.desmontar();
+
+          afirmar(
+            "e ela DESFAZ ao sair: a prévia é uma tela, não uma mudança permanente no documento",
+            janela.document.querySelector('meta[name="robots"]') === null,
+            String(
+              janela.document.querySelector('meta[name="robots"]')?.getAttribute("content"),
+            ),
+          );
+        }
+
+        /* A meta que o `index.html` serve para TODA rota é reescrita, e não
+           duplicada: duas diretivas contraditórias no mesmo documento é algo
+           que cada rastreador resolve do seu jeito. */
+        {
+          const metaDoSite = janela.document.createElement("meta");
+          metaDoSite.setAttribute("name", "robots");
+          metaDoSite.setAttribute("content", "index, follow");
+          janela.document.head.appendChild(metaDoSite);
+
+          modulo.controle.pedidos_de_post = [];
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          const metas = [...janela.document.querySelectorAll('meta[name="robots"]')];
+          afirmar(
+            "a meta do site é REESCRITA, e não duplicada — duas diretivas contraditórias cada rastreador resolve do seu jeito",
+            metas.length === 1 && metas[0].getAttribute("content") === previa.VALOR_DE_NOINDEX,
+            metas.map((m) => m.getAttribute("content")).join(" | "),
+          );
+          await tela.desmontar();
+          afirmar(
+            "e o valor ANTERIOR volta ao sair — a prévia não reescreve o documento do site inteiro",
+            janela.document.querySelector('meta[name="robots"]')?.getAttribute("content") ===
+              "index, follow",
+            String(
+              janela.document.querySelector('meta[name="robots"]')?.getAttribute("content"),
+            ),
+          );
+          metaDoSite.remove();
+        }
+
+        /* ── IDENTIFICADOR FORA DO FORMATO: ausência SEM pedido ───────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = { ok: true, dados: postDaPrevia };
+          const tela = await montarPrevia("nao-e-um-uuid");
+          afirmar(
+            "identificador fora do formato vira AUSÊNCIA e NENHUM pedido sai para a rede — o que o banco não pôde emitir não vira consulta",
+            tela.situacao() === previa.SITUACAO_AUSENTE &&
+              modulo.controle.pedidos_de_post.length === 0,
+            `situação: ${tela.situacao()} | pedidos: ${modulo.controle.pedidos_de_post.length}`,
+          );
+          afirmar(
+            "e ela DIZ que foi isso — “não achamos” e “não havia o que procurar” não são a mesma frase",
+            tela.detalhe() === previa.DETALHE_DE_IDENTIFICADOR_INVALIDO &&
+              tela.oQueHouve() ===
+                previa.falaDaSituacao(previa.SITUACAO_AUSENTE).oQueHouve,
+            `${tela.oQueHouve()} | ${tela.detalhe()}`,
+          );
+          afirmar(
+            "e a volta continua oferecida, com repetir ausente — Post que não existe não passa a existir por insistência",
+            tela.voltar()?.getAttribute("href") === rotas.BASE_DO_PAINEL &&
+              tela.repetir() === null,
+            `volta: ${tela.voltar()?.getAttribute("href")} | repetir: ${tela.repetir() !== null}`,
+          );
+          await tela.desmontar();
+        }
+
+        /* ── POST INEXISTENTE: ausência com a volta ───────────────────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = {
+            ok: false,
+            erro: { tipo: "nao_encontrado", mensagem: "Este post não foi encontrado." },
+          };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          afirmar(
+            "identificador bem-formado que não existe vira AUSÊNCIA — e o pedido SAIU, que é a diferença do caso anterior",
+            tela.situacao() === previa.SITUACAO_AUSENTE &&
+              modulo.controle.pedidos_de_post.length === 1 &&
+              tela.artigo() === null,
+            `situação: ${tela.situacao()} | pedidos: ${modulo.controle.pedidos_de_post.length}`,
+          );
+          afirmar(
+            "ela diz o que houve, o que fazer, e oferece a volta — nunca tela em branco",
+            tela.oQueHouve() !== "" &&
+              tela.oQueFazer() !== "" &&
+              tela.voltar()?.getAttribute("href") === rotas.BASE_DO_PAINEL,
+            `${tela.oQueHouve()} | ${tela.oQueFazer()}`,
+          );
+          await tela.desmontar();
+        }
+
+        /* ── FALTA DE PERMISSÃO: outra tela, outra saída ──────────────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = {
+            ok: false,
+            erro: { tipo: "permissao", mensagem: "Entre de novo para continuar." },
+          };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          afirmar(
+            "falta de permissão é uma tela PRÓPRIA, e não “não encontrado” — quem perdeu a sessão precisa saber que é isso",
+            tela.situacao() === previa.SITUACAO_SEM_PERMISSAO &&
+              tela.oQueHouve() ===
+                previa.falaDaSituacao(previa.SITUACAO_SEM_PERMISSAO).oQueHouve &&
+              tela.oQueHouve() !==
+                previa.falaDaSituacao(previa.SITUACAO_AUSENTE).oQueHouve,
+            `${tela.situacao()} | ${tela.oQueHouve()}`,
+          );
+          afirmar(
+            "e a frase TIPADA da camada chega à tela — ela já diz o que fazer, e trocá-la por uma genérica apagaria a única informação útil",
+            tela.detalhe() === "Entre de novo para continuar.",
+            tela.detalhe(),
+          );
+          await tela.desmontar();
+        }
+
+        /* ── FALHA DE LEITURA: erro com repetir, que RELÊ ─────────────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = {
+            ok: false,
+            erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor." },
+          };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          afirmar(
+            "falha de leitura vira ERRO que diz o que houve e o que fazer, com repetir — e nunca tela em branco",
+            tela.situacao() === previa.SITUACAO_FALHA &&
+              tela.raiz()?.querySelector('[role="alert"]') !== null &&
+              tela.oQueHouve() !== "" &&
+              tela.oQueFazer() !== "" &&
+              tela.repetir() !== null,
+            `${tela.situacao()} | repetir: ${tela.repetir() !== null}`,
+          );
+
+          /* O botão precisa REFAZER a leitura. Sem esta linha ele é enfeite:
+             um `useEffect` sem dependência que mude não roda outra vez. */
+          modulo.controle.post = { ok: true, dados: postDaPrevia };
+          await tela.clicar(tela.repetir());
+          afirmar(
+            "e repetir RELÊ de verdade: o segundo pedido sai, e a tela passa a mostrar o artigo",
+            modulo.controle.pedidos_de_post.length === 2 &&
+              tela.situacao() === previa.SITUACAO_PRONTA &&
+              (tela.artigo()?.innerHTML ?? "").includes(TEXTO_GRAVADO),
+            `pedidos: ${modulo.controle.pedidos_de_post.length} | situação: ${tela.situacao()}`,
+          );
+          await tela.desmontar();
+        }
+
+        /* ── CARREGANDO: o esqueleto que ninguém observava ────────────── */
+        {
+          let liberar = null;
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.aoLerPost = () =>
+            new Promise((resolve) => {
+              liberar = resolve;
+            });
+          const tela = await montarPrevia(ID_DA_PREVIA);
+
+          afirmar(
+            "enquanto a leitura corre, a tela mostra o ESQUELETO e anuncia o que está acontecendo — nunca tela em branco",
+            tela.situacao() === previa.SITUACAO_CARREGANDO &&
+              tela.esqueleto() !== null &&
+              tela.artigo() === null &&
+              tela.texto().includes(previa.TEXTO_DE_CARREGANDO),
+            `situação: ${tela.situacao()} | esqueleto: ${tela.esqueleto() !== null}`,
+          );
+          /* SABOTAGEM QUE ESTA LINHA PEGA: nascer `false` em vez de `valido`
+             faria o primeiro render de um identificador VÁLIDO dizer "Este post
+             não existe" — a tela afirmando o oposto do que está acontecendo. */
+          afirmar(
+            "e ela NÃO diz “não existe” antes de a resposta chegar — ausência e espera são coisas diferentes",
+            tela.oQueHouve() === "" &&
+              tela.situacao() !== previa.SITUACAO_AUSENTE,
+            tela.oQueHouve(),
+          );
+
+          await act(async () => {
+            liberar({ ok: true, dados: postDaPrevia });
+          });
+          afirmar(
+            "e quando a resposta chega o esqueleto sai e o artigo entra",
+            tela.situacao() === previa.SITUACAO_PRONTA &&
+              tela.esqueleto() === null &&
+              (tela.artigo()?.innerHTML ?? "").includes(TEXTO_GRAVADO),
+            `situação: ${tela.situacao()}`,
+          );
+          modulo.controle.aoLerPost = null;
+          await tela.desmontar();
+        }
+
+        /* ── POST SEM CORPO GRAVADO: o rascunho recém-criado ──────────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = {
+            ok: true,
+            dados: { ...postDaPrevia, conteudo_html: "" },
+          };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          afirmar(
+            "Post sem corpo gravado mostra o que fazer, e NÃO injeta um artigo vazio — é o caso do rascunho recém-criado",
+            tela.situacao() === previa.SITUACAO_PRONTA &&
+              tela.artigo() === null &&
+              (tela.artigoVazio()?.textContent ?? "").trim() === previa.ARTIGO_VAZIO,
+            `artigo: ${tela.artigo() !== null} | aviso: ${(tela.artigoVazio()?.textContent ?? "").trim()}`,
+          );
+          afirmar(
+            "e o título continua na tela — o Post existe, o que falta é o corpo",
+            tela.texto().includes(postDaPrevia.titulo),
+          );
+          modulo.controle.post = { ok: true, dados: postDaPrevia };
+          await tela.desmontar();
+        }
+
+        /* ── ALTERAÇÕES NÃO SALVAS: a prévia diz que mostra o gravado ─── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          const comAviso = await montarPreviaEm(
+            `${rotas.enderecoDaPreviaDeId(ID_DA_PREVIA, { pendente: true })}`,
+          );
+          afirmar(
+            "aberta com alterações pendentes, a prévia DIZ que mostra a última versão gravada — senão o Autor confere o texto errado achando ser o dele",
+            (comAviso.avisoDePendencia()?.textContent ?? "").trim() ===
+              previa.AVISO_DE_PENDENCIA &&
+              comAviso.situacao() === previa.SITUACAO_PRONTA,
+            String(comAviso.avisoDePendencia()?.textContent),
+          );
+          await comAviso.desmontar();
+        }
+
+        /* ── ENDEREÇO DESCONHECIDO SOB O PAINEL ───────────────────────── */
+        {
+          for (const endereco of [
+            `${rotas.BASE_DO_PAINEL}/${rotas.SEGMENTO_DA_PREVIA}`,
+            `${rotas.BASE_DO_PAINEL}/qualquer-coisa`,
+            `${rotas.BASE_DO_PAINEL}/${rotas.SEGMENTO_DA_PREVIA}/${ID_DA_PREVIA}/demais`,
+          ]) {
+            modulo.controle.pedidos_de_post = [];
+            const tela = await montarPreviaEm(endereco);
+            afirmar(
+              `“${endereco}” cai na tela de ausência, e não em página em branco`,
+              tela.raiz() !== null &&
+                tela.situacao() === previa.SITUACAO_AUSENTE &&
+                tela.oQueHouve() !== "" &&
+                tela.voltar()?.getAttribute("href") === rotas.BASE_DO_PAINEL &&
+                modulo.controle.pedidos_de_post.length === 0,
+              `situação: ${tela.situacao()} | pedidos: ${modulo.controle.pedidos_de_post.length}`,
+            );
+            await tela.desmontar();
+          }
+        }
+
+        /* ── TROCAR DE ENDEREÇO SEM DESMONTAR ─────────────────────────── */
+        {
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.post = { ok: true, dados: postDaPrevia };
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          const antes = tela.situacao();
+          await tela.irPara(`${rotas.BASE_DO_PAINEL}/${rotas.SEGMENTO_DA_PREVIA}/lixo`);
+          afirmar(
+            "trocar para um identificador ruim SEM desmontar vira ausência na hora — e não o esqueleto de uma leitura que nunca vai sair",
+            antes === previa.SITUACAO_PRONTA &&
+              tela.situacao() === previa.SITUACAO_AUSENTE &&
+              tela.esqueleto() === null &&
+              tela.detalhe() === previa.DETALHE_DE_IDENTIFICADOR_INVALIDO &&
+              modulo.controle.pedidos_de_post.length === 1,
+            `antes: ${antes} | depois: ${tela.situacao()} | pedidos: ${modulo.controle.pedidos_de_post.length}`,
+          );
+          await tela.desmontar();
+        }
+
+        /* ── A CAMADA REJEITANDO: promessa quebrada não é tela em branco ─ */
+        {
+          /* A rede de proteção é da FERRAMENTA, não do produto: sem tratamento
+             na tela, a promessa recusada vira rejeição não tratada e o Node
+             derruba o processo inteiro. Derrubar a execução esconde a falha
+             atrás de uma pilha, quando o que se quer é uma linha vermelha
+             dizendo qual asserção caiu. */
+          const rejeicoes = [];
+          const guarda = (motivo) => rejeicoes.push(motivo);
+          process.on("unhandledRejection", guarda);
+
+          modulo.controle.pedidos_de_post = [];
+          modulo.controle.aoLerPost = () =>
+            Promise.reject(new Error("a camada quebrou o contrato"));
+          const tela = await montarPrevia(ID_DA_PREVIA);
+          afirmar(
+            "leitura que REJEITA vira falha permanente que diz o que houve — e não um esqueleto girando para sempre",
+            tela.situacao() === previa.SITUACAO_FALHA_PERMANENTE &&
+              tela.esqueleto() === null &&
+              tela.oQueHouve() ===
+                previa.falaDaSituacao(previa.SITUACAO_FALHA_PERMANENTE).oQueHouve &&
+              tela.oQueFazer() !== "" &&
+              tela.repetir() === null,
+            `situação: ${tela.situacao()}`,
+          );
+          afirmar(
+            "e a mensagem da exceção chega à tela como detalhe — quem for avisar precisa ter o que dizer",
+            tela.detalhe().includes("a camada quebrou o contrato"),
+            tela.detalhe(),
+          );
+          afirmar(
+            "e a rejeição foi TRATADA pela tela: nenhuma sobrou solta para o processo",
+            rejeicoes.length === 0,
+            rejeicoes.map((r) => String(r?.message ?? r)).join(" | "),
+          );
+          process.off("unhandledRejection", guarda);
+          modulo.controle.aoLerPost = null;
+          await tela.desmontar();
+        }
+
+        /* ── O LINK DO SITE APONTA PARA O ENDEREÇO GRAVADO ───────────── */
+        {
+          const ID_NO_AR = "12121212-3434-4545-8656-767676767676";
+          modulo.controle.post = {
+            ok: true,
+            dados: {
+              id: ID_NO_AR,
+              slug: "endereco-gravado",
+              titulo: "Post no ar",
+              resumo: "resumo",
+              estado: "publicado",
+              conteudo: null,
+              conteudo_html: "<p>corpo</p>",
+              publicado_em: "2027-01-01T12:00:00.000Z",
+              atualizado_em: "2027-01-01T12:00:00.000Z",
+            },
+          };
+          const tela = await montarTela({ postId: ID_NO_AR });
+          const antes = tela.acaoDeVer()?.getAttribute("href");
+
+          /* O Autor edita o endereço e NÃO salva. O que está no ar continua
+             sendo o gravado — abrir o do formulário em aba nova levaria a uma
+             página que o servidor nunca viu. */
+          const campoDoSlug = tela.campo("slug");
+          if (campoDoSlug) await tela.digitar(campoDoSlug, "endereco-que-nao-existe");
+
+          afirmar(
+            "editar o endereço sem salvar NÃO muda para onde o link do site aponta — o que está no ar é o gravado",
+            campoDoSlug !== null &&
+              campoDoSlug.value === "endereco-que-nao-existe" &&
+              antes === "/blog/endereco-gravado" &&
+              tela.acaoDeVer()?.getAttribute("href") === "/blog/endereco-gravado",
+            `campo: ${campoDoSlug?.value} | link: ${tela.acaoDeVer()?.getAttribute("href")}`,
+          );
+
+          /* E A PENDÊNCIA APARECE NO DESTINO DA PRÉVIA. O Autor mexeu em algo e
+             não salvou: a prévia mostra o gravado, e precisa dizer isso. */
+          modulo.controle.post = {
+            ok: true,
+            dados: {
+              ...modulo.controle.post.dados,
+              estado: "rascunho",
+              slug: "",
+            },
+          };
+          const rascunho = await montarTela({ postId: ID_NO_AR });
+          const semPendencia = rascunho.acaoDeVer()?.getAttribute("href");
+          const campo = rascunho.campo("titulo");
+          if (campo) await rascunho.digitar(campo, "Título mexido e não salvo");
+          afirmar(
+            "e o destino da prévia passa a AVISAR quando há alteração pendente — a prévia lê do banco, não da tela",
+            semPendencia === `/admin/previa/${ID_NO_AR}` &&
+              rascunho.acaoDeVer()?.getAttribute("href") ===
+                `/admin/previa/${ID_NO_AR}?pendente=1`,
+            `sem: ${semPendencia} | com: ${rascunho.acaoDeVer()?.getAttribute("href")}`,
+          );
+          await rascunho.desmontar();
+          await tela.desmontar();
+        }
+
+        /* ── A LINHA E O EDITOR LEVAM AO MESMO ENDEREÇO ───────────────── */
+        {
+          modulo.controle.aoListar = null;
+          modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+          const lista = await montarLista({});
+          const daLinha = lista
+            .linha(ID_C)
+            ?.querySelector('[data-acao="ver"]')
+            ?.getAttribute("href");
+          await lista.desmontar();
+
+          modulo.controle.post = {
+            ok: true,
+            dados: {
+              ...POSTS_DE_PROVA.find((p) => p.id === ID_C),
+              resumo: "resumo",
+              conteudo: null,
+              conteudo_html: "",
+            },
+          };
+          const editor = await montarTela({ postId: ID_C });
+          const doEditor = editor.acaoDeVer()?.getAttribute("href");
+          await editor.desmontar();
+
+          afirmar(
+            "a linha e o Editor levam ao MESMO endereço de prévia — a decisão mora num lugar só",
+            typeof daLinha === "string" &&
+              daLinha === doEditor &&
+              daLinha === `/admin/previa/${ID_C}`,
+            `linha: ${daLinha} | editor: ${doEditor}`,
+          );
+        }
+      }
+
+      /* ── A PRÉVIA NÃO ESCREVE, E NÃO DECIDE ACESSO ─────────────────── */
+      {
+        const codigo = mascararComentariosJs(ler(CAMINHO_PREVIA));
+        const puro = mascararComentariosJs(ler(CAMINHO_MODULO_DA_PREVIA));
+        const escritaCrua =
+          /(?<!Array)\.from\s*\(|createClient|\.delete\s*\(|\.update\s*\(|\bfetch\s*\(/;
+        afirmar(
+          "a prévia lê pela CAMADA e não fala com o banco nem com a rede por conta própria",
+          !escritaCrua.test(codigo) &&
+            !escritaCrua.test(puro) &&
+            /from "@\/data\/blog\/posts"/.test(ler(CAMINHO_PREVIA)),
+          (escritaCrua.exec(`${codigo}${puro}`) ?? [])[0] ?? "",
+        );
+        afirmar(
+          "e ela não decide acesso: nenhum segundo portão, nenhuma leitura de sessão — quem decide é o portão do pai",
+          !/useSessao|getSession|PortaoDeSessao|localStorage|sessionStorage/.test(codigo),
+          (/useSessao|getSession|PortaoDeSessao|localStorage|sessionStorage/.exec(codigo) ??
+            [])[0] ?? "",
+        );
+        const dasRotas = mascararComentariosJs(ler(CAMINHO_MODULO_DAS_ROTAS));
+        afirmar(
+          "o identificador é conferido pela MESMA regra da camada de dados, importada — não por uma terceira cópia do formato",
+          /from "@\/data\/blog\/comum"/.test(ler(CAMINHO_MODULO_DAS_ROTAS)) &&
+            !/\[0-9a-f\]\{8\}/.test(dasRotas) &&
+            !/\[0-9a-f\]\{8\}/.test(puro),
+          "uma cópia do padrão de uuid aqui divergiria da do banco no primeiro ajuste",
+        );
+        /* `aplicarNoindex` roda DENTRO de um efeito: uma exceção ali derruba a
+           prévia para o limite de erro, e a tela que existe para nunca ficar em
+           branco acabaria em branco por causa de uma diretiva de rastreamento. */
+        afirmar(
+          "`aplicarNoindex` nunca lança — nem sem documento, nem com documento sem `head`, nem com um que estoura ao ser lido",
+          tentar(
+            "aplicarNoindex com documentos hostis",
+            () => {
+              const hostis = [
+                null,
+                undefined,
+                {},
+                { querySelector: () => null },
+                { querySelector: () => null, head: null, createElement: () => ({}) },
+                {
+                  querySelector: () => {
+                    throw new Error("estourei");
+                  },
+                },
+                {
+                  querySelector: () => null,
+                  createElement: () => {
+                    throw new Error("estourei ao criar");
+                  },
+                  head: { appendChild: () => {} },
+                },
+              ];
+              for (const documento of hostis) {
+                const desfazer = previa.aplicarNoindex(documento);
+                if (typeof desfazer !== "function") return false;
+                desfazer();
+              }
+              return true;
+            },
+            false,
+          ),
+        );
+      }
     }
 
     delete janela.addEventListener;

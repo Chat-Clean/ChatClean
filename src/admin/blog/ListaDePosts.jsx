@@ -63,7 +63,7 @@
  *
  * ─── AS AÇÕES RESOLVEM NA LINHA (Story 2.12) ───────────────────────────────
  *
- * Quatro alvos por linha — editar, ver no site, alternar Destaque e excluir —
+ * Quatro alvos por linha — editar, ver, alternar Destaque e excluir —
  * de 40×40, **com contorno permanente**. Ação revelada por hover não existe no
  * celular, não existe para quem navega por teclado e não existe para quem não
  * sabe que deve passar o ponteiro por cima: o contorno é o que transforma
@@ -86,16 +86,23 @@
  *
  * ─── O QUE ESTA TELA NÃO FAZ ────────────────────────────────────────────────
  *
- * Não filtra em memória o que veio do recorte. Não abre pré-visualização de
- * Post não publicado — isso é a Story 2.13, e até lá a ação diz por que ainda
- * não dá, em vez de oferecer um link que erra. E não escreve no banco: nenhum
- * cliente escreve.
+ * Não filtra em memória o que veio do recorte. Não DECIDE para onde a ação de
+ * ver leva: quem responde "dá para ver isto, e como" é `acoes.js`, o mesmo
+ * módulo que o Editor consulta — duas telas decidindo por conta própria é como
+ * um sinônimo entra no projeto. E não escreve no banco: nenhum cliente escreve.
+ *
+ * ─── VER, DEPOIS DA STORY 2.13 ──────────────────────────────────────────────
+ *
+ * A ação de ver deixou de ser indisponível para Post não publicado: ela leva à
+ * pré-visualização sob o Painel, que abre por identificador e por isso não
+ * depende de o rascunho ter endereço.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ExternalLink,
+  Eye,
   FileText,
   Loader2,
   SearchX,
@@ -106,20 +113,19 @@ import {
 
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
 import {
+  DESTINO_SITE,
   ROTULO_DE_CONFIRMAR_EXCLUSAO,
   confirmacaoDaExclusao,
   confirmacaoDeDestaque,
   descricaoDaExclusao,
-  enderecoPublico,
+  destinoDeVer,
   estaDestacado,
   falhaDaExclusao,
   falhaDeDestaque,
-  motivoDeNaoVerNoSite,
-  podeVerNoSite,
+  motivoDeNaoVer,
   rotuloDeDestaque,
   rotuloDeExcluir,
-  rotuloDeVerIndisponivel,
-  rotuloDeVerNoSite,
+  rotuloDeVer,
   textoDaAcaoEmCurso,
   tituloDaExclusao,
 } from "@/admin/blog/acoes";
@@ -442,15 +448,16 @@ export default function ListaDePosts({
   );
 
   /**
-   * Ver um Post que ainda não está no ar.
+   * O caso em que ver não tem para onde levar.
    *
-   * A ação **existe** e diz o motivo, em vez de sumir: controle que desaparece
-   * deixa a pessoa procurando o que fez de errado. E não vira link: a
-   * pré-visualização de Post não publicado é a Story 2.13, e um botão que abre
-   * uma página quebrada é pior que um botão que explica.
+   * Depois da Story 2.13 sobrou um só, e ele não é sobre Estado: Post sem
+   * identificador utilizável — dado corrompido, na prática. A ação **existe** e
+   * diz o motivo, em vez de sumir: controle que desaparece deixa a pessoa
+   * procurando o que fez de errado, e um link que abre uma página quebrada é
+   * pior que um botão que explica.
    */
   const explicarIndisponivel = useCallback((post) => {
-    const motivo = motivoDeNaoVerNoSite(post);
+    const motivo = motivoDeNaoVer(post);
     if (motivo === null) return;
     notificarErro(motivo.oQueHouve, motivo.oQueFazer);
   }, []);
@@ -496,9 +503,9 @@ export default function ListaDePosts({
       <div
         data-estado-da-lista="erro"
         role="alert"
-        className="mx-auto max-w-xl rounded-cartao border border-destructive/40 bg-destructive/10 p-6 text-center"
+        className="mx-auto max-w-xl rounded-cartao border border-destructive-ink/70 bg-destructive-ink/10 p-6 text-center"
       >
-        <AlertCircle aria-hidden="true" className="mx-auto size-8 text-destructive" />
+        <AlertCircle aria-hidden="true" className="mx-auto size-8 text-destructive-ink" />
         <h3 className="mt-3 text-base font-semibold text-ink">{TITULO_DO_ERRO}</h3>
         {/* A frase do erro TIPADO: ela já diz o que fazer, e é diferente para
             sessão expirada, rede fora e ambiente ausente. Trocá-la por uma
@@ -678,9 +685,11 @@ function Linha({
   const tempo = textoDoTempoDeLeitura(post);
   const autor = String(post.autor_nome ?? "").trim();
 
-  /* As perguntas da Story 2.12, respondidas pelo módulo puro. Nenhuma delas é
-     a política de visibilidade do banco reescrita aqui — ver `acoes.js`. */
-  const noAr = podeVerNoSite(post);
+  /* As perguntas das Stories 2.12 e 2.13, respondidas pelo módulo puro. Nenhuma
+     delas é a política de visibilidade do banco reescrita aqui — ver
+     `acoes.js`. `destino` é a MESMA decisão que o Editor toma: site quando o
+     Post está no ar, pré-visualização quando não está. */
+  const destino = destinoDeVer(post);
   const destacado = estaDestacado(post);
   const destacando = emCurso === OPERACAO_DESTACAR;
   const excluindo = emCurso === OPERACAO_EXCLUIR;
@@ -799,20 +808,32 @@ function Linha({
           <SquarePen aria-hidden="true" className="size-4" />
         </button>
 
-        {/* VER NO SITE — link de verdade quando há o que ver, e um controle que
-            EXPLICA quando não há. O link é `a` e não `button` porque abrir em
-            aba nova é o que um endereço faz: o menu do meio, o toque longo e o
-            "abrir em nova janela" continuam funcionando. */}
-        {noAr ? (
+        {/* VER — link de verdade nos DOIS destinos: o endereço público quando o
+            Post está no ar, e a pré-visualização sob o Painel quando não. O
+            desenho muda com o destino (o quadrado com seta é "sai do Painel"; o
+            olho é "confere aqui dentro"), e quem ouve a tela recebe a diferença
+            pelo rótulo.
+
+            É `a` e não `button` porque abrir em aba nova é o que um endereço
+            faz: o menu do meio, o toque longo e o "abrir em nova janela"
+            continuam funcionando. E é ABA NOVA também na prévia — a busca, os
+            filtros e a aba ativa são estado local desta página, e navegar na
+            mesma aba os perderia. */}
+        {destino !== null ? (
           <a
             data-acao="ver"
-            href={enderecoPublico(post)}
+            data-destino-de-ver={destino.tipo}
+            href={destino.endereco}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={rotuloDeVerNoSite(post)}
+            aria-label={rotuloDeVer(post)}
             className={CLASSE_DO_ALVO_DE_ACAO}
           >
-            <ExternalLink aria-hidden="true" className="size-4" />
+            {destino.tipo === DESTINO_SITE ? (
+              <ExternalLink aria-hidden="true" className="size-4" />
+            ) : (
+              <Eye aria-hidden="true" className="size-4" />
+            )}
           </a>
         ) : (
           <button
@@ -823,7 +844,7 @@ function Linha({
                teclado e continua podendo dizer o motivo. Um controle desligado
                de verdade some da navegação e explica coisa nenhuma. */
             aria-disabled="true"
-            aria-label={rotuloDeVerIndisponivel(post)}
+            aria-label={rotuloDeVer(post)}
             onClick={() => aoExplicarIndisponivel?.()}
             className={CLASSE_DO_ALVO_DE_ACAO}
           >
@@ -867,7 +888,7 @@ function Linha({
           onClick={() => aoPedirExclusao?.()}
           className={cn(
             CLASSE_DO_ALVO_DE_ACAO,
-            "hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive",
+            "hover:border-destructive-ink/50 hover:bg-destructive-ink/10 hover:text-destructive-ink",
           )}
         >
           {excluindo ? (

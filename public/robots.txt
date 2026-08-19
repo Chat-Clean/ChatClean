@@ -4,8 +4,19 @@
 User-agent: *
 Allow: /
 
-# Bloqueios opcionais (descomente conforme necessidade)
-# Disallow: /admin
+# O PAINEL NAO E BLOQUEADO AQUI, E ISSO E DELIBERADO (Story 2.13).
+#
+# Quem tira /admin e as filhas dele do indice e o cabecalho X-Robots-Tag
+# declarado em vercel.json, que vale para quem nao executa JavaScript.
+# Um "Disallow: /admin" trabalharia CONTRA isso: o rastreador que obedece
+# ao bloqueio nao busca a pagina, portanto nunca le o noindex — e um
+# endereco descoberto por link continuaria podendo ser listado, so que sem
+# conteudo. Bloquear a leitura e o jeito de a diretiva nunca ser lida.
+#
+# O que este arquivo garante e outra coisa, e ela e cobrada por assercao:
+# ele nao ANUNCIA o Painel. Nenhuma linha aqui, e nenhuma entrada do
+# sitemap, revela /admin para quem nao sabia dele.
+#
 # Disallow: /app
 
 # Bots de IA - permitir indexacao para citacoes em AI Overviews / ChatGPT / Perplexity

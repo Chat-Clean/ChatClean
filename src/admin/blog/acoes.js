@@ -30,13 +30,14 @@
  * "post sem título", nunca exceção.
  */
 
-/* O vocabulário de Estado vem do domínio, e a frase da indisponibilidade sai
-   dele: escrever "rascunho" à mão aqui criaria o sinônimo que a lista fechada
-   existe para impedir. */
-import { ehEstado, rotuloDoEstado } from "@/domain/blog/estados";
 /* As chaves das duas operações que a linha executa vêm do MESMO vocabulário
    fechado que a camada de dados e a função de servidor usam. */
 import { OPERACAO_DESTACAR, OPERACAO_EXCLUIR } from "@/domain/blog/operacoes";
+/* Os endereços do Painel são vocabulário compartilhado — a listagem, o Editor e
+   a declaração de rotas leem os mesmos. Eles vivem em `rotas.js`, e não no
+   módulo de uma tela: um módulo compartilhado apontando para o módulo de UMA
+   tela é uma seta invertida e um ciclo esperando acontecer. */
+import { enderecoDaPrevia, temIdentificadorCorrompido } from "@/admin/blog/rotas";
 
 /* ─── O título do Post, sempre utilizável ────────────────────────────────── */
 
@@ -89,45 +90,98 @@ export function podeVerNoSite(post) {
   return post?.estado === "publicado" && enderecoPublico(post) !== "";
 }
 
-/** O nome do controle que abre o Post no site, em aba nova. */
-export function rotuloDeVerNoSite(post) {
-  return `Ver o post ${tituloParaFrase(post)} no site, em nova aba`;
+/* ─── ONDE A AÇÃO DE VER LEVA (Story 2.13) ───────────────────────────────── */
+
+/**
+ * Os dois destinos possíveis. Vocabulário fechado, pela razão de sempre: a
+ * linha e o Editor tomam a MESMA decisão, e duas telas decidindo por conta
+ * própria é como um sinônimo entra no projeto.
+ */
+export const DESTINO_SITE = "site";
+export const DESTINO_PREVIA = "previa";
+
+/**
+ * Para onde a ação de ver leva — ou `null` quando não há para onde levar.
+ *
+ * Post publicado com endereço vai para o site; qualquer outro vai para a
+ * pré-visualização sob `/admin`, que é a Story 2.13. **Não ter endereço deixou
+ * de ser motivo de recusa**: a prévia abre por identificador, e é justamente o
+ * rascunho sem slug que mais precisa ser conferido antes de publicar.
+ *
+ * O único caso sem destino é o Post que ainda não existe no banco — sem
+ * identificador não há prévia, e o Editor de um Post que nunca foi salvo é
+ * exatamente esse caso. Aí a ação não mente: ou some (no Editor, onde criar é o
+ * estado normal), ou fica indisponível dizendo o motivo (na linha, onde a
+ * ausência de identificador seria dado corrompido).
+ *
+ * As duas saídas abrem em ABA NOVA. É o que preserva o que o Autor estava
+ * fazendo — no Editor, o texto ainda não salvo; na listagem, a busca e os
+ * filtros, que são estado local da página e não sobrevivem a uma navegação.
+ */
+export function destinoDeVer(post, { pendente = false } = {}) {
+  if (podeVerNoSite(post)) {
+    return { tipo: DESTINO_SITE, endereco: enderecoPublico(post) };
+  }
+  /* A pendência viaja só para a prévia: ela é o aviso de que o que está na tela
+     ainda não foi gravado, e o site nunca mostrou nada além do gravado. */
+  const previa = enderecoDaPrevia(post, { pendente });
+  if (previa !== "") {
+    return { tipo: DESTINO_PREVIA, endereco: previa };
+  }
+  return null;
 }
 
 /**
- * Por que ainda não dá para ver este Post — as duas metades, para a
- * notificação: o que houve e o que fazer.
+ * Por que não dá para ver este Post — as duas metades, para a notificação: o
+ * que houve e o que fazer. Devolve `null` quando dá.
  *
- * Devolve `null` quando dá. A ação **existe** e fica indisponível dizendo o
+ * Sobraram DOIS casos depois da Story 2.13, e nenhum deles é sobre Estado:
+ *
+ *   - o Post que ainda não foi gravado, e por isso não tem identificador. A
+ *     saída é salvar, e ela é a saída de verdade;
+ *   - o Post cujo identificador existe mas está fora do formato do banco. Isso
+ *     é dado corrompido, e mandar "salve o post" seria mandar a pessoa refazer
+ *     um trabalho que já foi feito, por um defeito que não é dela.
+ *
+ * Duas causas, duas frases — exatamente como o ramo "sem endereço" da Story
+ * 2.12 tinha motivo próprio. A ação **existe** e fica indisponível dizendo o
  * motivo, em vez de sumir: um controle que desaparece deixa a pessoa procurando
  * o que fez de errado, e um link que abre uma página quebrada é pior que os
- * dois. A pré-visualização de Post não publicado é a Story 2.13, e até lá a
- * resposta honesta é esta.
+ * dois.
  */
-export function motivoDeNaoVerNoSite(post) {
-  if (podeVerNoSite(post)) return null;
-
+export function motivoDeNaoVer(post) {
+  if (destinoDeVer(post) !== null) return null;
   const titulo = tituloParaFrase(post);
-  if (enderecoPublico(post) === "") {
+  if (temIdentificadorCorrompido(post)) {
     return {
-      oQueHouve: `O post ${titulo} ainda não tem endereço`,
-      oQueFazer: "Abra o post no Editor, defina o endereço e salve antes de vê-lo no site.",
+      oQueHouve: `O identificador do post ${titulo} está corrompido`,
+      oQueFazer:
+        "Recarregue o Painel. Se o post continuar assim, avise quem cuida do site: nada que você faça aqui conserta isso.",
     };
   }
-  const estado = post?.estado;
-  const palavra = ehEstado(estado) ? rotuloDoEstado(estado).toLowerCase() : "sem estado";
   return {
-    oQueHouve: `O post ${titulo} está ${palavra} e não está no ar`,
+    oQueHouve: `O post ${titulo} ainda não foi gravado no servidor`,
     oQueFazer:
-      "Só post publicado abre no site. A pré-visualização de post não publicado ainda não existe no Painel.",
+      "Salve o post pelo Editor: a pré-visualização abre pelo identificador que a gravação cria.",
   };
 }
 
-/** O rótulo do controle indisponível — ele diz o motivo, não só que não dá. */
-export function rotuloDeVerIndisponivel(post) {
-  const motivo = motivoDeNaoVerNoSite(post);
-  const base = `Ver o post ${tituloParaFrase(post)} no site`;
-  return motivo === null ? base : `${base} — indisponível: ${motivo.oQueHouve}`;
+/**
+ * O nome do controle de ver — um só para os três casos.
+ *
+ * Ele diz PARA ONDE vai, e não só que é "ver": o mesmo desenho leva ao site
+ * quando o Post está no ar e à prévia quando não está, e quem ouve a tela
+ * precisa da diferença antes de apertar.
+ */
+export function rotuloDeVer(post) {
+  const titulo = tituloParaFrase(post);
+  const destino = destinoDeVer(post);
+  if (destino === null) {
+    return `Ver o post ${titulo} — indisponível: ${motivoDeNaoVer(post).oQueHouve}`;
+  }
+  return destino.tipo === DESTINO_SITE
+    ? `Ver o post ${titulo} no site, em nova aba`
+    : `Pré-visualizar o post ${titulo}, em nova aba`;
 }
 
 /* ─── Destaque ───────────────────────────────────────────────────────────── */

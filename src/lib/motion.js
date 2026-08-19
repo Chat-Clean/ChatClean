@@ -73,3 +73,23 @@ export const pageTransition = {
 
 // Viewport options padrao para whileInView
 export const viewportOnce = { once: true };
+
+/**
+ * A chave da transicao de pagina: o PRIMEIRO segmento do caminho, e nao o
+ * caminho inteiro.
+ *
+ * Com o caminho inteiro, <AnimatePresence mode="wait"> desmonta e remonta a
+ * arvore a cada navegacao — inclusive entre uma rota-pai e uma filha dela. No
+ * Painel isso significa derrubar o provedor de sessao e o portao ao ir de
+ * /admin para /admin/previa/:id: o bootstrap de sessao recomeca, o esqueleto
+ * pisca, e o que era continuidade vira uma tela que reabre do zero.
+ *
+ * Pelo primeiro segmento, a troca de PAGINA continua animada (que e o que a
+ * animacao existe para marcar) e a navegacao DENTRO de uma area preserva o que
+ * esta montado acima da rota.
+ */
+export function chaveDaTransicao(pathname) {
+  const caminho = typeof pathname === "string" ? pathname : "";
+  const primeiro = caminho.split("?")[0].split("#")[0].split("/").filter(Boolean)[0];
+  return primeiro === undefined ? "/" : `/${primeiro}`;
+}

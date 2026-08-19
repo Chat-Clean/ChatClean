@@ -263,6 +263,213 @@ afirmar(
   );
 }
 
+/* ── A ESCOLHA DE CLIENTE É INCONDICIONAL, POR FUNÇÃO (Story 2.13) ────────
+   É a incondicionalidade que faz o endereço público de um rascunho responder
+   ausência TAMBÉM para o Autor logado: o cliente da leitura pública não olha se
+   há sessão, então não há o que "aproveitar" quando ela existe. Um `if` que
+   escolhesse o cliente do Painel quando houvesse sessão faria a página pública
+   ler autenticada — e o rascunho apareceria para quem tem o Painel aberto, que
+   é exatamente a razão de a prévia viver sob `/admin`.
+
+   A asserção é por CORPO de função, e não por arquivo: os dois clientes convivem
+   em `posts.js`, e olhar o arquivo inteiro não distinguiria nada. */
+{
+  /**
+   * O corpo de uma função — exportada ou não —, com as chaves BALANCEADAS.
+   *
+   * A primeira versão fatiava "até o próximo `export`", e isso atribuía ao alvo
+   * o código de qualquer auxiliar privado declarado depois dele: um `if
+   * (temSessao) clienteDoPainelOuFalha(...)` num helper vizinho apareceria como
+   * se fosse da função julgada, e o contrário também — uma escolha de cliente
+   * escondida num helper passaria pela leitura da função anterior. O autoteste
+   * antigo só usava duas exportadas em sequência, então nunca viu o modo de
+   * erro.
+   */
+  function corpoDaFuncao(fonte, nome) {
+    const inicio = new RegExp(
+      `(?:export\\s+)?(?:async\\s+)?function\\s+${nome}\\s*\\(`,
+    ).exec(fonte);
+    if (inicio === null) return null;
+    /* A LISTA DE PARÂMETROS PRIMEIRO. Sem isto, a desestruturação do argumento
+       — `listarPostsDoPainel({ limite, termo } = {})`, que é a forma normal
+       aqui — daria a primeira `{` do corpo, e o balanceamento fecharia dentro
+       dos parâmetros: o corpo julgado seria vazio, e a asserção passaria a ler
+       nada. */
+    let parenteses = 1;
+    let i = inicio.index + inicio[0].length;
+    for (; i < fonte.length && parenteses > 0; i += 1) {
+      if (fonte[i] === "(") parenteses += 1;
+      else if (fonte[i] === ")") parenteses -= 1;
+    }
+    if (parenteses !== 0) return null;
+    const abertura = fonte.indexOf("{", i);
+    if (abertura === -1) return null;
+    let profundidade = 0;
+    for (let i = abertura; i < fonte.length; i += 1) {
+      const c = fonte[i];
+      if (c === "{") profundidade += 1;
+      else if (c === "}") {
+        profundidade -= 1;
+        if (profundidade === 0) return fonte.slice(abertura, i + 1);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Quais clientes um corpo OBTÉM, na ordem em que os obtém.
+   *
+   * A declaração das duas funções não conta como obtenção — senão `comum.js`,
+   * que é onde elas nascem, apareceria como se pedisse cliente duas vezes.
+   */
+  function clientesDe(corpo) {
+    return [
+      ...semComentarios(corpo).matchAll(
+        /(?<!function\s)\bcliente(Publico|DoPainel)OuFalha\s*\(/g,
+      ),
+    ].map((m) => m[1]);
+  }
+
+  /* AUTOTESTE dos dois detectores. Sem ele, um extrator que devolvesse corpo
+     vazio faria todas as asserções abaixo passarem sobre nada. */
+  {
+    const sintetico =
+      "export async function publica(a) {\n" +
+      "  const cliente = clientePublicoOuFalha(op);\n" +
+      "}\n" +
+      "export async function mista(a) {\n" +
+      "  if (temSessao) return clienteDoPainelOuFalha(op);\n" +
+      "  const cliente = clientePublicoOuFalha(op);\n" +
+      "}\n";
+    afirmar(
+      "o extrator de corpo e o detector de cliente acusam a função que ESCOLHE o cliente — e não confundem uma com a outra",
+      corpoDaFuncao(sintetico, "publica") !== null &&
+        JSON.stringify(clientesDe(corpoDaFuncao(sintetico, "publica"))) ===
+          JSON.stringify(["Publico"]) &&
+        JSON.stringify(clientesDe(corpoDaFuncao(sintetico, "mista"))) ===
+          JSON.stringify(["DoPainel", "Publico"]) &&
+        corpoDaFuncao(sintetico, "naoExiste") === null,
+      JSON.stringify(clientesDe(corpoDaFuncao(sintetico, "mista") ?? "")),
+    );
+    /* O MODO DE ERRO QUE O EXTRATOR ANTIGO TINHA: ele fatiava "até o próximo
+       `export`", então um auxiliar PRIVADO declarado entre duas exportações
+       caía no corpo da anterior — e a escolha de cliente dele era lida como se
+       fosse dela. O autoteste antigo nunca viu isso porque só usava duas
+       exportadas em sequência. */
+    const comAuxiliar =
+      "export async function alvo(a) {\n" +
+      "  const cliente = clientePublicoOuFalha(op);\n" +
+      "  return cliente;\n" +
+      "}\n" +
+      "async function auxiliarPrivado(b) {\n" +
+      "  return clienteDoPainelOuFalha(op);\n" +
+      "}\n" +
+      "export async function outra(c) {\n" +
+      "  return clienteDoPainelOuFalha(op);\n" +
+      "}\n";
+    afirmar(
+      "e um auxiliar PRIVADO declarado depois não entra no corpo da função anterior — nem some da conta",
+      JSON.stringify(clientesDe(corpoDaFuncao(comAuxiliar, "alvo") ?? "")) ===
+        JSON.stringify(["Publico"]) &&
+        JSON.stringify(
+          clientesDe(corpoDaFuncao(comAuxiliar, "auxiliarPrivado") ?? ""),
+        ) === JSON.stringify(["DoPainel"]),
+      JSON.stringify(clientesDe(corpoDaFuncao(comAuxiliar, "alvo") ?? "")),
+    );
+  }
+
+  const PUBLICAS = [
+    ["posts.js", "listarPostsPublicos"],
+    ["posts.js", "lerPostPublicoPorSlug"],
+    /* Auxiliar PRIVADO de `taxonomia.js`, e é por ele que `listarCategorias` e
+       `listarTags` obtêm cliente. Ele não é exportado — e é justamente por isso
+       que precisa estar aqui: a lista de permissão só é fechada se cobrir todo
+       ponto que obtém cliente, e não só os que têm `export` na frente. */
+    ["taxonomia.js", "listarVerbetes"],
+    ["slugs.js", "resolverSlugAposentado"],
+  ];
+  const DO_PAINEL = [
+    ["posts.js", "listarPostsDoPainel"],
+    /* A leitura que a pré-visualização usa (Story 2.13). Ela precisa do cliente
+       COM sessão: sem ele o PostgREST não recusa — responde 200 com o
+       subconjunto anônimo, e a prévia de um rascunho abriria vazia sem que nada
+       tivesse falhado. */
+    ["posts.js", "lerPostDoPainelPorId"],
+    ["taxonomia.js", "listarTagsDoPostNoPainel"],
+  ];
+  const corpoDe = ([arquivo, nome]) => {
+    const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";
+    return corpoDaFuncao(fonte, nome);
+  };
+
+  const problemasPublicos = PUBLICAS.filter((alvo) => {
+    const corpo = corpoDe(alvo);
+    return (
+      corpo === null || JSON.stringify(clientesDe(corpo)) !== JSON.stringify(["Publico"])
+    );
+  }).map(([a, n]) => `${a}:${n}`);
+  afirmar(
+    "toda leitura PÚBLICA obtém exatamente UM cliente, e ele é o anônimo — sem ramo, sem condição, sem sessão consultada",
+    problemasPublicos.length === 0,
+    problemasPublicos.join(", "),
+  );
+
+  const comSessaoConsultada = PUBLICAS.filter((alvo) => {
+    const corpo = corpoDe(alvo) ?? "";
+    return /getSession|access_token|\bsessao\b/i.test(semComentarios(corpo));
+  }).map(([a, n]) => `${a}:${n}`);
+  afirmar(
+    "e nenhuma delas sequer PERGUNTA se há sessão — é essa incondicionalidade que faz o rascunho não vazar para o Autor logado",
+    comSessaoConsultada.length === 0,
+    comSessaoConsultada.join(", "),
+  );
+
+  const problemasDoPainel = DO_PAINEL.filter((alvo) => {
+    const corpo = corpoDe(alvo);
+    return (
+      corpo === null || JSON.stringify(clientesDe(corpo)) !== JSON.stringify(["DoPainel"])
+    );
+  }).map(([a, n]) => `${a}:${n}`);
+  afirmar(
+    "e a leitura que a prévia usa obtém o cliente DO PAINEL — sem sessão o PostgREST não recusa, responde o subconjunto anônimo",
+    problemasDoPainel.length === 0,
+    problemasDoPainel.join(", "),
+  );
+
+  /* ─── E A LISTA É FECHADA: TODO ponto que obtém cliente está numa delas ──
+     Sem esta asserção, "lista de permissão" é só um nome: uma função nova que
+     obtivesse cliente — ou um auxiliar privado, que foi exatamente o caso de
+     `listarVerbetes` — simplesmente não seria julgada, e a garantia teria um
+     buraco do tamanho dela sem ninguém saber. A contagem é sobre OCORRÊNCIAS,
+     não sobre nomes: é assim que uma segunda obtenção dentro de uma função já
+     listada também cai aqui. */
+  {
+    const declarados = [...PUBLICAS, ...DO_PAINEL];
+    const cobertas = declarados.reduce(
+      (total, alvo) => total + clientesDe(corpoDe(alvo) ?? "").length,
+      0,
+    );
+    /* `comum.js` fica de fora: é lá que as duas funções NASCEM, e o corpo delas
+       fala com `clientePublico()`/`clienteAutenticado()`, não consigo mesmas. A
+       asserção logo acima já cobra que ninguém mais os instancie. */
+    const existentes = arquivosDaCamada
+      .filter((a) => a.nome !== "comum.js")
+      .reduce((total, a) => total + clientesDe(a.texto).length, 0);
+    afirmar(
+      "TODO ponto da camada que obtém cliente está numa das duas listas — a lista de permissão é fechada, e não uma amostra",
+      cobertas === existentes && existentes > 0,
+      `declarados: ${cobertas} | existentes: ${existentes} — a diferença é um ponto que ninguém está julgando`,
+    );
+    /* AUTOTESTE: um ponto plantado FORA das listas precisa mudar a conta. */
+    afirmar(
+      "e a contagem acusa um ponto plantado fora das listas",
+      clientesDe(
+        "async function novaFuncaoNinguemJulga() { return clienteDoPainelOuFalha(op); }",
+      ).length === 1,
+    );
+  }
+}
+
 {
   const comCreateClient = arquivosDaCamada
     .filter((a) => /\bcreateClient\s*\(/.test(a.texto))
@@ -1100,6 +1307,15 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "slug que nunca existiu devolve NÃO ENCONTRADO",
   "rascunho e slug inexistente são INDISTINGUÍVEIS para quem chama",
   "a resposta do rascunho não vaza o título nem o identificador dele",
+  // O critério da Story 2.13: o endereço público de um Post não publicado
+  // responde ausência para quem tem sessão e para quem não tem — nos TRÊS
+  // Estados fora do ar, e não só no rascunho.
+  "a sessão continua ABERTA no instante desta prova — sem ela, “não vaza” diria só que o anônimo não vê",
+  "os TRÊS Estados fora do ar respondem AUSÊNCIA pelo endereço público — rascunho, agendado-por-vir e arquivado",
+  "e os três são INDISTINGUÍVEIS de um endereço que nunca existiu — mesmo tipo e mesma frase",
+  "e nenhum deles vaza título ou identificador na resposta",
+  "enquanto o Post PUBLICADO continua alcançável pelo mesmo caminho — a recusa é do Estado, não da camada",
+  "e a PRÉVIA abre os três pelo identificador no mesmo instante — a ausência é da camada pública, não do dado",
   "slug vazio devolve NÃO ENCONTRADO em vez de consultar o servidor",
   "listarCategorias devolve a Categoria semeada",
   "as Categorias vêm ordenadas por `ordem`",
@@ -1653,6 +1869,103 @@ if (temToken && ambienteCompleto) {
                   !JSON.stringify(rascunho).includes(idDe.get(slug("rascunho")) ?? "«sem id»"),
                 JSON.stringify(rascunho).slice(0, 200),
               );
+
+              /* ─── OS TRÊS NÃO PUBLICADOS, PELO ENDEREÇO PÚBLICO ──────────
+                 O critério da Story 2.13 é "com sessão ou sem", e ele vale para
+                 os três Estados que não estão no ar — não só para o rascunho.
+                 Agendado-por-vir é o mais fácil de errar: ele JÁ tem data, e uma
+                 política que olhasse só o Estado o deixaria passar antes da
+                 hora. Arquivado é o outro lado: já esteve no ar, e sair do ar
+                 precisa significar sair do ar.
+
+                 A prova só vale com a sessão ABERTA neste instante — senão ela
+                 diria apenas que o anônimo não vê, que é outra coisa. */
+              {
+                const { data: aindaViva } = await clienteDoPainel.auth.getSession();
+                afirmar(
+                  "a sessão continua ABERTA no instante desta prova — sem ela, “não vaza” diria só que o anônimo não vê",
+                  Boolean(aindaViva?.session?.access_token),
+                  "sem sessão viva a prova de indistinguibilidade seria vácuo",
+                );
+
+                const OCULTOS = [
+                  ["rascunho", "Rascunho que nao pode vazar"],
+                  ["agendado-futuro", "Agendado cuja hora nao chegou"],
+                  ["arquivado", "Arquivado antigo"],
+                ];
+                const respostas = new Map();
+                for (const [sufixo] of OCULTOS) {
+                  respostas.set(
+                    sufixo,
+                    await chamar(`lerPostPublicoPorSlug (${sufixo})`, () =>
+                      lerPostPublicoPorSlug(slug(sufixo)),
+                    ),
+                  );
+                }
+
+                afirmar(
+                  "os TRÊS Estados fora do ar respondem AUSÊNCIA pelo endereço público — rascunho, agendado-por-vir e arquivado",
+                  OCULTOS.every(([sufixo]) =>
+                    falhouCom(respostas.get(sufixo), ERRO_NAO_ENCONTRADO),
+                  ),
+                  OCULTOS.map(
+                    ([s]) => `${s}: ${respostas.get(s)?.erro?.tipo ?? "ok"}`,
+                  ).join(" | "),
+                );
+                afirmar(
+                  "e os três são INDISTINGUÍVEIS de um endereço que nunca existiu — mesmo tipo e mesma frase",
+                  OCULTOS.every(
+                    ([sufixo]) =>
+                      respostas.get(sufixo)?.erro?.tipo === inexistente?.erro?.tipo &&
+                      respostas.get(sufixo)?.erro?.mensagem === inexistente?.erro?.mensagem,
+                  ),
+                  OCULTOS.map(
+                    ([s]) =>
+                      `${s}: ${respostas.get(s)?.erro?.tipo}/"${respostas.get(s)?.erro?.mensagem}"`,
+                  ).join(" | "),
+                );
+                afirmar(
+                  "e nenhum deles vaza título ou identificador na resposta",
+                  OCULTOS.every(([sufixo, titulo]) => {
+                    const corpo = JSON.stringify(respostas.get(sufixo));
+                    return (
+                      !corpo.includes(titulo) &&
+                      !corpo.includes(idDe.get(slug(sufixo)) ?? "«sem id»")
+                    );
+                  }),
+                  OCULTOS.map(([s]) => JSON.stringify(respostas.get(s)).slice(0, 90)).join(" | "),
+                );
+
+                /* CONTROLE POSITIVO. Sem ele, uma camada pública quebrada —
+                   que respondesse ausência para tudo — passaria nas três
+                   linhas acima com louvor. */
+                const publicado = await chamar("lerPostPublicoPorSlug (publicado, com sessão)", () =>
+                  lerPostPublicoPorSlug(slug("publico")),
+                );
+                afirmar(
+                  "enquanto o Post PUBLICADO continua alcançável pelo mesmo caminho — a recusa é do Estado, não da camada",
+                  publicado?.ok === true && publicado.dados?.slug === slug("publico"),
+                  JSON.stringify(publicado?.erro ?? publicado?.dados?.slug).slice(0, 160),
+                );
+
+                /* E O DADO ESTÁ LÁ. A prévia abre os três pelo identificador,
+                   no MESMO instante em que o endereço público os nega: a
+                   ausência é da camada pública, não do dado. É a diferença
+                   entre "não existe" e "não é para você por aqui". */
+                const pelaPrevia = [];
+                for (const [sufixo] of OCULTOS) {
+                  pelaPrevia.push(
+                    await chamar(`lerPostDoPainelPorId (${sufixo})`, () =>
+                      lerPostDoPainelPorId(idDe.get(slug(sufixo)) ?? ZERO_UUID),
+                    ),
+                  );
+                }
+                afirmar(
+                  "e a PRÉVIA abre os três pelo identificador no mesmo instante — a ausência é da camada pública, não do dado",
+                  pelaPrevia.every((r, i) => r?.ok === true && r.dados?.slug === slug(OCULTOS[i][0])),
+                  pelaPrevia.map((r) => r?.erro?.tipo ?? r?.dados?.slug).join(" | "),
+                );
+              }
 
               const vazio = await chamar("lerPostPublicoPorSlug (vazio)", () =>
                 lerPostPublicoPorSlug(""),

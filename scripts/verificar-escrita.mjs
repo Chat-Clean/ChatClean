@@ -999,15 +999,48 @@ if (pacote) {
   );
 }
 
-// `vercel.json` é propriedade da Story 4.1. Esta story não pode ter mexido nele.
+/* O ROTEAMENTO de `vercel.json` é propriedade da Story 4.1, e continua sendo:
+   nada aqui pode ter posto um destino, um redirecionamento ou uma função na
+   frente de rota. O que a Story 2.13 acrescentou foi `headers` — cabeçalho de
+   resposta que declara `noindex` para `/admin`, e que ANOTA a resposta em vez
+   de interceptá-la. Ele tem dono próprio: `verificar:acesso` prova o conjunto
+   do que alcança `/admin`, prova que o `noindex` não encosta no site público, e
+   enumera por lista de permissão as superfícies onde algo pode ficar na frente
+   de uma rota. Aqui a guarda continua sendo a do roteamento. */
 {
   const vercel = tentar("vercel.json legível", () => JSON.parse(ler("vercel.json")), null);
+  /* A LISTA É DE PERMISSÃO, e continua fechada por construção — como era
+     quando dizia `Object.keys().length === 1`. Enumerar o que é PROIBIDO
+     (`routes`, `redirects`, `functions`…) deixaria passar a chave que ninguém
+     pensou ainda, que é exatamente a regra 3 do projeto invertida. */
+  const CHAVES_PERMITIDAS = ["headers", "rewrites"];
+  const chaves = Object.keys(vercel ?? {}).sort();
   afirmar(
-    "vercel.json continua só com a regra de reescrita (o roteamento é da Story 4.1)",
+    "vercel.json declara exatamente as chaves permitidas — nenhum roteamento entrou (isso é da Story 4.1)",
     vercel !== null &&
-      Object.keys(vercel).length === 1 &&
-      Array.isArray(vercel.rewrites),
-    `chaves: ${Object.keys(vercel ?? {}).join(", ")}`,
+      JSON.stringify(chaves) === JSON.stringify([...CHAVES_PERMITIDAS].sort()),
+    `chaves: ${chaves.join(", ") || "nenhuma"} | permitidas: ${CHAVES_PERMITIDAS.join(", ")}`,
+  );
+  afirmar(
+    "e a reescrita continua sendo a apanha-tudo que serve o documento da aplicação, sozinha",
+    Array.isArray(vercel?.rewrites) &&
+      vercel.rewrites.length === 1 &&
+      vercel.rewrites[0]?.source === "/(.*)" &&
+      vercel.rewrites[0]?.destination === "/index.html",
+    JSON.stringify(vercel?.rewrites),
+  );
+  /* `headers` entrou na Story 2.13 e ANOTA a resposta em vez de interceptá-la.
+     O conteúdo dele tem dono próprio: `verificar:acesso` prova o conjunto do
+     que alcança `/admin`, que o `noindex` não encosta no site público, e
+     enumera por lista de permissão as superfícies de entrega. Aqui basta que
+     ele não vire roteamento por outro nome. */
+  const comDestino = (vercel?.headers ?? []).filter(
+    (g) => Object.hasOwn(g, "destination") || Object.hasOwn(g, "dest"),
+  );
+  afirmar(
+    "e nenhum grupo de cabeçalhos carrega destino — cabeçalho anota a resposta, não redireciona ninguém",
+    comDestino.length === 0,
+    JSON.stringify(comDestino),
   );
 }
 

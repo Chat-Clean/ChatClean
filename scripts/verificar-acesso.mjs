@@ -26,10 +26,22 @@
  * Uso: npm run verificar:acesso
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
+
+/* O arranjo de montagem de tela — o MESMO que `verificar-editor.mjs` usa. A
+   seção (i) monta o portão e a prévia num DOM de verdade: ler que o portão
+   envolve a rota não é o mesmo que ver o conteúdo não montar. */
+import {
+  caminhoDeModulo,
+  comoModulo,
+  compilarParaNode,
+  criarPastaDeCompilacao,
+  montarNavegador,
+} from "./montagem-comum.mjs";
 
 import {
   ERRO_CREDENCIAL,
@@ -521,6 +533,143 @@ if (principal !== null) {
     /<PortaoDeSessao>/.test(rota),
     "o portão precisa estar acima da página, não dentro dela",
   );
+
+  /* ─── O PORTÃO SUBIU PARA A ROTA-PAI (Story 2.13) ───────────────────────
+     As duas asserções acima continuam valendo palavra por palavra; o que muda
+     é que `/admin` deixou de ser rota-folha. Envolver cada rota filha seria
+     lembrar de envolver cada rota filha, e o dia em que alguém esquecesse
+     seria o dia em que um Post não publicado ficaria legível por endereço.
+     As linhas abaixo ESTENDEM a garantia: o portão está no elemento do pai, o
+     pai serve `Outlet`, e todas as telas do Painel são filhas dele. */
+  const ELEMENTO_DO_PAI =
+    /path="\/admin"\s*element=\{\s*<SessaoProvider>\s*<PortaoDeSessao>\s*<Outlet\s*\/>\s*<\/PortaoDeSessao>\s*<\/SessaoProvider>\s*\}/;
+  const semEspacos = principal.replace(/\s+/g, " ").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  afirmar(
+    "o elemento do PAI é o portão, e o que ele serve é `Outlet` — a filha nasce protegida em vez de precisar lembrar de se proteger",
+    ELEMENTO_DO_PAI.test(semEspacos.replace(/\s+/g, "")),
+    semEspacos.slice(semEspacos.indexOf('path="/admin"'), semEspacos.indexOf('path="/admin"') + 220),
+  );
+  afirmar(
+    "e o Painel de hoje virou a rota-ÍNDICE do pai — ele não declara portão próprio",
+    /<Route\s+index\s+element=\{<AdminBlog\s*\/>\}\s*\/>/.test(semEspacos),
+    "índice ausente faria `/admin` abrir vazio",
+  );
+  afirmar(
+    "a pré-visualização é rota FILHA, pelo caminho que o módulo declara — não por um endereço escrito à mão aqui",
+    /<Route\s+path=\{ROTA_DA_PREVIA\}\s+element=\{<PreVisualizacaoDePost\s*\/>\}\s*\/>/.test(
+      semEspacos,
+    ) && /ROTA_DA_PREVIA/.test(principal),
+    "endereço escrito à mão aqui divergiria do que a listagem e o Editor montam",
+  );
+  /* E EXISTE FILHA APANHA-TUDO. Sem ela, `/admin/previa` sem identificador e
+     `/admin/qualquer-coisa` não casam com filha nenhuma: o pai monta, o
+     `Outlet` fica vazio, e o Autor recebe uma página em branco — que é
+     indistinguível de "o Painel quebrou". */
+  afirmar(
+    "e há filha APANHA-TUDO sob `/admin` — endereço desconhecido cai numa tela, e não em página em branco",
+    /<Route\s+path=\{ROTA_DESCONHECIDA\}\s+element=\{<PreVisualizacaoDePost\s*\/>\}\s*\/>/.test(
+      semEspacos,
+    ) && /ROTA_DESCONHECIDA/.test(principal),
+    "sem ela o `Outlet` do pai fica vazio e a tela de ausência nunca aparece",
+  );
+  /* NENHUMA FILHA TEM PORTÃO PRÓPRIO. Um segundo portão numa filha seria uma
+     segunda decisão de acesso — e a segunda sempre fica para trás da primeira.
+     A contagem é sobre o arquivo inteiro: exatamente uma montagem de cada. */
+  afirmar(
+    "há EXATAMENTE um portão e um provedor de sessão no arquivo inteiro — nenhuma filha reabre a decisão de acesso",
+    (principal.match(/<PortaoDeSessao>/g) ?? []).length === 1 &&
+      (principal.match(/<SessaoProvider>/g) ?? []).length === 1,
+    `portões: ${(principal.match(/<PortaoDeSessao>/g) ?? []).length} | provedores: ${(principal.match(/<SessaoProvider>/g) ?? []).length}`,
+  );
+  /* E TODA ROTA DE PAINEL MORA SOB `/admin`. Uma tela do Painel declarada como
+     rota irmã — fora do pai — nasceria fora do portão, e nada acima acusaria.
+
+     ─── O RECORTE DO BLOCO É BALANCEADO, E NÃO "ATÉ O PRIMEIRO FECHAMENTO"
+     `[\s\S]*?<\/Route>` funciona enquanto TODAS as filhas forem autofechadas.
+     Uma filha escrita com tag de fechamento, ou uma neta, truncaria o bloco — e
+     a asserção passaria a julgar um pedaço, calada. Aqui o recorte conta
+     aberturas e fechamentos.
+
+     ─── E AS TELAS SÃO DERIVADAS, e não duas expressões escritas à mão. Uma
+     tela nova declarada como rota irmã nasceria fora do portão e passaria sem
+     ninguém acusar, porque ninguém teria lembrado de acrescentá-la à lista. */
+  {
+    /** O bloco `<Route path="/admin"> … </Route>`, com aninhamento contado. */
+    const blocoBalanceado = (fonte, marcador) => {
+      const inicio = fonte.indexOf(marcador);
+      if (inicio === -1) return "";
+      const abre = fonte.lastIndexOf("<Route", inicio);
+      if (abre === -1) return "";
+      let profundidade = 0;
+      for (let i = abre; i < fonte.length; i += 1) {
+        if (fonte.startsWith("</Route>", i)) {
+          profundidade -= 1;
+          if (profundidade === 0) return fonte.slice(abre, i + "</Route>".length);
+          continue;
+        }
+        if (fonte.startsWith("<Route", i)) {
+          // Autofechada não abre nível: `<Route … />`.
+          const fim = fonte.indexOf(">", i);
+          if (fim !== -1 && fonte[fim - 1] === "/") {
+            i = fim;
+            continue;
+          }
+          profundidade += 1;
+          i = fim === -1 ? i : fim;
+        }
+      }
+      return "";
+    };
+    /* AUTOTESTE do recorte: a forma que quebrava o anterior precisa ser lida
+       inteira, e o balanceamento precisa parar no fechamento certo. */
+    {
+      const comFilhaFechada =
+        '<Route path="/admin" element={<X />}>\n' +
+        "  <Route index element={<A />} />\n" +
+        '  <Route path="p"><Route index element={<B />} /></Route>\n' +
+        "</Route>\n" +
+        '<Route path="/blog" element={<C />} />';
+      const recortado = blocoBalanceado(comFilhaFechada, 'path="/admin"');
+      afirmar(
+        "o recorte do bloco de `/admin` é BALANCEADO: filha com tag de fechamento e neta não o truncam, e ele para no fechamento certo",
+        recortado.includes("<B />") &&
+          recortado.endsWith("</Route>") &&
+          !recortado.includes("<C />"),
+        recortado.replace(/\s+/g, " ").slice(0, 140),
+      );
+    }
+
+    const bloco = blocoBalanceado(principal, 'path="/admin"');
+    /* AS TELAS DO PAINEL, DERIVADAS DOS IMPORTS. Todo componente importado de
+       `admin/` ou `pages/AdminBlog` é uma tela do Painel — e cada uma delas
+       precisa ser montada dentro do bloco, e só lá. */
+    const telasDoPainel = [
+      ...principal.matchAll(
+        /import\s+([A-Z][\w]*)\s+from\s+["'][^"']*(?:admin\/|AdminBlog)[^"']*["']/g,
+      ),
+    ]
+      .map((m) => m[1])
+      /* O provedor e o portão são a CASCA, não telas: eles montam o bloco, não
+         são montados por ele. */
+      .filter((nome) => !["SessaoProvider", "PortaoDeSessao"].includes(nome));
+
+    afirmar(
+      "a lista de telas do Painel foi DERIVADA dos imports, e não saiu vazia — vazia ela aprovaria qualquer coisa",
+      bloco !== "" && telasDoPainel.length >= 2,
+      `telas: ${telasDoPainel.join(", ") || "nenhuma"}`,
+    );
+    const foraDoBloco = telasDoPainel.filter((nome) => {
+      const padrao = new RegExp(`<${nome}\\s*/>`, "g");
+      const noArquivo = (principal.match(padrao) ?? []).length;
+      const noBloco = (bloco.match(padrao) ?? []).length;
+      return noBloco === 0 || noBloco !== noArquivo;
+    });
+    afirmar(
+      "e TODAS elas são montadas só dentro do bloco de `/admin` — uma rota irmã nasceria fora do portão",
+      foraDoBloco.length === 0,
+      foraDoBloco.join(", "),
+    );
+  }
 }
 
 const portao = lerOuFalhar(
@@ -1527,6 +1676,788 @@ if (temToken && chavePublicavel) {
     false,
     "sem ela nenhuma asserção comportamental pode rodar",
   );
+}
+
+/* ─── (h) A entrega: o que fica na FRENTE de rota, e o `noindex` ─────────── */
+
+secao("(h) a entrega: nada na frente de rota alcança /admin, e o noindex não depende de JavaScript");
+
+/**
+ * O padrão de origem da Vercel, virado em expressão regular.
+ *
+ * `/(.*)`, `/admin/:caminho*` e `/admin` são formas diferentes de dizer o que
+ * uma regra alcança, e a pergunta desta seção — "o que fica na frente de
+ * `/admin`?" — só se responde COMPARANDO. Casar texto não responde: a reescrita
+ * apanha-tudo não contém a palavra "admin" e alcança `/admin` mesmo assim.
+ */
+function comoRegex(origem) {
+  if (typeof origem !== "string" || origem === "") {
+    throw new Error(`origem de regra ausente: ${JSON.stringify(origem)}`);
+  }
+  let corpo = "";
+  let i = 0;
+  while (i < origem.length) {
+    const c = origem[i];
+    if (c === "(") {
+      // Grupo já escrito em expressão regular: copiado como está.
+      const fim = origem.indexOf(")", i);
+      if (fim === -1) {
+        throw new Error(`grupo não fechado em ${JSON.stringify(origem)}`);
+      }
+      corpo += origem.slice(i, fim + 1);
+      i = fim + 1;
+      continue;
+    }
+    if (c === ":") {
+      // `:nome` casa um segmento; `:nome*` casa o resto do caminho.
+      const resto = origem.slice(i + 1);
+      const nome = /^[A-Za-z0-9_]+/.exec(resto)?.[0] ?? "";
+      if (nome === "") {
+        throw new Error(`parâmetro sem nome em ${JSON.stringify(origem)}`);
+      }
+      i += 1 + nome.length;
+      if (origem[i] === "(") {
+        // `:nome(padrao)` — o padrão é do chamador e entra como está.
+        const fim = origem.indexOf(")", i);
+        if (fim === -1) {
+          throw new Error(`padrão de parâmetro não fechado em ${JSON.stringify(origem)}`);
+        }
+        corpo += origem.slice(i, fim + 1);
+        i = fim + 1;
+        if (origem[i] === "*" || origem[i] === "+" || origem[i] === "?") {
+          throw new Error(
+            `forma não suportada \`:${nome}(...)${origem[i]}\` em ${JSON.stringify(origem)}`,
+          );
+        }
+        continue;
+      }
+      if (origem[i] === "*") {
+        corpo += ".*";
+        i += 1;
+      } else if (origem[i] === "+") {
+        corpo += ".+";
+        i += 1;
+      } else if (origem[i] === "?") {
+        /* Segmento OPCIONAL. Traduzi-lo como obrigatório faria uma regra que
+           alcança `/admin` ser contada como se não alcançasse — que é o modo de
+           erro que esta seção inteira existe para não ter. */
+        throw new Error(`parâmetro opcional \`:${nome}?\` não é suportado`);
+      } else {
+        corpo += "[^/]+";
+      }
+      continue;
+    }
+    if (c === "*") {
+      throw new Error(`curinga solto \`*\` não é suportado em ${JSON.stringify(origem)}`);
+    }
+    corpo += c.replace(/[.*+?^${}|[\]\\]/g, "\\$&");
+    i += 1;
+  }
+  return new RegExp(`^${corpo}$`);
+}
+
+/**
+ * A regra alcança este endereço?
+ *
+ * **Forma não suportada FALHA ALTO**, e isso é o coração desta seção. Devolver
+ * `false` para o que o modelo não entende transforma uma regra que intercepta
+ * `/admin` numa regra contada como se não interceptasse — e a asserção de
+ * entrega inteira passaria verde sobre uma garantia que deixou de existir. Se o
+ * modelo divergir do que a plataforma faz, isto precisa quebrar.
+ */
+function alcanca(origem, endereco) {
+  return comoRegex(origem).test(endereco);
+}
+
+/**
+ * A regra é condicional? `has` e `missing` fazem a Vercel aplicá-la só em
+ * algumas requisições — e uma regra condicional não pode ser tratada como
+ * sempre válida nem como inexistente. Enquanto o projeto não usa nenhuma, a
+ * resposta honesta é recusar a configuração inteira.
+ */
+function ehCondicional(regra) {
+  return (
+    Object.hasOwn(regra ?? {}, "has") ||
+    Object.hasOwn(regra ?? {}, "missing") ||
+    Object.hasOwn(regra ?? {}, "methods")
+  );
+}
+
+/* AUTOTESTE do comparador. Sem ele, um comparador que devolvesse `false` para
+   tudo faria a lista de permissão inteira passar por vácuo — e a Borda plantada
+   no dia do Épico 4 não seria vista. */
+afirmar(
+  "o comparador de origem reconhece o apanha-tudo, o segmento, o resto do caminho e o padrão explícito",
+  alcanca("/(.*)", "/admin") &&
+    alcanca("/(.*)", "/admin/previa/abc") &&
+    alcanca("/admin", "/admin") &&
+    !alcanca("/admin", "/admin/previa/abc") &&
+    alcanca("/admin/:caminho*", "/admin/previa/abc") &&
+    alcanca("/admin/:caminho*", "/admin/") &&
+    !alcanca("/admin/:caminho*", "/blog") &&
+    alcanca("/blog/:slug", "/blog/guia") &&
+    !alcanca("/blog/:slug", "/admin") &&
+    alcanca("/([aA][dD][mM][iI][nN])", "/Admin") &&
+    alcanca("/([aA][dD][mM][iI][nN])", "/admin") &&
+    !alcanca("/([aA][dD][mM][iI][nN])", "/blog"),
+  "um comparador que sempre responde não deixaria a lista de permissão vazia — e vazia ela aprova tudo",
+);
+/* FORMA NÃO SUPORTADA FALHA ALTO. Devolver "não alcança" para o que o modelo
+   não entende é o modo de erro que apaga a garantia inteira em silêncio: a
+   regra que intercepta `/admin` sai da conta, e a lista de permissão fica
+   vazia — e vazia ela aprova tudo. */
+{
+  const recusadas = [
+    ["parâmetro opcional", "/admin/:caminho?"],
+    ["curinga solto", "/admin/*"],
+    ["grupo não fechado", "/admin/(x"],
+    ["origem ausente", ""],
+    ["origem que não é texto", null],
+  ];
+  const passaramCaladas = recusadas.filter(([, origem]) => {
+    try {
+      comoRegex(origem);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  afirmar(
+    "e forma não suportada FALHA ALTO em vez de virar “não alcança” — o silêncio aqui esvaziaria a lista de permissão",
+    passaramCaladas.length === 0,
+    passaramCaladas.map(([nome]) => nome).join(", "),
+  );
+}
+
+const ENDERECOS_DO_PAINEL = ["/admin", "/admin/previa/00000000-0000-4000-8000-000000000000"];
+
+/**
+ * A lista de PERMISSÃO das superfícies de entrega.
+ *
+ * Não é a lista do que é proibido — lista de proibição sempre tem uma forma de
+ * evasão que ninguém pensou ainda. É a enumeração dos lugares onde, neste
+ * projeto, alguma coisa PODE ficar na frente de uma rota; cada um é declarado
+ * como esperado-presente ou esperado-ausente, e a asserção cobra o conjunto.
+ *
+ * Hoje a Função de Borda não existe: `api/posts.js` é função de runtime Node,
+ * não há `middleware.*` na raiz e não há `supabase/functions/`. "Não passa pela
+ * Borda" é, portanto, verdade por VÁCUO — e verdade por vácuo é a que some sem
+ * avisar. Esta lista é o que transforma o vácuo numa asserção que acusa no dia
+ * em que o Épico 4 criar a Borda sem excluir `/admin`.
+ */
+const SUPERFICIES_DA_ENTREGA = Object.freeze([
+  {
+    nome: "configuração da Vercel",
+    caminhos: ["vercel.json"],
+    esperada: "presente",
+  },
+  {
+    nome: "middleware (Vercel/Next), que roda ANTES de toda rota",
+    caminhos: [
+      "middleware.js",
+      "middleware.ts",
+      "middleware.mjs",
+      "src/middleware.js",
+      "src/middleware.ts",
+      "src/middleware.mjs",
+    ],
+    esperada: "ausente",
+  },
+  {
+    nome: "cabeçalhos e redirecionamentos servidos como arquivo estático",
+    caminhos: ["public/_headers", "public/_redirects", "public/_routes.json", "static.json"],
+    esperada: "ausente",
+  },
+  {
+    nome: "configuração de outra hospedagem",
+    caminhos: ["netlify.toml", "firebase.json", "_routes.json", "wrangler.toml"],
+    esperada: "ausente",
+  },
+  {
+    nome: "Funções de Borda do Supabase",
+    caminhos: ["supabase/functions"],
+    esperada: "ausente",
+  },
+  /* AS DUAS SUPERFÍCIES MAIS ANTIGAS DO ASSUNTO. Numa story cujo tema é
+     `noindex` em `/admin`, `robots.txt` e `sitemap.xml` são exatamente os
+     arquivos que governam rastreamento — deixá-los fora da enumeração seria a
+     lista de permissão com um buraco no lugar mais óbvio. */
+  {
+    nome: "declaração de rastreamento (robots.txt)",
+    caminhos: ["public/robots.txt"],
+    esperada: "presente",
+  },
+  {
+    nome: "mapa do site (sitemap.xml)",
+    caminhos: ["public/sitemap.xml"],
+    esperada: "presente",
+  },
+]);
+
+/** As superfícies que existem quando não deveriam, e as que faltam. */
+function divergenciasDeSuperficie(existe) {
+  const problemas = [];
+  for (const superficie of SUPERFICIES_DA_ENTREGA) {
+    const presentes = superficie.caminhos.filter((c) => existe(c));
+    if (superficie.esperada === "presente" && presentes.length === 0) {
+      problemas.push(`${superficie.nome}: esperada e AUSENTE`);
+    }
+    if (superficie.esperada === "ausente" && presentes.length > 0) {
+      problemas.push(`${superficie.nome}: apareceu em ${presentes.join(", ")}`);
+    }
+  }
+  return problemas;
+}
+
+{
+  const existe = (relativo) => existsSync(path.join(raiz, relativo));
+  const problemas = divergenciasDeSuperficie(existe);
+  afirmar(
+    "as superfícies de entrega são exatamente as declaradas — nenhuma camada nova apareceu na frente das rotas",
+    problemas.length === 0,
+    problemas.join(" | "),
+  );
+  /* AUTOTESTE: uma Borda PLANTADA precisa ser acusada. Sem esta linha, um
+     enumerador que respondesse "nada existe" deixaria a asserção acima verde
+     para sempre. */
+  const comBordaPlantada = divergenciasDeSuperficie(
+    (relativo) => relativo === "vercel.json" || relativo === "middleware.js",
+  );
+  const comBordaDoSupabase = divergenciasDeSuperficie(
+    (relativo) => relativo === "vercel.json" || relativo === "supabase/functions",
+  );
+  const esperadasPresentes = SUPERFICIES_DA_ENTREGA.filter(
+    (s) => s.esperada === "presente",
+  ).length;
+  afirmar(
+    "e o enumerador ACUSA uma Borda plantada — de middleware na raiz e de função do Supabase",
+    comBordaPlantada.length === 1 + (esperadasPresentes - 1) &&
+      comBordaPlantada.some((p) => /middleware/.test(p)) &&
+      comBordaDoSupabase.some((p) => /Borda do Supabase/.test(p)) &&
+      divergenciasDeSuperficie(() => false).length === esperadasPresentes,
+    `${comBordaPlantada.join(" | ")} || ${comBordaDoSupabase.join(" | ")}`,
+  );
+}
+
+/* ── O rastreamento declarado: nenhum dos dois ANUNCIA o Painel ─────────── */
+{
+  const robots = lerOuFalhar(
+    path.join(raiz, "public", "robots.txt"),
+    "public/robots.txt existe",
+  );
+  const sitemap = lerOuFalhar(
+    path.join(raiz, "public", "sitemap.xml"),
+    "public/sitemap.xml existe",
+  );
+
+  /** As linhas VIVAS de robots.txt — comentário não é diretiva. */
+  const diretivas = (robots ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== "" && !l.startsWith("#"));
+
+  afirmar(
+    "nenhuma diretiva viva de `robots.txt` cita `/admin` — o arquivo não ANUNCIA o Painel a quem não sabia dele",
+    diretivas.every((l) => !/\/admin/i.test(l)),
+    diretivas.filter((l) => /\/admin/i.test(l)).join(" | "),
+  );
+  /* E ELE NÃO BLOQUEIA A LEITURA, de propósito. `Disallow: /admin` trabalharia
+     CONTRA o `noindex`: o rastreador que obedece ao bloqueio não busca a
+     página, portanto nunca lê a diretiva — e um endereço descoberto por link
+     continuaria podendo ser listado, só que sem conteúdo. Bloquear a leitura é
+     o jeito de a diretiva nunca ser lida. */
+  afirmar(
+    "e ele não DESAUTORIZA a leitura de `/admin` — bloquear a busca é o jeito de o `noindex` nunca ser lido",
+    diretivas.every((l) => !/^disallow\s*:\s*\/admin/i.test(l)),
+    diretivas.filter((l) => /^disallow/i.test(l)).join(" | "),
+  );
+  afirmar(
+    "e o mapa do site não lista `/admin` nem filha nenhuma dele",
+    sitemap !== null && !/\/admin/i.test(sitemap),
+    (/(<loc>[^<]*\/admin[^<]*<\/loc>)/i.exec(sitemap ?? "") ?? [])[0] ?? "",
+  );
+  /* CONTROLE POSITIVO: o mapa precisa listar ALGUMA coisa, senão a linha acima
+     passaria por um arquivo vazio. */
+  afirmar(
+    "o mapa do site lista as páginas públicas — um arquivo vazio faria a linha acima passar por vácuo",
+    ((sitemap ?? "").match(/<loc>/g) ?? []).length >= 3,
+    `entradas: ${((sitemap ?? "").match(/<loc>/g) ?? []).length}`,
+  );
+}
+
+/* ── Nenhuma função de `api/` roda na Borda ──────────────────────────────── */
+{
+  /** A fonte declara runtime de Borda? Lista de permissão: só Node é aceito. */
+  const declaraBorda = (fonte) =>
+    /runtime\s*[:=]\s*["'`]edge["'`]/.test(fonte) ||
+    /export\s+const\s+runtime\s*=\s*["'`]edge["'`]/.test(fonte) ||
+    /from\s+["']next\/server["']/.test(fonte);
+
+  const funcoes = arquivosDe(path.join(raiz, "api"), [".js", ".mjs", ".ts"]);
+  const naBorda = funcoes.filter((f) => declaraBorda(readFileSync(f, "utf8")));
+  afirmar(
+    "há funções de servidor para inspecionar — zero arquivos faria a varredura passar por vacuidade",
+    funcoes.length > 0,
+    `api/: ${funcoes.length} arquivo(s)`,
+  );
+  afirmar(
+    "nenhuma função de `api/` declara runtime de Borda — o caminho único de escrita continua em Node",
+    naBorda.length === 0,
+    naBorda.map((f) => rel(f)).join(", "),
+  );
+  afirmar(
+    "e o detector de Borda acusa as três formas de declará-la",
+    declaraBorda("export const config = { runtime: 'edge' };") &&
+      declaraBorda('export const runtime = "edge";') &&
+      declaraBorda('import { NextResponse } from "next/server";') &&
+      !declaraBorda("export const config = { runtime: 'nodejs' };"),
+  );
+}
+
+/* ── O que a configuração da Vercel põe na frente de `/admin` ────────────── */
+const configuracaoDaEntrega = (() => {
+  const bruto = lerOuFalhar(path.join(raiz, "vercel.json"), "vercel.json existe");
+  if (bruto === null) return null;
+  try {
+    return JSON.parse(bruto);
+  } catch (erro) {
+    afirmar("vercel.json é JSON válido", false, erro.message);
+    return null;
+  }
+})();
+
+if (configuracaoDaEntrega !== null) {
+  /* AS CHAVES SÃO UMA LISTA FECHADA. `routes`, `redirects`, `functions` e
+     `crons` são todas formas de pôr algo na frente de uma rota, e nenhuma delas
+     existe hoje. Cobrar o CONJUNTO — e não a ausência de cada nome — é o que
+     faz uma chave inventada amanhã cair aqui em vez de passar. */
+  const chaves = Object.keys(configuracaoDaEntrega).sort();
+  afirmar(
+    "a configuração de entrega declara exatamente `headers` e `rewrites` — qualquer camada nova cai nesta linha",
+    JSON.stringify(chaves) === JSON.stringify(["headers", "rewrites"]),
+    chaves.join(", "),
+  );
+
+  const reescritas = configuracaoDaEntrega.rewrites ?? [];
+  afirmar(
+    "a única reescrita é o apanha-tudo que serve o documento da aplicação",
+    reescritas.length === 1 &&
+      reescritas[0].source === "/(.*)" &&
+      reescritas[0].destination === "/index.html",
+    JSON.stringify(reescritas),
+  );
+
+  /* NENHUMA REGRA É CONDICIONAL. `has`, `missing` e `methods` fazem a Vercel
+     aplicar a regra só em algumas requisições — e uma regra condicional não
+     pode ser tratada como sempre válida nem como inexistente. Enquanto o
+     projeto não usa nenhuma, a resposta honesta é cobrar a ausência delas em
+     vez de fingir que o modelo daqui as entende. */
+  {
+    const condicionais = [];
+    for (const chave of ["rewrites", "redirects", "routes", "headers"]) {
+      for (const regra of configuracaoDaEntrega[chave] ?? []) {
+        if (ehCondicional(regra)) condicionais.push(`${chave}:${regra.source ?? regra.src}`);
+      }
+    }
+    afirmar(
+      "nenhuma regra de entrega é CONDICIONAL — o modelo desta ferramenta não sabe julgar `has`/`missing`, e fingir que sabe é pior",
+      condicionais.length === 0,
+      condicionais.join(" | "),
+    );
+    afirmar(
+      "e o detector de condicional reconhece as três formas",
+      ehCondicional({ has: [] }) &&
+        ehCondicional({ missing: [] }) &&
+        ehCondicional({ methods: ["GET"] }) &&
+        !ehCondicional({ source: "/x" }),
+    );
+  }
+
+  /* O CONJUNTO DO QUE ALCANÇA `/admin`, calculado e comparado. */
+  const alcancam = [];
+  for (const chave of ["rewrites", "redirects", "routes"]) {
+    for (const regra of configuracaoDaEntrega[chave] ?? []) {
+      const origem = regra.source ?? regra.src ?? "";
+      if (ENDERECOS_DO_PAINEL.some((e) => alcanca(origem, e))) {
+        alcancam.push(`${chave}:${origem}`);
+      }
+    }
+  }
+  afirmar(
+    "o que fica na frente de `/admin` é EXATAMENTE a reescrita apanha-tudo — nada de redirecionamento, rota ou destino próprio",
+    JSON.stringify(alcancam) === JSON.stringify(["rewrites:/(.*)"]),
+    alcancam.join(" | "),
+  );
+
+  /* ── `noindex` na entrega: a camada que vale sem JavaScript ───────────── */
+  const moduloDaPrevia = lerOuFalhar(
+    path.join(DIR_SRC, "admin", "blog", "previa.js"),
+    "src/admin/blog/previa.js existe",
+  );
+  /* O NOME DO CABEÇALHO VEM DO MÓDULO, e não de um literal escrito aqui.
+     Enquanto o nome vivia em três lugares — `vercel.json`, a constante do
+     módulo e a comparação desta ferramenta —, a constante prometia ser fonte
+     única e não travava nada: renomear duas das três deixava a suíte verde. */
+  const nomeDoCabecalho =
+    /CABECALHO_DE_ROBOS\s*=\s*["']([^"']+)["']/.exec(moduloDaPrevia ?? "")?.[1] ?? "";
+  afirmar(
+    "o nome do cabeçalho de robôs é declarado no módulo — e é ele que esta ferramenta usa para procurar, não um literal próprio",
+    nomeDoCabecalho !== "",
+    "sem a constante não há fonte única: o nome passaria a existir em três cópias sem trava",
+  );
+
+  const cabecalhos = configuracaoDaEntrega.headers ?? [];
+  const roboDe = (endereco) => {
+    const valores = [];
+    for (const grupo of cabecalhos) {
+      if (!alcanca(grupo.source ?? "", endereco)) continue;
+      for (const h of grupo.headers ?? []) {
+        if (String(h.key ?? "").toLowerCase() === nomeDoCabecalho.toLowerCase()) {
+          valores.push(h.value);
+        }
+      }
+    }
+    return valores;
+  };
+  afirmar(
+    "e a entrega usa EXATAMENTE esse nome — nenhum outro cabeçalho entrou de carona",
+    cabecalhos.every((g) =>
+      (g.headers ?? []).every((h) => String(h.key ?? "") === nomeDoCabecalho),
+    ),
+    cabecalhos
+      .flatMap((g) => (g.headers ?? []).map((h) => h.key))
+      .join(", "),
+  );
+  afirmar(
+    "a entrega declara `noindex` para `/admin` E para as filhas dela — a prévia é uma filha",
+    ENDERECOS_DO_PAINEL.every((e) => roboDe(e).some((v) => /noindex/i.test(v))),
+    ENDERECOS_DO_PAINEL.map((e) => `${e}: ${roboDe(e).join(", ") || "nenhum"}`).join(" | "),
+  );
+  /* ─── E VALE COM QUALQUER CAIXA NO ENDEREÇO ────────────────────────────
+     O roteador do navegador casa `/Admin/previa/…` sem diferenciar caixa; o
+     cabeçalho da entrega compara texto. Sem cobrir as variantes, um endereço do
+     Painel seria servido SEM o `noindex` — e portanto indexável — só por ter
+     sido escrito com maiúscula. */
+  {
+    const variantes = [
+      "/Admin",
+      "/ADMIN",
+      "/aDmIn",
+      "/Admin/previa/00000000-0000-4000-8000-000000000000",
+      "/ADMIN/previa/00000000-0000-4000-8000-000000000000",
+    ];
+    const descobertas = variantes.filter((e) => !roboDe(e).some((v) => /noindex/i.test(v)));
+    afirmar(
+      "e vale para o endereço escrito com QUALQUER caixa — o roteador casa `/Admin`, e o cabeçalho precisa acompanhar",
+      descobertas.length === 0,
+      descobertas.join(", "),
+    );
+  }
+  afirmar(
+    "e o `noindex` NÃO alcança o site público — a garantia é do Painel, não uma tesoura sobre o blog",
+    ["/", "/blog", "/blog/guia-de-atalhos", "/carreiras"].every(
+      (e) => roboDe(e).length === 0,
+    ),
+    ["/", "/blog", "/blog/guia-de-atalhos", "/carreiras"]
+      .map((e) => `${e}: ${roboDe(e).join(", ") || "nenhum"}`)
+      .join(" | "),
+  );
+
+  /* AS DUAS CAMADAS DIZEM A MESMA COISA, e o valor vem de um lugar só. Duas
+     constantes divergem no dia em que uma delas mudar, e a divergência
+     apareceria como cabeçalho dizendo uma coisa e documento dizendo outra. */
+  if (moduloDaPrevia !== null) {
+    const valorDoModulo =
+      /VALOR_DE_NOINDEX\s*=\s*["']([^"']+)["']/.exec(moduloDaPrevia)?.[1] ?? "";
+    afirmar(
+      "o valor da diretiva é o MESMO na entrega e no documento — uma constante só, e não duas que divergem",
+      valorDoModulo !== "" &&
+        ENDERECOS_DO_PAINEL.every((e) => roboDe(e).includes(valorDoModulo)),
+      `módulo: ${JSON.stringify(valorDoModulo)} | entrega: ${roboDe("/admin").join(", ")}`,
+    );
+  }
+
+  /* E O `index.html` CONTINUA DIZENDO `index, follow` — é contra isto que o
+     cabeçalho precisa valer, e é por isto que meta injetada por JavaScript não
+     bastaria sozinha: a reescrita apanha-tudo serve ESTE documento para
+     `/admin` também. */
+  {
+    const documento = lerOuFalhar(path.join(raiz, "index.html"), "index.html existe");
+    const meta =
+      documento === null
+        ? ""
+        : (/<meta\s+name="robots"\s+content="([^"]*)"/.exec(documento)?.[1] ?? "");
+    afirmar(
+      "o documento servido para TODA rota ainda diz `index` — o cabeçalho é a única camada que responde antes do JavaScript",
+      /index/i.test(meta) && !/noindex/i.test(meta),
+      `meta do documento: ${JSON.stringify(meta)}`,
+    );
+  }
+}
+
+/* ─── (i) O portão, OBSERVADO: sem sessão o conteúdo não monta ───────────── */
+
+secao("(i) o portão montado: sem sessão, a prévia não chega ao DOM");
+
+/*
+ * POR QUE ESTA SEÇÃO EXISTE, E POR QUE ELA VEM POR ÚLTIMO.
+ *
+ * Ler que `PortaoDeSessao` envolve a rota não é o mesmo que VER o conteúdo não
+ * montar. A rota da prévia é a primeira tela do Painel com endereço próprio, e
+ * "quem não está autenticado não monta o conteúdo protegido nem por um
+ * instante" é uma afirmação sobre comportamento — não sobre a forma do JSX.
+ *
+ * Vem por último porque montar o DOM de mentira instala `window`, `document` e
+ * `navigator` em `globalThis`, e as seções anteriores falam com a rede de
+ * verdade. Poluir depois é a única ordem em que uma coisa não estraga a outra.
+ *
+ * O arranjo é o de `montagem-comum.mjs` — o MESMO que `verificar-editor.mjs`
+ * usa. Um segundo JSDOM configurado à parte divergiria do primeiro no primeiro
+ * ajuste de qualquer um dos dois.
+ */
+{
+  const montagem = await (async () => {
+    const pasta = criarPastaDeCompilacao("verificar-acesso-");
+    /* Os dois conversores de caminho vêm do módulo compartilhado: eles foram
+       extraídos para lá exatamente para não existirem em três cópias. */
+    const real = caminhoDeModulo;
+    const arquivo = (nome) => path.join(pasta, nome);
+    const modulo = comoModulo;
+
+    writeFileSync(
+      arquivo("controle.js"),
+      "export const controle = {\n" +
+        "  estado: 'anonimo',\n" +
+        /* O que a fronteira de dados RECEBEU. É por aqui que "nem por um
+           instante" deixa de ser uma frase: um efeito que rodasse no ramo
+           errado apareceria aqui, mesmo que o DOM já tivesse sido trocado. */
+        "  leituras: [],\n" +
+        "  post: { ok: false, erro: { tipo: 'nao_encontrado', mensagem: 'sem post' } },\n" +
+        "};\n",
+    );
+
+    writeFileSync(
+      arquivo("duble-posts.js"),
+      `export * from ${real("src/data/blog/posts.js")};\n` +
+        'import { controle } from "./controle.js";\n' +
+        "export async function lerPostDoPainelPorId(id) {\n" +
+        "  controle.leituras.push(id);\n" +
+        "  return controle.post;\n" +
+        "}\n",
+    );
+
+    /* O PORTÃO E O HOOK SÃO OS REAIS, e a sessão entra pelo CONTEXTO — o mesmo
+       que `SessaoProvider` alimenta em produção. Dublar `useSessao` trocaria
+       justamente a peça que decide; o que se troca aqui é só quem informa o
+       estado, porque o provedor de verdade falaria com o Supabase e "falhou
+       por falta de ambiente" é a falha que não é falha. */
+    const fonte =
+      `export { default as PortaoDeSessao } from ${real("src/admin/shell/PortaoDeSessao.jsx")};\n` +
+      `export { ContextoDeSessao } from ${real("src/admin/shell/useSessao.js")};\n` +
+      `export { default as PreVisualizacaoDePost } from ${real("src/admin/blog/PreVisualizacaoDePost.jsx")};\n` +
+      `export * as previa from ${real("src/admin/blog/previa.js")};\n` +
+      `export * as rotas from ${real("src/admin/blog/rotas.js")};\n` +
+      `export { controle } from ${modulo(arquivo("controle.js"))};\n`;
+
+    const compilado = await compilarParaNode({
+      pasta,
+      fonte,
+      alias: { "@/data/blog/posts": arquivo("duble-posts.js") },
+    });
+    return { pasta, arquivo: compilado.arquivo };
+  })().catch((erro) => {
+    afirmar(
+      "o portão e a prévia compilam pelo empacotador da aplicação",
+      false,
+      String(erro?.message ?? erro).slice(0, 300),
+    );
+    return null;
+  });
+
+  if (montagem) {
+    afirmar("o portão e a prévia compilam pelo empacotador da aplicação", true);
+
+    const janela = montarNavegador();
+    const modulo = await import(pathToFileURL(montagem.arquivo).href);
+    const React = (await import("react")).default;
+    const { createRoot } = await import("react-dom/client");
+    const { act } = await import("react");
+    const roteador = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+
+    const ID = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+    modulo.controle.post = {
+      ok: true,
+      dados: {
+        id: ID,
+        slug: "",
+        titulo: "Rascunho que não pode vazar",
+        resumo: "",
+        estado: "rascunho",
+        conteudo_html: "<p>SEGREDO DO RASCUNHO</p>",
+      },
+    };
+
+    /* A MESMA COMPOSIÇÃO DE `main.jsx`: o portão no elemento do PAI, e a prévia
+       como filha servida por `Outlet`. Se o portão não montar `children`, a
+       filha não existe — é essa a garantia que se observa aqui. */
+    const montar = async () => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+      const valorDaSessao = {
+        estado: modulo.controle.estado,
+        email:
+          modulo.controle.estado === "autenticado" ? "autor@exemplo.local" : null,
+        perfil: { carregando: false, nome: "Autor de Prova", erro: null },
+        erroDeAmbiente: null,
+        erroDeSessao: null,
+        entrar: async () => ({ ok: false, mensagem: "não nesta prova" }),
+        sair: async () => {},
+      };
+      const raizReact = createRoot(alvo);
+      await act(async () => {
+        raizReact.render(
+          React.createElement(
+            modulo.ContextoDeSessao.Provider,
+            { value: valorDaSessao },
+            React.createElement(
+              roteador.MemoryRouter,
+              {
+                initialEntries: [
+                  `${modulo.rotas.BASE_DO_PAINEL}/${modulo.rotas.SEGMENTO_DA_PREVIA}/${ID}`,
+                ],
+              },
+              React.createElement(
+                roteador.Routes,
+                null,
+                React.createElement(
+                  roteador.Route,
+                  {
+                    path: modulo.rotas.BASE_DO_PAINEL,
+                    element: React.createElement(
+                      modulo.PortaoDeSessao,
+                      null,
+                      React.createElement(roteador.Outlet),
+                    ),
+                  },
+                  React.createElement(roteador.Route, {
+                    path: modulo.rotas.ROTA_DA_PREVIA,
+                    element: React.createElement(modulo.PreVisualizacaoDePost),
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+      });
+      return {
+        previa: () => alvo.querySelector('[data-tela="previa"]'),
+        entrada: () => alvo.querySelector("form input[type='password']"),
+        texto: () => alvo.textContent ?? "",
+        async desmontar() {
+          await act(async () => raizReact.unmount());
+          alvo.remove();
+        },
+      };
+    };
+
+    for (const estado of ["anonimo", "carregando"]) {
+      modulo.controle.estado = estado;
+      modulo.controle.leituras = [];
+      const tela = await montar();
+      afirmar(
+        `com a sessão em "${estado}", a prévia NÃO chega ao DOM — o portão é o mesmo do Painel, e ele não abriu`,
+        tela.previa() === null,
+        `encontrado: ${tela.previa()?.getAttribute("data-situacao")}`,
+      );
+      afirmar(
+        `e nada do Post vazou em "${estado}": nenhuma leitura saiu, e o conteúdo não apareceu na página`,
+        modulo.controle.leituras.length === 0 &&
+          !tela.texto().includes("SEGREDO DO RASCUNHO") &&
+          !tela.texto().includes("Rascunho que não pode vazar"),
+        `leituras: ${modulo.controle.leituras.length}`,
+      );
+      await tela.desmontar();
+    }
+
+    afirmar(
+      "sem sessão o que aparece é a TELA DE ENTRADA, no mesmo endereço — não um redirecionamento que apaga para onde a pessoa ia",
+      await (async () => {
+        modulo.controle.estado = "anonimo";
+        const tela = await montar();
+        const temEntrada = tela.entrada() !== null;
+        await tela.desmontar();
+        return temEntrada;
+      })(),
+    );
+
+    /* CONTROLE POSITIVO. Sem ele, um componente que nunca montasse em situação
+       nenhuma — porque o pacote quebrou, porque a rota não casa — faria as
+       asserções acima passarem sem provar nada sobre o portão. */
+    {
+      modulo.controle.estado = "autenticado";
+      modulo.controle.leituras = [];
+      const tela = await montar();
+      afirmar(
+        "e COM sessão a mesma rota monta a prévia e lê o Post — sem isto, as recusas acima passariam por um pacote quebrado",
+        tela.previa() !== null &&
+          JSON.stringify(modulo.controle.leituras) === JSON.stringify([ID]) &&
+          tela.texto().includes("Rascunho que não pode vazar"),
+        `previa: ${tela.previa() !== null} | leituras: ${JSON.stringify(modulo.controle.leituras)}`,
+      );
+      await tela.desmontar();
+    }
+
+    /* ── NAVEGAR ENTRE IRMÃS NÃO PODE DERRUBAR O PAI ──────────────────────
+       `AnimatePresence` em modo "wait" desmonta e remonta a árvore quando a
+       CHAVE muda. Com o caminho inteiro como chave, ir de `/admin` para
+       `/admin/previa/:id` derrubava `SessaoProvider` e `PortaoDeSessao` junto:
+       o bootstrap de sessão recomeçava e o esqueleto piscava — o portão
+       continuava correto, mas a continuidade que os comentários prometem não
+       existia. A chave passou a ser o primeiro segmento. */
+    {
+      const { chaveDaTransicao } = await import(
+        pathToFileURL(path.join(DIR_SRC, "lib", "motion.js")).href
+      );
+      afirmar(
+        "a chave da transição é o PRIMEIRO SEGMENTO: navegar entre irmãs de `/admin` não remonta o provedor nem o portão",
+        chaveDaTransicao("/admin") === chaveDaTransicao("/admin/previa/abc") &&
+          chaveDaTransicao("/admin") === chaveDaTransicao("/admin/previa/abc?pendente=1") &&
+          chaveDaTransicao("/blog/um-post") === chaveDaTransicao("/blog"),
+        `${chaveDaTransicao("/admin")} × ${chaveDaTransicao("/admin/previa/abc")}`,
+      );
+      afirmar(
+        "e a troca de PÁGINA continua sendo uma chave diferente — a animação não some junto",
+        chaveDaTransicao("/") !== chaveDaTransicao("/admin") &&
+          chaveDaTransicao("/blog") !== chaveDaTransicao("/admin") &&
+          chaveDaTransicao("/carreiras") !== chaveDaTransicao("/blog"),
+        `${chaveDaTransicao("/")} | ${chaveDaTransicao("/blog")} | ${chaveDaTransicao("/admin")}`,
+      );
+      /* E A CASCA DE ANIMAÇÃO USA ESSA FUNÇÃO — sem esta linha, ela poderia
+         continuar chaveando pelo caminho inteiro com a asserção acima verde. */
+      const casca = lerOuFalhar(
+        path.join(DIR_SRC, "components", "animated", "AnimatedRoutes.jsx"),
+        "src/components/animated/AnimatedRoutes.jsx existe",
+      );
+      afirmar(
+        "e é essa função que a casca de animação usa como chave — não o caminho inteiro",
+        casca !== null &&
+          /key=\{chaveDaTransicao\(location\.pathname\)\}/.test(casca) &&
+          !/key=\{location\.pathname\}/.test(casca),
+        (/key=\{[^}]*\}/.exec(casca ?? "") ?? [])[0] ?? "",
+      );
+    }
+
+    try {
+      rmSync(montagem.pasta, { recursive: true, force: true });
+    } catch {
+      /* no Windows a pasta pode ficar presa pelo processo; a próxima execução varre */
+    }
+  }
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */

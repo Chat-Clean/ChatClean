@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Routes, useLocation } from "react-router-dom";
-import { pageTransition } from "@/lib/motion";
+import { chaveDaTransicao, pageTransition } from "@/lib/motion";
 
 /**
  * Envolve <Routes> com transicoes suaves entre paginas.
@@ -24,7 +24,7 @@ export default function AnimatedRoutes({ children }) {
   return (
     <AnimatePresence mode="wait" initial={false}>
       <motion.div
-        key={location.pathname}
+        key={chaveDaTransicao(location.pathname)}
         initial={pageTransition.initial}
         animate={pageTransition.animate}
         exit={pageTransition.exit}

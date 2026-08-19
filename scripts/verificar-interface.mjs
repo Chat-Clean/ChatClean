@@ -328,6 +328,13 @@ const CAMINHO_MENU = "src/admin/shell/MenuDoAutor.jsx";
 const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
+/* A pré-visualização da Story 2.13 e o módulo puro dela. Elas entram na lista
+   fechada pela mesma razão que a listagem entrou na 2.10: superfície nova do
+   Painel que fica de fora não é julgada por hex solto, paleta aposentada nem
+   raio da direção — e uma tela escrita com `zinc` e um hex passaria verde. */
+const CAMINHO_PREVIA = "src/admin/blog/PreVisualizacaoDePost.jsx";
+const CAMINHO_MODULO_DA_PREVIA = "src/admin/blog/previa.js";
+const CAMINHO_MODULO_DAS_ROTAS = "src/admin/blog/rotas.js";
 const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 const CAMINHO_FORMATO = "src/domain/blog/formato.js";
 const CAMINHO_PAGINA = "src/pages/AdminBlog.jsx";
@@ -356,6 +363,13 @@ const ARQUIVOS_NOVOS = [
      CORPO do Painel reconstruído — o corpo escuro que sobrou é o que a Story 1.5
      deixou explicitamente para o Épico 2. */
   CAMINHO_LISTA,
+  /* A pré-visualização da Story 2.13 — a primeira tela do Painel com endereço
+     próprio, e a primeira a mostrar o artigo. Ela veste tokens do Painel e do
+     site ao mesmo tempo, o que a torna exatamente o tipo de superfície em que
+     um hex solto passa despercebido. */
+  CAMINHO_PREVIA,
+  CAMINHO_MODULO_DA_PREVIA,
+  CAMINHO_MODULO_DAS_ROTAS,
 ];
 
 function acharCssCompilado() {
@@ -2170,6 +2184,106 @@ if (cssCompilado) {
         bundles.length === 0
           ? "sem dist/assets/*.js — rode `npm run build`"
           : "o valor não foi inlined: o navegador abriria com ambiente vazio e toda leitura viraria erro de configuração",
+      );
+    }
+  }
+}
+
+/* ─── (i) O par de erro, medido em vez de suposto ─────────────────────── */
+
+secao("(i) o cartão de erro: tinta destrutiva sobre o próprio tom, calculada");
+
+/*
+ * O cartão de erro da listagem existe desde a Story 2.10, e a pré-visualização o
+ * herdou. O par nunca passou por contraste: as ferramentas mediam pares OPACOS,
+ * e este é COMPOSTO — a cor entra com alfa sobre o fundo do Painel.
+ *
+ * Compor à mão é o que faltava para a medida existir. Ela apontou um defeito
+ * real: `--destructive` como TINTA sobre um tom dela mesma a 10% dava 3,71:1,
+ * abaixo do piso de 4,5:1 — a mensagem que mais importa ler era a menos legível
+ * da tela. `--destructive` continua como está (ele é cor de SUPERFÍCIE, com
+ * tinta clara por cima, e nesse papel está certo); quem entrou foi
+ * `--destructive-ink`, para o papel oposto.
+ *
+ * A medida é calculada, não afirmada, e usa o mesmo módulo autotestado das
+ * outras ferramentas.
+ */
+{
+  const { acharCssCompilado, corParaRgb, declaracoesDe, razaoContraste, resolver } =
+    await import("./css-comum.mjs");
+
+  const arquivo = acharCssCompilado(raiz);
+  const css = arquivo ? readFileSync(arquivo, "utf8") : null;
+  const temCss = afirmar(
+    "há CSS compilado para medir o par de erro",
+    css !== null,
+    "rode `npm run build`",
+  );
+
+  /* AS TELAS QUE MONTAM O CARTÃO usam a tinta, e não a superfície. Sem esta
+     linha a medida abaixo julgaria um token que ninguém veste. */
+  {
+    const cartoes = [CAMINHO_LISTA, CAMINHO_PREVIA];
+    const erradas = cartoes.filter((relativo) => {
+      const fonte = existsSync(path.join(raiz, relativo))
+        ? readFileSync(path.join(raiz, relativo), "utf8")
+        : "";
+      return (
+        !/text-destructive-ink\b/.test(fonte) ||
+        /(?:^|[\s"'`])(?:text|bg|border)-destructive\/(?!.*-ink)/.test(fonte)
+      );
+    });
+    afirmar(
+      "os cartões de erro vestem a TINTA de perigo, e não a superfície — o papel é o oposto, e o token também",
+      erradas.length === 0,
+      erradas.join(", "),
+    );
+  }
+
+  if (temCss) {
+    const root = declaracoesDe(css, ":root");
+    const painel = declaracoesDe(css, ".painel");
+    const escopo = new Map([...root, ...painel]);
+
+    const tinta = corParaRgb(resolver("var(--destructive-ink)", escopo) ?? "");
+    const fundoDaTela = corParaRgb(resolver("var(--background)", escopo) ?? "");
+
+    const resolveu = afirmar(
+      "as duas cores do cartão de erro resolvem no escopo do Painel",
+      tinta !== null && fundoDaTela !== null,
+      `tinta: ${resolver("var(--destructive-ink)", escopo)} | fundo: ${resolver("var(--background)", escopo)}`,
+    );
+
+    if (resolveu) {
+      /** A cor com alfa, achatada sobre o que está atrás dela. */
+      const compor = (frente, atras, alfa) =>
+        frente.map((c, i) => Math.round(c * alfa + atras[i] * (1 - alfa)));
+      const paraHex = (rgb) =>
+        `#${rgb.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+
+      const fundoDoCartao = compor(tinta, fundoDaTela, 0.1);
+      const borda = compor(tinta, fundoDaTela, 0.7);
+
+      const razaoDoTexto = razaoContraste(paraHex(tinta), paraHex(fundoDoCartao));
+      afirmar(
+        "a tinta destrutiva sobre o fundo composto do cartão passa no piso de 4,5:1 — texto",
+        razaoDoTexto !== null && razaoDoTexto >= 4.5,
+        `${paraHex(tinta)} sobre ${paraHex(fundoDoCartao)} = ${razaoDoTexto?.toFixed(2)}:1`,
+      );
+
+      const razaoDaBorda = razaoContraste(paraHex(borda), paraHex(fundoDaTela));
+      afirmar(
+        "e a borda composta se distingue do fundo da tela no piso de 3:1 — elemento não textual",
+        razaoDaBorda !== null && razaoDaBorda >= 3,
+        `${paraHex(borda)} sobre ${paraHex(fundoDaTela)} = ${razaoDaBorda?.toFixed(2)}:1`,
+      );
+
+      /* AUTOTESTE da composição: alfa 1 é a própria cor, alfa 0 é o fundo. Sem
+         isto, uma composição invertida daria números plausíveis e errados. */
+      afirmar(
+        "a composição por alfa é exercitada nos dois extremos — alfa 1 é a cor, alfa 0 é o fundo",
+        paraHex(compor(tinta, fundoDaTela, 1)) === paraHex(tinta) &&
+          paraHex(compor(tinta, fundoDaTela, 0)) === paraHex(fundoDaTela),
       );
     }
   }

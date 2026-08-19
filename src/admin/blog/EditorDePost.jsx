@@ -86,14 +86,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Eye, Loader2 } from "lucide-react";
 
 /* A pergunta "dá para ver este Post no site?" e o endereço público moram em
    `acoes.js`, e a listagem faz a MESMA pergunta pelas mesmas funções. Enquanto
    cada tela montava a sua, o comentário de lá prometia "escrito uma vez" e o
    projeto tinha duas — e duas divergem no dia em que o prefixo do blog mudar,
    com a divergência aparecendo como um link que erra. */
-import { enderecoPublico, podeVerNoSite } from "@/admin/blog/acoes";
+import { DESTINO_SITE, destinoDeVer, rotuloDeVer } from "@/admin/blog/acoes";
 import Editor from "@/admin/blog/Editor";
 import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
@@ -151,6 +151,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
   const [erroDeCarga, setErroDeCarga] = useState(null);
 
   const [valores, setValores] = useState(valoresVazios);
+  /* O endereço que o SERVIDOR tem, que não é o do campo.
+     Quem editou o endereço e ainda não salvou tem no formulário um caminho que
+     o servidor nunca viu — e "Ver no site" com ele abriria, em aba nova, uma
+     página que não existe. O que está no ar é o que está gravado. */
+  const [slugGravado, setSlugGravado] = useState("");
   const [documento, setDocumento] = useState(documentoVazio);
   const [chaveDoEditor, setChaveDoEditor] = useState("novo");
 
@@ -183,6 +188,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     [acoes],
   );
 
+
   /* A gaveta NASCE aberta, e recolhida quando a tela é estreita. O estado é
      de montagem: nada é lido de armazenamento do navegador, e nada é escrito
      nele — toda abertura de Post começa igual, o que é o requisito. */
@@ -204,6 +210,28 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     [valores, documento],
   );
   const pendente = haPendencia(retratoAtual, referencia);
+
+  /* ── PARA ONDE A AÇÃO DE VER LEVA (Story 2.13) ──────────────────────────
+     A tela NÃO decide: ela monta o Post como ele está agora — identificador,
+     endereço, Estado e título — e pergunta a `acoes.js`, o mesmo módulo que a
+     linha da listagem consulta. Uma segunda decisão aqui é como a divergência
+     entre as duas telas nasceria: uma oferecendo a prévia e a outra escondendo
+     a ação, para o mesmo Post.
+
+     O ENDEREÇO É O GRAVADO, e não o do campo. Quem editou o endereço e ainda
+     não salvou tem no formulário um caminho que o servidor nunca viu: abri-lo
+     em aba nova levaria a uma página que não existe. O que está no ar é o que
+     está gravado, e é para lá que o link do site aponta.
+
+     A PENDÊNCIA VIAJA JUNTO para a prévia. Ela lê do banco: sem o aviso, o
+     Autor confere um texto que não é o que está na tela dele. */
+  const postParaVer = {
+    id,
+    slug: slugGravado,
+    estado,
+    titulo: valores.titulo,
+  };
+  const destinoDaVisualizacao = destinoDeVer(postParaVer, { pendente });
 
   /* O endereço foi digitado à mão? A partir daí ele para de acompanhar o
      título, mesmo durante a criação. É `ref` e não estado porque nada na tela
@@ -263,6 +291,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       const doBanco = valoresDoPost(post.dados, tagsDoPost.ok ? tagsDoPost.dados : []);
       const conteudo = post.dados.conteudo ?? documentoVazio();
       setValores(doBanco);
+      setSlugGravado(typeof post.dados.slug === "string" ? post.dados.slug : "");
       setDocumento(conteudo);
       /* O Estado vem do banco, e a camada de dados já o conferiu contra o
          vocabulário fechado — linha com Estado desconhecido vira erro tipado lá,
@@ -475,6 +504,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         : {}),
     };
     setValores(valoresGravados);
+    /* O endereço gravado acompanha a resposta do servidor: ele pode ter sido
+       aposentado e trocado lá, e é o novo que passa a estar no ar. */
+    setSlugGravado(
+      typeof gravado?.slug === "string" ? gravado.slug : valoresGravados.slug,
+    );
     if (gravado?.estado) setEstado(gravado.estado);
 
     /* A PENDÊNCIA SOME AQUI, e só aqui.
@@ -580,15 +614,25 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
            listagem e do filtro — a palavra por extenso, sem sinônimo. */
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <PilulaDeEstado estado={estado} />
-          {podeVerNoSite({ estado, slug: valores.slug }) ? (
-            /* Aba nova, de propósito: o Autor continua AQUI, com o que ainda
-               não foi salvo intacto. Navegar na mesma aba logo depois de
-               publicar seria trocar a confirmação por uma perda. */
+          {/* VER — a MESMA decisão da linha da listagem, tomada no mesmo lugar
+              (`acoes.js`). Ela deixou de sumir quando o Post não está
+              publicado: leva à pré-visualização, que abre por identificador e
+              não depende de o rascunho ter endereço. O único caso sem destino é
+              o Post que ainda não foi gravado — aí não há o que pré-visualizar,
+              e a ação continua ausente em vez de mentir.
+
+              Aba nova, de propósito, nos dois destinos: o Autor continua AQUI,
+              com o que ainda não foi salvo intacto. Navegar na mesma aba levaria
+              embora o texto pendente — e uma troca de rota do lado do cliente
+              não dispara a pergunta de descarregamento que protege as outras
+              três saídas. */}
+          {destinoDaVisualizacao !== null ? (
             <a
-              data-acao-ver="site"
-              href={enderecoPublico({ slug: valores.slug })}
+              data-acao-ver={destinoDaVisualizacao.tipo}
+              href={destinoDaVisualizacao.endereco}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label={rotuloDeVer(postParaVer)}
               className={cn(
                 ANEL_DE_FOCO,
                 "inline-flex items-center gap-1.5 rounded-controle px-2 py-1",
@@ -596,8 +640,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                 "hover:text-ink",
               )}
             >
-              <ExternalLink aria-hidden="true" className="size-4" />
-              Ver no site
+              {destinoDaVisualizacao.tipo === DESTINO_SITE ? (
+                <ExternalLink aria-hidden="true" className="size-4" />
+              ) : (
+                <Eye aria-hidden="true" className="size-4" />
+              )}
+              {destinoDaVisualizacao.tipo === DESTINO_SITE
+                ? "Ver no site"
+                : "Pré-visualizar"}
             </a>
           ) : null}
           {/* ─── Tela larga: as ações lado a lado ─────────────────────────

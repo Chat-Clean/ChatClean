@@ -997,6 +997,81 @@ if (temCss) {
   );
 }
 
+/* ─── (e1) O FUNDO sobre o qual o artigo é mostrado (Story 2.13) ──────── */
+
+secao("(e1) o par texto/fundo do artigo, e não só a tinta");
+
+/*
+ * "O que se vê é o que sairá" não vale só para o TEXTO.
+ *
+ * O par texto/fundo é o que decide contraste, e é justamente por isso que
+ * `.artigo` é global. A pré-visualização é a primeira tela a mostrar o artigo, e
+ * a raiz dela é do Painel — onde `--background` resolve OUTRO valor. Pintar o
+ * artigo com esse token o mostraria sobre um fundo que o site nunca usa, e a
+ * promessa valeria pela metade.
+ *
+ * A tela declara qual token usa. Aqui esse token é resolvido nos dois escopos e
+ * o par é medido — calculado, não afirmado.
+ */
+if (temCss) {
+  const CAMINHO_DA_PREVIA = "src/admin/blog/previa.js";
+  const CAMINHO_DA_TELA = "src/admin/blog/PreVisualizacaoDePost.jsx";
+  const fontePrevia = existsSync(path.join(raiz, CAMINHO_DA_PREVIA))
+    ? readFileSync(path.join(raiz, CAMINHO_DA_PREVIA), "utf8")
+    : "";
+  const fonteTela = existsSync(path.join(raiz, CAMINHO_DA_TELA))
+    ? readFileSync(path.join(raiz, CAMINHO_DA_TELA), "utf8")
+    : "";
+
+  const token =
+    /TOKEN_DO_FUNDO_DO_ARTIGO\s*=\s*["']([^"']+)["']/.exec(fontePrevia)?.[1] ?? "";
+  const classe =
+    /CLASSE_DO_FUNDO_DO_ARTIGO\s*=\s*["']([^"']+)["']/.exec(fontePrevia)?.[1] ?? "";
+
+  const declarou = afirmar(
+    "a tela DECLARA qual token pinta o fundo do artigo — o par não pode ser adivinhado pela verificação",
+    token.startsWith("--") && classe !== "",
+    `token: ${JSON.stringify(token)} | classe: ${JSON.stringify(classe)}`,
+  );
+
+  afirmar(
+    "e ela VESTE essa classe — a constante sem uso seria uma promessa que o JSX não cumpre",
+    fonteTela.includes("CLASSE_DO_FUNDO_DO_ARTIGO"),
+    CAMINHO_DA_TELA,
+  );
+
+  if (declarou) {
+    const root = declaracoesDe(cssCompilado, ":root");
+    const painel = declaracoesDe(cssCompilado, ".painel");
+    const escopoPainel = new Map([...root, ...painel]);
+
+    const fora = resolver(`var(${token})`, root);
+    const dentro = resolver(`var(${token})`, escopoPainel);
+    afirmar(
+      `o fundo do artigo (\`${token}\`) resolve o MESMO literal dentro e fora do Painel — senão o par mudaria ao cruzar a fronteira`,
+      fora !== null && fora === dentro && !painel.has(token),
+      `fora: ${fora} × dentro: ${dentro}`,
+    );
+
+    const tinta = resolver(declsDe(".artigo").get("color") ?? "", root);
+    const razao = razaoContraste(tinta ?? "", fora ?? "");
+    afirmar(
+      "e o par tinta-do-artigo sobre esse fundo passa no piso de 4,5:1 — medido, não afirmado",
+      razao !== null && razao >= 4.5,
+      `${tinta} sobre ${fora} = ${razao === null ? "não resolvido" : razao.toFixed(2)}:1`,
+    );
+
+    /* AUTOTESTE: o detector precisa acusar o token ERRADO — o que o Painel
+       remapeia — em vez de aprovar qualquer nome que apareça no arquivo. */
+    afirmar(
+      "o detector acusaria `--background`, que é justamente o token que o Painel remapeia",
+      painel.has("--background") &&
+        resolver("var(--background)", root) !== resolver("var(--background)", escopoPainel),
+      `fora: ${resolver("var(--background)", root)} × dentro: ${resolver("var(--background)", escopoPainel)}`,
+    );
+  }
+}
+
 /* ─── (e2) O terceiro escopo: `.dark` ────────────────────────────────── */
 
 secao("(e2) o terceiro escopo que o próprio arquivo declara: `.dark`");
@@ -1303,14 +1378,130 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
   }
 }
 
-/* Nada envolve HTML de artigo em `.artigo` hoje — o Editor é da Story 2.4 e o
-   blog público é da 2.15 —, então esta asserção passa por ausência. Ela
-   existe para o dia em que o primeiro ponto de renderização aparecer: o
-   mecanismo é `dangerouslySetInnerHTML`, e o elemento que o carrega tem de
-   trazer `artigo` no `className`. Sem esta trava, a 2.15 poderia injetar o
-   HTML derivado sem invólucro e o artigo sairia sem estilo com as 100+
-   asserções verdes. */
+/* A TRAVA DE ADOÇÃO, QUE AGORA MORDE.
+   Ela nasceu na Story 2.3 passando por AUSÊNCIA: o estilo existia e nenhuma
+   tela o consumia, então "todo ponto que injeta HTML de artigo envolve o
+   conteúdo em `.artigo`" era verdade sobre zero pontos — e verdade por vácuo é
+   a que some sem avisar. A pré-visualização da Story 2.13 é o primeiro ponto de
+   injeção do projeto, e daqui em diante a trava tem objeto: além de exigir o
+   invólucro, ela exige que o objeto EXISTA. */
 {
+  /* ─── O RECORTE DA TAG NÃO PODE SER "DO `<` ANTERIOR AO `>` SEGUINTE" ───
+     Aquele recorte quebra de três jeitos, e os três são plausíveis no JSX real:
+     um atributo anterior que contenha `<` move o começo; uma expressão de
+     `__html` que contenha `>` move o fim; e uma tag escrita em cinco linhas —
+     que é a forma normal — só era exercitada em UMA linha pelo autoteste.
+
+     O que existe aqui é um leitor pequeno de tag, que anda pelo texto sabendo
+     quando está dentro de aspas e quando está dentro de chaves. Ele devolve a
+     tag de abertura inteira, com as chaves balanceadas. */
+  const mascararComentarios = (fonte) =>
+    fonte
+      .replace(/\/\*[\s\S]*?\*\//g, (t) => t.replace(/[^\n]/g, " "))
+      .replace(/(^|[^:\\])\/\/[^\n]*/g, (t, antes) =>
+        antes + " ".repeat(t.length - antes.length),
+      );
+
+  /**
+   * O fim da tag de abertura que começa em `inicio`, ou -1.
+   *
+   * `>` dentro de aspas ou dentro de `{...}` não fecha tag nenhuma — é o que
+   * faz `{{ __html: a > b }}` deixar de truncar o recorte.
+   */
+  const fimDaTag = (fonte, inicio) => {
+    let aspas = null;
+    let chaves = 0;
+    for (let i = inicio + 1; i < fonte.length; i += 1) {
+      const c = fonte[i];
+      if (aspas !== null) {
+        if (c === "\\") i += 1;
+        else if (c === aspas) aspas = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        aspas = c;
+        continue;
+      }
+      if (c === "{") chaves += 1;
+      else if (c === "}") chaves -= 1;
+      else if (c === ">" && chaves === 0) return i;
+    }
+    return -1;
+  };
+
+  /** Todas as tags de abertura do arquivo, com onde começam e onde terminam. */
+  const tagsDe = (fonte) => {
+    const achadas = [];
+    for (let i = 0; i < fonte.length; i += 1) {
+      if (fonte[i] !== "<") continue;
+      const seguinte = fonte[i + 1] ?? "";
+      const fechamento = seguinte === "/";
+      const nome = /^[A-Za-z][\w.-]*/.exec(fonte.slice(fechamento ? i + 2 : i + 1))?.[0];
+      if (!nome) continue;
+      const fim = fimDaTag(fonte, i);
+      if (fim === -1) continue;
+      const texto = fonte.slice(i, fim + 1);
+      achadas.push({
+        nome,
+        inicio: i,
+        fim,
+        texto,
+        fechamento,
+        autofechada: /\/\s*>$/.test(texto),
+      });
+      i = fim;
+    }
+    return achadas;
+  };
+
+  /* O invólucro é a CLASSE do elemento, e não a tag inteira.
+     Medido, não suposto: com o julgamento sobre a tag inteira, trocar
+     `className="artigo"` por `className="prosa"` mantinha a asserção verde —
+     porque `data-papel="artigo"`, um atributo de teste na mesma tag, contém a
+     palavra. O estilo do artigo vem da CLASSE; é a classe que precisa ser lida.
+     Classe montada por variável, sem literal, não é reconhecida de propósito:
+     ela vira "solto" e a asserção FALHA, que é o lado seguro do engano. */
+  const CLASSE_NA_TAG = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([\s\S]*?)\})/;
+  const envolveEmArtigo = (tag) => {
+    const achado = CLASSE_NA_TAG.exec(tag ?? "");
+    if (achado === null) return false;
+    const classe = achado[1] ?? achado[2] ?? achado[3] ?? "";
+    return /(^|[^\w-])artigo([^\w-]|$)/.test(classe);
+  };
+
+  /**
+   * Os pontos de injeção de um arquivo, cada um já julgado.
+   *
+   * O invólucro vale no PRÓPRIO elemento ou em qualquer ANCESTRAL: `.artigo`
+   * estiliza descendentes, então um artigo dentro de uma seção que já veste a
+   * classe está corretamente vestido. Reportar isso como solto seria a trava
+   * acusando o que ela existe para aprovar.
+   */
+  const injecoesDe = (bruto) => {
+    const fonte = mascararComentarios(bruto);
+    const tags = tagsDe(fonte);
+    const pontos = [];
+    for (const m of fonte.matchAll(/dangerouslySetInnerHTML/g)) {
+      const propria = tags.find((t) => t.inicio < m.index && m.index < t.fim);
+      const pilha = [];
+      for (const t of tags) {
+        if (t.inicio >= (propria?.inicio ?? m.index)) break;
+        if (t.fechamento) pilha.pop();
+        else if (!t.autofechada) pilha.push(t);
+      }
+      const ancestrais = pilha.filter((t) => t.fim < (propria?.inicio ?? m.index));
+      pontos.push({
+        tag: (propria?.texto ?? "").trim().replace(/\s+/g, " ").slice(0, 90),
+        naPropria: envolveEmArtigo(propria?.texto),
+        emAncestral: ancestrais.some((t) => envolveEmArtigo(t.texto)),
+        get envolvido() {
+          return this.naPropria || this.emAncestral;
+        },
+      });
+    }
+    return pontos;
+  };
+
   const pontos = [];
   for (const arquivo of fontesDeSrc()) {
     let fonte;
@@ -1319,29 +1510,132 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
     } catch {
       continue;
     }
-    for (const m of fonte.matchAll(/dangerouslySetInnerHTML/g)) {
-      // Recorta a tag de abertura que carrega o atributo.
-      const abre = fonte.lastIndexOf("<", m.index);
-      const fecha = fonte.indexOf(">", m.index);
-      const tag = abre !== -1 && fecha !== -1 ? fonte.slice(abre, fecha) : "";
-      pontos.push({
-        arquivo: path.relative(raiz, arquivo),
-        envolvido: /(^|[^\w-])artigo([^\w-]|$)/.test(tag),
-        tag: tag.trim().slice(0, 80),
-      });
+    for (const ponto of injecoesDe(fonte)) {
+      pontos.push({ ...ponto, envolvido: ponto.envolvido, arquivo: path.relative(raiz, arquivo) });
     }
   }
   const soltos = pontos.filter((p) => !p.envolvido);
-  nota(
-    pontos.length === 0
-      ? "0 pontos de renderização de artigo (o Editor é da 2.4, o blog público é da 2.15) — a trava está armada"
-      : `${pontos.length} ponto(s) de renderização encontrados`,
+  nota(`${pontos.length} ponto(s) de renderização de artigo encontrados`);
+
+  /* A trava deixou de passar por ausência: existe ponto de injeção para ela
+     julgar. Sem esta linha, apagar a prévia inteira devolveria a asserção
+     abaixo ao vácuo — verde, e sem verificar nada. */
+  afirmar(
+    "existe ao menos um ponto de injeção de HTML de artigo — a trava tem objeto, e não passa mais por ausência",
+    pontos.length > 0,
+    "a pré-visualização da Story 2.13 é o primeiro; zero pontos é a asserção seguinte passando por vácuo",
   );
+  afirmar(
+    "e a pré-visualização está entre eles — é ela que mostra o `conteudo_html` gravado",
+    pontos.some((p) =>
+      p.arquivo.replace(/\\/g, "/").endsWith("src/admin/blog/PreVisualizacaoDePost.jsx"),
+    ),
+    pontos.map((p) => p.arquivo).join(" | "),
+  );
+
   afirmar(
     "todo ponto que injeta HTML de artigo envolve o conteúdo em `.artigo`",
     soltos.length === 0,
     soltos.map((p) => `${p.arquivo}: ${p.tag}`).join(" | "),
   );
+
+  /* ─── AUTOTESTE DO LEITOR E DO DETECTOR ────────────────────────────────
+     Uma trava que nunca acusou nada é indistinguível de uma trava quebrada, e
+     esta já passou verde sobre uma sabotagem real. Os casos abaixo cobrem os
+     dois sentidos, a tag multilinha (que é a forma do código de verdade) e os
+     três modos de erro do recorte antigo. */
+  {
+    afirmar(
+      "o detector de invólucro reconhece o envoltório de verdade e ACUSA a injeção sem ele",
+      envolveEmArtigo('<div className="artigo" dangerouslySetInnerHTML={{ __html: html }}>') &&
+        envolveEmArtigo('<div className={cn("prosa artigo", extra)} dangerouslySetInnerHTML=>') &&
+        !envolveEmArtigo("<div dangerouslySetInnerHTML={{ __html: html }}>") &&
+        !envolveEmArtigo('<div className="artigos" dangerouslySetInnerHTML=>') &&
+        !envolveEmArtigo('<div className="meu-artigoX" dangerouslySetInnerHTML=>'),
+    );
+    /* O FALSO POSITIVO QUE ELE JÁ TEVE, fixado por asserção. A versão anterior
+       julgava a TAG INTEIRA: um atributo de teste chamado `artigo` no mesmo
+       elemento aprovava uma injeção sem invólucro nenhum. */
+    afirmar(
+      "e um atributo qualquer chamado `artigo` NÃO conta como invólucro — quem estiliza é a classe",
+      !envolveEmArtigo(
+        '<div data-papel="artigo" className="prosa" dangerouslySetInnerHTML={{ __html: html }}>',
+      ) &&
+        envolveEmArtigo(
+          '<div data-papel="artigo" className="artigo" dangerouslySetInnerHTML={{ __html: html }}>',
+        ),
+    );
+
+    const multilinha = [
+      "export function Tela() {",
+      "  return (",
+      "    <div",
+      '      data-papel="artigo"',
+      '      className="artigo"',
+      "      dangerouslySetInnerHTML={{ __html: html }}",
+      "    />",
+      "  );",
+      "}",
+    ].join("\n");
+    afirmar(
+      "o leitor enxerga a tag ESCRITA EM VÁRIAS LINHAS — que é a forma do código de verdade, e a que o autoteste antigo nunca exercitou",
+      injecoesDe(multilinha).length === 1 && injecoesDe(multilinha)[0].envolvido === true,
+      JSON.stringify(injecoesDe(multilinha)),
+    );
+    afirmar(
+      "e a mesma tag multilinha SEM a classe é acusada",
+      injecoesDe(multilinha.replace('className="artigo"', 'className="prosa"'))[0]
+        .envolvido === false,
+    );
+
+    /* MODO DE ERRO 1: um atributo anterior com `<` movia o começo do recorte. */
+    const comMenorAntes =
+      '<div title="a < b" className="artigo" dangerouslySetInnerHTML={{ __html: h }} />';
+    afirmar(
+      "um `<` dentro de um atributo anterior não desloca o recorte da tag",
+      injecoesDe(comMenorAntes)[0]?.envolvido === true,
+      JSON.stringify(injecoesDe(comMenorAntes)),
+    );
+
+    /* MODO DE ERRO 2: um `>` dentro da expressão truncava a tag. */
+    const comMaiorNaExpressao =
+      '<div dangerouslySetInnerHTML={{ __html: a > b ? x : y }} className="artigo" />';
+    afirmar(
+      "um `>` dentro da expressão de `__html` não trunca a tag antes da classe",
+      injecoesDe(comMaiorNaExpressao)[0]?.envolvido === true,
+      JSON.stringify(injecoesDe(comMaiorNaExpressao)),
+    );
+
+    /* MODO DE ERRO 3: `.artigo` num ANCESTRAL estiliza certo, e era acusado. */
+    const emAncestral = [
+      '<section className="artigo">',
+      "  <div dangerouslySetInnerHTML={{ __html: html }} />",
+      "</section>",
+    ].join("\n");
+    afirmar(
+      "`.artigo` num ANCESTRAL conta como invólucro — a classe estiliza descendentes, e acusá-la seria a trava recusando o que ela aprova",
+      injecoesDe(emAncestral)[0]?.envolvido === true &&
+        injecoesDe(emAncestral)[0]?.naPropria === false,
+      JSON.stringify(injecoesDe(emAncestral)),
+    );
+    afirmar(
+      "mas um IRMÃO com a classe não conta — ele não envolve nada",
+      injecoesDe(
+        [
+          "<section>",
+          '  <div className="artigo" />',
+          "  <div dangerouslySetInnerHTML={{ __html: html }} />",
+          "</section>",
+        ].join("\n"),
+      )[0]?.envolvido === false,
+    );
+    afirmar(
+      "e injeção dentro de comentário não conta como ponto — comentário não renderiza nada",
+      injecoesDe(
+        '/* <div dangerouslySetInnerHTML={{ __html: h }} /> */\nconst x = 1;',
+      ).length === 0,
+    );
+  }
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────── */
