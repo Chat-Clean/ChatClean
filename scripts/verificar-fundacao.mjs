@@ -396,10 +396,72 @@ if (temCss && temBaselineCss) {
       existsSync(f),
     );
     const corpus = [...fontesDeClasse, ...caminhosExtras];
+
+    /**
+     * COMENTÁRIO DE CSS NÃO É CITAÇÃO DE CLASSE.
+     *
+     * O escâner do Tailwind lê os arquivos de CONTEÚDO — `.jsx`, `.html` — e de
+     * lá extrai candidatos até de dentro de comentários; é literalmente assim
+     * que `.inline{display:inline}` nasceu, da frase "Parser de markdown
+     * inline" num comentário de `BlogPost.jsx`. O CSS **não** é fonte de
+     * conteúdo: nada que esteja num comentário de `src/App.css` faz o Tailwind
+     * emitir utilitário nenhum.
+     *
+     * Sem esta máscara, a prosa do CSS respondia "sim, ainda é citada" por
+     * qualquer palavra que coincidisse com o nome de um utilitário — e a perda
+     * legítima de `.inline`, quando o parser saiu (Story 2.15), era acusada
+     * como regressão por causa da frase "imagem inline está fora do v1".
+     *
+     * O comentário de JSX continua contando, e é o lado conservador do
+     * julgamento: lá ele é candidato de verdade.
+     */
+    const semComentariosCss = (texto) =>
+      String(texto).replace(/\/\*[\s\S]*?\*\//g, (t) => t.replace(/[^\n]/g, " "));
+
+    /**
+     * PALAVRA DE DIRETIVA CSS NÃO É CITAÇÃO DE CLASSE — e a máscara vale SÓ
+     * dentro do CSS.
+     *
+     * Medido, não suposto. `src/App.css` abre com `@theme inline {`; `inline`
+     * ali é o modo da diretiva do Tailwind e nunca produziu utilitário nenhum.
+     * Quando o markup que fazia o Tailwind emitir `.inline{display:inline}` saiu
+     * do projeto (era a palavra "inline" DENTRO de um comentário do parser
+     * artesanal, que o escâner lê como candidato), a perda legítima passou a ser
+     * acusada como regressão por causa dessa palavra.
+     *
+     * ─── POR QUE SÓ NO CSS, E ISSO FOI MEDIDO ──────────────────────────────
+     *
+     * A primeira versão desta máscara rodava sobre o corpus INTEIRO, e o
+     * prejuízo era maior do que o falso positivo que ela fechava: o `className`
+     * de `src/components/ui/card.jsx` COMEÇA com `@container/card-header`, e
+     * como a expressão só para em `{`, `;` ou fim de linha, ela apagava a linha
+     * inteira — `auto-rows-min`, `grid-rows-[auto_auto]` e as duas variantes
+     * junto. `.auto-rows-min` é regra real do baseline e aquela linha é a ÚNICA
+     * citação dela no projeto: um upgrade do Tailwind que a derrubasse do CSS
+     * compilado seria classificado como perda JUSTIFICADA, com a asserção verde
+     * — que é exatamente o modo de falha que o baseline existe para pegar.
+     *
+     * ─── E TRÊS DIRETIVAS SAÍRAM DA LISTA, PELO ARGUMENTO DE `@apply` ──────
+     *
+     * `@apply`, `@variant`, `@source`, `@custom-variant` e `@utility` recebem —
+     * ou geram — nome de utilitário: `@source inline("…")` existe justamente
+     * para FORÇAR a geração, `@custom-variant dark (&:is(.dark *))` traz `.dark`
+     * no prelúdio, e `@utility nome {` declara um. Mascarar qualquer uma delas
+     * absolveria a perda de uma classe que o CSS ainda pede.
+     */
+    const DIRETIVAS_SEM_UTILITARIO =
+      /@(theme|layer|media|supports|import|plugin|config|keyframes|property|namespace|page|font-face|charset|container|reference)\b[^{;\n]*/g;
+    const semDiretivas = (texto) =>
+      String(texto).replace(DIRETIVAS_SEM_UTILITARIO, (t) => " ".repeat(t.length));
+
+    /** O texto de um arquivo de CSS, como o julgamento de citação deve lê-lo. */
+    const textoDeCss = (bruto) => semDiretivas(semComentariosCss(bruto));
+
     const textoDasFontes = corpus
       .map((f) => {
         try {
-          return readFileSync(f, "utf8");
+          const bruto = readFileSync(f, "utf8");
+          return f.endsWith(".css") ? textoDeCss(bruto) : bruto;
         } catch {
           return "";
         }
@@ -414,6 +476,32 @@ if (temCss && temBaselineCss) {
       corpus.length > 0 && textoDasFontes.length > 0,
       "sem corpus, toda regra perdida seria absolvida por vacuidade",
     );
+
+    /* ★ E O CORPUS PRECISA CONTINUAR CITANDO O QUE `card.jsx` CITA ★
+       Medido, e é a razão de a máscara de diretiva valer só para `.css`: com
+       ela rodando sobre o corpus INTEIRO, a linha de `className` que COMEÇA com
+       `@container/card-header` era apagada por inteiro — e junto foi
+       `auto-rows-min`, regra real do baseline cuja ÚNICA citação no projeto é
+       aquela linha. A perda dela passaria a ser classificada como justificada,
+       com a asserção verde.
+
+       A conferência é sobre o corpus JÁ MONTADO, e não sobre o filtro: é a
+       montagem que a máscara errada estraga, e um autoteste que alimente o
+       filtro direto nunca veria isso. */
+    {
+      const CITACOES_DE_CARTAO = [
+        "auto-rows-min",
+        "grid-rows-[auto_auto]",
+        "@container/card-header",
+        "has-data-[slot=card-action]:grid-cols-[1fr_auto]",
+      ];
+      const sumiram = CITACOES_DE_CARTAO.filter((c) => !textoDasFontes.includes(c));
+      afirmar(
+        "o corpus continua citando os utilitários de `card.jsx` — nenhuma máscara pode apagar a linha inteira em que eles vivem",
+        sumiram.length === 0,
+        `sumiram do corpus: ${sumiram.join(", ")}`,
+      );
+    }
 
     /** Classes citadas no prelude de uma regra CSS, sem escapes do Tailwind. */
     const classesDe = (prelude) =>
@@ -449,6 +537,7 @@ if (temCss && temBaselineCss) {
       return new RegExp(`(^|[^\\w\\-:/])${escapada}($|[^\\w\\-:/])`).test(texto);
     };
 
+
     /**
      * Separa as perdas em injustificadas (regressão) e justificadas (o markup
      * que usava a classe saiu junto). Devolvida como função para que o
@@ -460,13 +549,17 @@ if (temCss && temBaselineCss) {
       // Corpus vazio não absolve NADA. Sem esta guarda, um diretório renomeado
       // ou um erro de leitura faria nenhuma classe parecer citada e toda perda
       // viraria justificada — a asserção passaria no pior cenário possível.
-      const semCorpus = texto.trim() === "";
+      // O corpus já chega tratado: quem lê CSS aplica `textoDeCss` no arquivo,
+      // e o resto entra cru. Tratar aqui de novo alcançaria também os `.jsx`,
+      // que foi exatamente o defeito medido em `card.jsx`.
+      const semCorpus = String(texto).trim() === "";
+      const alvo = String(texto);
       for (const p of perdidos) {
         const classes = classesDe(p);
         // Regra sem classe (elemento, `:root`, pseudo) nunca some por remoção
         // de markup: se sumiu, é regressão.
         const semExplicacao =
-          semCorpus || classes.length === 0 || classes.some((c) => citada(c, texto));
+          semCorpus || classes.length === 0 || classes.some((c) => citada(c, alvo));
         (semExplicacao ? injustificadas : justificadas).push(p);
       }
       return { injustificadas, justificadas };
@@ -540,6 +633,119 @@ if (temCss && temBaselineCss) {
       afirmar(
         "filtro de perdas: mas `.dark` escrita de fato continua acusando",
         julgarPerdas([".dark"], '<div class="dark">').injustificadas.includes(".dark"),
+      );
+
+      /* ─── A MÁSCARA DO CSS, NOS DOIS SENTIDOS E NOS DOIS ARQUIVOS ──────
+         Foi o `@theme inline` de `src/App.css` que fez a perda legítima de
+         `.inline` ser acusada como regressão quando o parser artesanal saiu
+         (Story 2.15) — palavra em prelúdio de diretiva nunca produziu
+         utilitário nenhum. O que estas linhas cobram é que a máscara continue
+         valendo SÓ para CSS, e SÓ para as diretivas que não recebem
+         utilitário. */
+      afirmar(
+        "máscara de CSS: `@theme inline` NÃO conta como citação de `.inline` — é modo de diretiva, não classe",
+        julgarPerdas([".inline"], textoDeCss("@theme inline {\n  --x: 1;\n}")).justificadas.includes(
+          ".inline",
+        ),
+      );
+      afirmar(
+        "máscara de CSS: mas a classe escrita de fato continua acusando, no mesmo arquivo",
+        julgarPerdas(
+          [".inline"],
+          textoDeCss("@theme inline {\n  --x: 1;\n}\n.inline { display: inline }"),
+        ).injustificadas.includes(".inline"),
+      );
+
+      /* ★ O DEFEITO QUE A PRIMEIRA VERSÃO DESTA MÁSCARA INTRODUZIU ★
+         Ela rodava sobre o corpus inteiro. O `className` de `card.jsx` COMEÇA
+         com `@container/card-header`, e a máscara apagava a linha toda —
+         `auto-rows-min` incluído, que é regra do baseline com UMA única
+         citação no projeto. Aqui a forma real do arquivo é alimentada como
+         JSX, e o que se cobra é que os utilitários seguintes continuem
+         contando. */
+      const CLASSE_DO_CARTAO =
+        '"@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6"';
+      afirmar(
+        "corpus: numa linha de JSX que COMEÇA com algo parecido com diretiva, os utilitários seguintes continuam contando",
+        julgarPerdas(
+          [".auto-rows-min", ".grid-rows-\\[auto_auto\\]"],
+          CLASSE_DO_CARTAO,
+        ).injustificadas.length === 2,
+        JSON.stringify(
+          julgarPerdas([".auto-rows-min"], CLASSE_DO_CARTAO).justificadas,
+        ),
+      );
+      /* E o autoteste do autoteste: a mesma linha, se fosse tratada como CSS,
+         seria mesmo apagada — é o que prova que a restrição a `.css` é o que
+         está segurando a garantia, e não um acaso da expressão. */
+      afirmar(
+        "e é a restrição a `.css` que segura isso — tratada como CSS, a mesma linha seria apagada",
+        julgarPerdas(
+          [".auto-rows-min"],
+          textoDeCss(CLASSE_DO_CARTAO),
+        ).justificadas.includes(".auto-rows-min"),
+      );
+
+      /* ─── AS CINCO DIRETIVAS QUE RECEBEM (OU GERAM) UTILITÁRIO ─────────
+         Mascarar qualquer uma delas absolveria a perda de uma classe que o CSS
+         ainda pede. `@source inline("…")` existe justamente para FORÇAR a
+         geração; `@custom-variant dark (&:is(.dark *))` é a linha 18 de
+         `src/App.css` e traz `.dark` no prelúdio; `@utility` declara um. */
+      afirmar(
+        "máscara de CSS: `@apply` continua contando — ele recebe utilitário de verdade",
+        julgarPerdas([".prose"], textoDeCss("@layer base {\n  .x { @apply prose; }\n}")).injustificadas.includes(
+          ".prose",
+        ),
+      );
+      afirmar(
+        "máscara de CSS: `@source inline(\"…\")` continua contando — ele existe para FORÇAR a geração do utilitário",
+        julgarPerdas([".size-4"], textoDeCss('@source inline("size-4");')).injustificadas.includes(
+          ".size-4",
+        ),
+      );
+      afirmar(
+        "máscara de CSS: `@custom-variant dark (&:is(.dark *))` continua citando `.dark`",
+        julgarPerdas([".dark"], textoDeCss("@custom-variant dark (&:is(.dark *));")).injustificadas.includes(
+          ".dark",
+        ),
+      );
+      afirmar(
+        "máscara de CSS: `@utility` continua contando — ele DECLARA um utilitário",
+        julgarPerdas([".tabular"], textoDeCss("@utility tabular {\n  font-variant-numeric: tabular-nums;\n}")).injustificadas.includes(
+          ".tabular",
+        ),
+      );
+      afirmar(
+        "máscara de CSS: `@variant` continua contando",
+        julgarPerdas([".dark"], textoDeCss(".x { @variant dark { color: red } }")).injustificadas.includes(
+          ".dark",
+        ),
+      );
+
+      /* E a máscara de COMENTÁRIO de CSS, também nos dois sentidos. */
+      afirmar(
+        "corpus: comentário de CSS não vira citação de classe — a prosa do arquivo não pinta pixel",
+        !/\binline\b/.test(
+          semComentariosCss("/* imagem inline está fora do v1 */\n.x { color: red }"),
+        ) &&
+          /color: red/.test(
+            semComentariosCss("/* imagem inline */\n.x { color: red }"),
+          ),
+        semComentariosCss("/* imagem inline */\n.x { color: red }"),
+      );
+      afirmar(
+        "e a classe escrita FORA do comentário continua contando",
+        julgarPerdas(
+          [".inline"],
+          textoDeCss("/* imagem inline */\n.inline { display: inline }"),
+        ).injustificadas.includes(".inline"),
+      );
+      afirmar(
+        "máscara de CSS: ela para no `{` e não engole o corpo da regra",
+        julgarPerdas(
+          [".rounded-cartao"],
+          textoDeCss("@layer base {\n  .rounded-cartao { color: red }\n}"),
+        ).injustificadas.includes(".rounded-cartao"),
       );
     }
 

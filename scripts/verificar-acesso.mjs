@@ -197,9 +197,12 @@ for (const [rotulo, padrao] of [
 /**
  * Nenhum caminho em que armazenamento do navegador decida acesso.
  *
- * A varredura é por vizinhança de CÓDIGO, não por arquivo:
- * `blogStore`/`vagasStore` usam `localStorage` legitimamente, para conteúdo, e
- * proibir a API inteira apenas empurraria a decisão de acesso para outro nome.
+ * A varredura é por vizinhança de CÓDIGO, não por arquivo: `vagasStore` usa
+ * `localStorage` legitimamente, para conteúdo de Carreiras, e proibir a API
+ * inteira apenas empurraria a decisão de acesso para outro nome.
+ * (`blogStore` estava nesta frase até a Story 2.15, quando o armazenamento de
+ * Post no navegador saiu do projeto. Quem cobra a ausência dele é
+ * `verificar:interface`, sem exceção nenhuma.)
  * O que se proíbe é a coincidência entre armazenamento do navegador e
  * vocabulário de acesso — que é exatamente a forma do defeito removido:
  * `sessionStorage.getItem(AUTH_KEY)`.

@@ -387,6 +387,15 @@ afirmar(
        ponto que obtém cliente, e não só os que têm `export` na frente. */
     ["taxonomia.js", "listarVerbetes"],
     ["slugs.js", "resolverSlugAposentado"],
+    /* As três leituras que a Story 2.15 abriu para o site: a busca própria do
+       Blog Público, os relacionados por Categoria e as Tags do artigo. Elas
+       entram na lista de PERMISSÃO pela mesma razão que as de cima — é a
+       incondicionalidade do cliente anônimo que faz o rascunho não vazar para o
+       Autor logado no mesmo navegador, e é exatamente nas funções novas que ela
+       poderia ser desfeita sem ninguém perceber. */
+    ["posts.js", "buscarPostsPublicos"],
+    ["posts.js", "listarRelacionadosPublicos"],
+    ["taxonomia.js", "listarTagsDoPostPublico"],
   ];
   const DO_PAINEL = [
     ["posts.js", "listarPostsDoPainel"],
@@ -568,11 +577,13 @@ const {
 } = resultadoMod;
 
 const {
+  buscarPostsPublicos,
   chaveDeOrdenacao,
   lerPostDoPainelPorId,
   lerPostPublicoPorSlug,
   listarPostsDoPainel,
   listarPostsPublicos,
+  listarRelacionadosPublicos,
   ordenarListagem,
 } = postsMod;
 const {
@@ -580,6 +591,7 @@ const {
   listarCategoriasDoPainel,
   listarTags,
   listarTagsDoPostNoPainel,
+  listarTagsDoPostPublico,
   problemaNaTagDoPost,
 } = taxonomiaMod;
 const { resolverSlugAposentado } = slugsMod;
@@ -1129,15 +1141,19 @@ secao("(d) configuração ausente e rede fora, num processo com outro ambiente")
  */
 function sondar(ambiente) {
   const codigo = `
-import { listarPostsPublicos, lerPostPublicoPorSlug } from ${JSON.stringify(urlDe("src/data/blog/posts.js"))};
-import { listarCategorias, listarTags } from ${JSON.stringify(urlDe("src/data/blog/taxonomia.js"))};
+import { buscarPostsPublicos, listarPostsPublicos, lerPostPublicoPorSlug, listarRelacionadosPublicos } from ${JSON.stringify(urlDe("src/data/blog/posts.js"))};
+import { listarCategorias, listarTags, listarTagsDoPostPublico } from ${JSON.stringify(urlDe("src/data/blog/taxonomia.js"))};
 import { resolverSlugAposentado } from ${JSON.stringify(urlDe("src/data/blog/slugs.js"))};
+const UM_UUID = "11111111-1111-4111-8111-111111111111";
 const alvos = {
   listarPostsPublicos: () => listarPostsPublicos(),
   lerPostPublicoPorSlug: () => lerPostPublicoPorSlug("qualquer-slug"),
   listarCategorias: () => listarCategorias(),
   listarTags: () => listarTags(),
   resolverSlugAposentado: () => resolverSlugAposentado("qualquer-slug"),
+  buscarPostsPublicos: () => buscarPostsPublicos({ termo: "qualquer" }),
+  listarRelacionadosPublicos: () => listarRelacionadosPublicos({ categoriaId: UM_UUID, exceto: UM_UUID }),
+  listarTagsDoPostPublico: () => listarTagsDoPostPublico(UM_UUID),
 };
 const saida = {};
 for (const [nome, fn] of Object.entries(alvos)) {
@@ -1173,6 +1189,13 @@ const NOMES_SONDADOS = [
   "listarCategorias",
   "listarTags",
   "resolverSlugAposentado",
+  // As leituras públicas que a Story 2.15 abriu. Elas entram na MESMA sonda
+  // porque a promessa é a mesma: erro tipado em vez de exceção, com `.env`
+  // ausente e com a rede fora. Uma leitura nova que lançasse derrubaria a
+  // página que existe para nunca ficar em branco.
+  "buscarPostsPublicos",
+  "listarRelacionadosPublicos",
+  "listarTagsDoPostPublico",
 ];
 
 /**
@@ -1433,6 +1456,41 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "termo só de espaços é ausência de busca: a listagem inteira volta",
   "com busca aplicada, a ordem continua sendo `COALESCE(publicado_em, atualizado_em)` DESC",
   "o visitante anônimo não extrai rascunho pela função de busca",
+  // As leituras públicas que a Story 2.15 abriu — a busca própria do site, os
+  // relacionados por Categoria e as Tags do artigo. Elas exigem sessão pela
+  // mesma razão que as de cima: sem uma sessão ABERTA no instante da leitura,
+  // "a busca pública não traz rascunho" diria só que o anônimo não vê, que é
+  // outra coisa. É exatamente aqui que a incondicionalidade do cliente anônimo
+  // poderia ser desfeita sem ninguém perceber.
+  "a janela das leituras públicas novas foi aberta",
+  "as duas Categorias semeadas têm identificador",
+  "a sessão continua ABERTA no instante das leituras públicas novas",
+  "busca pública com termo vazio devolve EXATAMENTE o mesmo conjunto que a listagem",
+  "a busca pública acha sem acento e por palavra — “publico camada” encontra “Post público da camada”",
+  "SEPARAÇÃO: com sessão aberta, a busca pública NÃO alcança rascunho",
+  "SEPARAÇÃO: nem o agendado cuja hora não chegou",
+  "o filtro por Categoria devolve só os Posts visíveis daquela Categoria",
+  "categoria fora do formato é RECUSADA, não ignorada em silêncio",
+  "os relacionados recusam `categoriaId` torto do mesmo jeito que a busca — e ausência continua sendo lista vazia",
+  "e recusam `exceto` torto — ignorá-lo deixaria o Post aparecer nos relacionados dele mesmo",
+  "os relacionados trazem outro Post VISÍVEL da mesma Categoria",
+  "e nunca o próprio Post",
+  "e nenhum Post fora do ar — quem decide continua sendo a política",
+  "e nenhum Post de OUTRA Categoria, mesmo estando no ar",
+  "Post sem Categoria não tem relacionados — lista vazia com sucesso, e não erro",
+  "as Tags públicas de um Post publicado voltam com nome",
+  "SEPARAÇÃO: as Tags de um rascunho NÃO voltam pelo caminho público, mesmo com sessão aberta",
+  "o visitante anônimo não extrai rascunho pela função de busca PÚBLICA",
+  "e ele ALCANÇA o Post publicado pela mesma função — a recusa é do Estado, não da função",
+  // Cada campo do critério, isolado — a mesma matriz que a busca do Painel tem.
+  "a janela por campo da busca pública foi aberta",
+  "a busca pública acha o Post cujo termo só existe no título",
+  "a busca pública acha o Post cujo termo só existe no resumo",
+  "a busca pública acha o Post cujo termo só existe no nome do Autor",
+  "a busca pública acha o Post cujo termo só existe no nome da Categoria",
+  "a busca pública acha o Post cujo termo só existe numa Tag",
+  "a janela das leituras públicas novas foi fechada — inclusive o `estado`, que ela também abriu",
+  "e a matriz de Estados voltou ao que era antes da janela",
 ]);
 
 const token = lerToken();
@@ -2625,6 +2683,430 @@ if (temToken && ambienteCompleto) {
                 "o visitante anônimo não extrai rascunho pela função de busca",
                 !vazamento,
                 `HTTP ${r.status} — ${corpo.slice(0, 200)}`,
+              );
+            }
+
+            /* ─── AS LEITURAS PÚBLICAS NOVAS (Story 2.15) ─────────────────
+               O site passou a ler do banco: busca própria, relacionados por
+               Categoria e Tags do artigo. As três entram na MESMA matriz que
+               já cobre `listarPostsPublicos` e `lerPostPublicoPorSlug`, e pelo
+               mesmo motivo: é aqui que a visibilidade se prova.
+
+               A janela é aberta de propósito com DOIS Posts visíveis na mesma
+               Categoria e um terceiro visível em OUTRA. Sem o segundo da mesma
+               Categoria, "os relacionados trazem outro Post" passaria por
+               vacuidade; sem o de outra Categoria, "só os da mesma" também. */
+            try {
+              const abrir = await executarSql(
+                token,
+                `update public.posts
+                    set estado = 'publicado', publicado_em = now() - interval '1 day'
+                  where slug in (${literal(slug("publico"))}, ${literal(slug("arquivado"))}, ${literal(slug("busca-categoria"))})`,
+              );
+              afirmar(
+                "a janela das leituras públicas novas foi aberta",
+                abrir.ok,
+                abrir.erro ?? "",
+              );
+
+              const idsDeCategoria = await executarSql(
+                token,
+                `select slug, id::text as id from public.categorias
+                  where slug like ${literal(marca)}`,
+              );
+              const categoriaDe = new Map(
+                (idsDeCategoria.ok && Array.isArray(idsDeCategoria.dados)
+                  ? idsDeCategoria.dados
+                  : []
+                ).map((l) => [l.slug, l.id]),
+              );
+              const idDaCategoria = categoriaDe.get(slug("categoria")) ?? ZERO_UUID;
+              afirmar(
+                "as duas Categorias semeadas têm identificador",
+                categoriaDe.size === 2 && idDaCategoria !== ZERO_UUID,
+                `obtidas: ${categoriaDe.size}`,
+              );
+
+              /* Controle positivo do instante: sem sessão viva aqui, "a busca
+                 pública não traz rascunho" diria só que o anônimo não vê — que
+                 é outra coisa, e não é o que esta story promete. */
+              const { data: sessaoDaBusca } = await clienteDoPainel.auth.getSession();
+              const sessaoAberta = afirmar(
+                "a sessão continua ABERTA no instante das leituras públicas novas",
+                Boolean(sessaoDaBusca?.session?.access_token),
+                "sem sessão viva, a separação não prova nada",
+              );
+
+              /** O que uma leitura pública devolveu, restrito à semeadura. */
+              const sufixosDe = (resultado) =>
+                (resultado?.dados ?? [])
+                  .map((p) => String(p?.slug ?? ""))
+                  .filter((s) => s.startsWith(prefixo))
+                  .map((s) => s.slice(prefixo.length))
+                  .sort();
+
+              /* — Termo vazio devolve o MESMO conjunto que a listagem — */
+              //
+              // As duas precisam concordar: a página usa a busca como caminho
+              // único, e `listarPostsPublicos` é a leitura direta da tabela que
+              // serve de referência. Se elas divergirem, uma das duas está
+              // repetindo (ou perdendo) a regra de visibilidade.
+              const semTermo = await chamar("buscarPostsPublicos (sem termo)", () =>
+                buscarPostsPublicos({}),
+              );
+              const listagemDireta = await chamar(
+                "listarPostsPublicos (para comparar com a busca)",
+                () => listarPostsPublicos(),
+              );
+              const daBusca = sufixosDe(semTermo);
+              const daListagem = sufixosDe(listagemDireta);
+              afirmar(
+                "busca pública com termo vazio devolve EXATAMENTE o mesmo conjunto que a listagem",
+                semTermo?.ok === true &&
+                  listagemDireta?.ok === true &&
+                  daListagem.length > 0 &&
+                  daBusca.length === daListagem.length &&
+                  daBusca.every((s, i) => s === daListagem[i]),
+                `busca (${daBusca.length}): ${daBusca.join(", ")} | listagem (${daListagem.length}): ${daListagem.join(", ")}`,
+              );
+
+              /* — Sem acento e por palavra, como no Painel — */
+              const semAcento = await chamar("buscarPostsPublicos (sem acento)", () =>
+                buscarPostsPublicos({ termo: "publico camada" }),
+              );
+              afirmar(
+                "a busca pública acha sem acento e por palavra — “publico camada” encontra “Post público da camada”",
+                semAcento?.ok === true &&
+                  sufixosDe(semAcento).length === 1 &&
+                  sufixosDe(semAcento)[0] === "publico",
+                `voltaram: ${sufixosDe(semAcento).join(", ") || "nenhum"} ${JSON.stringify(semAcento?.erro ?? "").slice(0, 140)}`,
+              );
+
+              /* ★ A SEPARAÇÃO, PELO CAMINHO NOVO ★ */
+              const doRascunho = await chamar("buscarPostsPublicos (termo do rascunho)", () =>
+                buscarPostsPublicos({ termo: mTitulo }),
+              );
+              afirmar(
+                "SEPARAÇÃO: com sessão aberta, a busca pública NÃO alcança rascunho",
+                sessaoAberta &&
+                  doRascunho?.ok === true &&
+                  sufixosDe(doRascunho).length === 0,
+                `voltaram: ${sufixosDe(doRascunho).join(", ") || "nenhum"}`,
+              );
+              const doAgendado = await chamar("buscarPostsPublicos (termo do agendado)", () =>
+                buscarPostsPublicos({ termo: "agendado hora chegou" }),
+              );
+              afirmar(
+                "SEPARAÇÃO: nem o agendado cuja hora não chegou",
+                doAgendado?.ok === true && sufixosDe(doAgendado).length === 0,
+                `voltaram: ${sufixosDe(doAgendado).join(", ") || "nenhum"}`,
+              );
+
+              /* — O filtro por Categoria, que é o outro pedido do visitante — */
+              const porCategoria = await chamar(
+                "buscarPostsPublicos (filtro de categoria)",
+                () => buscarPostsPublicos({ categoriaId: idDaCategoria }),
+              );
+              afirmar(
+                "o filtro por Categoria devolve só os Posts visíveis daquela Categoria",
+                porCategoria?.ok === true &&
+                  sufixosDe(porCategoria).join(",") === "arquivado,publico",
+                `voltaram: ${sufixosDe(porCategoria).join(", ") || "nenhum"}`,
+              );
+              const categoriaTorta = await chamar(
+                "buscarPostsPublicos (categoria fora do formato)",
+                () => buscarPostsPublicos({ categoriaId: "nao-e-uuid" }),
+              );
+              afirmar(
+                "categoria fora do formato é RECUSADA, não ignorada em silêncio",
+                categoriaTorta?.ok === false &&
+                  categoriaTorta?.erro?.tipo === ERRO_INESPERADO,
+                JSON.stringify(categoriaTorta).slice(0, 200),
+              );
+
+              /* ─── E OS RELACIONADOS RECUSAM PELO MESMO CRITÉRIO ────────
+                 Duas funções irmãs com políticas opostas para o mesmo valor
+                 torto é como uma delas passa a mentir sem ninguém notar. Aqui
+                 as duas recusam — e AUSÊNCIA continua sendo resposta, porque
+                 Post sem Categoria é estado normal. */
+              const relTorta = await chamar(
+                "listarRelacionadosPublicos (categoria torta)",
+                () => listarRelacionadosPublicos({ categoriaId: "nao-e-uuid" }),
+              );
+              afirmar(
+                "os relacionados recusam `categoriaId` torto do mesmo jeito que a busca — e ausência continua sendo lista vazia",
+                relTorta?.ok === false && relTorta?.erro?.tipo === ERRO_INESPERADO,
+                JSON.stringify(relTorta).slice(0, 200),
+              );
+              /* ★ O `exceto` TORTO É O PIOR DOS DOIS ★
+                 Com ele virando `null`, o `neq` não era aplicado e o Post podia
+                 aparecer nos relacionados DELE MESMO — a única coisa que a
+                 função promete não fazer. */
+              const exceptoTorto = await chamar(
+                "listarRelacionadosPublicos (exceto torto)",
+                () =>
+                  listarRelacionadosPublicos({
+                    categoriaId: idDaCategoria,
+                    exceto: "nao-e-uuid",
+                  }),
+              );
+              afirmar(
+                "e recusam `exceto` torto — ignorá-lo deixaria o Post aparecer nos relacionados dele mesmo",
+                exceptoTorto?.ok === false &&
+                  exceptoTorto?.erro?.tipo === ERRO_INESPERADO,
+                JSON.stringify(exceptoTorto).slice(0, 200),
+              );
+
+              /* — Relacionados: mesma Categoria, visíveis, sem o próprio — */
+              const relacionados = await chamar("listarRelacionadosPublicos", () =>
+                listarRelacionadosPublicos({
+                  categoriaId: idDaCategoria,
+                  exceto: idDe.get(slug("publico")),
+                }),
+              );
+              const dosRelacionados = sufixosDe(relacionados);
+              afirmar(
+                "os relacionados trazem outro Post VISÍVEL da mesma Categoria",
+                relacionados?.ok === true && dosRelacionados.includes("arquivado"),
+                `voltaram: ${dosRelacionados.join(", ") || "nenhum"} ${JSON.stringify(relacionados?.erro ?? "").slice(0, 140)}`,
+              );
+              afirmar(
+                "e nunca o próprio Post",
+                !dosRelacionados.includes("publico"),
+                `voltaram: ${dosRelacionados.join(", ") || "nenhum"}`,
+              );
+              afirmar(
+                "e nenhum Post fora do ar — quem decide continua sendo a política",
+                sessaoAberta &&
+                  !dosRelacionados.includes("rascunho") &&
+                  !dosRelacionados.includes("agendado-futuro"),
+                `voltaram: ${dosRelacionados.join(", ") || "nenhum"}`,
+              );
+              afirmar(
+                "e nenhum Post de OUTRA Categoria, mesmo estando no ar",
+                !dosRelacionados.includes("busca-categoria"),
+                `voltaram: ${dosRelacionados.join(", ") || "nenhum"}`,
+              );
+              const semCategoria = await chamar(
+                "listarRelacionadosPublicos (sem categoria)",
+                () => listarRelacionadosPublicos({ categoriaId: null, exceto: idDe.get(slug("publico")) }),
+              );
+              afirmar(
+                "Post sem Categoria não tem relacionados — lista vazia com sucesso, e não erro",
+                semCategoria?.ok === true &&
+                  Array.isArray(semCategoria.dados) &&
+                  semCategoria.dados.length === 0,
+                JSON.stringify(semCategoria).slice(0, 200),
+              );
+
+              /* — As Tags do artigo, pelo caminho anônimo — */
+              const tagsPublicas = await chamar("listarTagsDoPostPublico (publicado)", () =>
+                listarTagsDoPostPublico(idDe.get(slug("publico"))),
+              );
+              afirmar(
+                "as Tags públicas de um Post publicado voltam com nome",
+                tagsPublicas?.ok === true &&
+                  tagsPublicas.dados.length === 1 &&
+                  tagsPublicas.dados[0]?.nome === "Tag do post visivel",
+                JSON.stringify(tagsPublicas?.erro ?? tagsPublicas?.dados).slice(0, 220),
+              );
+              const tagsDeRascunho = await chamar("listarTagsDoPostPublico (rascunho)", () =>
+                listarTagsDoPostPublico(idDe.get(slug("rascunho"))),
+              );
+              afirmar(
+                "SEPARAÇÃO: as Tags de um rascunho NÃO voltam pelo caminho público, mesmo com sessão aberta",
+                sessaoAberta &&
+                  tagsDeRascunho?.ok === true &&
+                  tagsDeRascunho.dados.length === 0,
+                JSON.stringify(tagsDeRascunho?.erro ?? tagsDeRascunho?.dados).slice(0, 220),
+              );
+
+              /* — E o visitante ANÔNIMO CRU contra a função nova — */
+              //
+              // O contrapeso do bloco acima: ali a sessão está aberta e a
+              // camada usa o cliente anônimo; aqui não há camada nenhuma, só a
+              // função exposta em `/rpc/`. É onde um `security definer` ou uma
+              // concessão larga demais apareceria.
+              const cru = async (corpoDoPedido) => {
+                try {
+                  const r = await fetch(
+                    `${URL_PROJETO}/rest/v1/rpc/buscar_posts_publicos?select=slug`,
+                    {
+                      method: "POST",
+                      signal: AbortSignal.timeout(TIMEOUT_MS),
+                      headers: {
+                        apikey: chavePublicavel,
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify(corpoDoPedido),
+                    },
+                  );
+                  const corpo = await r.text();
+                  let lista = null;
+                  try {
+                    const v = JSON.parse(corpo);
+                    lista = Array.isArray(v) ? v : null;
+                  } catch {
+                    lista = null;
+                  }
+                  return { status: r.status, corpo, lista };
+                } catch (erro) {
+                  return { status: 0, corpo: String(erro?.message ?? erro), lista: null };
+                }
+              };
+              const cruDoRascunho = await cru({ p_termo: mTitulo, p_categoria_id: null });
+              afirmar(
+                "o visitante anônimo não extrai rascunho pela função de busca PÚBLICA",
+                cruDoRascunho.status === 200 &&
+                  Array.isArray(cruDoRascunho.lista) &&
+                  !cruDoRascunho.lista.some((l) =>
+                    String(l?.slug ?? "").startsWith(prefixo),
+                  ),
+                `HTTP ${cruDoRascunho.status} — ${cruDoRascunho.corpo.slice(0, 200)}`,
+              );
+              /* CONTROLE POSITIVO. Sem ele, uma função revogada de `anon` —
+                 que respondesse 403 para tudo — passaria na linha acima com
+                 louvor, e o blog inteiro estaria sem busca. */
+              const cruDoPublicado = await cru({
+                p_termo: "publico camada",
+                p_categoria_id: null,
+              });
+              afirmar(
+                "e ele ALCANÇA o Post publicado pela mesma função — a recusa é do Estado, não da função",
+                cruDoPublicado.status === 200 &&
+                  (cruDoPublicado.lista ?? []).some(
+                    (l) => String(l?.slug ?? "") === slug("publico"),
+                  ),
+                `HTTP ${cruDoPublicado.status} — ${cruDoPublicado.corpo.slice(0, 200)}`,
+              );
+
+              /* ─── CADA CAMPO DO CRITÉRIO, ISOLADO ─────────────────────
+                 O comentário da migração afirma cinco campos: Título, Resumo,
+                 Autor, Categoria e Tag. Provar só o título deixava quatro
+                 promessas sem asserção — e a de Tag é a mais frágil das cinco,
+                 porque ela depende de a política anônima de `tags` deixar o
+                 `anon` ler a tag do Post visível. Se ela negar, ou se um
+                 `coalesce` cair, a busca por Tag ou por Autor para de achar e
+                 tudo continua verde.
+
+                 É a MESMA matriz que a busca do Painel já tem, e ela exige uma
+                 segunda janela: os Posts com marcador por campo nasceram
+                 rascunho, de propósito, porque é como rascunho que eles provam
+                 a separação logo acima. Aqui eles sobem ao ar, e o marcador de
+                 Resumo entra agora — os sete foram semeados com o mesmo
+                 resumo, e sem um marcador próprio "só no resumo" seria
+                 impossível de afirmar. */
+              const mResumo = `res${n8}`;
+              const POR_CAMPO = [
+                ["no título", mTitulo, "busca-titulo"],
+                ["no resumo", mResumo, "busca-acentuada"],
+                ["no nome do Autor", mAutor, "busca-autor"],
+                ["no nome da Categoria", mCategoria, "busca-categoria"],
+                ["numa Tag", mTag, "busca-tag"],
+              ];
+              const abrirPorCampo = await executarSql(
+                token,
+                `update public.posts
+                    set estado = 'publicado'::public.estado_post,
+                        publicado_em = now() - interval '1 day'
+                  where slug in (${[
+                    literal(slug("busca-titulo")),
+                    literal(slug("busca-autor")),
+                    literal(slug("busca-tag")),
+                    literal(slug("busca-acentuada")),
+                  ].join(", ")});
+                 update public.posts set resumo = ${literal(`Resumo ${mResumo}`)}
+                  where slug = ${literal(slug("busca-acentuada"))}`,
+              );
+              afirmar(
+                "a janela por campo da busca pública foi aberta",
+                abrirPorCampo.ok,
+                abrirPorCampo.erro ?? "",
+              );
+
+              for (const [onde, termo, esperado] of POR_CAMPO) {
+                const r = await chamar(`buscarPostsPublicos (${onde})`, () =>
+                  buscarPostsPublicos({ termo }),
+                );
+                const vieram = sufixosDe(r);
+                afirmar(
+                  `a busca pública acha o Post cujo termo só existe ${onde}`,
+                  r?.ok === true && vieram.length === 1 && vieram[0] === esperado,
+                  `voltaram: ${vieram.join(", ") || "nenhum"} ${JSON.stringify(r?.erro ?? "").slice(0, 140)}`,
+                );
+              }
+            } finally {
+              /* ─── FECHA O QUE ABRIU, E O QUE ABRIU FOI O ESTADO TAMBÉM ───
+                 A janela anterior mexia só em `publicado_em`, e por isso abria
+                 e fechava simétrica. Esta abre `estado` junto — o Post
+                 `arquivado` vira `publicado` para virar relacionado visível —,
+                 e um `finally` que só devolvesse a data deixaria a matriz de
+                 Estados alterada no projeto de PRODUÇÃO até a limpeza final.
+                 A simetria é restaurada aqui, e CONFERIDA logo abaixo: um
+                 `update` que erre a linha volta verde sem a conferência. */
+              /* A reversão alcança EXATAMENTE as três linhas que a abertura
+                 tocou, e devolve a cada uma o valor com que ela foi semeada —
+                 não um valor parecido. */
+              const fechar = await executarSql(
+                token,
+                `update public.posts set publicado_em = ${LONGE}
+                  where slug in (${literal(slug("publico"))}, ${literal(slug("busca-categoria"))});
+                 update public.posts
+                    set estado = 'arquivado'::public.estado_post,
+                        publicado_em = now() - interval '5 days'
+                  where slug = ${literal(slug("arquivado"))};
+                 update public.posts
+                    set estado = 'rascunho'::public.estado_post,
+                        publicado_em = null,
+                        resumo = 'Resumo da busca'
+                  where slug in (${[
+                    literal(slug("busca-titulo")),
+                    literal(slug("busca-autor")),
+                    literal(slug("busca-tag")),
+                    literal(slug("busca-acentuada")),
+                  ].join(", ")})`,
+              );
+              afirmar(
+                "a janela das leituras públicas novas foi fechada — inclusive o `estado`, que ela também abriu",
+                fechar.ok,
+                fechar.erro ?? "",
+              );
+
+              /* E a matriz voltou a ser a que era. Sem esta conferência, o
+                 `update` acima poderia errar uma linha e o projeto de produção
+                 terminaria a execução com um Post arquivado marcado como
+                 publicado — que é exatamente o tipo de resíduo que a varredura
+                 do fim não procura, porque ela conta linhas e não Estados. */
+              const matriz = await executarSql(
+                token,
+                `select slug, estado::text as estado from public.posts
+                  where slug like ${literal(marca)} order by slug`,
+              );
+              const estadoDe = new Map(
+                (matriz.ok && Array.isArray(matriz.dados) ? matriz.dados : []).map(
+                  (l) => [l.slug, l.estado],
+                ),
+              );
+              const ESPERADOS = [
+                ["publico", "publicado"],
+                ["arquivado", "arquivado"],
+                ["agendado-futuro", "agendado"],
+                ["rascunho", "rascunho"],
+                ["busca-categoria", "publicado"],
+                ["busca-titulo", "rascunho"],
+                ["busca-autor", "rascunho"],
+                ["busca-tag", "rascunho"],
+                ["busca-acentuada", "rascunho"],
+                ["busca-sem-acento", "rascunho"],
+                ["busca-especial", "rascunho"],
+              ];
+              const divergentes = ESPERADOS.filter(
+                ([sufixo, esperado]) => estadoDe.get(slug(sufixo)) !== esperado,
+              ).map(([s, e]) => `${s}: ${estadoDe.get(slug(s)) ?? "—"} (esperado ${e})`);
+              afirmar(
+                "e a matriz de Estados voltou ao que era antes da janela",
+                matriz.ok && estadoDe.size > 0 && divergentes.length === 0,
+                divergentes.join(" | ") || (matriz.erro ?? ""),
               );
             }
           }

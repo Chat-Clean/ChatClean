@@ -227,6 +227,162 @@ export async function listarPostsPublicos({ limite, deslocamento } = {}) {
 }
 
 /**
+ * A função de banco que a busca do Blog Público chama.
+ *
+ * Nome numa constante pelo mesmo motivo de `FUNCAO_DE_BUSCA`: ele aparece aqui
+ * e na verificação, e um nome escrito duas vezes diverge na primeira
+ * renomeação.
+ */
+export const FUNCAO_DE_BUSCA_PUBLICA = "buscar_posts_publicos";
+
+/**
+ * A busca do Blog Público — o caminho ÚNICO da tela, com ou sem termo.
+ *
+ * ─── POR QUE ELA NÃO É A BUSCA DO PAINEL ───────────────────────────────────
+ *
+ * `buscar_posts_do_painel` continua revogada de `anon`, de propósito: ela
+ * aceita filtro por Estado, que é justamente o parâmetro que não pode existir
+ * do lado de fora. A função pública recebe só o que o visitante pode pedir —
+ * um termo e uma Categoria — e é `security invoker`, então a política de
+ * leitura anônima continua sendo a única guardiã do que volta.
+ *
+ * **Nenhum filtro de Estado nesta camada, nem no corpo da função.** Repeti-lo
+ * aqui seria a segunda cópia da regra de visibilidade.
+ *
+ * ─── O CLIENTE É O ANÔNIMO, INCONDICIONALMENTE ─────────────────────────────
+ *
+ * Como toda leitura pública deste módulo: não há parâmetro para escolher, e é
+ * isso que faz um Autor logado no mesmo navegador ver exatamente o que um
+ * visitante vê.
+ *
+ * ─── CATEGORIA FORA DO FORMATO É RECUSADA, NÃO IGNORADA ────────────────────
+ *
+ * Ignorar em silêncio mostraria uma lista mais larga do que o filtro na tela
+ * diz — o mesmo defeito que `separarEstados` fecha do lado do Painel. E o
+ * PostgREST responderia 400, traduzido como defeito, se o valor viajasse.
+ */
+export async function buscarPostsPublicos({
+  termo,
+  categoriaId,
+  limite,
+  deslocamento,
+} = {}) {
+  const operacao = "buscarPostsPublicos";
+
+  const categoriaPedida =
+    categoriaId === null || categoriaId === undefined || categoriaId === ""
+      ? null
+      : String(categoriaId).trim();
+  if (categoriaPedida !== null && !ehUuid(categoriaPedida)) {
+    return falha(ERRO_INESPERADO, {
+      operacao,
+      mensagem:
+        "O filtro de categoria recebeu um valor que não existe. Recarregue a página e tente de novo.",
+      detalhe: `identificador de categoria fora do formato uuid: ${JSON.stringify(categoriaId)}`,
+    });
+  }
+
+  const cliente = clientePublicoOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  const tamanho = limiteValido(limite);
+  const inicio = deslocamentoValido(deslocamento);
+  const busca = termoValido(termo);
+
+  return concluirListagem(
+    operacao,
+    await consultar(operacao, () =>
+      ordenarNoServidor(
+        cliente.dados
+          .rpc(FUNCAO_DE_BUSCA_PUBLICA, {
+            p_termo: busca === "" ? null : busca,
+            p_categoria_id: categoriaPedida,
+          })
+          .select(SELECAO_DA_LISTAGEM),
+      )
+        .range(inicio, inicio + tamanho - 1)
+        .abortSignal(sinalDePrazo()),
+    ),
+  );
+}
+
+/**
+ * Os Posts relacionados a um Post: mesma Categoria, sem ele mesmo.
+ *
+ * ─── POR QUE POR IDENTIFICADOR, E NÃO POR NOME ─────────────────────────────
+ *
+ * O armazenamento no navegador casava o NOME da Categoria escrito dentro de
+ * cada post. Renomear a Categoria quebrava a relação sem nada acusar. Agora o
+ * Post aponta para a Categoria, e é o apontamento que se compara.
+ *
+ * Post sem Categoria não tem relacionados — e isso é resposta, não erro:
+ * AUSÊNCIA de Categoria devolve lista vazia com sucesso. Categoria é nulável, e
+ * uma falha aqui derrubaria o artigo por um bloco que é acessório.
+ *
+ * O filtro por Categoria e a exclusão do próprio Post são recorte de produto,
+ * não filtro de visibilidade: quem decide o que é visível continua sendo a
+ * política.
+ *
+ * ─── AUSENTE E MALFORMADO SÃO COISAS DIFERENTES ────────────────────────────
+ *
+ * Ausente é estado normal — Post sem Categoria. Malformado é dado corrompido, e
+ * **é recusado**, com a mesma política de `buscarPostsPublicos`: tratar os dois
+ * do mesmo jeito daria duas respostas opostas para o mesmo valor torto em duas
+ * funções irmãs.
+ *
+ * E `exceto` malformado é o pior dos dois: com ele virando `null`, o `neq` não
+ * era aplicado e **o Post podia aparecer nos relacionados dele mesmo** — a
+ * única coisa que esta função promete não fazer. Silêncio ali comprava um
+ * defeito visível em troca de nada.
+ */
+export async function listarRelacionadosPublicos({
+  categoriaId,
+  exceto,
+  limite = 3,
+} = {}) {
+  const operacao = "listarRelacionadosPublicos";
+
+  const ausente = (v) => v === null || v === undefined || v === "";
+  const recusar = (campo, valor) =>
+    falha(ERRO_INESPERADO, {
+      operacao,
+      mensagem:
+        "Não deu para montar os artigos relacionados. Recarregue a página e tente de novo.",
+      detalhe: `\`${campo}\` fora do formato uuid: ${JSON.stringify(valor)}`,
+    });
+
+  const categoria = ausente(categoriaId) ? null : String(categoriaId).trim();
+  if (categoria !== null && !ehUuid(categoria)) return recusar("categoriaId", categoriaId);
+  // Sem Categoria não há relacionado a procurar, e isso é resposta.
+  if (categoria === null) return sucesso([]);
+
+  const proprio = ausente(exceto) ? null : String(exceto).trim();
+  if (proprio !== null && !ehUuid(proprio)) return recusar("exceto", exceto);
+
+  const cliente = clientePublicoOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  const tamanho = limiteValido(limite);
+
+  return concluirListagem(
+    operacao,
+    await consultar(operacao, () => {
+      let consulta = ordenarNoServidor(
+        cliente.dados
+          .from("posts")
+          .select(SELECAO_DA_LISTAGEM)
+          .eq("categoria_id", categoria),
+      );
+      /* O próprio Post sai NO SERVIDOR, e não depois do recorte: excluí-lo
+         aqui embaixo faria uma lista de três virar duas sempre que ele fosse o
+         primeiro da Categoria. */
+      if (proprio !== null) consulta = consulta.neq("id", proprio);
+      return consulta.range(0, tamanho - 1).abortSignal(sinalDePrazo());
+    }),
+  );
+}
+
+/**
  * Um Post pelo slug, do lado público.
  *
  * Rascunho responde erro de NÃO ENCONTRADO, com a mesma mensagem de um slug

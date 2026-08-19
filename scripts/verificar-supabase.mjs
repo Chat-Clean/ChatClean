@@ -1265,12 +1265,20 @@ if (!temToken) {
   // um segundo caminho de leitura ao lado da política. `prosecdef` é onde essa
   // troca apareceria, e é por isso que ela é lida do REMOTO, e não do arquivo.
 
-  const FUNCOES_DA_BUSCA = ["normalizar_busca", "buscar_posts_do_painel"];
+  const FUNCOES_DA_BUSCA = [
+    "normalizar_busca",
+    "buscar_posts_do_painel",
+    // A busca do Blog Público (Story 2.15). Ela nasce sob as MESMAS regras —
+    // `invoker`, `search_path` fixo — e a diferença que importa está no que
+    // cada uma aceita e em quem pode chamá-la, afirmado logo abaixo.
+    "buscar_posts_publicos",
+  ];
   const busca = await uma(
     `select p.proname as nome,
             p.prosecdef as definer,
             p.provolatile as volatilidade,
             coalesce(array_to_string(p.proconfig, ','), '') as cfg,
+            coalesce(array_to_string(p.proargnames, ','), '') as argumentos,
             has_function_privilege('anon', p.oid, 'execute') as anon,
             has_function_privilege('authenticated', p.oid, 'execute') as auth
        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -1280,7 +1288,7 @@ if (!temToken) {
   );
   const porNome = new Map((busca.linhas ?? []).map((f) => [f.nome, f]));
   afirmar(
-    "as duas funções da busca existem em public",
+    `as ${FUNCOES_DA_BUSCA.length} funções da busca existem em public`,
     !busca.falhou && FUNCOES_DA_BUSCA.every((n) => porNome.has(n)),
     `encontradas: ${[...porNome.keys()].join(", ") || "nenhuma"}`,
   );
@@ -1305,21 +1313,67 @@ if (!temToken) {
     porNome.get("normalizar_busca")?.volatilidade === "i",
     `volatilidade: ${porNome.get("normalizar_busca")?.volatilidade ?? "—"}`,
   );
+  // ★ A DISTINÇÃO QUE A STORY 2.15 EXISTE PARA PRESERVAR ★
+  //
+  // O site passou a buscar de verdade, e a tentação era conceder a `anon` a
+  // função do PAINEL. Ela aceita `p_estados` — filtro por Estado —, que é
+  // exatamente o parâmetro que não pode existir do lado de fora. O que nasceu
+  // foi função própria; a do Painel continua revogada de `anon`, e é isto que
+  // esta asserção guarda.
   afirmar(
     "só `authenticated` executa a busca do Painel; `anon` não",
     porNome.get("buscar_posts_do_painel")?.auth === true &&
       porNome.get("buscar_posts_do_painel")?.anon === false,
     `authenticated: ${porNome.get("buscar_posts_do_painel")?.auth ?? "—"} | anon: ${porNome.get("buscar_posts_do_painel")?.anon ?? "—"}`,
   );
-  // `normalizar_busca` PRECISA ser executável por `authenticated`, e a razão é
-  // a mesma que torna a busca segura: uma função `security invoker` executa com
-  // o papel de quem chamou, então quem paga o privilégio da chamada interna é o
-  // chamador. Revogá-la derruba a busca inteira com 42501 — foi medido. O que
-  // não pode acontecer é `anon` ganhar o mesmo, e é isso que a asserção guarda.
   afirmar(
-    "`normalizar_busca` é executável por authenticated (a busca é invoker) e nunca por anon",
+    "a busca PÚBLICA é executável por `anon` — é ela o caminho do site, e sem isso o blog não busca",
+    porNome.get("buscar_posts_publicos")?.anon === true &&
+      porNome.get("buscar_posts_publicos")?.auth === true,
+    `anon: ${porNome.get("buscar_posts_publicos")?.anon ?? "—"} | authenticated: ${porNome.get("buscar_posts_publicos")?.auth ?? "—"}`,
+  );
+  // O parâmetro é lido do REMOTO, e não do arquivo: é onde um `p_estados`
+  // acrescentado depois apareceria. A busca pública recebe SÓ o que o visitante
+  // pode pedir — um termo e uma Categoria —, e conceder-lhe filtro de Estado
+  // seria dar ao mundo a pergunta "o que existe fora do ar?".
+  {
+    const argumentos = String(porNome.get("buscar_posts_publicos")?.argumentos ?? "")
+      .split(",")
+      .map((a) => a.trim())
+      .filter((a) => a !== "");
+    afirmar(
+      "a busca pública recebe só termo e Categoria — nenhum filtro de Estado, nem hoje nem por acréscimo",
+      argumentos.length === 2 &&
+        argumentos.includes("p_termo") &&
+        argumentos.includes("p_categoria_id") &&
+        !argumentos.some((a) => /estado/i.test(a)),
+      `argumentos: ${argumentos.join(", ") || "nenhum"}`,
+    );
+    // …e a do Painel continua com o dela: sem esta linha, a asserção acima
+    // passaria num mundo em que as duas funções trocaram de papel.
+    const doPainel = String(porNome.get("buscar_posts_do_painel")?.argumentos ?? "");
+    afirmar(
+      "e é a do PAINEL que tem `p_estados` — as duas não trocaram de papel",
+      /\bp_estados\b/.test(doPainel),
+      `argumentos: ${doPainel || "nenhum"}`,
+    );
+  }
+  // `normalizar_busca` PRECISA ser executável pelos dois papéis, e a razão é a
+  // mesma que torna as duas buscas seguras: uma função `security invoker`
+  // executa com o papel de quem chamou, então quem paga o privilégio da chamada
+  // interna é o chamador. Revogá-la de `authenticated` derrubou a busca do
+  // Painel inteira com 42501 — foi medido, e é o que a migração
+  // 20260818140000 registra —, e o mesmo valeria para `anon` na busca pública.
+  //
+  // A alternativa seria `security definer`, e ela é PIOR: apagaria o problema
+  // junto com a garantia, porque a RLS deixaria de valer para quem chama. O que
+  // guarda a fronteira aqui é a asserção acima — a do Painel segue fora do
+  // alcance de `anon` —, e não a revogação desta peça, que recebe texto,
+  // devolve texto e não decide nada.
+  afirmar(
+    "`normalizar_busca` é executável por anon E por authenticated — consequência de as DUAS buscas serem `security invoker`, e não afrouxamento: quem paga o privilégio da chamada interna é o chamador, revogar derruba a busca com 42501, e `security definer` (a outra saída) apagaria a política junto com o problema",
     porNome.get("normalizar_busca")?.auth === true &&
-      porNome.get("normalizar_busca")?.anon === false,
+      porNome.get("normalizar_busca")?.anon === true,
     `anon: ${porNome.get("normalizar_busca")?.anon ?? "—"} | authenticated: ${porNome.get("normalizar_busca")?.auth ?? "—"}`,
   );
 

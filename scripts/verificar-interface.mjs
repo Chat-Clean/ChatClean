@@ -1808,11 +1808,16 @@ secao("(f2) Categoria: cor por token, ícone por mapa fechado (Story 2.14)");
       "Tendências",
       "Novidades",
     ];
-    /* `blogPosts.js` é o conteúdo herdado do `localStorage`, e cada post ali
-       declara a categoria DELE — isso é dado de post, não lista de vocabulário.
-       Ele sai do repositório na Story 2.15, junto com o `localStorage`. */
-    const HERDADOS = ["src/data/blogPosts.js"];
-    const doFonte = fontesSrc.filter((a) => !HERDADOS.includes(rel(a)));
+    /* A EXCEÇÃO SAIU COM O ARQUIVO (Story 2.15).
+       Havia uma aqui: `src/data/blogPosts.js`, o conteúdo herdado do
+       armazenamento no navegador, ficava de fora da varredura porque cada post
+       dele declarava a categoria DELE. A exceção dizia por escrito que sairia
+       nesta story, e saiu junto com o arquivo. Deixar a exceção depois do
+       arquivo seria deixar a porta aberta para o próximo que precisar de "só
+       mais uma listinha no fonte" — e a asserção logo abaixo cobra que o
+       arquivo de fato não existe mais, senão a varredura teria voltado a
+       tolerá-lo sem que ninguém decidisse isso. */
+    const doFonte = fontesSrc;
     const comLista = [];
     for (const arquivo of doFonte) {
       const texto = semComentarios(ler(arquivo));
@@ -1852,6 +1857,46 @@ secao("(f2) Categoria: cor por token, ícone por mapa fechado (Story 2.14)");
       /from\s+["']@\/data\/blog\/taxonomia["']/.test(semComentarios(filtroPublico)) &&
         /listarCategorias\s*\(/.test(semComentarios(filtroPublico)),
       "sem isso, o filtro voltaria a ser uma constante — e foi de uma constante que “Novidades” sumiu",
+    );
+
+    /* E OS POSTS TAMBÉM VÊM DA CAMADA (Story 2.15). Até aqui a lista de
+       Categorias vinha do banco e os Posts do armazenamento no navegador — a
+       pastilha "Novidades" existia e não encontrava nada. As duas origens agora
+       são a mesma. */
+    afirmar(
+      "a listagem do Blog Público lê os Posts pela camada de dados, com busca e filtro no banco",
+      /from\s+["']@\/data\/blog\/posts["']/.test(semComentarios(filtroPublico)) &&
+        /buscarPostsPublicos\s*\(/.test(semComentarios(filtroPublico)),
+      "sem isso, os Posts voltariam a vir do armazenamento no navegador",
+    );
+
+    const artigoPublico = lerRelativoOuVazio(
+      "src/pages/BlogPost.jsx legível",
+      "src/pages/BlogPost.jsx",
+    );
+    afirmar(
+      "o artigo público lê o Post pela camada de dados, pelo caminho anônimo por slug",
+      /from\s+["']@\/data\/blog\/posts["']/.test(semComentarios(artigoPublico)) &&
+        /lerPostPublicoPorSlug\s*\(/.test(semComentarios(artigoPublico)),
+    );
+    /* E NÃO DERIVA HTML. O renderizador único existe para a ESCRITA; a leitura
+       mostra o que ficou gravado. Um `htmlDoDocumento` aqui faria o site
+       mostrar o que o código de HOJE produziria, e não o que o Autor conferiu
+       na prévia — é a mesma trava que a Story 2.13 pôs sobre a prévia. */
+    afirmar(
+      "e não deriva HTML em tempo de leitura: o artigo é o `conteudo_html` gravado",
+      !/from\s+["']@\/render\//.test(artigoPublico) &&
+        !/htmlDoDocumento/.test(semComentarios(artigoPublico)) &&
+        /htmlGravado\s*\(/.test(semComentarios(artigoPublico)) &&
+        /conteudo_html/.test(
+          semComentarios(
+            lerRelativoOuVazio(
+              "src/pages/blogPublico.js legível",
+              "src/pages/blogPublico.js",
+            ),
+          ),
+        ),
+      "derivar na hora mostraria o que o renderizador de hoje faria, não o que está no ar",
     );
   }
 }
@@ -2502,6 +2547,142 @@ if (cssCompilado) {
       "nenhum arquivo do Painel conhece `blogStore` — a origem antiga não sobrevive em canto nenhum",
       doPainel.length > 0 && suspeitos.length === 0,
       suspeitos.join(", "),
+    );
+  }
+
+  /* ─── O ARMAZENAMENTO NO NAVEGADOR SAIU DO PROJETO (Story 2.15) ───────
+   *
+   * A proibição existia para o Painel desde a Story 2.10, com uma fronteira: a
+   * aba Blog não podia conhecer `blogStore`, mas as páginas públicas ainda
+   * liam de lá — era de lá que os cinco posts de exemplo vinham. Agora o site
+   * lê do banco, e a regra vale para o projeto INTEIRO, sem exceção.
+   *
+   * Carreiras continua com `vagasStore`, e continua fora de escopo: o que sai
+   * é o armazenamento de POST, não a API do navegador. Proibir a API inteira
+   * quebraria um módulo irmão que ninguém revisou nesta linha. */
+  {
+    const REMOVIDOS = ["src/lib/blogStore.js", "src/data/blogPosts.js"];
+    const sobreviventes = REMOVIDOS.filter((c) => existsSync(path.join(raiz, c)));
+    afirmar(
+      "o armazenamento de Post no navegador e os posts de exemplo saíram do projeto",
+      sobreviventes.length === 0,
+      sobreviventes.join(", "),
+    );
+
+    const todosOsFontes = fontesSrc;
+    afirmar(
+      "há arquivos de `src/` para varrer",
+      todosOsFontes.length > 0,
+      "uma lista vazia faria as asserções seguintes passarem por vacuidade",
+    );
+    const PADRAO_REMOVIDO = /\b(blogStore|blogPosts)\b/;
+    const PADRAO_ARMAZENAMENTO = /\b(localStorage|sessionStorage)\b|document\.cookie/;
+
+    /* AUTOTESTE dos dois detectores, ANTES de julgar o repositório: uma
+       varredura que nunca foi vista acusando é uma promessa, não uma
+       verificação — e um erro na expressão devolveria zero achados, deixando as
+       asserções verdes justamente sobre o armazenamento de volta. */
+    afirmar(
+      "autoteste dos detectores: acusam o que foi removido e ignoram o que é legítimo",
+      PADRAO_REMOVIDO.test('import { getPosts } from "@/lib/blogStore";') &&
+        PADRAO_REMOVIDO.test('import { blogPosts } from "@/data/blogPosts";') &&
+        !PADRAO_REMOVIDO.test('import { getVagas } from "@/lib/vagasStore";') &&
+        PADRAO_ARMAZENAMENTO.test("localStorage.setItem(KEY, valor);") &&
+        PADRAO_ARMAZENAMENTO.test("const t = document.cookie;") &&
+        !PADRAO_ARMAZENAMENTO.test("const guardado = memoria.get(chave);"),
+    );
+
+    const conhecem = ocorrencias(todosOsFontes, PADRAO_REMOVIDO, semComentarios);
+    afirmar(
+      "nenhum arquivo do projeto importa ou menciona o que foi removido — nem no Painel, nem nas páginas públicas",
+      conhecem.length === 0,
+      conhecem.join(", "),
+    );
+
+    /* E as duas páginas públicas não guardam Post no navegador por outro nome.
+       A varredura é sobre ELAS, e não sobre `src/pages/` inteiro, porque
+       `AdminBlog.jsx` e `Carreiras.jsx` hospedam Carreiras, que usa
+       `localStorage` legitimamente e está fora de escopo. */
+    const PUBLICAS = ["src/pages/Blog.jsx", "src/pages/BlogPost.jsx"];
+    const publicas = PUBLICAS.map((c) => path.join(raiz, c)).filter((c) =>
+      existsSync(c),
+    );
+    afirmar(
+      "as duas páginas públicas do blog existem para serem varridas",
+      publicas.length === PUBLICAS.length,
+      `faltam: ${PUBLICAS.filter((c) => !existsSync(path.join(raiz, c))).join(", ")}`,
+    );
+    const guardam = ocorrencias(publicas, PADRAO_ARMAZENAMENTO, semComentarios);
+    afirmar(
+      "e nenhuma delas lê ou escreve Post no armazenamento do navegador — limpar os dados não muda post visível nenhum",
+      guardam.length === 0,
+      guardam.join(", "),
+    );
+
+    /* ─── E NENHUMA DELAS ALCANÇA A LEITURA DO PAINEL ──────────────────
+     *
+     * Antes desta story as páginas públicas não importavam `data/blog` nenhum;
+     * agora as duas importam de `@/data/blog/posts` e de
+     * `@/data/blog/taxonomia`, e a leitura do Painel mora nos MESMOS módulos, a
+     * uma linha de distância. Ela usa o cliente com sessão: um Autor logado no
+     * mesmo navegador passaria a ver rascunho em `/blog`, e nada mais no
+     * projeto acusaria isso.
+     *
+     * A lista é de PROIBIÇÃO por natureza — são os nomes que existem — mas ela
+     * é cobrada por IGUALDADE contra o que o módulo de dados de fato exporta
+     * com "DoPainel" no nome: uma leitura do Painel nova entra na lista sozinha,
+     * e uma que suma faz esta asserção falhar em vez de encolher em silêncio. */
+    const LEITURAS_DO_PAINEL = [
+      "listarPostsDoPainel",
+      "lerPostDoPainelPorId",
+      "listarCategoriasDoPainel",
+      "listarTagsDoPainel",
+      "listarTagsDoPostNoPainel",
+    ].sort();
+    {
+      const exportadas = ["src/data/blog/posts.js", "src/data/blog/taxonomia.js"]
+        .flatMap((rel) => {
+          const fonte = existsSync(path.join(raiz, rel))
+            ? semComentarios(ler(path.join(raiz, rel)))
+            : "";
+          /* `DoPainel` e `NoPainel`: o projeto usa as duas preposições
+             (`lerPostDoPainelPorId`, `listarTagsDoPostNoPainel`), e uma só
+             deixaria metade das leituras do Painel fora da lista. */
+          return [
+            ...fonte.matchAll(/export\s+(?:async\s+)?function\s+(\w*(?:Do|No)Painel\w*)/g),
+          ].map((m) => m[1]);
+        })
+        .sort();
+      afirmar(
+        "a lista de leituras do Painel é EXATAMENTE o que a camada de dados exporta com esse nome — nem amostra, nem lista velha",
+        JSON.stringify(exportadas) === JSON.stringify(LEITURAS_DO_PAINEL),
+        `exportadas: [${exportadas.join(", ")}] | listadas: [${LEITURAS_DO_PAINEL.join(", ")}]`,
+      );
+    }
+    const comLeituraDoPainel = [];
+    for (const arquivo of publicas) {
+      const texto = semComentarios(ler(arquivo));
+      for (const nome of LEITURAS_DO_PAINEL) {
+        if (new RegExp(`\\b${nome}\\b`).test(texto)) {
+          comLeituraDoPainel.push(`${rel(arquivo)}: ${nome}`);
+        }
+      }
+    }
+    afirmar(
+      "nenhuma página pública toca a leitura do PAINEL — ela usa o cliente com sessão, e o site inteiro passaria a mostrar rascunho a quem está logado",
+      comLeituraDoPainel.length === 0,
+      comLeituraDoPainel.join(" | "),
+    );
+    /* AUTOTESTE do detector: sem ele, um erro na expressão devolveria zero
+       achados e a asserção passaria por vacuidade. */
+    afirmar(
+      "autoteste: o detector de leitura do Painel acusa o nome e ignora o parecido",
+      LEITURAS_DO_PAINEL.some((n) =>
+        new RegExp(`\\b${n}\\b`).test('const r = await listarPostsDoPainel();'),
+      ) &&
+        !LEITURAS_DO_PAINEL.some((n) =>
+          new RegExp(`\\b${n}\\b`).test("const r = await listarPostsPublicos();"),
+        ),
     );
   }
 }

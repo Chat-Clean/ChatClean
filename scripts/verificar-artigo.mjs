@@ -40,7 +40,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   acharCssCompilado,
@@ -1331,41 +1331,69 @@ if (temCss) {
 
 secao("(h) travas: vocabulário do renderizador e aplicação de `.artigo`");
 
-/* O vocabulário estilizado tem treze elementos. O renderizador que existe
-   hoje — o parser artesanal de `BlogPost.jsx` — emite mais que isso, e a
-   story proíbe consertá-lo (é da 2.15). A divergência fica REGISTRADA aqui,
-   nomeada e com a razão, e a comparação é por IGUALDADE: acrescentar um
-   elemento sem declará-lo falha, e remover o parser sem limpar a lista
-   também falha. É o oposto de uma tolerância genérica. */
+/* ─── O VOCABULÁRIO DO RENDERIZADOR, AGORA O DE VERDADE (Story 2.15) ────
+ *
+ * Até a Story 2.14 o "renderizador" que este bloco inventariava era o parser
+ * artesanal dentro do `<article>` de `BlogPost.jsx`, e a divergência declarada
+ * — `h1` e `h4` — dizia por escrito "some com o parser, na Story 2.15". O
+ * parser saiu, e a declaração saiu junto: mantê-la faria a comparação por
+ * igualdade acusar "declarada obsoleta", que é exatamente o que ela existe
+ * para fazer.
+ *
+ * O inventário passou a apontar para o renderizador ÚNICO
+ * (`src/render/blog/paraHtml.js`), que é quem de fato produz o `conteudo_html`
+ * que as três telas mostram. E ele é EXECUTADO, não lido: `ETIQUETAS_EMITIDAS`
+ * é importada e comparada por igualdade nos dois sentidos.
+ *
+ * `br` continua fora dos treze estilizados, e de propósito: quebra de linha não
+ * tem aparência para declarar — não recebe cor, margem nem tipografia própria.
+ * É a única divergência que sobra, e ela é declarada aqui pelo mesmo mecanismo
+ * de antes: nem tolerância genérica, nem lista que se verifica a si mesma.
+ *
+ * **`br` NÃO é resíduo do parser.** As duas entradas antigas — `h1` e `h4` —
+ * saíram inteiras com ele; esta é outra, e de outra natureza: `h1` e `h4` eram
+ * elementos que o estilo DEVERIA cobrir e não cobria, e `br` é um elemento que
+ * não tem aparência a declarar. Fica escrito aqui para o próximo leitor não
+ * confundir uma coisa com a outra. */
 const DIVERGENCIA_DECLARADA = {
-  h1: "o parser emite `h1` a partir de `# `, ao lado do `h1` do título da página — é o defeito dos dois `h1` por página que motiva a exclusão de `h1` do estilo. Some com o parser, na Story 2.15.",
-  h4: "o parser emite `h4` a partir de `#### `, fora do vocabulário do schema fechado (que vai de título 2 a 3). Cai no preflight e sai indistinguível de parágrafo até a Story 2.15.",
+  br: "quebra de linha não tem aparência a declarar — sem cor, sem margem, sem tipografia própria. Ela é estrutura dentro do parágrafo, e o parágrafo é quem está estilizado. Não é resto do parser: `h1` e `h4` saíram com ele.",
 };
 const ESTRUTURAIS = new Set(["article", "div", "span"]);
 
 {
-  const blogPost = lerOuFalhar("src/pages/BlogPost.jsx legível", () =>
-    ler(caminhoBlogPost),
+  const renderizador = await import(
+    pathToFileURL(path.join(raiz, "src", "render", "blog", "paraHtml.js")).href
+  ).then(
+    (m) => m,
+    (erro) => {
+      afirmar(
+        "o renderizador único (`src/render/blog/paraHtml.js`) importa",
+        false,
+        String(erro?.message ?? erro).slice(0, 200),
+      );
+      return null;
+    },
   );
-  if (blogPost) {
-    const inicio = blogPost.indexOf("<article");
-    const fim = blogPost.indexOf("</article>");
-    const regiao = inicio !== -1 && fim > inicio ? blogPost.slice(inicio, fim) : "";
-    const emitidos = new Set(
-      [...regiao.matchAll(/<([a-z][a-z0-9]*)\b/g)]
-        .map((m) => m[1])
-        .filter((t) => !ESTRUTURAIS.has(t)),
-    );
 
-    // Piso: região não encontrada faria o inventário sair vazio e TODA
-    // divergência desaparecer — a asserção passaria no pior cenário.
+  if (renderizador) {
+    afirmar("o renderizador único (`src/render/blog/paraHtml.js`) importa", true);
+    const bruto = renderizador.ETIQUETAS_EMITIDAS;
+    /* A GUARDA VEM ANTES DO USO. `ETIQUETAS_EMITIDAS` deixar de ser lista faz
+       `[...bruto]` LANÇAR, e uma exceção aqui aborta a ferramenta inteira em
+       vez de derrubar uma asserção — o veredito some, e "não rodou" é
+       indistinguível de "não passou" para quem só olha o código de saída. */
+    const eLista = Array.isArray(bruto);
+    const emitidas = eLista ? bruto : [];
+
+    // Piso: lista vazia faria TODA divergência desaparecer — a asserção
+    // passaria no pior cenário, que é o renderizador não emitindo nada.
     afirmar(
-      "o inventário do renderizador não saiu vazio (a região do artigo foi encontrada)",
-      emitidos.size > 0,
-      `região: ${regiao.length} caracteres`,
+      "o inventário do renderizador é uma lista, e não saiu vazio",
+      eLista && emitidas.length > 0,
+      `etiquetas: ${JSON.stringify(bruto)}`,
     );
 
-    const semEstilo = [...emitidos].filter((t) => !ELEMENTOS.includes(t)).sort();
+    const semEstilo = [...emitidas].filter((t) => !ELEMENTOS.includes(t)).sort();
     const declarados = Object.keys(DIVERGENCIA_DECLARADA).sort();
     afirmar(
       "toda divergência entre o renderizador e o vocabulário estilizado está declarada, e nenhuma declarada está obsoleta",
@@ -1375,6 +1403,143 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
     for (const tag of semEstilo) {
       nota(`divergência conhecida \`${tag}\`: ${DIVERGENCIA_DECLARADA[tag] ?? "(não declarada)"}`);
     }
+    // …e o outro sentido: todo elemento estilizado precisa ser um que o
+    // renderizador emite. Estilo para um elemento que nunca chega ao HTML é
+    // CSS morto, e é assim que a lista dos treze envelheceria em silêncio.
+    const semRenderizador = ELEMENTOS.filter((t) => !emitidas.includes(t)).sort();
+    afirmar(
+      "e todo elemento estilizado é um que o renderizador de fato emite — nenhum estilo órfão",
+      semRenderizador.length === 0,
+      `estilizados sem emissor: [${semRenderizador.join(", ")}]`,
+    );
+  }
+}
+
+/* ─── O PARSER ARTESANAL SAIU, E A AUSÊNCIA É AFIRMADA ─────────────────
+ *
+ * A remoção é entrega desta story, e "a ausência não se prova sozinha": sem
+ * esta asserção, alguém poderia reintroduzir um segundo renderizador dentro do
+ * `<article>` e nada acusaria — o vocabulário do renderizador único continuaria
+ * limpo enquanto a página emitisse `h4` por conta própria.
+ *
+ * A região do `<article>` continua sendo lida, mas o que se cobra dela mudou:
+ * ela pode conter apenas elementos ESTRUTURAIS e elementos que o estilo cobre.
+ * Um `h1` ou um `h4` escrito à mão ali dentro volta a falhar. */
+{
+  const blogPost = lerOuFalhar("src/pages/BlogPost.jsx legível", () =>
+    ler(caminhoBlogPost),
+  );
+  if (blogPost) {
+    /* COMENTÁRIO NÃO É REGIÃO. O cabeçalho do arquivo explica em prosa o parser
+       que saiu, e a palavra `<article>` aparece ali dentro: sem mascarar, o
+       recorte começava no comentário e engolia a página inteira — a asserção
+       acusava `main`, `section` e `button` como se fossem conteúdo de artigo.
+       Medido, não suposto: foi o primeiro resultado desta asserção. */
+    const semComentarios = blogPost
+      .replace(/\/\*[\s\S]*?\*\//g, (t) => t.replace(/[^\n]/g, " "))
+      .replace(/(^|[^:\\])\/\/[^\n]*/g, (t, antes) =>
+        antes + " ".repeat(t.length - antes.length),
+      );
+    const inicio = semComentarios.indexOf("<article");
+    const fim = semComentarios.indexOf("</article>");
+    const achou = afirmar(
+      "a região do artigo em `src/pages/BlogPost.jsx` foi encontrada",
+      inicio !== -1 && fim > inicio,
+      "sem `<article>` a asserção seguinte passaria sobre uma região vazia",
+    );
+    const regiao = achou ? semComentarios.slice(inicio, fim) : "";
+
+    /* ─── LISTA DE PERMISSÃO, E NÃO LISTA DE PROIBIÇÃO ──────────────────
+     *
+     * A primeira versão desta trava procurava os NOMES do parser que saiu —
+     * `parseInline`, `flushUl`, os prefixos de Markdown. É a regra 3 do projeto
+     * ao contrário: um segundo renderizador escrito à mão com outros nomes,
+     * emitindo só `h2`, `h3` e `p`, passaria por ela e pela conferência de
+     * elementos sem estilo. Lista de proibição sempre tem uma forma de evasão
+     * que ninguém pensou ainda.
+     *
+     * O que existe agora é o vocabulário FECHADO do que a região pode conter:
+     * o ponto de injeção, o ramo de artigo sem corpo, e mais nada. A comparação
+     * é por igualdade nos DOIS sentidos — um nome novo falha, e um nome
+     * declarado que sumiu também.
+     *
+     * Um renderizador artesanal precisa de nomes que não estão nesta lista:
+     * `map`, `split`, `push`, `slice`, `key`, `forEach`, e os elementos que ele
+     * constrói. Nenhum deles entra sem esta asserção acusar.
+     */
+    const VOCABULARIO_DA_REGIAO = [
+      "article",
+      "className",
+      "html",
+      "trim",
+      "p",
+      "data-papel",
+      "ARTIGO_SEM_CONTEUDO",
+      "div",
+      "dangerouslySetInnerHTML",
+      "__html",
+    ].sort();
+
+    /** Os nomes de uma região de JSX, com literal de texto mascarado. */
+    const nomesDe = (texto) => {
+      const semLiteral = String(texto)
+        .replace(/"[^"]*"/g, '""')
+        .replace(/'[^']*'/g, "''")
+        .replace(/`[^`]*`/g, "``");
+      return [...new Set(semLiteral.match(/[A-Za-z_$][\w$-]*/g) ?? [])].sort();
+    };
+
+    const nomes = nomesDe(regiao);
+    afirmar(
+      "o `<article>` da página pública contém EXATAMENTE o vocabulário declarado — o ponto de injeção, o ramo sem corpo, e nada mais",
+      achou && JSON.stringify(nomes) === JSON.stringify(VOCABULARIO_DA_REGIAO),
+      `na região: [${nomes.join(", ")}] | declarado: [${VOCABULARIO_DA_REGIAO.join(", ")}]`,
+    );
+    afirmar(
+      "e a região tem UM ponto de injeção — nem zero (o artigo sumiria) nem dois",
+      (regiao.match(/dangerouslySetInnerHTML/g) ?? []).length === 1,
+      `encontrados: ${(regiao.match(/dangerouslySetInnerHTML/g) ?? []).length}`,
+    );
+
+    /* AUTOTESTE do detector, nos dois sentidos. Sem ele, um erro na extração
+       devolveria conjunto vazio dos dois lados e a asserção passaria por
+       vacuidade — verde justamente sobre o parser de volta. */
+    {
+      const artesanal = [
+        '<article className="mb-16">',
+        "  {post.conteudo.split(String.fromCharCode(10)).map((linha, i) =>",
+        '    linha.startsWith(String.fromCharCode(35)) ? <h2 key={i}>{linha}</h2> : <p key={i}>{linha}</p>,',
+        "  )}",
+      ].join("\n");
+      const doArtesanal = nomesDe(artesanal);
+      afirmar(
+        "autoteste: um renderizador artesanal plantado na região é ACUSADO — os nomes dele não estão no vocabulário",
+        JSON.stringify(doArtesanal) !== JSON.stringify(VOCABULARIO_DA_REGIAO) &&
+          ["map", "split", "startsWith", "key"].every((n) => doArtesanal.includes(n)),
+        `nomes do artesanal: [${doArtesanal.join(", ")}]`,
+      );
+      afirmar(
+        "autoteste: e literal de texto não vira nome — a classe dentro das aspas não entra no vocabulário",
+        !nomesDe('<div className="prosa artigo mb-16" />').includes("prosa"),
+        JSON.stringify(nomesDe('<div className="prosa artigo" />')),
+      );
+    }
+
+    /* E o inventário de ELEMENTOS continua valendo, por outro caminho: mesmo
+       dentro do vocabulário fechado, um elemento sem estilo seria defeito. */
+    const emitidos = [
+      ...new Set(
+        [...regiao.matchAll(/<([a-z][a-z0-9]*)\b/g)]
+          .map((m) => m[1])
+          .filter((t) => !ESTRUTURAIS.has(t)),
+      ),
+    ].sort();
+    const foraDoEstilo = emitidos.filter((t) => !ELEMENTOS.includes(t));
+    afirmar(
+      "o `<article>` da página pública não emite elemento fora do estilo",
+      achou && foraDoEstilo.length === 0,
+      `emitidos na região: [${emitidos.join(", ")}] | fora do estilo: [${foraDoEstilo.join(", ")}]`,
+    );
   }
 }
 
@@ -1517,20 +1682,32 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
   const soltos = pontos.filter((p) => !p.envolvido);
   nota(`${pontos.length} ponto(s) de renderização de artigo encontrados`);
 
-  /* A trava deixou de passar por ausência: existe ponto de injeção para ela
-     julgar. Sem esta linha, apagar a prévia inteira devolveria a asserção
-     abaixo ao vácuo — verde, e sem verificar nada. */
+  /* A trava deixou de passar por ausência: existem DOIS pontos de injeção para
+     ela julgar. Sem estas linhas, apagar as duas telas devolveria a asserção
+     abaixo ao vácuo — verde, e sem verificar nada.
+
+     São dois desde a Story 2.15: a prévia sob o Painel e o artigo do site
+     público. Os dois mostram o MESMO `conteudo_html` gravado, e é por isso que
+     "o que se vê é o que sairá" é verdade — não por coincidência de código. */
+  const caminhosEsperados = [
+    "src/admin/blog/PreVisualizacaoDePost.jsx",
+    "src/pages/BlogPost.jsx",
+  ];
   afirmar(
     "existe ao menos um ponto de injeção de HTML de artigo — a trava tem objeto, e não passa mais por ausência",
     pontos.length > 0,
-    "a pré-visualização da Story 2.13 é o primeiro; zero pontos é a asserção seguinte passando por vácuo",
+    "zero pontos é a asserção seguinte passando por vácuo",
+  );
+  const arquivosComInjecao = new Set(
+    pontos.map((p) => p.arquivo.replace(/\\/g, "/")),
+  );
+  const faltando = caminhosEsperados.filter(
+    (alvo) => ![...arquivosComInjecao].some((a) => a.endsWith(alvo)),
   );
   afirmar(
-    "e a pré-visualização está entre eles — é ela que mostra o `conteudo_html` gravado",
-    pontos.some((p) =>
-      p.arquivo.replace(/\\/g, "/").endsWith("src/admin/blog/PreVisualizacaoDePost.jsx"),
-    ),
-    pontos.map((p) => p.arquivo).join(" | "),
+    "e as DUAS telas que mostram artigo estão entre eles — a prévia do Painel e o artigo do site público",
+    faltando.length === 0,
+    `faltando: ${faltando.join(", ")} | encontrados: ${[...arquivosComInjecao].join(" | ")}`,
   );
 
   afirmar(

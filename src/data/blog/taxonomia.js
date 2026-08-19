@@ -278,6 +278,79 @@ export function listarTagsDoPainel({ limite, deslocamento } = {}) {
 }
 
 /**
+ * As Tags de um Post, do lado PÚBLICO — as que o artigo mostra (Story 2.15).
+ *
+ * ─── A POLÍTICA JÁ PERMITIA; FALTAVA A FUNÇÃO ───────────────────────────────
+ *
+ * `posts_tags_leitura_anonima` deriva da visibilidade do Post: ler Tag de Post
+ * publicado é permitido desde a Story 2.1, e ler Tag de rascunho não é. Por
+ * isso não há filtro nenhum aqui — a política decide, como em toda leitura
+ * pública deste módulo, e o cliente é o anônimo incondicionalmente.
+ *
+ * Devolve a lista de `{ id, nome, slug }`, em ordem alfabética estável: sem
+ * ordenação, duas leituras do mesmo Post desenhariam as pastilhas em ordens
+ * diferentes.
+ *
+ * ─── ELA NÃO PODE SER `listarTagsDoPostNoPainel` ────────────────────────────
+ *
+ * Aquela usa o cliente do Painel, que carrega sessão. Um Autor logado abrindo
+ * `/blog/:slug` no mesmo navegador leria as tags AUTENTICADO, e o artigo
+ * público passaria a mostrar tag que o visitante não vê — a mesma fenda que a
+ * separação de clientes existe para fechar, entrando pela porta da taxonomia.
+ */
+export async function listarTagsDoPostPublico(postId, { limite, deslocamento } = {}) {
+  const operacao = "listarTagsDoPostPublico";
+  if (!ehUuid(postId)) {
+    return naoEncontrado({
+      operacao,
+      detalhe: "identificador de post ausente ou fora do formato uuid",
+    });
+  }
+
+  const cliente = clientePublicoOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  /* O TETO VALE AQUI TAMBÉM. "Um Post tem poucas tags" é uma expectativa, não
+     uma garantia — é o mesmo argumento que `comum.js` registra para toda
+     listagem, e tratar risco igual de forma diferente é como uma das leituras
+     acaba sem proteção. Era a única lista da camada sem faixa. */
+  const tamanho = limiteValido(limite);
+  const inicio = deslocamentoValido(deslocamento);
+
+  const resposta = await consultar(operacao, () =>
+    cliente.dados
+      .from("posts_tags")
+      .select(`tag_id,tags(${COLUNAS_DA_TAG.join(",")})`)
+      .eq("post_id", postId.trim())
+      .range(inicio, inicio + tamanho - 1)
+      .abortSignal(sinalDePrazo()),
+  );
+  if (!resposta.ok) {
+    // Faixa além do fim é lista vazia, como em toda listagem deste módulo.
+    return ehFaixaAlemDoFim(resposta) ? sucesso([]) : resposta;
+  }
+
+  /* A MESMA regra de forma do lado do Painel, executada — e não uma segunda
+     parecida: uma linha sem nome sumiria da pastilha e ninguém saberia. */
+  const lista = exigirLista(resposta.dados, {
+    operacao,
+    validarItem: problemaNaTagDoPost,
+  });
+  if (!lista.ok) return lista;
+
+  const tags = lista.dados.map((linha) => {
+    const embutida = Array.isArray(linha.tags) ? linha.tags[0] : linha.tags;
+    return {
+      id: linha.tag_id,
+      nome: embutida.nome,
+      slug: typeof embutida.slug === "string" ? embutida.slug : "",
+    };
+  });
+  tags.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  return sucesso(tags);
+}
+
+/**
  * As Tags de um Post, do lado do PAINEL.
  *
  * Pelo cliente autenticado, e não pelo público como as duas de cima: a política

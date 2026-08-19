@@ -113,6 +113,13 @@ const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
    `categoria.nome`, e aí toda pastilha menos "Todos" mostra "Nenhum artigo
    encontrado". Aqui ele é MONTADO. */
 const CAMINHO_BLOG_PUBLICO = "src/pages/Blog.jsx";
+/* A segunda tela pública e o módulo puro das duas (Story 2.15). */
+const CAMINHO_ARTIGO_PUBLICO = "src/pages/BlogPost.jsx";
+const CAMINHO_MODULO_PUBLICO = "src/pages/blogPublico.js";
+/* A rolagem ao trocar de rota. Ela é global e mora acima das rotas; entra no
+   pacote porque a garantia "trocar de artigo volta ao topo" se observa com ela
+   montada, e não duplicando a rolagem dentro da página. */
+const CAMINHO_ROLAGEM = "src/components/ScrollToTop.jsx";
 /* O mapa de ícone de Categoria: ele traz o DESENHO e o RÓTULO, e o rótulo é o
    nome acessível de cada opção — a chave ("faisca", "chip", "robo") é nome de
    código, sem sentido para quem ouve a tela. */
@@ -1634,6 +1641,26 @@ async function compilarComponentes() {
       "  aoLerPost: null,\n" +
       "  categorias: { ok: true, dados: [] },\n" +
       "  leituras_publicas_de_categoria: 0,\n" +
+      /* Story 2.15: as leituras do SITE. `pedidos_publicos` guarda o que a
+         listagem pública perguntou ao banco — é por aí que se prova que o termo
+         digitado e a Categoria escolhida viram consulta, em vez de virarem
+         filtro em memória sobre o que já estava carregado. `aoBuscarPublicos`,
+         quando é função, tem precedência: é ela que permite SEGURAR a resposta
+         e observar o esqueleto, que de outro modo resolve no primeiro
+         microtask. */
+      "  posts_publicos: { ok: true, dados: [] },\n" +
+      "  pedidos_publicos: [],\n" +
+      "  aoBuscarPublicos: null,\n" +
+      "  post_publico: { ok: false, erro: { tipo: 'nao_encontrado', mensagem: 'Não encontramos o que você procura.' } },\n" +
+      "  pedidos_de_slug: [],\n" +
+      "  aoLerPostPublico: null,\n" +
+      "  relacionados: { ok: true, dados: [] },\n" +
+      "  pedidos_de_relacionados: [],\n" +
+      "  tags_publicas: { ok: true, dados: [] },\n" +
+      "  pedidos_de_tags: [],\n" +
+      /* Onde a rolagem foi mandada. `ScrollToTop` é global e mora acima das
+         rotas; é aqui que se observa que trocar de artigo a aciona. */
+      "  rolagens: [],\n" +
       "  tags: { ok: true, dados: [] },\n" +
       "  tagsDoPost: { ok: true, dados: [] },\n" +
       /* A listagem da Story 2.10. `aoListar`, quando é função, tem precedência:
@@ -1751,6 +1778,23 @@ async function compilarComponentes() {
       "  controle.pedidos_da_listagem.push(pedido ?? null);\n" +
       "  if (typeof controle.aoListar === 'function') return controle.aoListar(pedido);\n" +
       "  return controle.listagem;\n" +
+      "}\n" +
+      /* As leituras do SITE (Story 2.15). O pedido é registrado porque é ele
+         que prova que a busca e o filtro acontecem NO BANCO — um `includes`
+         sobre a lista já carregada não produziria pedido nenhum. */
+      "export async function buscarPostsPublicos(pedido) {\n" +
+      "  controle.pedidos_publicos.push(pedido ?? null);\n" +
+      "  if (typeof controle.aoBuscarPublicos === 'function') return controle.aoBuscarPublicos(pedido);\n" +
+      "  return controle.posts_publicos;\n" +
+      "}\n" +
+      "export async function lerPostPublicoPorSlug(slug) {\n" +
+      "  controle.pedidos_de_slug.push(slug);\n" +
+      "  if (typeof controle.aoLerPostPublico === 'function') return controle.aoLerPostPublico(slug);\n" +
+      "  return controle.post_publico;\n" +
+      "}\n" +
+      "export async function listarRelacionadosPublicos(pedido) {\n" +
+      "  controle.pedidos_de_relacionados.push(pedido ?? null);\n" +
+      "  return controle.relacionados;\n" +
       "}\n",
   );
 
@@ -1771,6 +1815,12 @@ async function compilarComponentes() {
       "}\n" +
       "export async function listarTagsDoPostNoPainel() {\n" +
       "  return controle.tagsDoPost;\n" +
+      "}\n" +
+      /* O identificador PEDIDO é registrado: sem isso, pedir as Tags do Post
+         errado passaria — a tela mostraria as tags de outro artigo. */
+      "export async function listarTagsDoPostPublico(postId) {\n" +
+      "  controle.pedidos_de_tags.push(postId);\n" +
+      "  return controle.tags_publicas;\n" +
       "}\n" +
       "export async function listarCategoriasDoPainel() {\n" +
       "  controle.leituras_de_categoria += 1;\n" +
@@ -1808,6 +1858,13 @@ async function compilarComponentes() {
          asserção depender de tudo o que o Editor carrega. */
       `export { default as GavetaDeMetadados } from ${caminhoDeModulo(CAMINHO_GAVETA)};\n` +
       `export { default as BlogPublico } from ${caminhoDeModulo(CAMINHO_BLOG_PUBLICO)};\n` +
+      /* A segunda tela pública e as regras puras das duas (Story 2.15). O
+         módulo entra porque as asserções o EXECUTAM: "a tela diz o que houve e
+         o que fazer" só é regra provada quando a fala é uma função chamada, e
+         não um trecho de JSX lido. */
+      `export { default as ArtigoPublico } from ${caminhoDeModulo(CAMINHO_ARTIGO_PUBLICO)};\n` +
+      `export * as regrasDoBlogPublico from ${caminhoDeModulo(CAMINHO_MODULO_PUBLICO)};\n` +
+      `export { default as ScrollToTop } from ${caminhoDeModulo(CAMINHO_ROLAGEM)};\n` +
       `export * as regrasDasRotas from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ROTAS)};\n` +
       `export * as renderizador from ${caminhoDeModulo(CAMINHO_RENDERIZADOR)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
@@ -7824,6 +7881,1100 @@ if (janela && schema && configuracao && compilado) {
           await act(async () => raiz2.unmount());
           alvo2.remove();
           modulo.controle.categorias = { ok: true, dados: [] };
+
+          /* ══ AS DUAS TELAS PÚBLICAS, LENDO DO BANCO (Story 2.15) ══════
+           *
+           * Até aqui o site servia cinco posts de exemplo guardados no
+           * navegador, e o artigo era montado por um interpretador artesanal
+           * de Markdown. As duas coisas saíram. O que entra no lugar é lido
+           * pela camada de dados — dublada aqui, como todo o resto desta
+           * ferramenta — e o que se afirma é o COMPORTAMENTO das telas: a
+           * ordem, o filtro, a busca, o destaque, os estados, o artigo dentro
+           * de `.artigo` com o HTML GRAVADO, e a ausência do rascunho.
+           */
+          {
+            const publico = modulo.regrasDoBlogPublico;
+            const cc = modulo.controle;
+            const R = roteadorDasCategorias;
+
+            /* As regras PURAS primeiro: elas decidem o que a tela desenha, e
+               executá-las é o que transforma "a tela diz o que houve" em regra
+               provada em vez de frase sobre JSX. */
+            afirmar(
+              "a situação da listagem distingue os quatro casos — carregando, pronta, vazia e sem-resultado",
+              publico.situacaoDaLista({ carregando: true }) === publico.LISTA_CARREGANDO &&
+                publico.situacaoDaLista({ posts: [{ id: "a" }] }) === publico.LISTA_PRONTA &&
+                publico.situacaoDaLista({ posts: [] }) === publico.LISTA_VAZIA &&
+                publico.situacaoDaLista({ posts: [], termo: "x" }) ===
+                  publico.LISTA_SEM_RESULTADO &&
+                publico.situacaoDaLista({ posts: [], categoria: "cat-1" }) ===
+                  publico.LISTA_SEM_RESULTADO,
+              JSON.stringify([
+                publico.situacaoDaLista({ posts: [] }),
+                publico.situacaoDaLista({ posts: [], termo: "x" }),
+              ]),
+            );
+            /* A ORDEM DOS RAMOS É REGRA, e não detalhe de escrita: erro
+               conferido DEPOIS de lista vazia faria uma queda de conexão
+               aparecer como "ainda não há artigos" — a tela dizendo que o blog
+               está vazio quando o que houve foi falha de rede. */
+            afirmar(
+              "e erro vem ANTES de lista vazia: falha de rede nunca é anunciada como “ainda não há artigos”",
+              publico.situacaoDaLista({
+                erro: { tipo: "rede", mensagem: "x" },
+                posts: [],
+              }) === publico.LISTA_FALHA &&
+                publico.situacaoDaLista({
+                  carregando: true,
+                  erro: { tipo: "rede" },
+                }) === publico.LISTA_CARREGANDO,
+            );
+            afirmar(
+              "a fala de cada situação diz o que houve e o que fazer, e só oferece desfazer onde alguém causou o vazio",
+              publico.falaDaLista(publico.LISTA_VAZIA).limpar === false &&
+                publico.falaDaLista(publico.LISTA_VAZIA).repetir === false &&
+                publico.falaDaLista(publico.LISTA_SEM_RESULTADO).limpar === true &&
+                publico.falaDaLista(publico.LISTA_FALHA).repetir === true &&
+                publico.SITUACOES_SEM_CARTAO.every((s) => {
+                  const f = publico.falaDaLista(s);
+                  return f.oQueHouve.trim() !== "" && f.oQueFazer.trim() !== "";
+                }),
+            );
+            afirmar(
+              "e situação desconhecida LANÇA — devolver objeto neutro produziria a página em branco que a story existe para impedir",
+              (() => {
+                try {
+                  publico.falaDaLista("inventada");
+                  return false;
+                } catch {
+                  return true;
+                }
+              })(),
+            );
+            /* ★ OS DOIS VOCABULÁRIOS NÃO COMPARTILHAM VALOR ★
+               Enquanto `LISTA_FALHA` e `ARTIGO_FALHA` eram os dois `"falha"`,
+               `falaDaLista(ARTIGO_FALHA)` NÃO lançava: devolvia a fala da outra
+               tela. A guarda de situação desconhecida existe para a confusão
+               plausível, e a confusão plausível entre duas telas irmãs é trocar
+               uma pela outra — exatamente o caso que ela não enxergava. */
+            {
+              const daLista = [
+                publico.LISTA_CARREGANDO,
+                publico.LISTA_PRONTA,
+                publico.LISTA_VAZIA,
+                publico.LISTA_SEM_RESULTADO,
+                publico.LISTA_FALHA,
+                publico.LISTA_FALHA_PERMANENTE,
+              ];
+              const doArtigo = [
+                publico.ARTIGO_CARREGANDO,
+                publico.ARTIGO_PRONTO,
+                publico.ARTIGO_AUSENTE,
+                publico.ARTIGO_FALHA,
+                publico.ARTIGO_FALHA_PERMANENTE,
+              ];
+              const emComum = daLista.filter((v) => doArtigo.includes(v));
+              afirmar(
+                "os dois vocabulários fechados não compartilham NENHUM valor — trocar uma tela pela outra tem de ser erro visível",
+                emComum.length === 0 &&
+                  new Set([...daLista, ...doArtigo]).size ===
+                    daLista.length + doArtigo.length,
+                `em comum: ${emComum.join(", ") || "nenhum"}`,
+              );
+              const lancou = (fn) => {
+                try {
+                  fn();
+                  return false;
+                } catch {
+                  return true;
+                }
+              };
+              afirmar(
+                "e por isso a guarda enxerga a troca: a fala de uma tela recusa a situação da outra, nos dois sentidos",
+                doArtigo.every((s) => lancou(() => publico.falaDaLista(s))) &&
+                  daLista.every((s) => lancou(() => publico.falaDoArtigo(s))),
+              );
+            }
+            /* A LISTAGEM TRADUZ O ERRO TIPADO, como o artigo. Sem isto, `.env`
+               ausente fazia `/blog` dizer "confira a conexão" e oferecer um
+               botão que nunca ia funcionar — o defeito que a falha permanente
+               existe para evitar do outro lado. */
+            afirmar(
+              "a listagem TRADUZ o erro tipado: rede pede insistir, configuração e permissão não",
+              publico.situacaoDoErroDaLista({ tipo: "rede" }) === publico.LISTA_FALHA &&
+                publico.situacaoDoErroDaLista({ tipo: "configuracao" }) ===
+                  publico.LISTA_FALHA_PERMANENTE &&
+                publico.situacaoDoErroDaLista({ tipo: "permissao" }) ===
+                  publico.LISTA_FALHA_PERMANENTE &&
+                publico.situacaoDoErroDaLista({ tipo: "coisa-nova" }) ===
+                  publico.LISTA_FALHA_PERMANENTE &&
+                publico.falaDaLista(publico.LISTA_FALHA).repetir === true &&
+                publico.falaDaLista(publico.LISTA_FALHA_PERMANENTE).repetir === false,
+              JSON.stringify([
+                publico.situacaoDoErroDaLista({ tipo: "rede" }),
+                publico.situacaoDoErroDaLista({ tipo: "configuracao" }),
+              ]),
+            );
+            /* RELER NÃO É CARREGAR. A regra é executada por tabela porque o
+               quadro em que ela aparece é curto demais para o DOM sozinho. */
+            afirmar(
+              "releitura é distinguida da primeira carga — e só a primeira desenha esqueleto",
+              publico.estaRelendo({ carregando: true, posts: [{ id: "a" }] }) === true &&
+                publico.estaRelendo({ carregando: true, posts: [] }) === false &&
+                publico.estaRelendo({ carregando: true, posts: null }) === false &&
+                publico.estaRelendo({ carregando: false, posts: [{ id: "a" }] }) === false &&
+                publico.situacaoDaLista({ carregando: true, posts: [{ id: "a" }] }) ===
+                  publico.LISTA_PRONTA &&
+                publico.situacaoDaLista({ carregando: true, posts: [] }) ===
+                  publico.LISTA_CARREGANDO,
+            );
+            /* E A PAGINAÇÃO: página cheia sugere mais, página curta encerra. */
+            afirmar(
+              "página cheia sugere que há mais; página curta encerra a lista",
+              publico.haMaisParaCarregar(
+                Array.from({ length: publico.TAMANHO_DA_PAGINA }, (_, i) => i),
+              ) === true &&
+                publico.haMaisParaCarregar([1, 2, 3]) === false &&
+                publico.haMaisParaCarregar([]) === false &&
+                publico.haMaisParaCarregar(null) === false,
+            );
+            afirmar(
+              "e o anúncio da lista tem singular, plural e vazio — “1 artigos” é o detalhe que denuncia que ninguém leu em voz alta",
+              publico.anuncioDaLista(1) === "1 artigo encontrado." &&
+                publico.anuncioDaLista(12) === "12 artigos encontrados." &&
+                publico.anuncioDaLista(0) === "Nenhum artigo encontrado." &&
+                publico.anuncioDaLista(null) === "Nenhum artigo encontrado.",
+              publico.anuncioDaLista(1),
+            );
+            /* A DEDUPLICAÇÃO DAS CATEGORIAS É POR NOME **E** POR IDENTIFICADOR:
+               o id é a chave de React e o valor do filtro, e dois nomes
+               diferentes com o mesmo id acenderiam juntos. */
+            afirmar(
+              "o filtro colapsa Categoria repetida por NOME e por IDENTIFICADOR, e recusa uma chamada “Todos”",
+              JSON.stringify(
+                publico.categoriasDoFiltro([
+                  { id: "c1", nome: "Tecnologia" },
+                  { id: "c2", nome: "Tecnologia" },
+                  { id: "c1", nome: "Outra grafia" },
+                  { id: "c3", nome: publico.CATEGORIA_TODOS },
+                  { id: "", nome: "Sem id" },
+                  { id: "c4", nome: "  " },
+                  { id: "c5", nome: "Novidades" },
+                ]),
+              ) === JSON.stringify([
+                { id: "c1", nome: "Tecnologia" },
+                { id: "c5", nome: "Novidades" },
+              ]),
+              JSON.stringify(
+                publico.categoriasDoFiltro([
+                  { id: "c1", nome: "Tecnologia" },
+                  { id: "c1", nome: "Outra grafia" },
+                ]),
+              ),
+            );
+            /* O ARTIGO: `slugValido` vem antes de `carregando`, e permissão cai
+               em AUSÊNCIA. Uma tela que dissesse "sua sessão não permite" sobre
+               `/blog/:slug` estaria confirmando que existe algo ali para quem
+               tivesse sessão — a informação exata que a ausência esconde. */
+            afirmar(
+              "no artigo, slug inválido vira ausência ANTES de qualquer esqueleto — mesmo com `carregando` ligado do endereço anterior",
+              publico.situacaoDoArtigo({ slugValido: false, carregando: true }) ===
+                publico.ARTIGO_AUSENTE &&
+                publico.situacaoDoArtigo({ slugValido: true, carregando: true }) ===
+                  publico.ARTIGO_CARREGANDO &&
+                publico.nasceCarregandoOArtigo(false) === false &&
+                publico.nasceCarregandoOArtigo(true) === true,
+            );
+            afirmar(
+              "e permissão cai em AUSÊNCIA, não numa tela própria — dizer “sua sessão não permite” confirmaria que há algo ali",
+              publico.situacaoDoArtigo({
+                slugValido: true,
+                erro: { tipo: "permissao" },
+              }) === publico.ARTIGO_AUSENTE &&
+                publico.situacaoDoArtigo({
+                  slugValido: true,
+                  erro: { tipo: "nao_encontrado" },
+                }) === publico.ARTIGO_AUSENTE &&
+                publico.situacaoDoArtigo({ slugValido: true, erro: { tipo: "rede" } }) ===
+                  publico.ARTIGO_FALHA &&
+                publico.situacaoDoArtigo({
+                  slugValido: true,
+                  erro: { tipo: "coisa-nova" },
+                }) === publico.ARTIGO_FALHA_PERMANENTE,
+            );
+            /* DATA E TEMPO SÃO APRESENTAÇÃO, sobre o instante e o número
+               gravados — e nada aqui lança: um `publicado_em` corrompido não
+               pode derrubar o artigo por causa de uma linha de metadado. */
+            afirmar(
+              "a data sai em português a partir do INSTANTE gravado, no fuso do negócio",
+              publico.textoDaData({ publicado_em: "2026-08-14T15:00:00.000Z" }) ===
+                "14/08/2026" &&
+                publico.textoDaData({ publicado_em: null }) === "" &&
+                publico.textoDaData({ publicado_em: "isto-não-é-data" }) === "",
+              publico.textoDaData({ publicado_em: "2026-08-14T15:00:00.000Z" }),
+            );
+            afirmar(
+              "e o tempo de leitura sai POR EXTENSO a partir do número gravado",
+              publico.textoDoTempoDeLeitura({ tempo_leitura: 8 }) === "8 min de leitura" &&
+                publico.textoDoTempoDeLeitura({ tempo_leitura: 0 }) === "" &&
+                publico.textoDoTempoDeLeitura({}) === "",
+              publico.textoDoTempoDeLeitura({ tempo_leitura: 8 }),
+            );
+            afirmar(
+              "Categoria é NULÁVEL e nada quebra: o nome vira texto vazio, e não “undefined”",
+              publico.nomeDaCategoria({ categoria: null }) === "" &&
+                publico.nomeDaCategoria({}) === "" &&
+                publico.nomeDaCategoria({ categoria: { nome: " Tecnologia " } }) ===
+                  "Tecnologia" &&
+                publico.idDaCategoria({ categoria: null }) === null,
+            );
+
+            /* ── AS TELAS, MONTADAS ──────────────────────────────────── */
+            const montarPublica = async (
+              Componente,
+              caminho,
+              entrada,
+              { comRolagem = false } = {},
+            ) => {
+              const alvo = janela.document.createElement("div");
+              janela.document.body.appendChild(alvo);
+              const raizReact = createRoot(alvo);
+              await act(async () => {
+                raizReact.render(
+                  React.createElement(
+                    R.MemoryRouter,
+                    { initialEntries: [entrada] },
+                    /* `ScrollToTop` é global e mora acima das rotas em
+                       `main.jsx`. Ele entra aqui quando o que se observa é a
+                       navegação ENTRE artigos — duplicar a rolagem dentro da
+                       página seria uma segunda implementação da mesma regra. */
+                    comRolagem ? React.createElement(modulo.ScrollToTop) : null,
+                    React.createElement(
+                      R.Routes,
+                      null,
+                      React.createElement(R.Route, {
+                        path: caminho,
+                        element: React.createElement(Componente),
+                      }),
+                    ),
+                  ),
+                );
+              });
+              return {
+                alvo,
+                situacao: () =>
+                  alvo.querySelector("[data-situacao]")?.getAttribute("data-situacao") ??
+                  null,
+                texto: () => alvo.textContent ?? "",
+                q: (seletor) => alvo.querySelector(seletor),
+                todos: (seletor) => [...alvo.querySelectorAll(seletor)],
+                async clicar(elemento) {
+                  await act(async () => {
+                    elemento.dispatchEvent(
+                      new janela.MouseEvent("click", { bubbles: true }),
+                    );
+                  });
+                },
+                /* Link precisa de `cancelable` e de `button: 0`: sem os dois, o
+                   React Router não intercepta e a navegação não acontece. */
+                async clicarLink(elemento) {
+                  await act(async () => {
+                    elemento.dispatchEvent(
+                      new janela.MouseEvent("click", {
+                        bubbles: true,
+                        cancelable: true,
+                        button: 0,
+                      }),
+                    );
+                  });
+                },
+                async digitar(elemento, valor) {
+                  await act(async () => {
+                    const setar = Object.getOwnPropertyDescriptor(
+                      janela.HTMLInputElement.prototype,
+                      "value",
+                    ).set;
+                    setar.call(elemento, valor);
+                    elemento.dispatchEvent(new janela.Event("input", { bubbles: true }));
+                  });
+                },
+                /* A busca do site espera antes de perguntar ao banco. Sem
+                   avançar o relógio de verdade, o pedido nunca sai — e a
+                   asserção provaria o contrário do que quer provar. */
+                async esperarABusca() {
+                  await act(async () => {
+                    await new Promise((resolve) =>
+                      setTimeout(resolve, publico.ESPERA_DA_BUSCA_MS + 80),
+                    );
+                  });
+                },
+                async desmontar() {
+                  await act(async () => raizReact.unmount());
+                  alvo.remove();
+                },
+              };
+            };
+
+            const ID_DESTAQUE = "11111111-1111-4111-8111-111111111111";
+            const ID_ANTIGO = "22222222-2222-4222-8222-222222222222";
+            const ID_NOVO = "33333333-3333-4333-8333-333333333333";
+            const ID_CATEGORIA = "44444444-4444-4444-8444-444444444444";
+            const CATEGORIA = {
+              id: ID_CATEGORIA,
+              nome: "Tecnologia",
+              slug: "tecnologia",
+              icone: "chip",
+              cor: dominio.CORES_DE_CATEGORIA[1],
+              ordem: 1,
+            };
+            /* A ORDEM É DE PROPÓSITO CONTRA-INTUITIVA: o Post com data mais
+               ANTIGA vem primeiro na resposta da camada. Uma tela que
+               reordenasse por data inverteria os dois, e é exatamente isso que
+               a asserção pega — a ordem é
+               `COALESCE(publicado_em, atualizado_em)` decrescente e mora na
+               camada de dados, nunca aqui. */
+            const OS_POSTS = [
+              {
+                id: ID_DESTAQUE,
+                slug: "post-em-destaque",
+                titulo: "Post em destaque",
+                resumo: "Resumo do destaque",
+                estado: "publicado",
+                destaque: true,
+                categoria_id: ID_CATEGORIA,
+                categoria: CATEGORIA,
+                autor_nome: "Ana Autora",
+                tempo_leitura: 8,
+                publicado_em: "2026-08-14T15:00:00.000Z",
+                atualizado_em: "2026-08-14T15:00:00.000Z",
+              },
+              {
+                id: ID_ANTIGO,
+                slug: "post-antigo",
+                titulo: "Post antigo",
+                resumo: "Resumo antigo",
+                estado: "publicado",
+                destaque: false,
+                categoria_id: ID_CATEGORIA,
+                categoria: CATEGORIA,
+                autor_nome: "Ana Autora",
+                tempo_leitura: 3,
+                publicado_em: "2026-01-02T12:00:00.000Z",
+                atualizado_em: "2026-01-02T12:00:00.000Z",
+              },
+              {
+                /* SEM CATEGORIA, e com data mais NOVA que o anterior. Ele prova
+                   as duas coisas ao mesmo tempo: Post sem Categoria aparece, e
+                   a tela não reordena. */
+                id: ID_NOVO,
+                slug: "post-sem-categoria",
+                titulo: "Post sem categoria",
+                resumo: "Resumo sem categoria",
+                estado: "publicado",
+                destaque: false,
+                categoria_id: null,
+                categoria: null,
+                autor_nome: "Ana Autora",
+                tempo_leitura: 0,
+                publicado_em: "2026-07-01T12:00:00.000Z",
+                atualizado_em: "2026-07-01T12:00:00.000Z",
+              },
+            ];
+
+            /* — CARREGANDO: a resposta é SEGURA, senão o quadro nunca é desenhado — */
+            {
+              let liberar = null;
+              cc.aoBuscarPublicos = () =>
+                new Promise((resolve) => {
+                  liberar = () => resolve({ ok: true, dados: OS_POSTS });
+                });
+              cc.categorias = { ok: true, dados: [CATEGORIA] };
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "enquanto a leitura corre, o Blog Público mostra o ESQUELETO e anuncia o que está fazendo",
+                tela.situacao() === publico.LISTA_CARREGANDO &&
+                  tela.q('[data-papel="esqueleto"]') !== null &&
+                  tela.texto().includes("Carregando os artigos"),
+                String(tela.situacao()),
+              );
+              await act(async () => {
+                liberar();
+              });
+              cc.aoBuscarPublicos = null;
+
+              afirmar(
+                "e a lista fica PRONTA quando a resposta chega — nunca página em branco entre os dois quadros",
+                tela.situacao() === publico.LISTA_PRONTA,
+                String(tela.situacao()),
+              );
+
+              /* — A ORDEM É A DA CAMADA — */
+              const naTela = tela.todos("[data-post]").map((n) => n.getAttribute("data-post"));
+              afirmar(
+                "os cartões saem NA ORDEM que a camada devolveu — a tela não reordena, e uma segunda ordenação divergiria no primeiro empate",
+                naTela.length === 2 && naTela[0] === ID_ANTIGO && naTela[1] === ID_NOVO,
+                naTela.join(", "),
+              );
+
+              /* — O DESTAQUE — */
+              afirmar(
+                "o Post destacado é apresentado como destaque, e não como mais um cartão",
+                tela.q('[data-papel="destaque"]') !== null &&
+                  tela.q('[data-papel="destaque"]').textContent.includes("Post em destaque") &&
+                  !naTela.includes(ID_DESTAQUE),
+                naTela.join(", "),
+              );
+
+              /* — OS METADADOS, FORMATADOS — */
+              const doDestaque = tela.q('[data-papel="destaque"]').textContent ?? "";
+              afirmar(
+                "o destaque mostra a Categoria pelo NOME, a data em português e o tempo por extenso — tudo derivado do que o banco guarda",
+                doDestaque.includes("Tecnologia") &&
+                  doDestaque.includes("14/08/2026") &&
+                  doDestaque.includes("8 min de leitura") &&
+                  doDestaque.includes("Ana Autora"),
+                doDestaque.replace(/\s+/g, " ").slice(0, 200),
+              );
+
+              /* — CATEGORIA NULA — */
+              const semCategoria = tela.todos("[data-post]").find(
+                (n) => n.getAttribute("data-post") === ID_NOVO,
+              );
+              afirmar(
+                "Post SEM Categoria aparece na lista, e nada quebra — sem pastilha, e sem “undefined” na tela",
+                semCategoria !== undefined &&
+                  semCategoria.textContent.includes("Post sem categoria") &&
+                  !semCategoria.textContent.includes("undefined") &&
+                  !semCategoria.textContent.includes("null"),
+                (semCategoria?.textContent ?? "").replace(/\s+/g, " ").slice(0, 160),
+              );
+
+              /* — O FILTRO VAI AO BANCO, e não a um `includes` em memória — */
+              cc.pedidos_publicos.length = 0;
+              await tela.clicar(tela.q(`button[data-categoria="${ID_CATEGORIA}"]`));
+              const pedidoDoFiltro = cc.pedidos_publicos.at(-1);
+              afirmar(
+                "escolher uma Categoria PERGUNTA ao banco, mandando o identificador — filtrar a lista já carregada mentiria a partir do 201º post",
+                cc.pedidos_publicos.length === 1 &&
+                  pedidoDoFiltro?.categoriaId === ID_CATEGORIA,
+                JSON.stringify(pedidoDoFiltro),
+              );
+
+              /* — A BUSCA TAMBÉM, e o termo viaja CRU: quem tira o acento é o
+                   Postgres, dos dois lados da comparação —
+                 E ela ESPERA a digitação parar. A asserção digita uma RAJADA e
+                 cobra UM pedido: com `>= 1`, ou digitando uma vez só, apagar o
+                 temporizador inteiro passaria — e cada tecla viraria uma
+                 consulta, com a resposta de uma podendo chegar depois da
+                 seguinte. */
+              cc.pedidos_publicos.length = 0;
+              const campoDeBusca = tela.q('[data-campo="busca"]');
+              await tela.digitar(campoDeBusca, "A");
+              await tela.digitar(campoDeBusca, "Au");
+              await tela.digitar(campoDeBusca, "Auto");
+              await tela.digitar(campoDeBusca, "Automação");
+              afirmar(
+                "durante a rajada de teclas NENHUM pedido sai — a espera existe para isso",
+                cc.pedidos_publicos.length === 0,
+                `pedidos durante a digitação: ${cc.pedidos_publicos.length}`,
+              );
+              await tela.esperarABusca();
+              const pedidoDaBusca = cc.pedidos_publicos.at(-1);
+              afirmar(
+                "e quando ela para, sai UM pedido só — com o termo como o Autor digitou, porque a normalização de acento nunca acontece no cliente",
+                cc.pedidos_publicos.length === 1 &&
+                  pedidoDaBusca?.termo === "Automação" &&
+                  pedidoDaBusca?.categoriaId === ID_CATEGORIA,
+                `${cc.pedidos_publicos.length} pedido(s): ${JSON.stringify(cc.pedidos_publicos)}`,
+              );
+              /* E o pedido carrega o RECORTE. Sem limite e sem deslocamento, o
+                 blog para no teto da camada sem dizer nada, e o artigo seguinte
+                 fica inalcançável por caminho nenhum. */
+              afirmar(
+                "todo pedido leva o recorte da página — limite e deslocamento, e não a listagem inteira",
+                pedidoDaBusca?.limite === publico.TAMANHO_DA_PAGINA &&
+                  pedidoDaBusca?.deslocamento === 0,
+                JSON.stringify(pedidoDaBusca),
+              );
+
+              /* — SEM RESULTADO: diz que não achou e oferece limpar — */
+              cc.posts_publicos = { ok: true, dados: [] };
+              cc.pedidos_publicos.length = 0;
+              await tela.digitar(tela.q('[data-campo="busca"]'), "nao-existe");
+              await tela.esperarABusca();
+              afirmar(
+                "termo sem correspondência diz que NÃO ACHOU e oferece limpar — não é o mesmo que “ainda não há artigos”",
+                tela.situacao() === publico.LISTA_SEM_RESULTADO &&
+                  tela.texto().includes(
+                    publico.falaDaLista(publico.LISTA_SEM_RESULTADO).oQueHouve,
+                  ) &&
+                  tela.q('[data-acao="limpar"]') !== null,
+                String(tela.situacao()),
+              );
+
+              /* E LIMPAR DESFAZ: volta a "Todos", esvazia o campo e relê. */
+              cc.posts_publicos = { ok: true, dados: OS_POSTS };
+              cc.pedidos_publicos.length = 0;
+              await tela.clicar(tela.q('[data-acao="limpar"]'));
+              await tela.esperarABusca();
+              const pedidoLimpo = cc.pedidos_publicos.at(-1);
+              afirmar(
+                "e limpar desfaz as duas coisas de uma vez — termo vazio e sem Categoria",
+                tela.situacao() === publico.LISTA_PRONTA &&
+                  (pedidoLimpo?.termo ?? "") === "" &&
+                  pedidoLimpo?.categoriaId === null &&
+                  tela.q('[data-campo="busca"]')?.value === "",
+                JSON.stringify(pedidoLimpo),
+              );
+
+              /* ─── RELER NÃO PISCA ──────────────────────────────────────
+                 Trocar filtro em memória por consulta ao banco piorou a
+                 percepção: com o esqueleto ligado a cada tecla, os cartões
+                 somem e voltam a cada busca. Enquanto a resposta nova não
+                 chega, a antiga fica na tela — e a região viva diz que está
+                 atualizando, em vez de dizer que está carregando do zero. */
+              {
+                let liberarReleitura = null;
+                cc.aoBuscarPublicos = () =>
+                  new Promise((resolve) => {
+                    liberarReleitura = () => resolve({ ok: true, dados: [OS_POSTS[1]] });
+                  });
+                await tela.digitar(tela.q('[data-campo="busca"]'), "antigo");
+                await tela.esperarABusca();
+                const relendo = () =>
+                  tela.q("[data-relendo]")?.getAttribute("data-relendo") ?? null;
+                afirmar(
+                  "enquanto RELÊ, os cartões antigos continuam na tela — o esqueleto é só da primeira carga",
+                  tela.situacao() === publico.LISTA_PRONTA &&
+                    relendo() === "1" &&
+                    tela.q('[data-papel="esqueleto"]') === null &&
+                    tela.todos("[data-post]").length > 0,
+                  `${tela.situacao()} | relendo: ${relendo()}`,
+                );
+                afirmar(
+                  "e a região viva diz que está ATUALIZANDO, e não que está carregando do zero",
+                  (tela.q('[data-papel="anuncio"]')?.textContent ?? "").includes(
+                    publico.TEXTO_DE_ATUALIZANDO_A_LISTA,
+                  ),
+                  String(tela.q('[data-papel="anuncio"]')?.textContent),
+                );
+                await act(async () => {
+                  liberarReleitura();
+                });
+                cc.aoBuscarPublicos = null;
+                /* E QUANDO CHEGA, A LISTA É ANUNCIADA. Sem isto, quem usa
+                   leitor de tela digita na busca e a grade muda em silêncio. */
+                afirmar(
+                  "e quando a resposta chega, a região viva diz quantos artigos vieram",
+                  (tela.q('[data-papel="anuncio"]')?.textContent ?? "").trim() ===
+                    publico.anuncioDaLista(1),
+                  String(tela.q('[data-papel="anuncio"]')?.textContent),
+                );
+              }
+              await tela.desmontar();
+            }
+
+            /* ─── A PAGINAÇÃO ─────────────────────────────────────────────
+               O blog parava no teto da camada sem dizer nada. Com página e
+               "carregar mais", o fim da lista é uma resposta — e um Post
+               destacado que só aparece na segunda página assume o papel quando
+               ela chega, em vez de nunca assumi-lo. */
+            {
+              const PAGINA_CHEIA = Array.from(
+                { length: publico.TAMANHO_DA_PAGINA },
+                (_, i) => ({
+                  ...OS_POSTS[1],
+                  id: `pagina-1-${i}`,
+                  slug: `pagina-1-${i}`,
+                  titulo: `Artigo ${i}`,
+                  destaque: false,
+                }),
+              );
+              const SEGUNDA_PAGINA = [
+                { ...OS_POSTS[0], id: "pagina-2-destaque", slug: "pagina-2-destaque" },
+              ];
+              cc.aoBuscarPublicos = (pedido) =>
+                Promise.resolve({
+                  ok: true,
+                  dados: (pedido?.deslocamento ?? 0) === 0 ? PAGINA_CHEIA : SEGUNDA_PAGINA,
+                });
+              cc.pedidos_publicos.length = 0;
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "com a página cheia, a listagem oferece carregar mais — e não para em silêncio no teto",
+                tela.situacao() === publico.LISTA_PRONTA &&
+                  tela.todos("[data-post]").length === publico.TAMANHO_DA_PAGINA &&
+                  tela.q('[data-acao="carregar-mais"]') !== null,
+                `cartões: ${tela.todos("[data-post]").length}`,
+              );
+
+              await tela.clicar(tela.q('[data-acao="carregar-mais"]'));
+              const pedidoDaSegunda = cc.pedidos_publicos.at(-1);
+              afirmar(
+                "carregar mais pede a PÁGINA SEGUINTE pelo deslocamento, e ACRESCENTA em vez de trocar",
+                pedidoDaSegunda?.deslocamento === publico.TAMANHO_DA_PAGINA &&
+                  tela.todos("[data-post]").length === publico.TAMANHO_DA_PAGINA,
+                `deslocamento: ${pedidoDaSegunda?.deslocamento} | cartões: ${tela.todos("[data-post]").length}`,
+              );
+              /* O Post da segunda página é o destacado: ele sai da grade e
+                 assume o papel. Escolher o Destaque só dentro da primeira
+                 página faria um Post destacado além dela perder o papel para
+                 sempre. */
+              afirmar(
+                "e um Post destacado que só chega na segunda página ASSUME o destaque",
+                tela.q('[data-papel="destaque"]') !== null &&
+                  (tela.q('[data-papel="destaque"]')?.textContent ?? "").includes(
+                    "Post em destaque",
+                  ),
+                (tela.q('[data-papel="destaque"]')?.textContent ?? "").slice(0, 120),
+              );
+              afirmar(
+                "e a página curta encerra a lista: o controle de carregar mais some",
+                tela.q('[data-acao="carregar-mais"]') === null,
+                "página incompleta significa fim da lista",
+              );
+              cc.aoBuscarPublicos = null;
+              await tela.desmontar();
+            }
+
+            /* — VAZIO INICIAL: sem filtro nenhum, e sem oferecer desfazer — */
+            {
+              cc.posts_publicos = { ok: true, dados: [] };
+              cc.aoBuscarPublicos = null;
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "sem nenhum Post visível e sem filtro, a página diz que ainda não há artigos — e não oferece desfazer o que ninguém fez",
+                tela.situacao() === publico.LISTA_VAZIA &&
+                  tela.texto().includes(publico.falaDaLista(publico.LISTA_VAZIA).oQueHouve) &&
+                  tela.q('[data-acao="limpar"]') === null &&
+                  tela.q('[data-acao="repetir"]') === null,
+                String(tela.situacao()),
+              );
+              await tela.desmontar();
+            }
+
+            /* — FALHA: erro NUNCA é confundido com vazio, e repetir relê — */
+            {
+              cc.posts_publicos = {
+                ok: false,
+                erro: { tipo: "rede", mensagem: "Confira a conexão e tente de novo." },
+              };
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "falha de leitura diz o que houve e o que fazer, com repetir — e nunca vira “ainda não há artigos”",
+                tela.situacao() === publico.LISTA_FALHA &&
+                  tela.texto().includes(publico.falaDaLista(publico.LISTA_FALHA).oQueHouve) &&
+                  tela.texto().includes("Confira a conexão") &&
+                  tela.q('[data-acao="repetir"]') !== null &&
+                  !tela.texto().includes(publico.falaDaLista(publico.LISTA_VAZIA).oQueHouve),
+                String(tela.situacao()),
+              );
+              cc.posts_publicos = { ok: true, dados: OS_POSTS };
+              cc.pedidos_publicos.length = 0;
+              await tela.clicar(tela.q('[data-acao="repetir"]'));
+              afirmar(
+                "e repetir RELÊ de verdade — a página volta a mostrar os artigos",
+                cc.pedidos_publicos.length === 1 &&
+                  tela.situacao() === publico.LISTA_PRONTA,
+                `pedidos: ${cc.pedidos_publicos.length} | situação: ${tela.situacao()}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* ─── FALHA PERMANENTE: a listagem tem a mesma distinção do artigo
+               Com `.env` ausente a camada devolve `configuracao`, e uma tela que
+               só soubesse dizer "confira a conexão" mandaria o visitante
+               procurar o problema no lugar errado — e ofereceria um botão que
+               nunca vai funcionar. */
+            {
+              cc.posts_publicos = {
+                ok: false,
+                erro: {
+                  tipo: "configuracao",
+                  mensagem: "A configuração do Supabase está incompleta.",
+                },
+              };
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "ambiente mal configurado vira falha PERMANENTE — outra frase, e sem o botão que não resolveria nada",
+                tela.situacao() === publico.LISTA_FALHA_PERMANENTE &&
+                  tela.texto().includes(
+                    publico.falaDaLista(publico.LISTA_FALHA_PERMANENTE).oQueHouve,
+                  ) &&
+                  tela.q('[data-acao="repetir"]') === null,
+                String(tela.situacao()),
+              );
+              await tela.desmontar();
+            }
+
+            /* ─── NENHUM TEXTO DE EXCEÇÃO CHEGA AO VISITANTE ─────────────
+               A tela mostra a fala da situação. Uma exceção que escape da
+               camada vira erro tipado com a frase padrão, e o texto cru fica em
+               `detalhe`, que nenhuma das duas páginas renderiza — publicar
+               `TypeError: x is not a function` numa página institucional é o
+               que esta asserção existe para impedir. */
+            {
+              const SEGREDO = "TypeError: fetch__interno__ is not a function";
+              cc.aoBuscarPublicos = () => Promise.reject(new Error(SEGREDO));
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+              afirmar(
+                "exceção que escapa da camada NÃO vira texto na tela — sai a frase da situação, e o cru fica em `detalhe`",
+                tela.situacao() === publico.LISTA_FALHA_PERMANENTE &&
+                  !tela.texto().includes(SEGREDO) &&
+                  !tela.texto().includes("TypeError") &&
+                  tela.texto().includes(
+                    publico.falaDaLista(publico.LISTA_FALHA_PERMANENTE).oQueHouve,
+                  ),
+                tela.texto().replace(/\s+/g, " ").slice(0, 200),
+              );
+              /* E a regra pura, executada: a frase é a da camada, e o cru está
+                 guardado — não descartado, porque quem for depurar precisa
+                 dele no console. */
+              const falha = publico.falhaDeExcecao(new Error(SEGREDO));
+              afirmar(
+                "e `falhaDeExcecao` guarda o texto cru em `detalhe`, com a mensagem vinda das frases da camada",
+                falha.mensagem !== SEGREDO &&
+                  falha.mensagem.trim() !== "" &&
+                  String(falha.detalhe).includes(SEGREDO),
+                JSON.stringify(falha),
+              );
+              cc.aoBuscarPublicos = null;
+              await tela.desmontar();
+            }
+
+            /* ══ O ARTIGO ══════════════════════════════════════════════ */
+
+            const HTML_GRAVADO =
+              "<h2>Título de dentro</h2><p>Parágrafo <strong>gravado</strong>.</p><blockquote><p>Citação</p></blockquote>";
+            const O_POST = {
+              ...OS_POSTS[0],
+              conteudo: { type: "doc", content: [] },
+              conteudo_html: HTML_GRAVADO,
+            };
+
+            /* — CARREGANDO — */
+            {
+              let liberar = null;
+              cc.aoLerPostPublico = () =>
+                new Promise((resolve) => {
+                  liberar = () => resolve({ ok: true, dados: O_POST });
+                });
+              cc.tags_publicas = { ok: true, dados: [{ id: "t1", nome: "Atendimento", slug: "atendimento" }] };
+              cc.relacionados = { ok: true, dados: [OS_POSTS[1]] };
+              cc.pedidos_de_tags.length = 0;
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+              );
+              afirmar(
+                "enquanto o artigo carrega, a página diz que está carregando — nunca fica em branco",
+                tela.situacao() === publico.ARTIGO_CARREGANDO &&
+                  tela.q('[data-papel="esqueleto"]') !== null,
+                String(tela.situacao()),
+              );
+              await act(async () => {
+                liberar();
+              });
+              cc.aoLerPostPublico = null;
+
+              /* ★ O ARTIGO É O `conteudo_html` GRAVADO, DENTRO DE `.artigo` ★ */
+              const artigo = tela.q('[data-papel="artigo"]');
+              afirmar(
+                "o artigo é injetado dentro de `.artigo` — a classe global escrita por extenso, a mesma do Editor e da prévia",
+                artigo !== null && artigo.classList.contains("artigo"),
+                String(artigo?.className),
+              );
+              afirmar(
+                "e o que ele mostra é o HTML GRAVADO, byte a byte — nada é derivado em tempo de leitura",
+                artigo?.innerHTML === HTML_GRAVADO,
+                String(artigo?.innerHTML).slice(0, 200),
+              );
+              /* E o vocabulário do Estilo do Artigo de fato chegou à árvore: o
+                 parser antigo emitia `h1` e `h4`, que `.artigo` não estiliza. */
+              afirmar(
+                "o corpo do artigo traz os elementos que o Estilo do Artigo cobre, e nenhum `h1` nem `h4`",
+                tela.q('[data-papel="artigo"] h2') !== null &&
+                  tela.q('[data-papel="artigo"] blockquote') !== null &&
+                  tela.q('[data-papel="artigo"] h1') === null &&
+                  tela.q('[data-papel="artigo"] h4') === null,
+                String(artigo?.innerHTML).slice(0, 200),
+              );
+
+              /* — OS METADADOS — */
+              afirmar(
+                "os metadados vêm do que o banco guarda: Categoria pelo objeto embutido, data em português e tempo por extenso",
+                (tela.q('[data-papel="categoria"]')?.textContent ?? "").trim() ===
+                  "Tecnologia" &&
+                  (tela.q('[data-papel="data"]')?.textContent ?? "").includes("14/08/2026") &&
+                  (tela.q('[data-papel="tempo-de-leitura"]')?.textContent ?? "").includes(
+                    "8 min de leitura",
+                  ) &&
+                  (tela.q('[data-papel="autor"]')?.textContent ?? "").includes("Ana Autora"),
+                tela.texto().replace(/\s+/g, " ").slice(0, 220),
+              );
+
+              /* — AS TAGS —
+                 O identificador PEDIDO é cobrado, e não só o que voltou: com o
+                 dublê descartando o argumento, pedir as Tags do Post errado
+                 passaria — a tela mostraria as tags de outro artigo e nada
+                 acusaria. É a mesma cobrança que os relacionados já tinham. */
+              const pedidoDasTags = cc.pedidos_de_tags.at(-1);
+              afirmar(
+                "as Tags são pedidas para o Post que está aberto, e não para outro",
+                cc.pedidos_de_tags.length === 1 && pedidoDasTags === ID_DESTAQUE,
+                `pedidos: ${JSON.stringify(cc.pedidos_de_tags)}`,
+              );
+              afirmar(
+                "e elas aparecem, lidas pelo caminho público",
+                (tela.q('[data-papel="tags"]')?.textContent ?? "").includes("#Atendimento"),
+                String(tela.q('[data-papel="tags"]')?.textContent),
+              );
+
+              /* — OS RELACIONADOS, PELA CATEGORIA E SEM O PRÓPRIO POST — */
+              const pedidoDosRelacionados = cc.pedidos_de_relacionados.at(-1);
+              afirmar(
+                "os relacionados são pedidos pela CATEGORIA e excluindo o próprio Post — casar por nome era o que o armazenamento fazia",
+                pedidoDosRelacionados?.categoriaId === ID_CATEGORIA &&
+                  pedidoDosRelacionados?.exceto === ID_DESTAQUE,
+                JSON.stringify(pedidoDosRelacionados),
+              );
+              afirmar(
+                "e eles são desenhados",
+                (tela.q('[data-papel="relacionados"]')?.textContent ?? "").includes(
+                  "Post antigo",
+                ),
+                String(tela.q('[data-papel="relacionados"]')?.textContent).slice(0, 160),
+              );
+              await tela.desmontar();
+            }
+
+            /* ─── POST PUBLICADO SEM CORPO GRAVADO ────────────────────────
+               O ramo existe no arquivo e nunca era montado — e a sabotagem que
+               passava é a mais barata de todas: apagar o ternário e injetar
+               `.artigo` sempre. Aí um Post publicado sem corpo renderiza um
+               contêiner VAZIO, que é a página em branco que o cabeçalho do
+               módulo diz existir para impedir. A prévia já tem este par de
+               asserções desde a Story 2.13; aqui é o espelho dela. */
+            {
+              cc.post_publico = { ok: true, dados: { ...O_POST, conteudo_html: "" } };
+              cc.tags_publicas = { ok: true, dados: [] };
+              cc.relacionados = { ok: true, dados: [] };
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+              );
+              afirmar(
+                "Post publicado SEM corpo gravado diz isso — e NÃO injeta um `.artigo` vazio",
+                tela.situacao() === publico.ARTIGO_PRONTO &&
+                  tela.q('[data-papel="artigo-vazio"]') !== null &&
+                  tela.q('[data-papel="artigo"]') === null &&
+                  tela.texto().includes(publico.ARTIGO_SEM_CONTEUDO),
+                `${tela.situacao()} | artigo: ${tela.q('[data-papel="artigo"]') === null ? "ausente" : "presente"}`,
+              );
+              /* E o título continua lá: o Post existe, o corpo é que não. */
+              afirmar(
+                "e o resto da página continua de pé — o que falta é o corpo, não o Post",
+                (tela.q('[data-papel="titulo"]')?.textContent ?? "").includes(
+                  "Post em destaque",
+                ),
+                String(tela.q('[data-papel="titulo"]')?.textContent),
+              );
+              await tela.desmontar();
+            }
+
+            /* ─── TROCAR DE ARTIGO VOLTA AO TOPO ──────────────────────────
+               Os relacionados levam de `/blog/:slug` para outro sem desmontar a
+               tela. Sem rolagem ao mudar o alvo, o leitor cai no MEIO do artigo
+               novo. Quem cumpre isso é `ScrollToTop`, global e acima das rotas
+               em `main.jsx` — e é ele que é montado aqui, junto: duplicar a
+               rolagem dentro da página seria uma segunda implementação da mesma
+               regra, e a segunda é a que diverge. */
+            {
+              cc.post_publico = { ok: true, dados: O_POST };
+              cc.relacionados = { ok: true, dados: [OS_POSTS[1]] };
+              cc.tags_publicas = { ok: true, dados: [] };
+              cc.rolagens.length = 0;
+              const rolagemOriginal = janela.scrollTo;
+              janela.scrollTo = (...args) => {
+                cc.rolagens.push(args[0] ?? null);
+              };
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+                { comRolagem: true },
+              );
+              const naMontagem = cc.rolagens.length;
+              const link = tela.q('[data-papel="relacionados"] a');
+              const achouLink = afirmar(
+                "o cartão de relacionado é um link de verdade para o outro artigo",
+                link !== null && link.getAttribute("href") === "/blog/post-antigo",
+                String(link?.getAttribute("href")),
+              );
+              if (achouLink) {
+                cc.pedidos_de_slug.length = 0;
+                await tela.clicarLink(link);
+                afirmar(
+                  "clicar num relacionado abre o outro artigo — e a página volta ao topo em vez de cair no meio dele",
+                  cc.pedidos_de_slug.at(-1) === "post-antigo" &&
+                    cc.rolagens.length > naMontagem,
+                  `pedidos: ${JSON.stringify(cc.pedidos_de_slug)} | rolagens: ${cc.rolagens.length} (na montagem: ${naMontagem})`,
+                );
+              }
+              await tela.desmontar();
+              if (rolagemOriginal === undefined) delete janela.scrollTo;
+              else janela.scrollTo = rolagemOriginal;
+            }
+
+            /* — SEM CATEGORIA: sem pastilha, sem relacionados, e nada quebra — */
+            {
+              cc.relacionados = { ok: true, dados: [] };
+              cc.pedidos_de_relacionados.length = 0;
+              cc.tags_publicas = { ok: true, dados: [] };
+              cc.post_publico = {
+                ok: true,
+                dados: { ...OS_POSTS[2], conteudo_html: "<p>Corpo</p>" },
+              };
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-sem-categoria",
+              );
+              afirmar(
+                "artigo de Post SEM Categoria abre normalmente: sem pastilha, e sem pedir relacionados que não existem",
+                tela.situacao() === publico.ARTIGO_PRONTO &&
+                  tela.q('[data-papel="categoria"]') === null &&
+                  tela.q('[data-papel="relacionados"]') === null &&
+                  cc.pedidos_de_relacionados.length === 0 &&
+                  tela.q('[data-papel="artigo"]') !== null,
+                `${tela.situacao()} | pedidos de relacionados: ${cc.pedidos_de_relacionados.length}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* — FALHA AO LER TAG NÃO DERRUBA O ARTIGO — */
+            {
+              cc.tags_publicas = { ok: false, erro: { tipo: "rede", mensagem: "caiu" } };
+              cc.relacionados = { ok: false, erro: { tipo: "rede", mensagem: "caiu" } };
+              cc.post_publico = { ok: true, dados: O_POST };
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+              );
+              afirmar(
+                "falha ao ler Tag ou relacionado NÃO derruba o artigo — quem abriu veio ler o texto",
+                tela.situacao() === publico.ARTIGO_PRONTO &&
+                  tela.q('[data-papel="artigo"]')?.innerHTML === HTML_GRAVADO &&
+                  tela.q('[data-papel="tags"]') === null &&
+                  tela.q('[data-papel="relacionados"]') === null,
+                String(tela.situacao()),
+              );
+              await tela.desmontar();
+              cc.tags_publicas = { ok: true, dados: [] };
+              cc.relacionados = { ok: true, dados: [] };
+            }
+
+            /* — RASCUNHO: AUSÊNCIA, indistinguível de endereço que nunca existiu — */
+            {
+              const AUSENCIA = {
+                ok: false,
+                erro: {
+                  tipo: "nao_encontrado",
+                  mensagem: "Não encontramos o que você procura.",
+                },
+              };
+              cc.post_publico = AUSENCIA;
+              const doRascunho = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/rascunho-que-nao-esta-no-ar",
+              );
+              const textoDoRascunho = doRascunho.texto();
+              const situacaoDoRascunho = doRascunho.situacao();
+              await doRascunho.desmontar();
+
+              const doInexistente = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/nunca-existiu",
+              );
+              const textoDoInexistente = doInexistente.texto();
+              await doInexistente.desmontar();
+
+              afirmar(
+                "o endereço público de um Post não publicado responde AUSÊNCIA — a mesma tela e a mesma frase de um endereço que nunca existiu",
+                situacaoDoRascunho === publico.ARTIGO_AUSENTE &&
+                  textoDoRascunho === textoDoInexistente &&
+                  textoDoRascunho.includes(
+                    publico.falaDoArtigo(publico.ARTIGO_AUSENTE).oQueHouve,
+                  ),
+                `${situacaoDoRascunho} | iguais: ${textoDoRascunho === textoDoInexistente}`,
+              );
+              afirmar(
+                "e a tela de ausência não oferece repetir — um Post que não existe não passa a existir por insistência",
+                publico.falaDoArtigo(publico.ARTIGO_AUSENTE).repetir === false,
+              );
+            }
+
+            /* — SLUG FORA DO FORMATO: ausência SEM pedido à rede — */
+            {
+              cc.pedidos_de_slug.length = 0;
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/UM SLUG INVÁLIDO",
+              );
+              afirmar(
+                "slug fora do formato vira ausência SEM pedido à rede — ele não poderia existir, e mandá-lo só trocaria uma ausência por outra mais lenta",
+                tela.situacao() === publico.ARTIGO_AUSENTE &&
+                  cc.pedidos_de_slug.length === 0,
+                `situação: ${tela.situacao()} | pedidos: ${cc.pedidos_de_slug.length}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* — FALHA DE LEITURA DO ARTIGO: erro com repetir, nunca em branco — */
+            {
+              cc.post_publico = {
+                ok: false,
+                erro: { tipo: "rede", mensagem: "Confira a conexão e tente de novo." },
+              };
+              cc.pedidos_de_slug.length = 0;
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+              );
+              afirmar(
+                "falha de rede no artigo diz o que houve e o que fazer, com repetir — e nunca é confundida com ausência",
+                tela.situacao() === publico.ARTIGO_FALHA &&
+                  tela.texto().includes(publico.falaDoArtigo(publico.ARTIGO_FALHA).oQueHouve) &&
+                  tela.q('[data-acao="repetir"]') !== null,
+                String(tela.situacao()),
+              );
+              cc.post_publico = { ok: true, dados: O_POST };
+              cc.pedidos_de_slug.length = 0;
+              await tela.clicar(tela.q('[data-acao="repetir"]'));
+              afirmar(
+                "e repetir relê o artigo de verdade",
+                cc.pedidos_de_slug.length === 1 &&
+                  tela.situacao() === publico.ARTIGO_PRONTO,
+                `pedidos: ${cc.pedidos_de_slug.length} | situação: ${tela.situacao()}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* Estado de controle devolvido ao padrão para o resto da execução. */
+            cc.posts_publicos = { ok: true, dados: [] };
+            cc.post_publico = {
+              ok: false,
+              erro: { tipo: "nao_encontrado", mensagem: "sem post" },
+            };
+            cc.categorias = { ok: true, dados: [] };
+          }
 
           if (observadorOriginal === undefined) delete janela.IntersectionObserver;
           else janela.IntersectionObserver = observadorOriginal;
