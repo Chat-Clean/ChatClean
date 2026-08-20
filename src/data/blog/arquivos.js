@@ -37,12 +37,14 @@ import {
   BUCKET_DAS_IMAGENS,
   BYTES_DA_ASSINATURA,
   CACHE_DA_CAPA_EM_SEGUNDOS,
+  baseDoEnderecoPublico as baseDe,
   caminhoDaCapa,
   caminhoDaCapaNoEndereco,
   especieDeclarada,
   problemaNoArquivo,
 } from "../../domain/blog/arquivos.js";
 import { clienteDoPainelOuFalha } from "./comum.js";
+import { urlDoProjeto } from "../supabase/clientes.js";
 import { ERRO_DADOS_INVALIDOS as TIPO_DE_DADOS_INVALIDOS } from "./escrita.js";
 import {
   ERRO_CONFIGURACAO,
@@ -142,16 +144,35 @@ function enderecoPublico(cliente, caminho) {
   }
 }
 
+/* A RAIZ DO PROJETO DENTRO DE UM ENDEREÇO PÚBLICO vem do DOMÍNIO desde a Story
+   3.2 — `baseDoEnderecoPublico`, importada aqui com o nome curto `baseDe`.
+   Ela morava neste arquivo, e subiu quando o segundo consumidor apareceu: a
+   gaveta precisa da mesma pergunta para decidir em que modo o campo de capa
+   nasce, e duas implementações do mesmo recorte divergiriam no dia em que o
+   Storage mudasse o prefixo.
+
+   Ela existe para que a conferência do endereço devolvido seja feita pela MESMA
+   função do domínio que o servidor usa, sem este módulo precisar conhecer a
+   variável de ambiente — que é de `data/supabase/clientes.js`, e não daqui. */
+
 /**
- * A raiz do projeto dentro de um endereço público do Storage.
+ * A raiz do projeto, para quem precisa perguntar "esta capa é NOSSA?".
  *
- * Existe para que a conferência do endereço devolvido seja feita pela MESMA
- * função do domínio que o servidor usa, sem este módulo precisar conhecer a
- * variável de ambiente — que é de `data/supabase/clientes.js`, e não daqui.
+ * Devolve `""` quando o ambiente não a declara, e quem chama trata isso como
+ * "não sei" — nunca como "não é nossa".
+ *
+ * Ela é exposta daqui, e não importada de `data/supabase/clientes.js` pelo
+ * Painel, porque a arquitetura diz que quem fala com a infraestrutura de
+ * cliente é a camada de dados. O Editor pergunta a esta camada, como pergunta
+ * todo o resto.
+ *
+ * **Isto é a resposta EXATA, e não a forma.** `baseDoEnderecoPublico` recorta a
+ * raiz de dentro do próprio endereço, e por isso classifica a capa de OUTRO
+ * projeto Supabase como nossa: ela serve para conferir o endereço que o nosso
+ * Storage acabou de devolver, e não para julgar um endereço vindo de fora.
  */
-function baseDe(url) {
-  const corte = String(url ?? "").indexOf("/storage/v1/object/public/");
-  return corte <= 0 ? "" : String(url).slice(0, corte);
+export function baseDoProjeto() {
+  return String(urlDoProjeto() ?? "").replace(/\/+$/, "");
 }
 
 /**

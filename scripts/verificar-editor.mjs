@@ -1721,6 +1721,12 @@ async function compilarComponentes() {
          e que a capa GRAVADA não sai — os dois arquivos têm donos
          diferentes. */
       "  pedidos_de_remocao: [],\n" +
+      /* Story 3.2: A RAIZ DO PROJETO. O módulo real a lê do ambiente, e a
+         ferramenta roda sem `.env` — sem o dublê ela seria `""`, a gaveta leria
+         toda capa do bucket como "de fora" e o seletor de arquivo deixaria de
+         existir no meio das asserções de envio. É a MESMA raiz dos endereços
+         que o dublê de envio devolve. */
+      "  base_do_projeto: 'https://x.supabase.co',\n" +
       "  aoEnviar: null,\n" +
       "  envio: { ok: true, dados: { url: 'https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png', caminho: 'capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png' } },\n" +
       /* O que a tela ANUNCIOU, em ordem. `{ tom, oQueHouve, oQueFazer }` — as
@@ -1778,6 +1784,11 @@ async function compilarComponentes() {
       "export async function removerImagemDeCapa(endereco) {\n" +
       "  controle.pedidos_de_remocao.push(endereco);\n" +
       "  return { ok: true, dados: { caminho: endereco } };\n" +
+      "}\n" +
+      /* Story 3.2: a raiz do projeto, que o Editor repassa à gaveta para ela
+         saber se a capa gravada é NOSSA e abrir no modo certo. */
+      "export function baseDoProjeto() {\n" +
+      "  return controle.base_do_projeto;\n" +
       "}\n",
   );
 
@@ -4689,6 +4700,45 @@ if (janela && schema && configuracao && compilado) {
             ?.getAttribute("data-monograma") === "" &&
           tela.linha(ID_C)?.querySelector('[data-papel="categoria"]') === null,
       );
+
+      /* ── A CAPA QUE NÃO CARREGA DEGRADA AQUI TAMBÉM (Story 3.2) ───────
+         Enquanto toda capa vinha do nosso bucket, um endereço gravado
+         resolvia. Desde que ela pode apontar para outro domínio, o endereço
+         apodrece — e sem `onError` esta linha desenharia o ícone quebrado do
+         navegador numa caixa de 64px enquanto o Editor mostra o monograma para
+         o MESMO Post: as duas respostas para a mesma pergunta que a degradação
+         existe para não ter.
+
+         E o que se compara é o MONOGRAMA que a função pura devolve, não uma
+         letra escrita à mão — que passaria mesmo se as duas telas divergissem. */
+      {
+        const imagem = tela.linha(ID_A)?.querySelector('[data-papel="capa"]');
+        await act(async () => {
+          imagem.dispatchEvent(new janela.Event("error", { bubbles: false }));
+        });
+        const caixa = tela.linha(ID_A)?.querySelector('[data-papel="monograma"]');
+        const esperado = modulo.regrasDaListagem.monogramaDaCategoria(
+          POSTS_DE_PROVA.find((post) => post.id === ID_A),
+        );
+        afirmar(
+          "capa que não carrega na LISTAGEM degrada para o monograma da Categoria — e não para o ícone quebrado do navegador",
+          tela.linha(ID_A)?.querySelector('[data-papel="capa"]') === null &&
+            caixa !== null &&
+            esperado !== "" &&
+            caixa.getAttribute("data-monograma") === esperado &&
+            caixa.getAttribute("data-recurso") === "letra",
+          `monograma: ${JSON.stringify(caixa?.getAttribute("data-monograma"))} | esperado: ${JSON.stringify(esperado)}`,
+        );
+        /* E A CAIXA DA LINHA CONTINUA DECORATIVA: aqui o texto em volta já diz
+           título e Categoria, e anunciar a letra de novo seria repetição. É a
+           diferença deliberada em relação à gaveta, onde não há texto em volta. */
+        afirmar(
+          "e na linha ela continua decorativa — o texto ao lado já diz o que ela representaria",
+          caixa?.getAttribute("aria-hidden") === "true" &&
+            caixa?.getAttribute("role") === null,
+          `aria-hidden: ${caixa?.getAttribute("aria-hidden")} | role: ${caixa?.getAttribute("role")}`,
+        );
+      }
 
       /* ── O ESTADO: PONTO **E** PALAVRA, nos quatro ─────────────────── */
       if (estadosDoDominio) {
@@ -8930,6 +8980,118 @@ if (janela && schema && configuracao && compilado) {
               cc.relacionados = { ok: true, dados: [] };
             }
 
+            /* — A CAPA DE FORA QUE APODRECEU (Story 3.2) — */
+            //
+            // Antes desta story toda capa vinha do nosso bucket. Agora ela pode
+            // apontar para outro domínio, e endereço de fora APODRECE: o host
+            // sai do ar, o arquivo é removido lá, o endereço muda. Um `<img>`
+            // com endereço morto desenha o ícone de imagem quebrada do
+            // navegador — dentro de uma moldura com sombra, que é o defeito
+            // emoldurado. "Não carregou" vira "não tem", que é o ramo que a
+            // página já sabia desenhar.
+            {
+              const DE_FORA_PODRE = "https://cdn.que-saiu-do-ar.example/foto.jpg";
+              cc.post_publico = {
+                ok: true,
+                dados: { ...O_POST, imagem_url: DE_FORA_PODRE, imagem_alt: "Uma sala" },
+              };
+              cc.relacionados = {
+                ok: true,
+                dados: [
+                  { ...OS_POSTS[1], imagem_url: DE_FORA_PODRE, imagem_alt: "Outra sala" },
+                  { ...OS_POSTS[2], imagem_url: null },
+                ],
+              };
+              const tela = await montarPublica(
+                modulo.ArtigoPublico,
+                "/blog/:slug",
+                "/blog/post-em-destaque",
+              );
+              const capaDoArtigo = tela.q('[data-papel="capa-do-artigo"]');
+              afirmar(
+                "o artigo desenha a capa de FORA como qualquer outra — a origem não muda o que o leitor vê",
+                capaDoArtigo !== null &&
+                  capaDoArtigo.getAttribute("src") === DE_FORA_PODRE &&
+                  capaDoArtigo.getAttribute("alt") === "Uma sala",
+                String(capaDoArtigo?.getAttribute("src")),
+              );
+              await act(async () => {
+                capaDoArtigo.dispatchEvent(new janela.Event("error", { bubbles: false }));
+              });
+              afirmar(
+                "e a capa que não carrega é tratada como capa AUSENTE: nenhum ícone quebrado, e o artigo continua inteiro",
+                tela.q('[data-papel="capa-do-artigo"]') === null &&
+                  tela.todos("img").every(
+                    (i) => (i.getAttribute("src") ?? "") !== DE_FORA_PODRE ||
+                      i.getAttribute("data-papel") === "capa-relacionada",
+                  ) &&
+                  tela.situacao() === publico.ARTIGO_PRONTO &&
+                  tela.q('[data-papel="artigo"]')?.innerHTML === HTML_GRAVADO,
+                `situação: ${tela.situacao()} | capa: ${tela.q('[data-papel="capa-do-artigo"]') !== null}`,
+              );
+
+              /* E O RELACIONADO TEM RESPOSTA PRÓPRIA: um cartão com a imagem
+                 podre não pode esconder a do vizinho, nem sobreviver por conta
+                 de o artigo já ter falhado. */
+              const dosRelacionados = tela.todos('[data-papel="capa-relacionada"]');
+              afirmar(
+                "os relacionados desenham a própria capa, e só quem tem uma",
+                dosRelacionados.length === 1 &&
+                  dosRelacionados[0].getAttribute("src") === DE_FORA_PODRE,
+                `capas de relacionado: ${dosRelacionados.length}`,
+              );
+              await act(async () => {
+                dosRelacionados[0].dispatchEvent(
+                  new janela.Event("error", { bubbles: false }),
+                );
+              });
+              afirmar(
+                "e o relacionado cuja imagem não carrega perde a imagem, não o cartão — o layout não quebra em nenhum dos dois",
+                tela.todos('[data-papel="capa-relacionada"]').length === 0 &&
+                  tela.todos('[data-papel="relacionados"] [data-post]').length === 2,
+                `cartões: ${tela.todos('[data-papel="relacionados"] [data-post]').length}`,
+              );
+
+              /* ─── E O BENEFÍCIO DA DÚVIDA VOLTA A CADA POST ─────────────
+                 O comentário promete que a dúvida é por ENDEREÇO, e a promessa
+                 é justamente a que uma implementação com `useState` sem efeito
+                 de reinício quebra em silêncio: quem lesse um artigo de capa
+                 podre e clicasse num relacionado ficaria sem capa no artigo
+                 seguinte, sem nada acusar. A navegação é a de verdade — o
+                 mesmo `Link` do cartão, dentro do mesmo roteador —, porque
+                 remontar a página do zero provaria outra coisa.
+
+                 O segundo Post tem capa boa; se a dúvida não voltasse, ela não
+                 seria desenhada. */
+              cc.aoLerPostPublico = (slug) =>
+                slug === "post-antigo"
+                  ? {
+                      ok: true,
+                      dados: {
+                        ...OS_POSTS[1],
+                        conteudo: { type: "doc", content: [] },
+                        conteudo_html: HTML_GRAVADO,
+                        imagem_url: "https://cdn.exemplo.com/outra.jpg",
+                        imagem_alt: "Outra sala",
+                      },
+                    }
+                  : { ok: true, dados: { ...O_POST, imagem_url: DE_FORA_PODRE } };
+              await tela.clicar(
+                tela.q('[data-papel="relacionados"] a[href="/blog/post-antigo"]'),
+              );
+              afirmar(
+                "e o benefício da dúvida volta no Post seguinte: capa podre num artigo não condena a capa do próximo",
+                tela.q('[data-papel="capa-do-artigo"]')?.getAttribute("src") ===
+                  "https://cdn.exemplo.com/outra.jpg",
+                String(tela.q('[data-papel="capa-do-artigo"]')?.getAttribute("src")),
+              );
+              cc.aoLerPostPublico = null;
+
+              await tela.desmontar();
+              cc.post_publico = { ok: true, dados: O_POST };
+              cc.relacionados = { ok: true, dados: [] };
+            }
+
             /* — RASCUNHO: AUSÊNCIA, indistinguível de endereço que nunca existiu — */
             {
               const AUSENCIA = {
@@ -9353,6 +9515,21 @@ if (janela && schema && configuracao && compilado) {
             const alvo = janela.document.createElement("div");
             janela.document.body.appendChild(alvo);
             const raizReact = createRoot(alvo);
+            /* AS CATEGORIAS ENTRAM NA MONTAGEM (Story 3.2): é do NOME da
+               Categoria escolhida que sai o monograma da degradação, e sem
+               lista de Categorias a gaveta nunca teria uma para escolher —
+               toda a metade "com Categoria" da degradação ficaria por provar. */
+            const BASE_DO_PROJETO = "https://x.supabase.co";
+            const CATEGORIAS_DA_CAPA = [
+              {
+                id: "cccccccc-1111-4111-8111-111111111111",
+                nome: "Ática",
+                slug: "atica",
+                cor: modulo.categoriasDoDominio.CORES_DE_CATEGORIA[1],
+                icone: modulo.categoriasDoDominio.CHAVES_DE_ICONE_DE_CATEGORIA[0],
+                ordem: 1,
+              },
+            ];
             let valores = {
               titulo: "",
               slug: "",
@@ -9371,6 +9548,13 @@ if (janela && schema && configuracao && compilado) {
             const desenhar = () =>
               React.createElement(modulo.GavetaDeMetadados, {
                 valores,
+                categorias: CATEGORIAS_DA_CAPA,
+                /* A RAIZ DO PROJETO (Story 3.2). A gaveta não a adivinha: sem
+                   ela, um endereço com a FORMA de capa pública seria julgado
+                   nosso, e a capa de outro projeto Supabase abriria no modo de
+                   envio com o endereço escondido num campo que ninguém opera.
+                   É a mesma raiz de `ENDERECO`, mais abaixo. */
+                baseDaCapaDoProjeto: BASE_DO_PROJETO,
                 situacaoDoEnvio: situacao,
                 recusaDoEnvio: recusa,
                 aoEscolherArquivo: (a) => escolhidos.push(a),
@@ -9390,25 +9574,37 @@ if (janela && schema && configuracao && compilado) {
 
             /* A ORDEM DOS CAMPOS. A capa é conteúdo: ela entra entre Resumo e
                Categoria, e a ordem é lida do DOCUMENTO — não da lista que a
-               declara, que provaria a lista contra si mesma. */
-            {
-              /* O CONTROLE DA CAPA É O SELETOR DE ARQUIVO, e é ele que
-                 representa `imagem_url` na ordem. O campo de endereço existe
-                 escondido e sem `data-campo` de propósito: ele não é operável,
-                 e o rótulo "Imagem de capa" aponta para o seletor — que era o
-                 único controle da seção sem nome acessível antes desta
-                 correção. A tradução é declarada aqui, e não presumida. */
-              const CONTROLE_DO_CAMPO = { "arquivo-da-capa": "imagem_url" };
-              const ordem = [...alvo.querySelectorAll("[data-campo]")]
+               declara, que provaria a lista contra si mesma.
+
+               ─── UMA LEITURA SÓ, PARA OS DOIS MODOS (Story 3.2) ──────────
+               O modo de fora tem outro controle no lugar do seletor de
+               arquivo, e a asserção de lá começou com uma leitura própria: sem
+               o mapa e sem a adjacência. Renomear `arquivo-da-capa` quebraria
+               uma e passaria pela outra, que é a divergência silenciosa que
+               duas cópias sempre produzem. A leitura é uma, e as duas a usam. */
+            /* O CONTROLE DA CAPA É O SELETOR DE ARQUIVO no modo de envio, e é
+               ele que representa `imagem_url` na ordem: o campo de endereço
+               existe escondido e sem `data-campo` de propósito, porque não é
+               operável. No modo de fora o campo de endereço passa a ser o
+               controle, e aí ele já se chama `imagem_url`. A tradução é
+               declarada aqui, e não presumida. */
+            const CONTROLE_DO_CAMPO = { "arquivo-da-capa": "imagem_url" };
+            const ordemDosCampos = () =>
+              [...alvo.querySelectorAll("[data-campo]")]
                 .map((e) => e.getAttribute("data-campo"))
                 .map((n) => CONTROLE_DO_CAMPO[n] ?? n)
                 .filter((n) => regrasDosMetadados.CAMPOS_DA_GAVETA.includes(n));
+            /** A ordem desenhada é a declarada, com a capa entre Resumo e Categoria? */
+            const ordemConfere = (ordem) =>
+              ordem.join(",") === regrasDosMetadados.CAMPOS_DA_GAVETA.join(",") &&
+              ordem.indexOf("imagem_url") === ordem.indexOf("resumo") + 1 &&
+              ordem.indexOf("imagem_alt") === ordem.indexOf("imagem_url") + 1 &&
+              ordem.indexOf("categoria_id") === ordem.indexOf("imagem_alt") + 1;
+            {
+              const ordem = ordemDosCampos();
               afirmar(
                 "a gaveta desenha os campos na ordem que `CAMPOS_DA_GAVETA` declara, com a capa entre Resumo e Categoria",
-                ordem.join(",") === regrasDosMetadados.CAMPOS_DA_GAVETA.join(",") &&
-                  ordem.indexOf("imagem_url") === ordem.indexOf("resumo") + 1 &&
-                  ordem.indexOf("imagem_alt") === ordem.indexOf("imagem_url") + 1 &&
-                  ordem.indexOf("categoria_id") === ordem.indexOf("imagem_alt") + 1,
+                ordemConfere(ordem),
                 `desenhada: ${ordem.join(",")} | declarada: ${regrasDosMetadados.CAMPOS_DA_GAVETA.join(",")}`,
               );
             }
@@ -9546,11 +9742,13 @@ if (janela && schema && configuracao && compilado) {
                   (rotulo.textContent ?? "").trim().startsWith("Imagem de capa"),
                 `rótulo do seletor: ${rotulo?.textContent ?? "NENHUM"}`,
               );
-              /* E o campo do endereço continua no documento, guardando o valor
-                 — ele é `readOnly` e escondido, e a Story 3.2 é que o abre. */
+              /* E NO MODO DE ENVIO o endereço continua guardado num campo que
+                 ninguém opera: `readOnly`, escondido, e SEM `data-campo` — quem
+                 representa a capa na ordem dos campos é o seletor de arquivo.
+                 O modo de fora é que troca isso, e é afirmado adiante. */
               const doEndereco = alvo.querySelector('[data-valor="imagem_url"]');
               afirmar(
-                "e o endereço continua guardado num campo `readOnly` e escondido — digitar endereço de fora é a Story 3.2",
+                "no modo de envio o endereço fica guardado num campo `readOnly` e escondido — quem se opera é o seletor",
                 doEndereco !== null &&
                   doEndereco.readOnly === true &&
                   doEndereco.hasAttribute("hidden") &&
@@ -9601,24 +9799,123 @@ if (janela && schema && configuracao && compilado) {
               });
             }
 
-            /* A CAPA QUE NÃO CARREGA VIRA FRASE, e não ícone quebrado.
-               Um endereço morto desenharia o ícone padrão do navegador e mais
-               nada, e o Autor salvaria um Post cuja capa não existe achando que
-               ela está lá. */
+            /* A CAPA QUE NÃO CARREGA DEGRADA PARA O MONOGRAMA (Story 3.2), e
+               não para o ícone quebrado do navegador. E é o MESMO monograma que
+               a linha da listagem desenha para o mesmo Post: duas respostas
+               visuais para a mesma pergunta é o que a degradação existe para
+               não ter.
+
+               A FRASE continua, ao lado — ela responde outra pergunta. Sem ela
+               o Autor salvaria um Post cuja capa não existe achando que ela
+               está lá, que é o defeito que a Story 3.1 fechou. */
             {
+              /* SEM CATEGORIA PRIMEIRO: o recurso é o mesmo símbolo neutro da
+                 listagem, e o monograma é `""`. É a metade que some quando
+                 alguém "simplifica" a degradação para exigir Categoria. */
               const img = alvo.querySelector('[data-papel="miniatura-da-capa"]');
               await act(async () => {
                 img.dispatchEvent(new janela.Event("error", { bubbles: false }));
               });
+              const semCategoria = alvo.querySelector('[data-papel="capa-degradada"]');
+              afirmar(
+                "capa que não carrega e Post SEM Categoria degrada para o mesmo recurso neutro da listagem — e não para um espaço em branco",
+                semCategoria !== null &&
+                  semCategoria.getAttribute("data-monograma") === "" &&
+                  /* O RECURSO, e não "algum ícone". `querySelector("svg")`
+                     sozinho passa com qualquer desenho, e a promessa é que as
+                     duas telas caiam no MESMO — que é o que o atributo diz. */
+                  semCategoria.getAttribute("data-recurso") === "neutro" &&
+                  semCategoria.querySelector("svg") !== null &&
+                  alvo.querySelector('[data-papel="miniatura-da-capa"]') === null,
+                `monograma: ${JSON.stringify(semCategoria?.getAttribute("data-monograma"))} | recurso: ${semCategoria?.getAttribute("data-recurso")}`,
+              );
+
+              /* AGORA COM CATEGORIA: a letra vem da MESMA função que a listagem
+                 usa, e a comparação é com a função — não com um `"Á"` escrito à
+                 mão, que passaria mesmo se as duas telas divergissem. */
+              await act(async () => {
+                valores = { ...valores, categoria_id: CATEGORIAS_DA_CAPA[0].id };
+                raizReact.render(desenhar());
+              });
+              const comCategoria = alvo.querySelector('[data-papel="capa-degradada"]');
+              const daListagem = modulo.regrasDaListagem.monogramaDoNome(
+                CATEGORIAS_DA_CAPA[0].nome,
+              );
+              afirmar(
+                "e com Categoria ela degrada para o MONOGRAMA da Categoria — a mesma letra que a listagem desenha, pela mesma função",
+                comCategoria !== null &&
+                  daListagem !== "" &&
+                  comCategoria.getAttribute("data-monograma") === daListagem &&
+                  (comCategoria.textContent ?? "").trim() === daListagem,
+                `desenhado: ${JSON.stringify(comCategoria?.getAttribute("data-monograma"))} | listagem: ${JSON.stringify(daListagem)}`,
+              );
+              /* E O INVÓLUCRO QUE RECEBE POST CONTINUA VALENDO: a listagem
+                 chama `monogramaDaCategoria(post)`, e as duas portas precisam
+                 dar a mesma resposta para a mesma Categoria. */
+              afirmar(
+                "e as duas portas do monograma concordam — a que recebe nome e a que recebe Post",
+                modulo.regrasDaListagem.monogramaDaCategoria({
+                  categoria: { nome: CATEGORIAS_DA_CAPA[0].nome },
+                }) === daListagem &&
+                  modulo.regrasDaListagem.monogramaDaCategoria({}) === "" &&
+                  modulo.regrasDaListagem.monogramaDoNome("  ") === "",
+                `post: ${modulo.regrasDaListagem.monogramaDaCategoria({ categoria: { nome: CATEGORIAS_DA_CAPA[0].nome } })} | nome: ${daListagem}`,
+              );
+              /* O LAYOUT NÃO QUEBRA: o monograma ocupa exatamente o espaço que
+                 a imagem ocuparia — a mesma proporção da miniatura. */
+              afirmar(
+                "e a degradação ocupa o espaço da imagem — mesma proporção da miniatura, layout intacto",
+                /aspect-\[16\/9\]/.test(comCategoria?.className ?? "") &&
+                  /w-full/.test(comCategoria?.className ?? ""),
+                comCategoria?.className ?? "",
+              );
               const quebrada = alvo.querySelector('[data-papel="capa-quebrada"]');
               afirmar(
-                "capa cujo arquivo sumiu vira uma FRASE que diz o que houve e o que fazer — não o ícone de imagem quebrada",
+                "e a frase que diz o que houve e o que fazer continua ao lado — o monograma não avisa que a capa morreu",
                 quebrada !== null &&
                   quebrada.getAttribute("role") === "alert" &&
-                  (quebrada.textContent ?? "").trim() === capa.FALA_DA_CAPA_QUEBRADA &&
-                  alvo.querySelector('[data-papel="miniatura-da-capa"]') === null,
+                  (quebrada.textContent ?? "").trim() === capa.FALA_DA_CAPA_QUEBRADA,
                 quebrada?.textContent ?? "nada",
               );
+              /* E A CAIXA É ANUNCIADA. Na listagem ela é decorativa, porque a
+                 linha inteira diz título e Categoria em texto; aqui não há esse
+                 texto em volta, e `aria-hidden` deixava quem usa leitor de tela
+                 sem NADA no lugar da capa — sem saber se ela existe, se sumiu ou
+                 se nunca foi posta. */
+              afirmar(
+                "e a caixa da degradação é ANUNCIADA, com a fala do módulo puro — na gaveta ela não pode ser decorativa como na linha da listagem",
+                comCategoria?.getAttribute("role") === "img" &&
+                  comCategoria?.getAttribute("aria-label") ===
+                    capa.rotuloDaCapaDegradada({
+                      categoria: CATEGORIAS_DA_CAPA[0].nome,
+                      situacao: capa.CAPA_QUE_NAO_CARREGOU,
+                    }) &&
+                  comCategoria?.hasAttribute("aria-hidden") === false &&
+                  (comCategoria?.getAttribute("aria-label") ?? "").includes(
+                    CATEGORIAS_DA_CAPA[0].nome,
+                  ),
+                `role: ${comCategoria?.getAttribute("role")} | nome: ${comCategoria?.getAttribute("aria-label")}`,
+              );
+              /* E AS TRÊS FALAS SÃO TRÊS. Uma só respondendo pelas três diria
+                 "não carregou" sobre um Post que nunca teve capa. */
+              afirmar(
+                "e a fala da caixa distingue as três situações — sem capa, não carregou, e endereço que não serve",
+                new Set(
+                  capa.SITUACOES_DA_CAPA_DEGRADADA.map((sit) =>
+                    capa.rotuloDaCapaDegradada({ categoria: "Ática", situacao: sit }),
+                  ),
+                ).size === 3 &&
+                  capa.SITUACOES_DA_CAPA_DEGRADADA.length === 3 &&
+                  capa.rotuloDaCapaDegradada({ situacao: "inventada" }) ===
+                    capa.rotuloDaCapaDegradada({ situacao: capa.CAPA_AUSENTE }),
+                capa.SITUACOES_DA_CAPA_DEGRADADA.map((sit) =>
+                  capa.rotuloDaCapaDegradada({ situacao: sit }),
+                ).join(" | "),
+              );
+              await act(async () => {
+                valores = { ...valores, categoria_id: "" };
+                raizReact.render(desenhar());
+              });
               /* E TROCAR A CAPA DEVOLVE O BENEFÍCIO DA DÚVIDA: uma falha antiga
                  não pode condenar a imagem seguinte. */
               await act(async () => {
@@ -9631,7 +9928,8 @@ if (janela && schema && configuracao && compilado) {
               afirmar(
                 "e trocar a capa volta a tentar desenhar — a falha é do endereço anterior, não da seção",
                 alvo.querySelector('[data-papel="miniatura-da-capa"]') !== null &&
-                  alvo.querySelector('[data-papel="capa-quebrada"]') === null,
+                  alvo.querySelector('[data-papel="capa-quebrada"]') === null &&
+                  alvo.querySelector('[data-papel="capa-degradada"]') === null,
                 "a miniatura não voltou depois da troca",
               );
               await act(async () => {
@@ -9759,6 +10057,595 @@ if (janela && schema && configuracao && compilado) {
                 campoDoArquivo.value === "",
                 JSON.stringify(campoDoArquivo.value),
               );
+            }
+
+            /* ═══ OS DOIS MODOS DA CAPA (Story 3.2) ═══════════════════════
+               Enviar arquivo ou informar endereço. O que o Post guarda é o
+               mesmo nos dois casos, e por isso o modo é estado de TELA — o que
+               se prova aqui é que ele existe, que cada controle tem nome, que
+               alternar não perde nada, e que o endereço é recusado ANTES do
+               salvamento com a frase certa. */
+            {
+              /* — O VOCABULÁRIO É FECHADO, E NÃO COLIDE — */
+              afirmar(
+                "as origens da capa são um vocabulário FECHADO, com rótulo para cada uma",
+                Array.isArray(capa.ORIGENS_DA_CAPA) &&
+                  Object.isFrozen(capa.ORIGENS_DA_CAPA) &&
+                  capa.ORIGENS_DA_CAPA.length === 2 &&
+                  capa.ehOrigemDaCapa(capa.ORIGEM_ENVIADA) &&
+                  capa.ehOrigemDaCapa(capa.ORIGEM_DE_FORA) &&
+                  !capa.ehOrigemDaCapa("arquivo") &&
+                  capa.ORIGENS_DA_CAPA.every((o) => capa.rotuloDaOrigem(o).trim() !== "") &&
+                  capa.rotuloDaOrigem("inventada") === "",
+                JSON.stringify(capa.ORIGENS_DA_CAPA),
+              );
+              {
+                const outras = [
+                  ...capa.SITUACOES_DO_ENVIO,
+                  ...Object.values(modulo.regrasDaPrevia ?? {}),
+                  ...Object.values(modulo.regrasDoBlogPublico ?? {}),
+                ].filter((v) => typeof v === "string");
+                const colisoes = capa.ORIGENS_DA_CAPA.filter((v) => outras.includes(v));
+                afirmar(
+                  "e elas não colidem com as situações do envio, da prévia nem do blog público — interseção vazia",
+                  colisoes.length === 0,
+                  colisoes.join(", "),
+                );
+              }
+
+              /* — O MODO É DERIVADO DO ENDEREÇO, e a função é pura — */
+              const DE_FORA = "https://cdn.exemplo.com/foto.jpg";
+              afirmar(
+                "o modo em que o campo nasce é DERIVADO do endereço: capa do bucket abre em envio, capa de fora abre no campo de endereço",
+                capa.origemDoEndereco("", BASE_DO_PROJETO) === capa.ORIGEM_ENVIADA &&
+                  capa.origemDoEndereco(ENDERECO, BASE_DO_PROJETO) === capa.ORIGEM_ENVIADA &&
+                  capa.origemDoEndereco(DE_FORA, BASE_DO_PROJETO) === capa.ORIGEM_DE_FORA &&
+                  capa.origemDoEndereco(null, BASE_DO_PROJETO) === capa.ORIGEM_ENVIADA,
+                `bucket: ${capa.origemDoEndereco(ENDERECO, BASE_DO_PROJETO)} | de fora: ${capa.origemDoEndereco(DE_FORA, BASE_DO_PROJETO)}`,
+              );
+              /* ─── E A CAPA DE OUTRO PROJETO SUPABASE NÃO É NOSSA ────────
+                 Ela tem a FORMA exata da nossa — mesmo prefixo do Storage,
+                 mesmo bucket, mesma pasta —, e a primeira versão recortava a
+                 raiz de dentro do próprio endereço e a classificava como
+                 enviada. O efeito era o defeito que o docstring da função diz
+                 existir para evitar: o endereço sumia dentro do campo
+                 `readOnly`, invisível e ineditável, e quem fosse editá-lo não
+                 tinha por onde.
+
+                 E "não sei a raiz" responde DE FORA, não "nossa": errar para o
+                 lado de mostrar custa um campo a mais; errar para o outro
+                 esconde o valor. */
+              {
+                const DE_OUTRO_PROJETO =
+                  "https://outro-projeto.example/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png";
+                afirmar(
+                  "a capa de OUTRO projeto Supabase é “de fora”, e não nossa — a raiz é a de verdade, e não a recortada do próprio endereço",
+                  capa.origemDoEndereco(DE_OUTRO_PROJETO, BASE_DO_PROJETO) ===
+                    capa.ORIGEM_DE_FORA,
+                  capa.origemDoEndereco(DE_OUTRO_PROJETO, BASE_DO_PROJETO),
+                );
+                afirmar(
+                  "e sem raiz nenhuma a resposta é “de fora” — mostrar o endereço é o erro barato; escondê-lo é o caro",
+                  capa.origemDoEndereco(ENDERECO, "") === capa.ORIGEM_DE_FORA &&
+                    capa.origemDoEndereco(ENDERECO) === capa.ORIGEM_DE_FORA,
+                  capa.origemDoEndereco(ENDERECO, ""),
+                );
+              }
+
+              /* — A TELA OFERECE OS DOIS, COM NOME ACESSÍVEL EM CADA UM — */
+              await act(async () => {
+                valores = { ...valores, imagem_url: ENDERECO, imagem_alt: "Uma sala" };
+                raizReact.render(desenhar());
+              });
+              const grupo = alvo.querySelector('[data-papel="origem-da-capa"]');
+              const opcoes = [...alvo.querySelectorAll("[data-origem-da-capa]")];
+              afirmar(
+                "a gaveta oferece as DUAS origens num grupo nomeado, e cada opção tem nome acessível pelo rótulo que a envolve",
+                grupo !== null &&
+                  grupo.getAttribute("role") === "radiogroup" &&
+                  grupo.getAttribute("aria-label") === capa.ROTULO_DA_ORIGEM_DA_CAPA &&
+                  opcoes.length === 2 &&
+                  opcoes.every((o) => o.type === "radio") &&
+                  capa.ORIGENS_DA_CAPA.every((valor, i) => {
+                    const controle = opcoes[i];
+                    const rotulo = controle.closest("label");
+                    return (
+                      controle.getAttribute("data-origem-da-capa") === valor &&
+                      rotulo !== null &&
+                      (rotulo.textContent ?? "").trim() === capa.rotuloDaOrigem(valor)
+                    );
+                  }),
+                `grupo: ${grupo?.getAttribute("aria-label")} | opções: ${opcoes.map((o) => o.getAttribute("data-origem-da-capa")).join(", ")}`,
+              );
+              afirmar(
+                "e com capa do bucket a origem marcada é a de ENVIO — o modo derivado é o que a tela mostra",
+                grupo?.getAttribute("data-origem") === capa.ORIGEM_ENVIADA &&
+                  opcoes[0].checked === true &&
+                  opcoes[1].checked === false,
+                String(grupo?.getAttribute("data-origem")),
+              );
+
+              /* — ALTERNAR: o campo de endereço aparece e vira O campo — */
+              //
+              // Clique de verdade no rádio: é o evento que o React escuta para
+              // `onChange` em rádio e caixa, e é a activation behavior do jsdom
+              // que marca o controle. E o valor do campo de texto vai pelo
+              // `setter` NATIVO — o React guarda o último valor no próprio nó e
+              // ignoraria um evento cujo valor ele acredita já ter visto.
+              const escolherOrigem = async (valor) => {
+                const controle = alvo.querySelector(`[data-origem-da-capa="${valor}"]`);
+                await act(async () => {
+                  controle.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+                });
+              };
+              const escreverEndereco = async (texto) => {
+                const controle = alvo.querySelector('[data-campo="imagem_url"]');
+                const setter = Object.getOwnPropertyDescriptor(
+                  janela.HTMLInputElement.prototype,
+                  "value",
+                ).set;
+                await act(async () => {
+                  setter.call(controle, texto);
+                  controle.dispatchEvent(new janela.Event("input", { bubbles: true }));
+                });
+              };
+              await escolherOrigem(capa.ORIGEM_DE_FORA);
+              const doEndereco = alvo.querySelector('[data-campo="imagem_url"]');
+              afirmar(
+                "escolher “informar endereço” faz aparecer um campo DIGITÁVEL de endereço — e ele deixa de ser o campo escondido e `readOnly`",
+                doEndereco !== null &&
+                  doEndereco.readOnly === false &&
+                  doEndereco.hasAttribute("hidden") === false &&
+                  doEndereco.disabled === false &&
+                  alvo.querySelector('[data-campo="arquivo-da-capa"]') === null,
+                `campo: ${doEndereco?.tagName} | readOnly: ${doEndereco?.readOnly}`,
+              );
+              {
+                const rotulo = [...alvo.querySelectorAll("label")].find(
+                  (l) => l.getAttribute("for") === doEndereco?.id,
+                );
+                afirmar(
+                  "e o rótulo “Imagem de capa” passa a apontar para ELE — o rótulo nomeia o controle que a pessoa opera, nos dois modos",
+                  rotulo !== undefined &&
+                    (rotulo.textContent ?? "").trim().startsWith("Imagem de capa"),
+                  `rótulo do endereço: ${rotulo?.textContent ?? "NENHUM"}`,
+                );
+              }
+              /* A ORDEM DOS CAMPOS SOBREVIVE À TROCA DE MODO: no modo de fora
+                 quem representa `imagem_url` é o próprio campo de endereço. */
+              {
+                /* A MESMA LEITURA do modo de envio — mapa e adjacência
+                   inclusive. Uma segunda leitura aqui divergiria da de lá na
+                   primeira renomeação de `data-campo`. */
+                const ordem = ordemDosCampos();
+                /* E UM CONTROLE SÓ REPRESENTA A CAPA. Montar os dois ao mesmo
+                   tempo daria à pessoa dois lugares para dizer a mesma coisa —
+                   e a leitura acima não o pegaria, porque o mapa traduz os dois
+                   para o mesmo nome. */
+                const daCapa = alvo.querySelectorAll(
+                  '[data-campo="arquivo-da-capa"], [data-campo="imagem_url"]',
+                );
+                afirmar(
+                  "e a ordem dos campos continua a que `CAMPOS_DA_GAVETA` declara, com a mesma adjacência — o campo de endereço ocupa o lugar do seletor, e não um lugar a mais",
+                  ordemConfere(ordem) && daCapa.length === 1,
+                  `desenhada: ${ordem.join(",")} | controles da capa: ${daCapa.length}`,
+                );
+              }
+
+              /* — ALTERNAR NÃO PERDE O QUE ESTAVA NO OUTRO MODO — */
+              afirmar(
+                "alternar para o endereço não arrasta a capa enviada para dentro do campo — o campo de fora nasce vazio",
+                doEndereco.value === "" && valores.imagem_url === "",
+                `campo: ${JSON.stringify(doEndereco.value)} | valores: ${JSON.stringify(valores.imagem_url)}`,
+              );
+              await escreverEndereco(DE_FORA);
+              afirmar(
+                "o endereço digitado vira o valor do formulário e a PRÉ-VISUALIZAÇÃO aparece — a mesma miniatura, pelo endereço informado",
+                valores.imagem_url === DE_FORA &&
+                  alvo
+                    .querySelector('[data-papel="miniatura-da-capa"]')
+                    ?.getAttribute("src") === DE_FORA,
+                `valor: ${JSON.stringify(valores.imagem_url)} | miniatura: ${alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("src")}`,
+              );
+              await escolherOrigem(capa.ORIGEM_ENVIADA);
+              afirmar(
+                "voltar para “enviar arquivo” DEVOLVE a capa que estava lá — o Autor pode voltar atrás sem reenviar",
+                valores.imagem_url === ENDERECO &&
+                  alvo.querySelector('[data-campo="arquivo-da-capa"]') !== null &&
+                  alvo.querySelector('[data-campo="imagem_url"]') === null,
+                JSON.stringify(valores.imagem_url),
+              );
+              await escolherOrigem(capa.ORIGEM_DE_FORA);
+              afirmar(
+                "e voltar de novo para o endereço devolve o que tinha sido DIGITADO — a preservação vale nos dois sentidos, e não só num",
+                valores.imagem_url === DE_FORA &&
+                  alvo.querySelector('[data-campo="imagem_url"]')?.value === DE_FORA,
+                JSON.stringify(valores.imagem_url),
+              );
+
+              /* ─── E A DESCRIÇÃO VIAJA COM A IMAGEM DELA ─────────────────
+                 O par capa + descrição é UM: `removerCapa` limpa os dois de
+                 propósito, e o motivo está escrito lá — descrição órfã de uma
+                 imagem que não existe mais reaparece como texto alternativo da
+                 próxima capa. Alternar de modo levando só o endereço tinha
+                 exatamente esse efeito: o Autor trocava de origem, colava outro
+                 endereço, e salvava descrevendo a foto anterior.
+
+                 A preservação vale para o par inteiro: cada modo guarda a SUA
+                 descrição, e reencontra a dela ao voltar. */
+              {
+                const ALT_DE_FORA = "Um telhado de vidro";
+                await act(async () => {
+                  valores = { ...valores, imagem_alt: ALT_DE_FORA };
+                  raizReact.render(desenhar());
+                });
+                await escolherOrigem(capa.ORIGEM_ENVIADA);
+                afirmar(
+                  "voltar para o arquivo devolve a descrição DAQUELA imagem — a do endereço não cola na capa enviada",
+                  valores.imagem_url === ENDERECO &&
+                    valores.imagem_alt === "Uma sala",
+                  JSON.stringify({ url: valores.imagem_url, alt: valores.imagem_alt }),
+                );
+                await escolherOrigem(capa.ORIGEM_DE_FORA);
+                afirmar(
+                  "e voltar para o endereço devolve a descrição dele — o par viaja junto, nos dois sentidos",
+                  valores.imagem_url === DE_FORA && valores.imagem_alt === ALT_DE_FORA,
+                  JSON.stringify({ url: valores.imagem_url, alt: valores.imagem_alt }),
+                );
+              }
+
+              /* — A RECUSA DO ENDEREÇO, ANTES DO SALVAMENTO, DIZENDO O QUÊ — */
+              //
+              // QUATRO motivos e quatro frases, e elas moram no DOMÍNIO, ao
+              // lado da regra e de `problemaNoTextoAlternativo` — não num
+              // módulo de tela, que faria o montador puro do corpo do pedido
+              // depender de interface.
+              //
+              // Uma frase só respondendo por todos faria
+              // `https://exemplo.com/café.jpg` ser acusado de esquema errado e
+              // `data:` de endereço torto: mandar a pessoa consertar a coisa
+              // errada é pior que não dizer nada. É a mesma correção que a
+              // Story 3.1 fez na descrição da imagem.
+              {
+                const doDominio = modulo.arquivosDoDominio;
+                const problema = doDominio.problemaNoEnderecoDaImagem;
+                const LONGO =
+                  "https://cdn.exemplo.com/" +
+                  "a".repeat(doDominio.TAMANHO_MAXIMO_DO_ENDERECO);
+                const CASOS = [
+                  ["esquema", "data:image/png;base64,iVBORw0KGgo="],
+                  ["esquema", "javascript:alert(1)"],
+                  ["esquema", "blob:https://x.co/9a1f"],
+                  ["esquema", "/capas/relativa.png"],
+                  ["esquema", "http://cdn.exemplo.com/foto.jpg"],
+                  ["teto", LONGO],
+                  /* OS QUE A TERCEIRA FRASE ACUSAVA DE "endereço torto": eles
+                     morrem na cláusula de CARACTERE, e a fala tem de dizer
+                     isso — a pessoa que colou um endereço com acento não tem o
+                     que conferir em "o caminho do arquivo, sem espaços". */
+                  ["caractere", "https://exemplo.com/café.jpg"],
+                  ["caractere", "https://cdn exemplo.com/foto.jpg"],
+                  ['caractere', 'https://cdn.exemplo.com/foto.jpg?t=<script>'],
+                  ["caractere", "https://cdn.exemplo.com/fo to.jpg"],
+                  /* E os que sobram de verdade: esquema certo, site errado. */
+                  ["site", "https://usuario:senha@cdn.exemplo.com/foto.jpg"],
+                  ["site", "https://"],
+                  ["site", "https://cdn.exemplo.com:99999999/foto.jpg"],
+                ];
+                const semRecusa = CASOS.filter(([, e]) => problema(e) === null);
+                afirmar(
+                  "todo endereço que o vocabulário recusa é recusado ANTES do salvamento, com frase — nenhum deles chega ao banco como violação crua",
+                  semRecusa.length === 0,
+                  semRecusa.map(([, e]) => e.slice(0, 50)).join(" | "),
+                );
+
+                /* CADA MOTIVO TEM A SUA FRASE, e é a frase certa para o caso —
+                   não quatro frases distribuídas de qualquer jeito. A tabela
+                   acima diz qual é qual, e a comparação é com a constante
+                   exportada, e não com um texto repetido aqui. */
+                const FALA_DO_MOTIVO = {
+                  teto: doDominio.RECUSA_DE_ENDERECO_LONGO,
+                  caractere: doDominio.RECUSA_DE_ENDERECO_COM_CARACTERE,
+                  esquema: doDominio.RECUSA_DE_ENDERECO_SEM_ESQUEMA,
+                  site: doDominio.RECUSA_DE_ENDERECO_SEM_SITE,
+                };
+                const trocados = CASOS.filter(
+                  ([motivo, e]) => problema(e) !== FALA_DO_MOTIVO[motivo],
+                );
+                afirmar(
+                  `cada um dos ${Object.keys(FALA_DO_MOTIVO).length} motivos recebe a SUA frase — acento não é acusado de esquema, e teto não é acusado de endereço torto`,
+                  trocados.length === 0 &&
+                    new Set(Object.values(FALA_DO_MOTIVO)).size === 4,
+                  trocados
+                    .map(([m, e]) => `${JSON.stringify(e.slice(0, 40))}: esperava ${m}`)
+                    .join(" | "),
+                );
+                afirmar(
+                  "e a do TETO diz o teto, a do ESQUEMA diz o que se aceita, e a de CARACTERE nomeia o que não vale",
+                  /* As frases são lidas com um padrão para nulo: uma
+                     implementação que devolvesse `null` para tudo derrubaria a
+                     ferramenta com `TypeError` em vez de acusar, e sabotagem
+                     que quebra o executor não é asserção que acusa. */
+                  String(problema(LONGO) ?? "").includes(
+                    String(doDominio.TAMANHO_MAXIMO_DO_ENDERECO),
+                  ) &&
+                    /https:\/\//.test(
+                      String(problema("data:image/png;base64,iVBORw0KGgo=") ?? ""),
+                    ) &&
+                    /acento/i.test(String(problema("https://exemplo.com/café.jpg") ?? "")),
+                  `${problema(LONGO)} || ${problema("https://exemplo.com/café.jpg")}`,
+                );
+
+                /* O VEREDITO É DE `enderecoDeImagemPermitido`, E NÃO UMA
+                   SEGUNDA REGRA. Para todo endereço, "tem recusa" tem de ser
+                   exatamente o contrário de "o domínio permite" — senão a
+                   escolha de frase virou regra própria, e a tela passaria a
+                   aceitar o que o banco recusa (ou o contrário). */
+                afirmar(
+                  "endereço vazio não é recusa nenhuma — capa é opcional, e a coluna aceita nulo",
+                  problema("") === null &&
+                    problema("   ") === null &&
+                    problema(null) === null &&
+                    doDominio.enderecoDeImagemPermitido(null) === true,
+                  JSON.stringify(problema("")),
+                );
+                const CORPUS = [
+                  ENDERECO,
+                  DE_FORA,
+                  "https://cdn.exemplo.com:8443/foto.jpg?v=2#topo",
+                  "HttPs://cdn.exemplo.com/capa.png",
+                  "http://localhost:3000/capa.png",
+                  "http://127.0.0.1:54321/x.png",
+                  "http://cdn.exemplo.com/capa.png",
+                  "http://127.0.0.1.exemplo.com/capa.png",
+                  "https://usuario:senha@cdn.exemplo.com/foto.jpg",
+                  "https://",
+                  "//cdn.exemplo.com/capa.png",
+                  "data:image/png;base64,iVBORw0KGgo=",
+                  "blob:https://x.co/9a1f",
+                  "javascript:alert(1)",
+                  "/capas/relativa.png",
+                  "https://cdn.exemplo.com/fo to.jpg",
+                  /* NÃO-ASCII e sinais de marcação: sem eles, a cláusula de
+                     caractere nunca é exercida pelo corpus, e a frase que ela
+                     escolhe nunca é comparada com o veredito. */
+                  "https://exemplo.com/café.jpg",
+                  "https://cdn.exemplo.com/fo to.jpg",
+                  "https://cdn.exemplo.com/f oto.jpg",
+                  'https://cdn.exemplo.com/foto.jpg?t=<script>',
+                  'https://cdn.exemplo.com/"aspas".jpg',
+                  "https://cdn.exemplo.com/'apostrofo'.jpg",
+                  "https://cdn.exemplo.com/chave{}.jpg",
+                  LONGO,
+                ];
+                const divergentes = CORPUS.filter(
+                  (e) =>
+                    (problema(e) === null) !== doDominio.enderecoDeImagemPermitido(e),
+                );
+                afirmar(
+                  `a recusa é o VEREDITO de \`enderecoDeImagemPermitido\` nos ${CORPUS.length} endereços do corpus — a fala escolhe a explicação, nunca a regra`,
+                  divergentes.length === 0,
+                  divergentes
+                    .map(
+                      (e) =>
+                        `${JSON.stringify(e.slice(0, 50))}: fala=${problema(e) === null} veredito=${doDominio.enderecoDeImagemPermitido(e)}`,
+                    )
+                    .join(" | "),
+                );
+
+                /* ─── A RECUSA ESPERA A PESSOA TERMINAR DE ESCREVER ──────
+                   `https://` digitado letra a letra passa por `h`, `ht`,
+                   `htt`… e nenhum deles é endereço válido. Pintar o campo de
+                   vermelho desde o primeiro caractere de TODA digitação
+                   bem-sucedida é a falha que não é falha — a que treina a
+                   pessoa a ignorar a recusa que importa. */
+                await escreverEndereco("h");
+                const emDigitacao = alvo.querySelector('[data-campo="imagem_url"]');
+                afirmar(
+                  "endereço pela metade NÃO é acusado enquanto se digita — a recusa que aparece a cada tecla é a que se aprende a ignorar",
+                  emDigitacao.getAttribute("aria-invalid") === null &&
+                    problema("h") !== null &&
+                    alvo.querySelector('[data-papel="capa-degradada"]') === null,
+                  `invalid: ${emDigitacao.getAttribute("aria-invalid")} | problema puro: ${problema("h") !== null}`,
+                );
+                afirmar(
+                  "e a caixa da capa continua desenhando o monograma, e não o vermelho: o layout não pisca a cada tecla",
+                  alvo.querySelector('[data-papel="capa-ausente"]') !== null ||
+                    alvo.querySelector('[data-papel="capa-degradada"]') !== null,
+                  "nenhuma caixa de capa desenhada",
+                );
+
+                /* E A RECUSA APARECE QUANDO A PESSOA SAI DO CAMPO, ligada por
+                   `aria-describedby`. */
+                await escreverEndereco("data:image/png;base64,iVBORw0KGgo=");
+                await act(async () => {
+                  alvo
+                    .querySelector('[data-campo="imagem_url"]')
+                    /* `focusout`, e não `blur`: é o evento que borbulha, e é
+                       nele que o React ancora `onBlur`. */
+                    .dispatchEvent(new janela.FocusEvent("focusout", { bubbles: true }));
+                });
+                const recusado = alvo.querySelector('[data-campo="imagem_url"]');
+                const descrito = (recusado.getAttribute("aria-describedby") ?? "")
+                  .split(/\s+/)
+                  .filter((id) => id !== "")
+                  .map((id) => janela.document.getElementById(id))
+                  .filter((e) => e !== null);
+                const ditoTudo = descrito.map((e) => e.textContent ?? "").join(" ");
+                afirmar(
+                  "sair do campo com endereço recusado marca o campo e mostra o motivo — quem usa leitor de tela ouve o porquê",
+                  recusado.getAttribute("aria-invalid") === "true" &&
+                    ditoTudo.includes(problema("data:image/png;base64,iVBORw0KGgo=")),
+                  `invalid: ${recusado.getAttribute("aria-invalid")} | dito: ${ditoTudo.slice(0, 120)}`,
+                );
+                /* O ERRO **E** A AJUDA, e não um ou outro: a ajuda é o que
+                   explica que se cola o LINK e não o conteúdo, e colar o
+                   conteúdo é a causa comum da recusa — some exatamente quando
+                   é mais útil. */
+                afirmar(
+                  "e a explicação de que se cola o LINK continua junto do campo — ela não é substituída pela recusa que ela explica",
+                  descrito.length === 2 && /link/i.test(ditoTudo),
+                  `alvos de descrição: ${descrito.length} | ${ditoTudo.slice(0, 160)}`,
+                );
+
+                /* E ELE NUNCA VIRA `src`. O valor CONTINUA no campo — é o que a
+                   pessoa digitou, e apagá-lo por baixo dela seria pior —, mas
+                   nenhum elemento da gaveta o carrega como endereço a buscar.
+                   A conferência é sobre `src`, e não sobre o HTML inteiro: o
+                   `value` do campo é legítimo e faria a asserção acusar a si
+                   mesma. */
+                {
+                  const comFonte = [...alvo.querySelectorAll("[src]")].filter((e) =>
+                    (e.getAttribute("src") ?? "").includes("base64,iVBORw0KGgo="),
+                  );
+                  afirmar(
+                    "e um endereço que o vocabulário recusa NUNCA vira `src` de imagem — degrada para o monograma, sem o navegador ir buscá-lo",
+                    alvo.querySelector('[data-papel="miniatura-da-capa"]') === null &&
+                      alvo.querySelector('[data-papel="capa-degradada"]') !== null &&
+                      comFonte.length === 0 &&
+                      recusado.value === "data:image/png;base64,iVBORw0KGgo=",
+                    `com src: ${comFonte.length} | degradada: ${alvo.querySelector('[data-papel="capa-degradada"]') !== null} | valor do campo: ${JSON.stringify(recusado.value)}`,
+                  );
+                }
+
+                /* E O PEDIDO NÃO SAI. `corpoDoPedido` recusa NOMEANDO o campo,
+                   que é o que faz a gaveta poder apontá-lo. */
+                const pedido = regrasDosMetadados.corpoDoPedido({
+                  valores: {
+                    ...regrasDosMetadados.valoresVazios(),
+                    titulo: "Um post",
+                    resumo: "Resumo",
+                    imagem_url: "data:image/png;base64,iVBORw0KGgo=",
+                    imagem_alt: "Uma descrição",
+                  },
+                  documento: { type: "doc", content: [] },
+                });
+                afirmar(
+                  "e o corpo do pedido nem chega a ser montado: a recusa nomeia `imagem_url`, com a MESMA frase que o campo mostra",
+                  pedido.ok === false &&
+                    pedido.campo === "imagem_url" &&
+                    pedido.motivo === problema("data:image/png;base64,iVBORw0KGgo="),
+                  JSON.stringify(pedido),
+                );
+                /* E O CAMINHO POSITIVO: endereço de fora VÁLIDO monta o corpo,
+                   e o que vai é o endereço. Sem isto, uma recusa que reprovasse
+                   TODO endereço passaria as asserções acima. */
+                const aceito = regrasDosMetadados.corpoDoPedido({
+                  valores: {
+                    ...regrasDosMetadados.valoresVazios(),
+                    titulo: "Um post",
+                    resumo: "Resumo",
+                    imagem_url: DE_FORA,
+                    imagem_alt: "Uma descrição",
+                  },
+                  documento: { type: "doc", content: [] },
+                });
+                afirmar(
+                  "e endereço de fora VÁLIDO monta o corpo com o endereço — a recusa não reprova a story inteira",
+                  aceito.ok === true && aceito.corpo.imagem_url === DE_FORA,
+                  JSON.stringify(aceito.ok ? aceito.corpo.imagem_url : aceito),
+                );
+                /* E O MONTADOR DO CORPO NÃO DEPENDE DE INTERFACE. A regra do
+                   endereço é do domínio, ao lado da do texto alternativo: o
+                   corpo do pedido é código puro, e importar de um módulo de
+                   tela para saber o que é endereço aceitável inverteria a seta
+                   da arquitetura. */
+                {
+                  const doMontador = mascararComentariosJs(ler(CAMINHO_METADADOS));
+                  afirmar(
+                    "e a regra vem do DOMÍNIO: o montador do corpo não importa nada de `admin/blog/capa.js` para saber o que é endereço aceitável",
+                    /problemaNoEnderecoDaImagem/.test(doMontador) &&
+                      /from\s+["']@\/domain\/blog\/arquivos["']/.test(doMontador) &&
+                      !/from\s+["']@\/admin\/blog\/capa["']/.test(doMontador),
+                    (doMontador.match(/from\s+["'][^"']+["']/g) ?? []).join(" | "),
+                  );
+                }
+              }
+
+              /* — E O TEXTO ALTERNATIVO CONTINUA OBRIGATÓRIO COM CAPA DE FORA — */
+              {
+                const semDescricao = regrasDosMetadados.corpoDoPedido({
+                  valores: {
+                    ...regrasDosMetadados.valoresVazios(),
+                    titulo: "Um post",
+                    resumo: "Resumo",
+                    imagem_url: DE_FORA,
+                    imagem_alt: "   ",
+                  },
+                  documento: { type: "doc", content: [] },
+                });
+                afirmar(
+                  "capa de FORA sem descrição é recusada igual à capa enviada — a obrigação é da capa, não da origem",
+                  semDescricao.ok === false &&
+                    semDescricao.campo === "imagem_alt" &&
+                    semDescricao.motivo ===
+                      regrasDosMetadados.FRASES_DE_FALTA.imagem_alt,
+                  JSON.stringify(semDescricao),
+                );
+                await escreverEndereco(DE_FORA);
+                await act(async () => {
+                  valores = { ...valores, imagem_alt: "" };
+                  raizReact.render(desenhar());
+                });
+                const rotulo = [...alvo.querySelectorAll("label")].find(
+                  (l) => l.getAttribute("for") === alvo.querySelector('[data-campo="imagem_alt"]')?.id,
+                );
+                afirmar(
+                  "e a tela o anuncia como OBRIGATÓRIO também no modo de fora",
+                  (rotulo?.textContent ?? "").includes("obrigatório"),
+                  rotulo?.textContent ?? "sem rótulo",
+                );
+              }
+
+              /* — E A CAPA DE FORA QUE NÃO CARREGA DEGRADA IGUAL — */
+              await act(async () => {
+                valores = { ...valores, categoria_id: CATEGORIAS_DA_CAPA[0].id };
+                raizReact.render(desenhar());
+              });
+              await act(async () => {
+                alvo
+                  .querySelector('[data-papel="miniatura-da-capa"]')
+                  .dispatchEvent(new janela.Event("error", { bubbles: false }));
+              });
+              afirmar(
+                "capa de FORA que não carrega degrada para o mesmo monograma — o apodrecimento do endereço de fora não tem tratamento próprio",
+                alvo
+                  .querySelector('[data-papel="capa-degradada"]')
+                  ?.getAttribute("data-monograma") ===
+                  modulo.regrasDaListagem.monogramaDoNome(CATEGORIAS_DA_CAPA[0].nome) &&
+                  alvo.querySelector('[data-papel="capa-quebrada"]') !== null,
+                String(alvo.querySelector('[data-papel="capa-degradada"]')?.getAttribute("data-monograma")),
+              );
+
+              /* ─── QUEBRADA **E** RECUSADA AO MESMO TEMPO ────────────────
+                 A combinação que nenhuma das duas asserções acima alcança: a
+                 imagem falhou ao carregar E depois o endereço foi trocado por
+                 um que o vocabulário recusa. Os dois ramos escrevem na mesma
+                 caixa, e a pergunta é qual fala sai — a resposta certa é a do
+                 ENDEREÇO, porque é o problema que a pessoa acabou de causar e
+                 o único que ela pode consertar. Dizer "não carregou" sobre um
+                 `data:` que ninguém tentou carregar seria inventar um fato. */
+              await escreverEndereco("data:image/png;base64,iVBORw0KGgo=");
+              await act(async () => {
+                alvo
+                  .querySelector('[data-campo="imagem_url"]')
+                  .dispatchEvent(new janela.FocusEvent("focusout", { bubbles: true }));
+              });
+              {
+                const caixa = alvo.querySelector('[data-papel="capa-degradada"]');
+                afirmar(
+                  "capa que já tinha quebrado e passa a ter endereço RECUSADO anuncia o endereço, e não o carregamento — o fato inventado seria o outro",
+                  caixa !== null &&
+                    caixa.getAttribute("aria-label") ===
+                      capa.rotuloDaCapaDegradada({
+                        categoria: CATEGORIAS_DA_CAPA[0].nome,
+                        situacao: capa.CAPA_COM_ENDERECO_RECUSADO,
+                      }) &&
+                    alvo.querySelector('[data-papel="capa-quebrada"]') === null &&
+                    alvo.querySelector('[data-papel="miniatura-da-capa"]') === null,
+                  `nome: ${caixa?.getAttribute("aria-label")} | frase de carregamento: ${alvo.querySelector('[data-papel="capa-quebrada"]') !== null}`,
+                );
+              }
             }
 
             await act(async () => raizReact.unmount());
@@ -10057,7 +10944,19 @@ if (janela && schema && configuracao && compilado) {
             await tela.digitar(tela.campo("titulo"), "Com capa");
             await tela.digitar(tela.campo("resumo"), "Resumo");
             await tela.digitar(tela.campo("imagem_alt"), "Descrição");
+            modulo.controle.pedidos_de_remocao.length = 0;
             await tela.clicar(tela.acaoPorChave("salvar"));
+            /* ─── E A CAPA QUE FOI SALVA NÃO SAI ─────────────────────────
+               A faxina do salvamento descarta as capas desta sessão que o Post
+               NÃO ficou usando. Descartar todas — inclusive a que acabou de ser
+               gravada — apagaria do bucket exatamente a imagem que o Post
+               passou a apontar, e o Autor veria a capa sumir na primeira
+               recarga. É o lado oposto do órfão, e o mais destrutivo dos dois. */
+            afirmar(
+              "salvar NÃO remove a capa que o Post ficou usando — apagá-la aqui deixaria o Post apontando para um arquivo que acabou de sair",
+              !modulo.controle.pedidos_de_remocao.includes(SEGUNDA),
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
             modulo.controle.pedidos_de_remocao.length = 0;
             await tela.clicar(
               tela.alvo.querySelector('[data-acao-da-capa="remover"]'),
@@ -10069,6 +10968,92 @@ if (janela && schema && configuracao && compilado) {
             );
 
             await tela.desmontar();
+          }
+
+          /* — TROCAR DE ORIGEM E SALVAR NÃO DEIXA O ARQUIVO SEM DONO — */
+          //
+          // O caminho que a Story 3.2 abriu e quase deixou vazando: enviar um
+          // arquivo (ele entra em `capasNaoSalvas`), marcar "Informar endereço",
+          // colar uma URL de fora e salvar. O servidor compara o endereço
+          // GRAVADO com o novo e nunca fica sabendo de um arquivo que ele
+          // jamais viu; a limpeza pós-salvamento apagava o último registro
+          // dele. Órfão PERMANENTE, que nenhum salvamento futuro alcança e que
+          // não vira nem resíduo, porque não há quem o nomeie — exatamente o
+          // defeito que `capasNaoSalvas` existe para impedir.
+          //
+          // E ele NÃO sai na troca de modo: alternar precisa poder ser desfeito
+          // sem reenviar o arquivo. Ele sai quando o salvamento decide qual
+          // endereço o Post tem de verdade.
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.pedidos.length = 0;
+            const ENVIADA =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcd1234-5678-4abc-8def-000011112222.png";
+            const DE_FORA = "https://cdn.exemplo.com/ja-hospedada.jpg";
+            modulo.controle.envio = {
+              ok: true,
+              dados: { url: ENVIADA, caminho: "capas/abcd1234-5678-4abc-8def-000011112222.png" },
+            };
+            modulo.controle.resposta = {
+              ok: true,
+              dados: { criado: false, post: null },
+            };
+
+            const tela = await montarTela({ postId: null });
+            const seletor = tela.campo("arquivo-da-capa");
+            const arquivoFalso = { name: "capa.png", size: 10, type: "image/png" };
+            Object.defineProperty(seletor, "files", {
+              configurable: true,
+              get: () => [arquivoFalso],
+            });
+            await act(async () => {
+              seletor.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+
+            /* A TROCA DE MODO, pelo controle de verdade. */
+            await tela.clicar(
+              tela.alvo.querySelector('[data-origem-da-capa="capa-de-endereco"]'),
+            );
+            afirmar(
+              "trocar de origem NÃO remove o arquivo enviado — alternar precisa poder ser desfeito sem reenviar",
+              modulo.controle.pedidos_de_remocao.length === 0 &&
+                tela.alvo.querySelector('[data-campo="imagem_url"]') !== null,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            await tela.digitar(tela.campo("imagem_url"), DE_FORA);
+            await tela.digitar(tela.campo("titulo"), "Um post com capa de fora");
+            await tela.digitar(tela.campo("resumo"), "O resumo");
+            await tela.digitar(tela.campo("imagem_alt"), "Uma sala de reunião");
+            await tela.clicar(tela.acaoPorChave("salvar"));
+
+            const enviado = modulo.controle.pedidos.at(-1);
+            afirmar(
+              "salvar depois da troca manda o endereço DE FORA — o que a pessoa escolheu por último é o que o Post guarda",
+              enviado?.imagem_url === DE_FORA,
+              JSON.stringify(enviado?.imagem_url),
+            );
+            afirmar(
+              "e o arquivo enviado e ABANDONADO pela troca sai do bucket — sem isto ele fica órfão para sempre, e sem nem virar resíduo",
+              modulo.controle.pedidos_de_remocao.includes(ENVIADA),
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+            afirmar(
+              "e só ele: o endereço de fora NUNCA vira pedido de remoção — ele não é do nosso bucket",
+              !modulo.controle.pedidos_de_remocao.includes(DE_FORA) &&
+                modulo.controle.pedidos_de_remocao.length === 1,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            await tela.desmontar();
+            modulo.controle.envio = {
+              ok: true,
+              dados: {
+                url: "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+                caminho: "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+              },
+            };
           }
 
           /* — O RESÍDUO CHEGA AO AUTOR — */

@@ -132,6 +132,7 @@ import { formatarDataEHoraPorExtenso } from "../../src/domain/blog/formato.js";
 import {
   TAMANHO_MAXIMO_DO_ALTERNATIVO,
   TAMANHO_MAXIMO_DO_ENDERECO,
+  baseDoEnderecoPublico,
   caminhoDaCapaNoEndereco,
   enderecoDeImagemPermitido,
 } from "../../src/domain/blog/arquivos.js";
@@ -1026,39 +1027,47 @@ async function gravar({ token, corpo, acesso }) {
     });
   }
 
-  /* ── 2b. A CAPA PRECISA SER DO NOSSO BUCKET (Story 3.1) ─────────────────
-     `lerCorpo` já garantiu a FORMA — endereço `https://` absoluto, a mesma
-     regra que a restrição do banco espelha. O que só pode ser decidido aqui é
-     a ORIGEM, porque quem conhece a URL do projeto é o transporte, não a
-     lógica.
+  /* ── 2b. A CAPA PODE VIR DE FORA (Story 3.2) ────────────────────────────
+     Aqui vivia uma segunda conferência, sobre a ORIGEM: a capa tinha de ser um
+     endereço do NOSSO bucket, e qualquer outro domínio era recusado com "imagem
+     por endereço de fora ainda não é aceita". Essa recusa SAIU, e é a story
+     inteira: o banco já aceita endereço absoluto seguro de qualquer host desde
+     a restrição da Story 3.1 — há caso de corpus exigindo que
+     `https://cdn.exemplo.com/foto.jpg` passe —, e quem recusava era só a
+     aplicação.
 
-     Endereço de outro domínio é RECUSADO, e a frase diz por quê: imagem por
-     endereço externo é a Story 3.2, e até lá aceitá-la produziria capas que
-     dependem de um servidor que ninguém controla — e nenhuma delas seria
-     removível quando o Post saísse. A recusa é do servidor e não da tela: o
-     campo de endereço externo nem existe hoje, então quem chega aqui com um é
-     quem chamou a API direto. */
-  if (typeof lido.campos.imagem_url === "string") {
-    /* SEM A COSTURA, O DEFEITO É NOSSO — E A FRASE PRECISA DIZER ISSO.
-       A versão anterior caía na recusa de baixo com base vazia e respondia "A
-       capa precisa ser uma imagem enviada pelo Painel" a quem tinha acabado de
-       enviar exatamente isso: culpa do Autor por um acesso montado pela
-       metade. Um acesso sem `baseDoProjeto` não sabe responder à pergunta, e
-       "não sei" é `inesperado`, não "você errou". */
-    if (typeof acesso.baseDoProjeto !== "function") {
-      return falha(ERRO_INESPERADO, {
-        detalhe:
-          "o acesso não sabe dizer a URL do projeto, então não há como julgar a origem da capa",
-      });
-    }
-    const base = acesso.baseDoProjeto();
-    if (caminhoDaCapaNoEndereco(base, lido.campos.imagem_url) === null) {
-      return falha(ERRO_DADOS_INVALIDOS, {
-        mensagem:
-          "A capa precisa ser uma imagem enviada pelo Painel. Endereço de imagem de fora ainda não é aceito.",
-        detalhe: `imagem_url fora do bucket do projeto: ${JSON.stringify(lido.campos.imagem_url.slice(0, 120))}`,
-      });
-    }
+     O que fica é a conferência de VOCABULÁRIO, e ela já aconteceu: `lerCorpo`
+     roda `enderecoDeImagemPermitido`, o espelho em JavaScript da restrição do
+     banco. `data:`, `blob:`, `javascript:`, endereço relativo e endereço longo
+     demais continuam morrendo lá — e morrendo de novo no banco. Abrir a
+     permissão da origem não afrouxa nada da lista de esquemas, e há asserção
+     nas duas implementações cobrando exatamente isso.
+
+     **E não existe lista de hosts permitidos.** A story serve para usar imagem
+     já hospedada em outro lugar; uma lista transformaria isso em "nos lugares
+     que eu previ". A defesa continua sendo o esquema, que é onde mora o risco
+     executável.
+
+     A pergunta "este endereço é do nosso bucket?" continua sendo feita — só que
+     onde ela decide alguma coisa: em `removerCapaAnterior`, que é quem apaga
+     arquivo com a chave de serviço e não pode tentar apagar o que não é nosso.
+
+     ─── O QUE FICA AQUI É A CONFERÊNCIA DE MONTAGEM, E ELA FICA ANTES ──────
+     `removerCapaAnterior` roda DEPOIS da escrita. Se a única guarda estivesse
+     lá, um acesso montado pela metade só seria descoberto com a linha já
+     gravada — e o defeito voltaria como resíduo em cima de um Post que mudou,
+     em vez de recusa antes de mexer em nada. Falhar cedo custa uma conferência
+     e devolve o banco intacto; falhar tarde custa uma gravação que ninguém
+     pediu. As duas existem, e é de propósito: esta pega o caso comum antes da
+     escrita, e a de lá pega o resto, inclusive a capa anterior de um pedido que
+     não fala de capa nenhuma.
+
+     E ela NÃO julga origem: a única pergunta é se este acesso sabe responder. */
+  if (typeof lido.campos.imagem_url === "string" && typeof acesso.baseDoProjeto !== "function") {
+    return falha(ERRO_INESPERADO, {
+      detalhe:
+        "o acesso não sabe dizer a URL do projeto, então não há como cuidar do arquivo da capa",
+    });
   }
 
   /* ── 3. O conteúdo, validado e derivado no mesmo passo ─────────────────── */
@@ -1277,8 +1286,11 @@ async function gravar({ token, corpo, acesso }) {
  * `catch` vazio aqui seria exatamente o silêncio que a story proíbe.
  *
  * Endereço que não é do NOSSO bucket devolve `null` sem tentar nada — um Post
- * cuja capa aponta para outro domínio (o que a Story 3.2 vai permitir) não tem
- * arquivo nosso a remover, e tentar removê-lo seria apagar às cegas.
+ * cuja capa aponta para outro domínio (o que a Story 3.2 passou a permitir) não
+ * tem arquivo nosso a remover, e tentar removê-lo seria apagar às cegas. É esta
+ * lista de PERMISSÃO — `ehCaminhoDeCapa`, do domínio — que faz "endereço de fora
+ * nunca vira tentativa de remoção" ser garantia e não boa vontade, nos dois
+ * sentidos da troca: de fora → enviada e de fora → de fora não tentam nada.
  *
  * ─── E UM ACESSO SEM O TRANSPORTE NÃO É "NADA A FAZER" ──────────────────────
  *
@@ -1293,7 +1305,48 @@ export async function removerCapaAnterior({ acesso, anterior, atual }) {
   if (typeof anterior !== "string" || anterior === "") return null;
   if (anterior === atual) return null;
 
-  const base = typeof acesso.baseDoProjeto === "function" ? acesso.baseDoProjeto() : "";
+  /* ─── UM ACESSO QUE NÃO SABE A URL DO PROJETO NÃO SABE RESPONDER ─────────
+     "Não sei se era nossa" não pode virar "não era nossa": sem a raiz,
+     `caminhoDaCapaNoEndereco` devolve `null` para TODO endereço, e um acesso
+     montado pela metade (um dublê incompleto, um caminho novo) passaria a
+     vazar arquivo em silêncio — indistinguível de "a capa era de fora, não
+     havia o que remover".
+
+     ─── MAS SÓ PARA ENDEREÇO QUE PODERIA SER NOSSO ─────────────────────────
+     Resíduo é uma acusação: ele diz ao Autor que um arquivo ficou para trás e
+     pede que alguém o apague. Emiti-lo para `https://cdn.exemplo.com/foto.jpg`
+     — que nunca esteve em bucket nenhum — seria mandar procurar um arquivo que
+     não existe, na primeira vez que alguém trocasse uma capa de fora por
+     outra. A pergunta que dá para responder sem a raiz é a de FORMA: um
+     endereço que não tem sequer o formato de capa pública não é nosso em
+     projeto nenhum, e para ele a resposta é `null` sem dúvida nenhuma.
+
+     ─── E `baseDoProjeto` PODE MENTIR DE TRÊS JEITOS ───────────────────────
+     Não existir, lançar, ou devolver algo que não é uma raiz. Os três davam o
+     mesmo resultado prático — base inútil — e só o primeiro era tratado; os
+     outros dois derrubavam a gravação inteira pelo `catch` do topo, DEPOIS de
+     a linha já ter mudado, ou caíam no silêncio de novo. Os três viram o mesmo
+     resíduo nomeado. */
+  const formaDeCapa = caminhoDaCapaNoEndereco(baseDoEnderecoPublico(anterior), anterior);
+
+  let base = null;
+  if (typeof acesso.baseDoProjeto === "function") {
+    try {
+      const bruta = acesso.baseDoProjeto();
+      if (typeof bruta === "string" && bruta.trim() !== "") base = bruta;
+    } catch {
+      /* montagem quebrada: cai no resíduo abaixo, como as outras duas */
+    }
+  }
+  if (base === null) {
+    if (formaDeCapa === null) return null;
+    return {
+      arquivo: formaDeCapa,
+      motivo:
+        "o acesso não sabe dizer a URL do projeto, então não há como saber se a capa anterior era nossa",
+    };
+  }
+
   const caminho = caminhoDaCapaNoEndereco(base, anterior);
   if (caminho === null) return null;
 

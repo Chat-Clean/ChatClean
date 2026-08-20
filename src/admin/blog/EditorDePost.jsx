@@ -140,7 +140,11 @@ import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
 /* O ENVIO DA CAPA (Story 3.1). Ele mora aqui, e não na gaveta, porque a gaveta
    é um componente controlado que não conhece rede — e porque é esta tela que
    já sabe distinguir nascimento de edição e coordenar o que está em curso. */
-import { enviarImagemDeCapa, removerImagemDeCapa } from "@/data/blog/arquivos";
+import {
+  baseDoProjeto,
+  enviarImagemDeCapa,
+  removerImagemDeCapa,
+} from "@/data/blog/arquivos";
 import {
   ENVIO_EM_CURSO,
   ENVIO_PARADO,
@@ -237,6 +241,12 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      spinner em quatro botões ao mesmo tempo não diz o que está acontecendo. */
   const [acaoEmCurso, setAcaoEmCurso] = useState(null);
   const salvando = acaoEmCurso !== null;
+
+  /* A RAIZ DO PROJETO, lida uma vez. Ela é constante durante a vida da tela — o
+     ambiente não muda no meio da edição — e a gaveta a usa só para decidir em
+     que modo o campo de capa abre. `""` quando o ambiente não a declara, e a
+     gaveta trata isso como "não sei", que abre o campo de endereço. */
+  const baseDaCapaDoProjeto = useMemo(() => baseDoProjeto(), []);
 
   /* O ESTADO DO POST vive aqui, e é dele que as ações são derivadas.
      Post que está nascendo começa em `rascunho` — o mesmo padrão da coluna, e
@@ -701,10 +711,30 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         ? { imagem_alt: gravado.imagem_alt ?? "" }
         : {}),
     };
-    /* O QUE FOI SALVO PASSA A SER DO SERVIDOR. A partir daqui quem remove
-       esse arquivo é ele, na próxima troca ou na exclusão — e a tela não pode
-       mais descartá-lo por conta própria. */
+    /* ── AS CAPAS DESTA SESSÃO QUE O SALVAMENTO DEIXOU PARA TRÁS ──────────
+       O QUE FOI SALVO PASSA A SER DO SERVIDOR: a partir daqui quem remove esse
+       arquivo é ele, na próxima troca ou na exclusão, e a tela não pode mais
+       descartá-lo por conta própria.
+
+       O RESTO É NOSSO, E SAI AGORA. Trocar de origem — enviar um arquivo e
+       depois marcar "Informar endereço" — deixava o arquivo enviado sem dono:
+       o servidor compara o endereço GRAVADO com o novo e nunca fica sabendo de
+       um arquivo que ele jamais viu, e este `clear()` apagava o último
+       registro dele. Órfão permanente, que nenhum salvamento futuro alcança e
+       que não vira nem resíduo, porque não há quem o nomeie.
+
+       Ele NÃO sai na troca de modo, e isso é a outra metade da regra: alternar
+       precisa poder ser desfeito sem reenviar o arquivo. Ele sai quando o
+       salvamento decide qual endereço o Post tem de verdade — que é aqui. */
+    const capaSalva = String(valoresGravados.imagem_url ?? "").trim();
+    const abandonadas = [...capasNaoSalvas.current].filter((url) => url !== capaSalva);
     capasNaoSalvas.current.clear();
+    for (const url of abandonadas) {
+      /* Falha aqui NÃO vira aviso, pela mesma razão de `descartarSeNaoSalva`:
+         o Autor não pediu esta remoção, e um erro sobre um arquivo que ele nem
+         sabe que existe é ruído. O que sobra é um arquivo inerte. */
+      await removerImagemDeCapa(url);
+    }
     setValores(valoresGravados);
     /* O endereço gravado acompanha a resposta do servidor: ele pode ter sido
        aposentado e trocado lá, e é o novo que passa a estar no ar. */
@@ -975,6 +1005,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
             problemaNoEndereco={problemaNoEndereco}
             situacaoDoEnvio={situacaoDoEnvio}
             recusaDoEnvio={recusaDoEnvio}
+            /* A RAIZ DO PROJETO, para a gaveta saber se a capa gravada é NOSSA
+               e abrir no modo certo. Ela vem da camada de dados, e não de uma
+               leitura do próprio endereço: a capa de outro projeto Supabase tem
+               a forma exata da nossa, e classificá-la como enviada esconderia
+               num campo `readOnly` justamente o endereço que a pessoa foi
+               editar. */
+            baseDaCapaDoProjeto={baseDaCapaDoProjeto}
             aoEscolherArquivo={enviarCapa}
             aoRemoverCapa={removerCapa}
             desabilitado={salvando}

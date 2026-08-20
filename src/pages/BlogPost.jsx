@@ -26,6 +26,14 @@
  * Carregando, pronto, ausente e as duas falhas. As regras e as frases moram em
  * `blogPublico.js`, puras, para a verificação executá-las em vez de ler JSX.
  *
+ * ─── A CAPA QUE NÃO CARREGA É CAPA AUSENTE (Story 3.2) ──────────────────────
+ *
+ * Desde que a capa pode apontar para outro domínio, ela apodrece: o host sai do
+ * ar, o arquivo é removido lá, o endereço muda. "Não carregou" é tratado como
+ * "não tem" — o ramo que esta página já sabia desenhar —, no artigo e em cada
+ * cartão de relacionado, porque um ícone de imagem quebrada emoldurado com
+ * sombra é o defeito entregue junto com a funcionalidade.
+ *
  * ─── TAG E RELACIONADO SÃO ACESSÓRIOS ───────────────────────────────────────
  *
  * As duas leituras são separadas da do Post, e a falha de qualquer uma delas
@@ -190,6 +198,44 @@ export default function BlogPost() {
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
 
+  /* ── A CAPA QUE NÃO CARREGA É CAPA AUSENTE (Story 3.2) ──────────────────
+     Antes da 3.2 toda capa vinha do nosso bucket, e um endereço gravado
+     resolvia. Agora ela pode apontar para outro domínio — e endereço de fora
+     APODRECE: o host sai do ar, o arquivo é removido lá, o endereço muda. Um
+     `<img>` com endereço morto desenha o ícone de imagem quebrada do
+     navegador, dentro de uma moldura com sombra, e o leitor vê o defeito.
+
+     "Não carregou" é tratado como "não tem", que é o ramo que a página já sabe
+     desenhar: o artigo simplesmente não mostra capa. `onError` é o único sinal
+     que o navegador dá, e ele é por ENDEREÇO — o benefício da dúvida volta a
+     cada Post, senão uma falha condenaria o artigo seguinte.
+
+     Os RELACIONADOS têm o mesmo problema e uma resposta por cartão, e não uma
+     só: um relacionado com a imagem podre não pode esconder a dos outros. */
+  const [capaQuebrada, setCapaQuebrada] = useState(false);
+  const enderecoDaCapa =
+    typeof post?.imagem_url === "string" ? post.imagem_url.trim() : "";
+  useEffect(() => {
+    setCapaQuebrada(false);
+  }, [enderecoDaCapa]);
+  const mostrarCapa = enderecoDaCapa !== "" && !capaQuebrada;
+
+  const [capasPodres, setCapasPodres] = useState(() => new Set());
+  useEffect(() => {
+    /* A MESMA GUARDA DA IRMÃ ABAIXO: um conjunto novo a cada mudança de
+       relacionados forçaria renderização quando não havia nada a limpar, e a
+       lista de relacionados é relida sempre que o Post muda. */
+    setCapasPodres((atuais) => (atuais.size === 0 ? atuais : new Set()));
+  }, [relacionados]);
+  const marcarRelacionadoPodre = useCallback((id) => {
+    setCapasPodres((atuais) => {
+      if (atuais.has(id)) return atuais;
+      const proximo = new Set(atuais);
+      proximo.add(id);
+      return proximo;
+    });
+  }, []);
+
   const situacao = situacaoDoArtigo({ slugValido: valido, carregando, erro, post });
   const html = htmlGravado(post);
 
@@ -351,8 +397,11 @@ export default function BlogPost() {
         </div>
       </section>
 
-      {/* Imagem de capa */}
-      {typeof post.imagem_url === "string" && post.imagem_url !== "" && (
+      {/* Imagem de capa — e a que NÃO CARREGA é tratada como capa ausente.
+          Ver o comentário de `capaQuebrada`: endereço de fora apodrece, e a
+          moldura com sombra em volta do ícone de imagem quebrada seria o
+          defeito emoldurado. */}
+      {mostrarCapa && (
         <div className="max-w-3xl mx-auto px-4 -mt-8 relative z-10">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -361,8 +410,24 @@ export default function BlogPost() {
             className="rounded-2xl overflow-hidden shadow-2xl border border-zinc-100"
           >
             <img
-              src={post.imagem_url}
+              src={enderecoDaCapa}
               alt={post.imagem_alt ?? post.titulo}
+              data-papel="capa-do-artigo"
+              /* ─── O HOST DE FORA NÃO RECEBE O LEITOR (Story 3.2) ──────
+                 Desde que a capa pode apontar para outro domínio, cada
+                 visitante faz um pedido a um servidor que não é nosso. Sem
+                 `referrerPolicy`, esse pedido leva junto o endereço do artigo
+                 que a pessoa está lendo — o host de fora passa a saber IP e o
+                 que se lê aqui, e a Política de Privacidade do site não fala
+                 disso. `no-referrer` entrega só o que é inevitável.
+
+                 E as dimensões são DECLARADAS: a proporção reserva o espaço
+                 antes de a imagem chegar, e a caixa não pula quando ela chega —
+                 nem fica alta e vazia quando ela nunca chega. */
+              referrerPolicy="no-referrer"
+              width={1200}
+              height={630}
+              onError={() => setCapaQuebrada(true)}
               className="w-full h-72 md:h-96 object-cover"
             />
           </motion.div>
@@ -453,13 +518,30 @@ export default function BlogPost() {
                     className="group block h-full"
                   >
                     <div className="h-full rounded-2xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden green-glow card-3d transition-all duration-400">
-                      {typeof rel.imagem_url === "string" && rel.imagem_url !== "" && (
-                        <img
-                          src={rel.imagem_url}
-                          alt={rel.imagem_alt ?? rel.titulo}
-                          className="w-full h-32 object-cover"
-                        />
-                      )}
+                      {/* A capa do relacionado, com a mesma regra do artigo e
+                          uma resposta POR CARTÃO: um relacionado com a imagem
+                          podre não pode esconder a dos outros. */}
+                      {typeof rel.imagem_url === "string" &&
+                        rel.imagem_url.trim() !== "" &&
+                        !capasPodres.has(rel.id) && (
+                          <img
+                            src={rel.imagem_url.trim()}
+                            alt={rel.imagem_alt ?? rel.titulo}
+                            data-papel="capa-relacionada"
+                            /* O mesmo cuidado da capa do artigo, e um a mais:
+                               o cartão de relacionado está abaixo da dobra, e
+                               carregar três imagens de hosts de terceiro antes
+                               de alguém rolar até elas é gastar a rede da
+                               pessoa — e entregá-la a três servidores — por uma
+                               imagem que talvez ninguém veja. */
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            width={1200}
+                            height={630}
+                            onError={() => marcarRelacionadoPodre(rel.id)}
+                            className="w-full h-32 object-cover"
+                          />
+                        )}
                       <div className="p-5">
                         {nomeDaCategoria(rel) !== "" && (
                           <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold mb-3">

@@ -20,7 +20,15 @@ import {
 import { separarTags, textoDasTags } from "@/domain/blog/tags";
 /* A regra do par capa + descrição vem do DOMÍNIO, e é a MESMA que o servidor
    cobra e que `posts_imagem_exige_alt` impõe no banco desde a Story 2.1. */
-import { problemaNoTextoAlternativo } from "@/domain/blog/arquivos";
+/* As duas regras do par da capa vêm do DOMÍNIO — a do texto alternativo e a do
+   ENDEREÇO (Story 3.2). Este módulo monta o corpo do pedido e é código puro:
+   importar de um módulo de interface para saber o que é endereço aceitável
+   inverteria a seta da arquitetura, e a regra é a MESMA que o servidor cobra e
+   que a restrição do banco espelha em SQL. */
+import {
+  problemaNoEnderecoDaImagem,
+  problemaNoTextoAlternativo,
+} from "@/domain/blog/arquivos";
 
 /**
  * Os NOVE campos da gaveta, na ordem em que ela os oferece.
@@ -207,6 +215,22 @@ export function corpoDoPedido({
      restrição do banco precisam concordar sobre o que é "capa sem descrição". */
   const imagem_url = String(v.imagem_url ?? "").trim();
   const imagem_alt = String(v.imagem_alt ?? "").trim();
+
+  /* ── O ENDEREÇO DA CAPA, RECUSADO ANTES DO SALVAMENTO (Story 3.2) ──────
+     Com o campo de endereço aberto à digitação, o que chega aqui pode ser
+     qualquer coisa — `data:`, `javascript:`, um caminho relativo, um endereço
+     de 4 mil caracteres. A recusa acontece AQUI, nomeando o campo, e nunca
+     como violação crua vinda do banco: `violates check constraint
+     posts_imagem_url_e_endereco` não é uma frase que alguém entenda.
+
+     A regra é a do DOMÍNIO — a mesma que o servidor cobra e que a restrição do
+     banco espelha. Não há segunda regra aqui, e a frase é a mesma que a gaveta
+     mostra embaixo do campo. */
+  const problemaNoEndereco = problemaNoEnderecoDaImagem(imagem_url);
+  if (problemaNoEndereco !== null) {
+    return { ok: false, campo: "imagem_url", motivo: problemaNoEndereco };
+  }
+
   const problemaNaCapa = problemaNoTextoAlternativo(imagem_alt, {
     temCapa: imagem_url !== "",
   });

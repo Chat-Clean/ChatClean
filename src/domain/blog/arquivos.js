@@ -344,7 +344,53 @@ export function ehEnderecoDoBucket(base, endereco) {
   return caminhoDaCapaNoEndereco(base, endereco) !== null;
 }
 
+/**
+ * A raiz do projeto DENTRO de um endereço público do Storage — `""` quando o
+ * endereço não tem essa forma.
+ *
+ * Existe para quem precisa perguntar "este endereço é uma capa nossa?" **sem
+ * conhecer a URL do projeto**: a camada de dados (que a lê do cliente, não do
+ * ambiente) e a gaveta (que não conhece nem uma coisa nem outra). Quem passa a
+ * raiz assim está perguntando pela FORMA, e a resposta vale para decidir modo
+ * de tela — nunca para decidir remoção com chave de serviço, que continua
+ * exigindo a raiz de verdade em `caminhoDaCapaNoEndereco`.
+ *
+ * Nasceu como uma função privada de `data/blog/arquivos.js` e subiu para cá na
+ * Story 3.2, quando o segundo consumidor apareceu: duas implementações do mesmo
+ * recorte divergiriam no dia em que o Storage mudasse o prefixo.
+ */
+export function baseDoEnderecoPublico(endereco) {
+  const corte = String(endereco ?? "").indexOf(PREFIXO_PUBLICO_DO_STORAGE);
+  return corte <= 0 ? "" : String(endereco).slice(0, corte);
+}
+
 /* ─── O que a COLUNA aceita ──────────────────────────────────────────────── */
+
+/**
+ * O endereço tem caractere que o vocabulário não aceita?
+ *
+ * SÓ ASCII IMPRIMÍVEL, de `!` a `~`. É lista de permissão, e é mais dura que
+ * "sem espaço e sem controle" de propósito: `[[:space:]]` do Postgres depende
+ * do locale e `\s` do JavaScript inclui U+00A0, U+2028 e mais uma dúzia — as
+ * duas implementações divergiriam exatamente nos caracteres que ninguém pensa
+ * em testar. Endereço de arquivo público é ASCII por construção; o que não for
+ * cabe percent-codificado. A conferência é por PONTO DE CÓDIGO porque um
+ * literal de expressão regular com caractere de controle dentro não sobrevive
+ * a uma cópia.
+ *
+ * Vive numa função própria, e não embutida em `enderecoDeImagemPermitido`,
+ * porque `problemaNoEnderecoDaImagem` precisa da MESMA cláusula para escolher
+ * a frase certa. Duplicá-la faria a tela acusar "espaço" num endereço que o
+ * veredito recusou por outro motivo — que é exatamente o defeito que a escolha
+ * de frase existe para não ter.
+ */
+function temCaractereForaDoEndereco(endereco) {
+  for (const caractere of endereco) {
+    const ponto = caractere.codePointAt(0);
+    if (ponto < 0x21 || ponto > 0x7e) return true;
+  }
+  return /[\\<>"'`{}|^]/.test(endereco);
+}
 
 /**
  * O endereço serve para a coluna da capa?
@@ -369,19 +415,7 @@ export function enderecoDeImagemPermitido(endereco) {
   if (typeof endereco !== "string") return false;
   if (endereco === "") return false;
   if (endereco.length > TAMANHO_MAXIMO_DO_ENDERECO) return false;
-  /* SÓ ASCII IMPRIMÍVEL, de `!` a `~`. É lista de permissão, e é mais dura que
-     "sem espaço e sem controle" de propósito: `[[:space:]]` do Postgres
-     depende do locale e `\s` do JavaScript inclui U+00A0, U+2028 e mais uma
-     dúzia — as duas implementações divergiriam exatamente nos caracteres que
-     ninguém pensa em testar. Endereço de arquivo público é ASCII por
-     construção; o que não for cabe percent-codificado. A conferência é por
-     PONTO DE CÓDIGO porque um literal de expressão regular com caractere de
-     controle dentro não sobrevive a uma cópia. */
-  for (const caractere of endereco) {
-    const ponto = caractere.codePointAt(0);
-    if (ponto < 0x21 || ponto > 0x7e) return false;
-  }
-  if (/[\\<>"'`{}|^]/.test(endereco)) return false;
+  if (temCaractereForaDoEndereco(endereco)) return false;
 
   /* ── O ESQUEMA: a cláusula que faz o trabalho ──────────────────────────
      `https://` para qualquer host, e `http://` **só para host local**. É a
@@ -407,6 +441,72 @@ export function enderecoDeImagemPermitido(endereco) {
   if (comTls) return true;
   const host = autoridade.replace(/:[0-9]{1,5}$/, "").toLowerCase();
   return host === "localhost" || host === "127.0.0.1";
+}
+
+/* ─── A RECUSA DO ENDEREÇO, EM PALAVRAS (Story 3.2) ──────────────────────────
+ *
+ * `enderecoDeImagemPermitido` responde sim ou não; estas quatro frases dizem
+ * POR QUÊ. Elas moram aqui, ao lado da regra e ao lado de
+ * `problemaNoTextoAlternativo`, e não num módulo de tela: quem monta o corpo do
+ * pedido (`admin/blog/metadados.js`) é código puro, e fazê-lo importar de um
+ * módulo de interface para saber o que é endereço aceitável inverteria a seta
+ * da arquitetura.
+ *
+ * **Quatro motivos, quatro frases.** Uma frase só respondendo por todos faria
+ * `https://exemplo.com/café.jpg` ser acusado de "esquema errado" e
+ * `data:image/png;base64,…` de "endereço torto" — e mandar a pessoa consertar a
+ * coisa errada é pior que não dizer nada. É a mesma correção que a Story 3.1
+ * fez na descrição da imagem, que também tinha dois motivos e uma frase.
+ */
+
+/** Passou do teto. A frase DIZ o teto. */
+export const RECUSA_DE_ENDERECO_LONGO =
+  `O endereço da imagem passa de ${TAMANHO_MAXIMO_DO_ENDERECO} caracteres. Use um endereço mais curto.`;
+
+/** Tem caractere fora do vocabulário: acento, espaço, aspas, sinal de marcação. */
+export const RECUSA_DE_ENDERECO_COM_CARACTERE =
+  "O endereço da imagem tem caracteres que não valem num endereço — acento, espaço ou aspas. " +
+  "Copie o endereço direto da barra do navegador, que já vem codificado.";
+
+/** Não começa com `https://` — é onde mora o risco executável. */
+export const RECUSA_DE_ENDERECO_SEM_ESQUEMA =
+  "O endereço da imagem precisa ser um endereço completo começando com https:// — " +
+  "cole o link da imagem, e não o conteúdo dela.";
+
+/** Começa certo, mas o que vem depois não é um site alcançável. */
+export const RECUSA_DE_ENDERECO_SEM_SITE =
+  "Depois do https:// falta um site válido. Confira o endereço — ele não pode ter " +
+  "usuário e senha nem porta fora de faixa.";
+
+/**
+ * O que há de errado com o endereço da imagem, ou `null` quando não há nada.
+ *
+ * ─── O VEREDITO É DE `enderecoDeImagemPermitido`; SÓ O MOTIVO É ESCOLHIDO ───
+ *
+ * A função **não reimplementa cláusula nenhuma**: ela pergunta, e só depois de
+ * a resposta ser "não" é que olha o endereço de novo para escolher qual das
+ * quatro frases explica melhor. A cláusula de caractere é a MESMA função que o
+ * veredito usa (`temCaractereForaDoEndereco`), e não uma cópia. A verificação
+ * prende as duas pontas: para todo endereço do corpus,
+ * `problemaNoEnderecoDaImagem(e) === null` se e somente se
+ * `enderecoDeImagemPermitido(e)`.
+ *
+ * Endereço vazio devolve `null`: "sem capa" é estado legítimo, e não recusa.
+ * Quem cobra o par capa + descrição é `problemaNoTextoAlternativo`.
+ */
+export function problemaNoEnderecoDaImagem(endereco) {
+  const texto = typeof endereco === "string" ? endereco.trim() : "";
+  if (texto === "") return null;
+  if (enderecoDeImagemPermitido(texto)) return null;
+
+  /* A ORDEM É A DA CAUSA MAIS PRÓXIMA DE QUEM LÊ. O teto primeiro porque é o
+     único motivo que não se vê olhando para o começo do endereço; o caractere
+     antes do esquema porque `https://exemplo.com/café.jpg` tem esquema certo e
+     seria acusado de esquema errado se a ordem fosse a inversa. */
+  if (texto.length > TAMANHO_MAXIMO_DO_ENDERECO) return RECUSA_DE_ENDERECO_LONGO;
+  if (temCaractereForaDoEndereco(texto)) return RECUSA_DE_ENDERECO_COM_CARACTERE;
+  if (!/^https:\/\//i.test(texto)) return RECUSA_DE_ENDERECO_SEM_ESQUEMA;
+  return RECUSA_DE_ENDERECO_SEM_SITE;
 }
 
 /**

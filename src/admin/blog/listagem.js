@@ -156,7 +156,13 @@ export function nomeDaCategoria(post) {
  * O monograma que substitui a capa: a primeira letra da Categoria, em caixa
  * alta, sobre o fundo tênue da marca.
  *
- * Devolve `""` para Post sem Categoria — e isso não é caso de borda esquecido:
+ * Recebe o NOME da Categoria, e não o Post. A distinção nasceu na Story 3.2: a
+ * gaveta precisa do mesmo monograma para degradar uma capa que não carrega, e
+ * ela tem valores de FORMULÁRIO — a Categoria escolhida é um item da lista,
+ * não uma linha embutida num Post. Montar a letra por conta própria lá seria a
+ * segunda implementação, e duas divergiriam na primeira acentuação.
+ *
+ * Devolve `""` quando não há nome — e isso não é caso de borda esquecido:
  * Categoria é opcional na gaveta, então a linha precisa renderizar sem ela. Quem
  * chama põe um símbolo neutro no lugar.
  *
@@ -164,13 +170,24 @@ export function nomeDaCategoria(post) {
  * erra em turco — custo zero, e a alternativa é um defeito que só aparece com o
  * navegador de outra pessoa.
  */
-export function monogramaDaCategoria(post) {
-  const nome = nomeDaCategoria(post);
-  if (nome === "") return "";
+export function monogramaDoNome(nome) {
+  const texto = typeof nome === "string" ? nome.trim() : "";
+  if (texto === "") return "";
   // Por ponto de código, e não por índice: "Ão" quebrado ao meio por um par
   // substituto viraria um caractere de reposição na tela.
-  const primeira = [...nome][0] ?? "";
+  const primeira = [...texto][0] ?? "";
   return primeira.toLocaleUpperCase("pt-BR");
+}
+
+/**
+ * O mesmo monograma, para quem tem um Post na mão — a listagem.
+ *
+ * O invólucro continua existindo porque a listagem tem Post e não nome, e
+ * porque fazer cada chamador extrair a Categoria do Post seria espalhar a
+ * pergunta "onde mora o nome da Categoria numa linha" por várias telas.
+ */
+export function monogramaDaCategoria(post) {
+  return monogramaDoNome(nomeDaCategoria(post));
 }
 
 /* ─── Data ───────────────────────────────────────────────────────────────── */

@@ -3902,8 +3902,21 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
           `HTTP ${comBase64.status} | comandos: ${naTabela().map((r) => r.metodo).join(", ") || "nenhum"}`,
         );
 
-        /* — E CAPA DE OUTRO DOMÍNIO TAMBÉM: é a Story 3.2 — */
+        /* — E CAPA DE OUTRO DOMÍNIO É ACEITA (Story 3.2) — */
+        //
+        // Esta asserção era o oposto até a Story 3.2, e a virada é a story
+        // inteira: o banco já aceitava endereço absoluto seguro de qualquer
+        // host desde a restrição da 3.1 — o corpus exige que
+        // `https://cdn.exemplo.com/foto.jpg` passe —, e quem recusava era só a
+        // aplicação, com a frase "endereço de imagem de fora ainda não é
+        // aceita". A permissão abriu sem tocar no banco.
+        //
+        // O que se prova aqui é o caminho inteiro: a função aceita, o comando
+        // vai ao banco, e o que ele leva é o ENDEREÇO DE FORA — não um endereço
+        // do bucket, não uma cópia, não conteúdo. O endereço é referência.
+        const ENDERECO_DE_FORA = "https://cdn.exemplo.com/foto.png";
         recebidos.length = 0;
+        linhaDoPost.imagem_url = null;
         const deFora = await dirigir({
           corpo: {
             operacao: OPERACAO_SALVAR,
@@ -3911,19 +3924,88 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
             titulo: "Um post com capa de fora",
             resumo: "Resumo",
             conteudo: DOCUMENTO_COMPLETO,
-            imagem_url: "https://cdn.exemplo.com/foto.png",
+            imagem_url: ENDERECO_DE_FORA,
             imagem_alt: "Uma descrição",
           },
           cabecalhos: COMO_SESSAO,
           ambiente: AMBIENTE_LOCAL,
         });
+        const insercaoDeFora = naTabela().find((r) => r.metodo === "POST");
         afirmar(
-          "capa de outro domínio é recusada — o endereço tem forma válida, e a ORIGEM é que não é aceita ainda",
-          deFora.status === CODIGO_HTTP[ERRO_DADOS_INVALIDOS] &&
-            !naTabela().some((r) => r.metodo === "POST") &&
-            enderecoDeImagemPermitido("https://cdn.exemplo.com/foto.png") === true,
-          `HTTP ${deFora.status} | comandos: ${naTabela().map((r) => r.metodo).join(", ") || "nenhum"}`,
+          "capa de OUTRO DOMÍNIO é aceita — a permissão que esta story abre, e o que chega ao banco é o endereço de fora",
+          /* 201: o Post NASCE aqui — é criação, e não atualização. */
+          deFora.status === 201 &&
+            deFora.corpo?.ok === true &&
+            insercaoDeFora !== undefined &&
+            insercaoDeFora.corpo?.imagem_url === ENDERECO_DE_FORA &&
+            enderecoDeImagemPermitido(ENDERECO_DE_FORA) === true,
+          `HTTP ${deFora.status} | imagem_url no comando: ${JSON.stringify(insercaoDeFora?.corpo?.imagem_url)} | ${JSON.stringify(deFora.corpo?.erro ?? "")}`,
         );
+        afirmar(
+          "e a imagem de fora NÃO é baixada, copiada nem reservada — nenhuma ida ao Storage acontece por causa dela",
+          !recebidos.some((r) => r.url.startsWith("/storage/v1/object/")),
+          recebidos
+            .filter((r) => r.url.startsWith("/storage/v1/object/"))
+            .map((r) => `${r.metodo} ${r.url}`)
+            .join(", "),
+        );
+
+        /* — E ABRIR A ORIGEM NÃO AFROUXOU O ESQUEMA — */
+        //
+        // Abrir uma permissão é o momento em que a lista vizinha costuma
+        // afrouxar junto: a conferência que recusava a origem e a que recusa o
+        // esquema ficavam a três linhas uma da outra. O que se prova é que os
+        // esquemas fora do vocabulário continuam recusados PELAS DUAS
+        // implementações — a função de servidor, aqui, e o espelho em JS, que a
+        // seção do corpus compara com o SQL do banco.
+        {
+          const FORA_DO_VOCABULARIO = [
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ",
+            "blob:https://cdn.exemplo.com/9a1f-4b2c",
+            "javascript:alert(1)",
+            "/capas/relativa.png",
+            "//cdn.exemplo.com/foto.png",
+            "http://cdn.exemplo.com/foto.png",
+            "https://usuario:senha@cdn.exemplo.com/foto.png",
+            "https://x.supabase.co/" + "a".repeat(TAMANHO_MAXIMO_DO_ENDERECO),
+          ];
+          const passaramNoDominio = FORA_DO_VOCABULARIO.filter((e) =>
+            enderecoDeImagemPermitido(e),
+          );
+          const atravessaram = [];
+          for (const endereco of FORA_DO_VOCABULARIO) {
+            recebidos.length = 0;
+            const tentativa = await dirigir({
+              corpo: {
+                operacao: OPERACAO_SALVAR,
+                slug: "um-post-com-esquema-torto",
+                titulo: "Um post com esquema torto",
+                resumo: "Resumo",
+                conteudo: DOCUMENTO_COMPLETO,
+                imagem_url: endereco,
+                imagem_alt: "Uma descrição",
+              },
+              cabecalhos: COMO_SESSAO,
+              ambiente: AMBIENTE_LOCAL,
+            });
+            if (
+              tentativa.status !== CODIGO_HTTP[ERRO_DADOS_INVALIDOS] ||
+              naTabela().some((r) => r.metodo === "POST")
+            ) {
+              atravessaram.push(`${endereco.slice(0, 40)} → HTTP ${tentativa.status}`);
+            }
+          }
+          afirmar(
+            `abrir a origem NÃO afrouxou o esquema: os ${FORA_DO_VOCABULARIO.length} endereços fora do vocabulário continuam recusados pela função, sem nenhuma ida ao banco`,
+            atravessaram.length === 0,
+            atravessaram.join(" | "),
+          );
+          afirmar(
+            "e o espelho em JavaScript recusa os MESMOS — as duas implementações não se afastaram na abertura",
+            passaramNoDominio.length === 0,
+            passaramNoDominio.map((e) => e.slice(0, 40)).join(" | "),
+          );
+        }
 
         /* — TROCAR A CAPA REMOVE A ANTERIOR, DEPOIS DE GRAVAR — */
         const CAMINHO_ANTIGO = caminhoDaCapa(
@@ -3994,6 +4076,120 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
             .map((r) => r.url)
             .join(", "),
         );
+
+        /* ═══ AS TRÊS COMBINAÇÕES DE TROCA DE CAPA (Story 3.2) ═════════════
+           Com endereço de fora permitido, a troca deixou de ter uma forma só.
+           São três, e é a interação mais fácil de errar NOS DOIS SENTIDOS:
+           deixar de remover o arquivo que ninguém mais referencia, ou tentar
+           remover um caminho derivado de um endereço que não é nosso — que,
+           com a chave de serviço, é apagar às cegas.
+
+           A guarda é `ehCaminhoDeCapa`, lista de PERMISSÃO do domínio, e o que
+           estas três asserções fazem é exercitá-la pelos dois lados da troca em
+           vez de acreditar no comentário que a descreve. */
+        {
+          const cabecalhoDaTroca = (imagem_url) => ({
+            corpo: {
+              operacao: OPERACAO_SALVAR,
+              id: ID,
+              slug: "um-post-de-teste",
+              titulo: "Um post de teste",
+              resumo: "Resumo",
+              conteudo: DOCUMENTO_COMPLETO,
+              imagem_url,
+              imagem_alt: "A capa nova",
+            },
+            cabecalhos: COMO_SESSAO,
+            ambiente: AMBIENTE_LOCAL,
+          });
+          const OUTRO_DE_FORA = "https://outro.exemplo.com/capa.jpg";
+          const noStorageDe = () =>
+            recebidos.filter((r) => r.url.startsWith("/storage/v1/object/"));
+
+          /* (1) ENVIADA → DE FORA: o arquivo do bucket SAI. Ele deixou de ser
+                 referenciado no mesmo instante em que a linha mudou, e não há
+                 salvamento futuro que saiba o nome dele. */
+          recebidos.length = 0;
+          respostaDoStorage = [200, { message: "removido" }];
+          linhaDoPost.imagem_url = ENDERECO_ANTIGO;
+          const paraFora = await dirigir(cabecalhoDaTroca(ENDERECO_DE_FORA));
+          afirmar(
+            "trocar capa ENVIADA por endereço DE FORA remove o arquivo do bucket — ele deixou de ser referenciado no mesmo instante",
+            paraFora.corpo?.ok === true &&
+              noStorageDe().length === 1 &&
+              noStorageDe()[0].metodo === "DELETE" &&
+              noStorageDe()[0].url.includes(CAMINHO_ANTIGO) &&
+              paraFora.corpo?.dados?.residuo === undefined,
+            `HTTP ${paraFora.status} | Storage: ${noStorageDe().map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+          );
+
+          /* (2) DE FORA → ENVIADA: NENHUMA remoção é tentada. O endereço
+                 anterior não é nosso, e derivar um caminho dele para apagar com
+                 a chave de serviço seria apagar às cegas. E a ausência de
+                 remoção não é resíduo: não havia o que remover. */
+          recebidos.length = 0;
+          linhaDoPost.imagem_url = ENDERECO_DE_FORA;
+          const paraDentro = await dirigir(cabecalhoDaTroca(ENDERECO_DA_CAPA));
+          afirmar(
+            "trocar capa DE FORA por uma ENVIADA não tenta remoção NENHUMA no bucket — e não vira resíduo, porque não havia o que remover",
+            paraDentro.corpo?.ok === true &&
+              noStorageDe().length === 0 &&
+              paraDentro.corpo?.dados?.residuo === undefined,
+            `Storage: ${noStorageDe().map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+          );
+
+          /* (3) DE FORA → DE FORA: idem, e é o caso que uma guarda escrita
+                 como "só não remove quando a capa nova é de fora" deixaria
+                 passar — ela olharia o lado errado da troca. */
+          recebidos.length = 0;
+          linhaDoPost.imagem_url = ENDERECO_DE_FORA;
+          const entreForas = await dirigir(cabecalhoDaTroca(OUTRO_DE_FORA));
+          afirmar(
+            "trocar um endereço DE FORA por outro também não tenta remoção nenhuma — quem decide é a capa ANTERIOR, não a nova",
+            entreForas.corpo?.ok === true &&
+              noStorageDe().length === 0 &&
+              entreForas.corpo?.dados?.residuo === undefined,
+            `Storage: ${noStorageDe().map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+          );
+
+          /* E O CONTROLE POSITIVO NA MESMA VARREDURA: com a capa anterior do
+             bucket, a remoção ACONTECE. Sem esta linha, um `removerCapaAnterior`
+             que devolvesse `null` de saída passaria as três de cima. */
+          recebidos.length = 0;
+          linhaDoPost.imagem_url = ENDERECO_ANTIGO;
+          await dirigir(cabecalhoDaTroca(ENDERECO_DA_CAPA));
+          afirmar(
+            "e a remoção continua acontecendo quando a anterior ERA nossa — o controle positivo das três acima",
+            noStorageDe().length === 1 &&
+              noStorageDe()[0].url.includes(CAMINHO_ANTIGO),
+            `Storage: ${noStorageDe().map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+          );
+
+          /* E TIRAR A CAPA DE FORA — não trocar, TIRAR — também não tenta
+             nada: `atual` vira nulo, e `anterior` continua não sendo nosso. */
+          recebidos.length = 0;
+          linhaDoPost.imagem_url = ENDERECO_DE_FORA;
+          const tirouDeFora = await dirigir({
+            corpo: {
+              operacao: OPERACAO_SALVAR,
+              id: ID,
+              slug: "um-post-de-teste",
+              titulo: "Um post de teste",
+              resumo: "Resumo",
+              conteudo: DOCUMENTO_COMPLETO,
+              imagem_url: null,
+              imagem_alt: null,
+            },
+            cabecalhos: COMO_SESSAO,
+            ambiente: AMBIENTE_LOCAL,
+          });
+          afirmar(
+            "e TIRAR uma capa de fora não tenta remoção nenhuma — o Post deixa de apontar para lá, e lá não é nosso",
+            tirouDeFora.corpo?.ok === true && noStorageDe().length === 0,
+            `Storage: ${noStorageDe().map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+          );
+          linhaDoPost.imagem_url = null;
+        }
 
         /* — EXCLUIR O POST REMOVE O ARQUIVO, DEPOIS DE A LINHA SAIR — */
         recebidos.length = 0;
@@ -4823,22 +5019,36 @@ secao("(c8) o envio da capa: recusa antes da rede, e endereço na volta");
     }
   }
   /* ── AS DUAS COSTURAS DEFENSIVAS, EXERCITADAS ───────────────────────────
-     Elas falhavam em direções OPOSTAS e nenhuma era asserida.
+     Elas falham em direções OPOSTAS, e as duas produzem SILÊNCIO se ninguém
+     as escrever.
 
-     Sem `baseDoProjeto`, `gravar` caía na recusa de origem com base vazia e
-     respondia "A capa precisa ser uma imagem enviada pelo Painel" a quem tinha
-     acabado de enviar exatamente isso: culpa do Autor por um acesso montado
-     pela metade. Sem `removerArquivoDaCapa`, `removerCapaAnterior` devolvia
-     `null` — indistinguível de "removeu" e de "não era nosso" — e o arquivo
-     vazava em SILÊNCIO, que é o modo de falha que a função existe para não
-     ter. */
+     Sem `removerArquivoDaCapa`, `removerCapaAnterior` devolvia `null` —
+     indistinguível de "removeu" e de "não era nosso" — e o arquivo vazava sem
+     que ninguém o nomeasse.
+
+     Sem `baseDoProjeto` o buraco é o mesmo por outro caminho: sem a raiz,
+     `caminhoDaCapaNoEndereco` devolve `null` para TODO endereço, e "não sei se
+     era nosso" viraria "não era nosso" — o arquivo do bucket some do alcance de
+     qualquer remoção futura sem nada acusar.
+
+     ─── E POR QUE A PRIMEIRA ASSERÇÃO MUDOU DE SENTIDO NA STORY 3.2 ───────
+     Ela dizia "acesso sem `baseDoProjeto` responde defeito nomeado, e não «a
+     capa precisa ser enviada pelo Painel»". A segunda metade descreve uma
+     recusa de ORIGEM que deixou de existir: endereço de fora passou a ser
+     aceito, e a frase que ela proibia não está mais em lugar nenhum. A primeira
+     metade — defeito de montagem é `inesperado` NOMEADO, e nunca culpa do
+     Autor — continua inteira, e é o que se afirma abaixo. **A guarda não
+     afrouxou: ela dobrou.** Existe antes da escrita, para o banco não ser
+     tocado por um acesso que não sabe cuidar do arquivo, e existe dentro de
+     `removerCapaAnterior`, que roda depois e alcança o caso que o pedido não
+     menciona — a capa anterior de um salvamento que não fala de capa nenhuma. */
   {
     const CAPA =
       "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png";
     const ANTIGA =
       "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/hgfedcba.png";
 
-    /* SEM `baseDoProjeto`: defeito de montagem, e a frase não culpa o Autor. */
+    /* SEM `baseDoProjeto`: defeito de montagem, NOMEADO, e antes da escrita. */
     {
       const acessoTorto = {
         ...acessoDeTeste(),
@@ -4855,13 +5065,104 @@ secao("(c8) o envio da capa: recusa antes da rede, e endereço na volta");
          reportado" e "exceção que ninguém previu" serem a mesma coisa, e a
          sabotagem que remove a guarda passava verde. */
       afirmar(
-        "acesso sem `baseDoProjeto` responde DEFEITO NOMEADO, e não “a capa precisa ser enviada pelo Painel” — não se culpa o Autor por montagem quebrada",
+        "acesso sem `baseDoProjeto` responde DEFEITO NOMEADO, e nunca culpa do Autor — a recusa de ORIGEM saiu na Story 3.2, esta guarda não",
         r.ok === false &&
           r.erro.tipo === ERRO_INESPERADO &&
-          !/enviada pelo painel/i.test(r.erro.mensagem) &&
           /url do projeto/i.test(r.erro.detalhe ?? "") &&
           !/exceção não prevista/i.test(r.erro.detalhe ?? ""),
         `${r.erro?.tipo}: ${r.erro?.detalhe}`,
+      );
+      /* E ELA ACONTECE ANTES DE O BANCO SER TOCADO. Só dentro de
+         `removerCapaAnterior` — que roda DEPOIS da escrita — o defeito seria
+         descoberto com a linha já gravada, e viraria resíduo sobre um Post que
+         mudou em vez de recusa antes de mexer em nada. */
+      afirmar(
+        "e ela acontece ANTES da escrita — falhar tarde custaria uma gravação que ninguém pediu",
+        /* O acesso de teste registra toda chamada por nome, e é por aí que
+           "nada foi gravado" se mede em vez de se supor. Sem esta cláusula, a
+           guarda dentro de `removerCapaAnterior` sozinha passaria a asserção
+           acima — e ela roda DEPOIS do `UPDATE`. */
+        acessoTorto.chamadas.every(
+          (c) => !/^(inserirPost|atualizarPost|excluirPost|definirTags|inserirTags)$/.test(c.nome),
+        ),
+        acessoTorto.chamadas.map((c) => c.nome).join(", ") || "nenhuma chamada",
+      );
+
+      /* E A SEGUNDA GUARDA, dentro de `removerCapaAnterior`: ela alcança o que
+         a primeira não vê — a capa ANTERIOR de um pedido que não fala de capa. */
+      const semRaiz = await removerCapaAnterior({
+        acesso: { removerArquivoDaCapa: async () => ({ ok: true }) },
+        anterior: ANTIGA,
+        atual: CAPA,
+      });
+      afirmar(
+        "e sem `baseDoProjeto` a remoção vira RESÍDUO nomeado: “não sei se era nosso” não pode virar “não era nosso”, que tiraria o arquivo do alcance de todo mundo",
+        semRaiz !== null &&
+          semRaiz.arquivo === "capas/hgfedcba.png" &&
+          /montagem|url do projeto/i.test(semRaiz.motivo),
+        JSON.stringify(semRaiz),
+      );
+      /* ─── OS OUTROS TRÊS JEITOS DE `baseDoProjeto` NÃO RESPONDER ────────
+         Não existir era o único tratado. Lançar, devolver `""` e devolver algo
+         que não é texto davam o MESMO resultado prático — base inútil — por
+         caminhos diferentes: a exceção derrubava a gravação inteira pelo
+         `catch` do topo, DEPOIS de a linha já ter mudado, e as outras duas
+         voltavam ao silêncio que a guarda existe para não ter. */
+      const TORTAS = [
+        ["que lança", () => { throw new Error("montagem quebrada"); }],
+        ["que devolve vazio", () => ""],
+        ["que devolve só espaços", () => "   "],
+        ["que devolve não-texto", () => 42],
+        ["que devolve nulo", () => null],
+      ];
+      const semResiduo = [];
+      for (const [rotulo, baseDoProjeto] of TORTAS) {
+        let saida;
+        try {
+          saida = await removerCapaAnterior({
+            acesso: { baseDoProjeto, removerArquivoDaCapa: async () => ({ ok: true }) },
+            anterior: ANTIGA,
+            atual: CAPA,
+          });
+        } catch (excecao) {
+          semResiduo.push(`${rotulo}: LANÇOU ${String(excecao?.message ?? excecao)}`);
+          continue;
+        }
+        if (saida === null || saida.arquivo !== "capas/hgfedcba.png") {
+          semResiduo.push(`${rotulo}: ${JSON.stringify(saida)}`);
+        }
+      }
+      afirmar(
+        `os ${TORTAS.length} jeitos de \`baseDoProjeto\` não responder viram o MESMO resíduo nomeado — e nenhum deles escapa como exceção`,
+        semResiduo.length === 0,
+        semResiduo.join(" | "),
+      );
+
+      /* ─── E RESÍDUO NÃO SE INVENTA ────────────────────────────────────
+         Resíduo é uma acusação: ele diz ao Autor que um arquivo ficou para trás
+         e pede que alguém o apague. Emiti-lo para um endereço que nunca esteve
+         em bucket nenhum mandaria procurar um arquivo que não existe — e isso
+         aconteceria na primeira vez que alguém trocasse uma capa de fora por
+         outra, que é o caminho comum desta story. A pergunta que dá para
+         responder sem a raiz é a de FORMA, e ela basta para separar os dois. */
+      const DE_FORA_SEM_RAIZ = [
+        "https://cdn.exemplo.com/foto.jpg",
+        "https://cdn.exemplo.com/imagens/capas/foto.png",
+        "https://outro.example/storage/v1/object/public/outro-balde/capas/abcdefgh.png",
+      ];
+      const inventados = [];
+      for (const anterior of DE_FORA_SEM_RAIZ) {
+        const saida = await removerCapaAnterior({
+          acesso: { removerArquivoDaCapa: async () => ({ ok: true }) },
+          anterior,
+          atual: CAPA,
+        });
+        if (saida !== null) inventados.push(`${anterior}: ${JSON.stringify(saida)}`);
+      }
+      afirmar(
+        "e endereço que não tem NEM A FORMA de capa pública não vira resíduo, mesmo sem a raiz — acusar aqui mandaria procurar um arquivo que nunca existiu",
+        inventados.length === 0,
+        inventados.join(" | "),
       );
     }
 

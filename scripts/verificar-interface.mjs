@@ -3045,6 +3045,288 @@ secao("(j) nenhuma leitura de arquivo para texto ou base64");
     );
   }
 }
+/* ─── (k) O monograma mora num lugar só (Story 3.2) ─────────────────────── */
+
+secao("(k) o monograma da Categoria: uma implementação, dois consumidores");
+
+/*
+ * ─── POR QUE ISTO É UMA ASSERÇÃO, E NÃO UMA CONVENÇÃO ─────────────────────
+ *
+ * O monograma — a primeira letra da Categoria, em caixa alta — passou a ter
+ * DOIS consumidores na Story 3.2: a linha da listagem, que o mostra quando o
+ * Post não tem capa, e a gaveta, que degrada para ele quando a capa não carrega
+ * ou quando o endereço não serve. É o mesmo Post visto de duas telas, e o Autor
+ * precisa ver a mesma coisa nas duas.
+ *
+ * Montá-lo por conta própria é fácil demais — `nome[0].toUpperCase()` cabe numa
+ * linha —, e a segunda implementação divergiria no primeiro nome acentuado (o
+ * par substituto quebrado ao meio vira caractere de reposição) e no primeiro
+ * navegador em turco (`toUpperCase()` sem local devolve `İ` para `i`). Os dois
+ * defeitos só aparecem na tela de outra pessoa.
+ *
+ * ─── E A REGRA É DE VIZINHANÇA, NÃO DE FORMA PROIBIDA ─────────────────────
+ *
+ * A primeira versão desta varredura proibia `charAt(0)`, `slice(0, 1)`,
+ * `substring(0, 1)` e `at(0)` em todo o `src/` — idiomas genéricos de string e
+ * de array, que nada têm de monograma. Era lista de PROIBIÇÃO larga, contra a
+ * regra 3 do projeto, e o primeiro `linhas.at(0)` legítimo teria virado uma
+ * falha que não é falha. O que caracteriza monograma é a extração da primeira
+ * letra **seguida da passagem para maiúscula** — e é a vizinhança das duas que
+ * se procura, sobre o código com o espaço em branco colapsado.
+ *
+ * A segunda cláusula é `toLocaleUpperCase`: neste projeto só o monograma
+ * precisa de caixa alta local-consciente, e é exatamente o que uma segunda
+ * implementação CORRETA escreveria — a que passaria pela cláusula de
+ * vizinhança se alguém a espalhasse por três funções.
+ */
+{
+  const CASA_DO_MONOGRAMA = "src/admin/blog/listagem.js";
+
+  /* O código com espaço em branco colapsado: a vizinhança de duas expressões é
+     medida em caracteres, e quebra de linha e indentação a esticariam sem
+     mudar nada do que o código faz. */
+  const colapsado = (codigo) => codigo.replace(/\s+/g, " ");
+
+  /**
+   * Cada `<img …/>` do arquivo, do `<img` até o `/>` que o fecha.
+   *
+   * O recorte NÃO pode ser por "tudo que não é `>`": toda `<img>` com uma
+   * função de seta dentro — `onError={() => …}`, a forma que este projeto
+   * usa — tem um `>` no meio, e um detector assim não casa nenhuma delas.
+   * Ele devolveria zero achados e toda asserção construída sobre ele passaria
+   * por VACUIDADE, verde para sempre. Foi o que aconteceu na primeira versão
+   * deste bloco, e o autoteste abaixo tem o caso da seta por isso.
+   */
+  const tagsDeImagem = (codigo) => {
+    const texto = colapsado(codigo);
+    const tags = [];
+    let i = texto.indexOf("<img");
+    while (i >= 0) {
+      const fim = texto.indexOf("/>", i);
+      if (fim < 0) break;
+      tags.push(texto.slice(i, fim + 2));
+      i = texto.indexOf("<img", fim);
+    }
+    return tags;
+  };
+
+  /** A extração da primeira letra, em qualquer das formas usuais. */
+  const EXTRACAO = String.raw`(?:\[ ?0 ?\]|\.charAt\( ?0 ?\)|\.slice\( ?0 ?, ?1 ?\)|\.substring\( ?0 ?, ?1 ?\)|\.at\( ?0 ?\))`;
+  /** A passagem para maiúscula. */
+  const MAIUSCULA = String.raw`\.to(?:Locale)?UpperCase\(`;
+  /* 120 caracteres colapsados cobrem "extrai numa linha, levanta na seguinte",
+     que é como a casa do monograma está escrita hoje — e é o jeito pelo qual
+     uma cópia escaparia de uma regra que exigisse adjacência. */
+  const VIZINHANCA = 120;
+
+  const FORMAS_DE_MONOGRAMA = Object.freeze([
+    [
+      "primeira letra levantada",
+      new RegExp(`${EXTRACAO}[\\s\\S]{0,${VIZINHANCA}}?${MAIUSCULA}`),
+    ],
+    ["caixa alta local-consciente", /\.toLocaleUpperCase\(/],
+  ]);
+
+  const formasEm = (codigo) => {
+    const texto = colapsado(codigo);
+    return FORMAS_DE_MONOGRAMA.filter(([, padrao]) => padrao.test(texto)).map(
+      ([nome]) => nome,
+    );
+  };
+
+  /* ── AUTOTESTE, NOS DOIS SENTIDOS ──────────────────────────────────── */
+  const DEVE_ACUSAR = [
+    "const m = nome[0].toUpperCase();",
+    "const m = categoria.nome.charAt(0).toLocaleUpperCase('pt-BR');",
+    "const inicial = texto.slice(0, 1); return inicial.toUpperCase();",
+    "const inicial = texto.substring(0, 1);\n  return inicial.toUpperCase();",
+    "const inicial = texto.at(0);\n  return inicial.toUpperCase();",
+    /* A forma exata da casa do monograma, em duas instruções. */
+    "const primeira = [...texto][0] ?? '';\n  return primeira.toLocaleUpperCase('pt-BR');",
+  ];
+  const NAO_DEVE_ACUSAR = [
+    /* Idiomas genéricos de string e de array: nenhum é monograma, e proibi-los
+       era a lista larga que esta varredura deixou de ser. */
+    "const primeiros = bytes.slice(0, 12);",
+    "const primeira = linhas.at(0);",
+    "const so um = itens.slice(0, 1);",
+    "const inicio = lista[0];",
+    "const nomes = [...conjunto];",
+    "return texto.toLowerCase();",
+    /* E os dois usos legítimos de `toUpperCase()` que existem no projeto: a
+       tecla do atalho e a acentuação do slug. */
+    "return tecla.length === 1 ? tecla.toUpperCase() : tecla;",
+    "texto = texto.split(de).join(para).split(de.toUpperCase()).join(para);",
+  ];
+  const escaparam = DEVE_ACUSAR.filter((t) => formasEm(t).length === 0);
+  const falsos = NAO_DEVE_ACUSAR.filter((t) => formasEm(t).length > 0);
+  afirmar(
+    "autoteste do detector: acusa a primeira letra extraída E levantada, inclusive em duas instruções",
+    escaparam.length === 0,
+    `escaparam: ${escaparam.join(" | ")}`,
+  );
+  afirmar(
+    "autoteste do detector: NÃO acusa idioma genérico de string ou de array — é vizinhança, e não forma proibida",
+    falsos.length === 0,
+    `falsos positivos: ${falsos.map((t) => `${t} → ${formasEm(t)}`).join(" | ")}`,
+  );
+
+  /* ── E AGORA O REPOSITÓRIO ─────────────────────────────────────────── */
+  const infratores = [];
+  for (const arquivo of fontesSrc) {
+    if (rel(arquivo) === CASA_DO_MONOGRAMA) continue;
+    const achados = formasEm(semComentarios(ler(arquivo)));
+    if (achados.length > 0) infratores.push(`${rel(arquivo)}: ${achados.join(", ")}`);
+  }
+  afirmar(
+    "NENHUMA tela monta o monograma por conta própria — a primeira letra em caixa alta só existe em `admin/blog/listagem.js`",
+    infratores.length === 0,
+    infratores.join(" | "),
+  );
+
+  /* ── E A CASA DO MONOGRAMA REALMENTE O MONTA ───────────────────────── */
+  //
+  // Sem esta asserção, a de cima passaria num projeto que não tem monograma
+  // nenhum — que é exatamente o estado a que uma "simplificação" chegaria.
+  {
+    const daCasa = semComentarios(ler(path.join(raiz, CASA_DO_MONOGRAMA)));
+    afirmar(
+      "e a casa do monograma o monta de verdade: por ponto de código e com caixa alta local-consciente",
+      /export\s+function\s+monogramaDoNome\s*\(/.test(daCasa) &&
+        /export\s+function\s+monogramaDaCategoria\s*\(/.test(daCasa) &&
+        formasEm(daCasa).includes("caixa alta local-consciente") &&
+        formasEm(daCasa).includes("primeira letra levantada"),
+      formasEm(daCasa).join(", ") || "nenhuma forma encontrada na casa do monograma",
+    );
+  }
+
+  /* ── E A CAIXA DESENHADA TAMBÉM MORA NUM LUGAR SÓ ──────────────────── */
+  //
+  // "O mesmo recurso da listagem" é uma promessa sobre o que se VÊ, e enquanto
+  // a caixa esteve escrita nos dois arquivos a única coisa presa era a letra: o
+  // fundo, a tinta e o símbolo de "sem Categoria" divergiriam na primeira
+  // mexida num dos dois, e nada acusaria. A caixa virou componente, e o que se
+  // cobra aqui é que os dois consumidores usem ELE.
+  {
+    const CAIXA = "src/admin/blog/MonogramaDaCapa.jsx";
+    const daCaixa = semComentarios(ler(path.join(raiz, CAIXA)));
+    afirmar(
+      "a caixa do monograma é um componente só, e é ele que conhece os tokens e o símbolo de quem não tem Categoria",
+      /\bmonogramaDoNome\b/.test(daCaixa) &&
+        /from\s+["']@\/admin\/blog\/listagem["']/.test(daCaixa) &&
+        /data-monograma=/.test(daCaixa) &&
+        /data-recurso=/.test(daCaixa) &&
+        /bg-brand-wash/.test(daCaixa) &&
+        /text-brand-action/.test(daCaixa) &&
+        /\bFileText\b/.test(daCaixa),
+      CAIXA,
+    );
+
+    const CONSUMIDORES = [
+      "src/admin/blog/ListaDePosts.jsx",
+      "src/admin/blog/GavetaDeMetadados.jsx",
+    ];
+    const fora = CONSUMIDORES.filter((arquivo) => {
+      const codigo = semComentarios(ler(path.join(raiz, arquivo)));
+      return (
+        !/from\s+["']@\/admin\/blog\/MonogramaDaCapa["']/.test(codigo) ||
+        !/<MonogramaDaCapa\b/.test(codigo)
+      );
+    });
+    afirmar(
+      "e os DOIS consumidores desenham ESSE componente — nenhum dos dois monta uma caixa parecida",
+      fora.length === 0,
+      fora.join(", "),
+    );
+    /* E A CAIXA EXISTE UMA VEZ SÓ. O atributo que a identifica é o do
+       componente: se ele aparecer em outro arquivo, alguém escreveu a segunda
+       caixa — que é como a divergência de tokens voltaria sem nada acusar.
+       Cobrar os tokens diretamente nos consumidores não serviria: `bg-brand-wash`
+       veste a pílula de Categoria e o alvo de Destaque na mesma tela. */
+    const comAtributo = fontesSrc.filter((a) =>
+      /data-monograma=/.test(semComentarios(ler(a))),
+    );
+    afirmar(
+      "e o atributo que identifica a caixa existe num arquivo só — o do componente",
+      comAtributo.length === 1 && rel(comAtributo[0]) === CAIXA,
+      comAtributo.map(rel).join(", "),
+    );
+  }
+
+  /* ── E A CAPA QUE NÃO CARREGA DEGRADA NAS DUAS TELAS ───────────────── */
+  //
+  // A promessa da story é sobre o mesmo Post visto de dois lugares. Um `<img>`
+  // sem `onError` desenha o ícone quebrado do navegador — e enquanto a listagem
+  // ficasse assim, o Editor mostraria o monograma e ela o ícone, que são
+  // exatamente as duas respostas para a mesma pergunta que a degradação existe
+  // para não ter. A prova comportamental está em `verificar:editor`, nas duas
+  // telas; aqui se cobra que nenhum `<img>` de capa fique sem o tratamento.
+  {
+    const COM_CAPA = [
+      "src/admin/blog/ListaDePosts.jsx",
+      "src/admin/blog/GavetaDeMetadados.jsx",
+      "src/pages/BlogPost.jsx",
+    ];
+    const semTratamento = [];
+    let quantasImagens = 0;
+    for (const arquivo of COM_CAPA) {
+      for (const tag of tagsDeImagem(semComentarios(ler(path.join(raiz, arquivo))))) {
+        quantasImagens += 1;
+        if (!/\bonError=/.test(tag)) semTratamento.push(`${arquivo}: ${tag.slice(0, 60)}`);
+      }
+    }
+    afirmar(
+      `as ${quantasImagens} imagens de capa das três telas tratam “não carregou” — sem isso, uma delas mostra o ícone quebrado enquanto a outra mostra o monograma`,
+      /* O NÚMERO ENTRA NA CONDIÇÃO. Sem ele, um recorte que deixasse de casar
+         qualquer tag passaria com zero achados — que foi exatamente o defeito
+         da primeira versão deste bloco. */
+      semTratamento.length === 0 && quantasImagens >= 3,
+      semTratamento.join(" | ") || `imagens encontradas: ${quantasImagens}`,
+    );
+    /* AUTOTESTE, E ELE PEGOU UM DEFEITO REAL — ver o cabeçalho de
+       `tagsDeImagem`. O caso da seta é o que faltava, e sem ele as duas
+       asserções deste bloco eram verdes por vacuidade. */
+    const acha = (codigo) =>
+      tagsDeImagem(codigo).filter((tag) => !/\bonError=/.test(tag)).length;
+    afirmar(
+      "autoteste: o detector acha a imagem sem tratamento, ignora a que tem, e não se perde na função de seta",
+      acha('<img src={a}\n  className="x"\n/>') === 1 &&
+        acha("<img src={a} onError={() => f(true)} />") === 0 &&
+        acha("<img src={a} /><img src={b} onError={g} />") === 1 &&
+        tagsDeImagem("<img a={() => x} onError={() => y} />").length === 1,
+      `tags achadas na de seta: ${tagsDeImagem("<img a={() => x} onError={() => y} />").length}`,
+    );
+  }
+
+  /* ── E O HOST DE FORA NÃO RECEBE O LEITOR ──────────────────────────── */
+  //
+  // Desde que a capa pode apontar para outro domínio, cada visitante faz um
+  // pedido a um servidor que não é nosso. Sem `referrerPolicy`, esse pedido
+  // leva o endereço do artigo que a pessoa está lendo — e a Política de
+  // Privacidade do site não fala disso.
+  {
+    const semPolitica = [];
+    let comPolitica = 0;
+    for (const arquivo of [
+      "src/pages/BlogPost.jsx",
+      "src/admin/blog/ListaDePosts.jsx",
+      "src/admin/blog/GavetaDeMetadados.jsx",
+    ]) {
+      for (const tag of tagsDeImagem(semComentarios(ler(path.join(raiz, arquivo))))) {
+        comPolitica += 1;
+        if (!/referrerPolicy="no-referrer"/.test(tag)) {
+          semPolitica.push(`${arquivo}: ${tag.slice(0, 60)}`);
+        }
+      }
+    }
+    afirmar(
+      `as ${comPolitica} imagens que podem apontar para host de fora vão sem referenciador — o endereço do artigo não é do host da imagem`,
+      semPolitica.length === 0 && comPolitica >= 3,
+      semPolitica.join(" | ") || `imagens encontradas: ${comPolitica}`,
+    );
+  }
+}
+
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");

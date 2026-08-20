@@ -105,6 +105,28 @@ export function variaveisAusentes() {
   return faltando;
 }
 
+/**
+ * A URL do projeto, ou `""` quando o ambiente não a declara.
+ *
+ * **Não é segredo**: ela já viaja no bundle desde sempre, é o endereço para
+ * onde toda consulta do navegador vai, e é o prefixo de toda capa pública. O
+ * que este módulo guarda de sensível é a chave, e a chave continua sem porta de
+ * saída — a asserção de bundle limpo de `verificar:acesso` cobra isso.
+ *
+ * Existe porque a gaveta precisa decidir se um endereço gravado é uma capa
+ * NOSSA para saber em que modo o campo abre, e a única alternativa era decidir
+ * pela FORMA do endereço — que classifica a capa de outro projeto Supabase como
+ * nossa e esconde, num campo que ninguém opera, exatamente o valor que a pessoa
+ * foi editar.
+ *
+ * `""` em vez de lançar: quem pergunta está escolhendo rótulo de campo, e
+ * derrubar o Editor por falta de `.env` trocaria um problema pequeno por um
+ * grande. Quem precisa do ambiente de verdade continua chamando `exigirAmbiente`.
+ */
+export function urlDoProjeto() {
+  return URL_SUPABASE;
+}
+
 function exigirAmbiente() {
   const faltando = variaveisAusentes();
   if (faltando.length > 0) throw new ConfiguracaoAusente(faltando);

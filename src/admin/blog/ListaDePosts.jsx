@@ -112,6 +112,10 @@ import {
 } from "lucide-react";
 
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
+/* A CAIXA DO MONOGRAMA é um componente, e não uma caixa parecida escrita aqui:
+   a gaveta desenha a MESMA para o mesmo Post desde a Story 3.2, e enquanto
+   ela esteve escrita nos dois lugares só a letra estava presa. */
+import MonogramaDaCapa from "@/admin/blog/MonogramaDaCapa";
 import {
   DESTINO_SITE,
   ROTULO_DE_CONFIRMAR_EXCLUSAO,
@@ -139,7 +143,6 @@ import {
   TITULO_DO_VAZIO_DE_BUSCA,
   descricaoDoVazioDeBusca,
   haBuscaAtiva,
-  monogramaDaCategoria,
   nomeDaCategoria,
   rotuloParaAbrir,
   textoDaData,
@@ -686,8 +689,15 @@ function Linha({
   aoPedirExclusao,
 }) {
   const categoria = nomeDaCategoria(post);
-  const monograma = monogramaDaCategoria(post);
   const capa = typeof post.imagem_url === "string" ? post.imagem_url.trim() : "";
+
+  /* A CAPA QUE NÃO CARREGA (Story 3.2). `onError` é o único sinal que o
+     navegador dá, e ele é por ENDEREÇO: a listagem relê e reordena, e uma falha
+     antiga não pode condenar a imagem que veio no lugar dela. */
+  const [capaQuebrada, setCapaQuebrada] = useState(false);
+  useEffect(() => {
+    setCapaQuebrada(false);
+  }, [capa]);
   const data = textoDaData(post);
   const agendamento = textoDoAgendamento(post);
   const tempo = textoDoTempoDeLeitura(post);
@@ -714,30 +724,33 @@ function Linha({
         "transition-colors hover:border-border-strong",
       )}
     >
-      {/* ── Capa ou monograma ───────────────────────────────────────────── */}
+      {/* ── Capa ou monograma ─────────────────────────────────────────────
+          A CAPA QUE NÃO CARREGA DEGRADA AQUI TAMBÉM (Story 3.2). Enquanto toda
+          capa vinha do nosso bucket, um endereço gravado resolvia. Desde que
+          ela pode apontar para outro domínio, o endereço apodrece — e sem
+          `onError` esta linha desenharia o ícone quebrado do navegador numa
+          caixa de 64px enquanto o Editor mostra o monograma para o MESMO Post:
+          as duas respostas para a mesma pergunta que a degradação existe para
+          não ter. */}
       <div className="size-16 shrink-0 overflow-hidden rounded-cartao">
-        {capa !== "" ? (
+        {capa !== "" && !capaQuebrada ? (
           <img
             src={capa}
             alt={post.imagem_alt ?? ""}
             data-papel="capa"
+            /* Endereço de fora não recebe o referenciador: cada leitura da
+               listagem entregaria a um host de terceiro o endereço do Painel. */
+            referrerPolicy="no-referrer"
+            onError={() => setCapaQuebrada(true)}
             className="size-full object-cover"
           />
         ) : (
-          <div
-            data-papel="monograma"
-            data-monograma={monograma}
-            aria-hidden="true"
-            className={cn(
-              "flex size-full items-center justify-center",
-              "bg-brand-wash text-xl font-black text-brand-action",
-            )}
-          >
-            {/* Post sem Categoria RENDERIZA: Categoria é opcional na gaveta, e
-                uma linha que some por falta dela seria um Post invisível no
-                próprio Painel. */}
-            {monograma === "" ? <FileText className="size-6" /> : monograma}
-          </div>
+          <MonogramaDaCapa
+            categoria={categoria}
+            papel="monograma"
+            classeDoSimbolo="size-6"
+            className="size-full text-xl"
+          />
         )}
       </div>
 
