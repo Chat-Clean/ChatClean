@@ -288,6 +288,31 @@ export default async function handler(req, res) {
     return;
   }
 
+  /* ─── O RESÍDUO É NOMEADO, NUNCA SILENCIOSO (Story 3.1) ─────────────────
+     A operação deu certo E sobrou um arquivo no bucket: a linha saiu, a capa
+     anterior não. É sucesso — excluir o Post e trocar a capa são autoritativos,
+     e nenhum dos dois se desfaz por causa de um arquivo —, mas "sobrou lixo" é
+     coisa que alguém precisa poder descobrir. Ele vai para o log do servidor
+     COM O CAMINHO, que é o que permite limpar depois, e viaja na resposta sem
+     o motivo interno, como todo o resto. */
+  const residuo = resultado.dados?.residuo ?? null;
+  if (residuo) {
+    console.error(
+      `[api/posts] ${pedida.operacao} | resíduo no Storage: o arquivo ${residuo.arquivo} ` +
+        `NÃO foi removido e continua no bucket — ${residuo.motivo}`,
+    );
+  }
+
+  /* E O QUE SAI NA RESPOSTA É SÓ O ARQUIVO.
+     `motivo` é o mesmo tipo de coisa que `detalhe` — SQLSTATE, texto do
+     Storage, nome de restrição —, e a regra desta porta é que detalhe interno
+     vai para o log e não para o corpo. Quem chama precisa saber QUE sobrou
+     alguma coisa e QUAL arquivo é, para poder limpar; por que sobrou é
+     diagnóstico de servidor. */
+  const dados = residuo
+    ? { ...resultado.dados, residuo: { arquivo: residuo.arquivo } }
+    : resultado.dados;
+
   /* 201 é do que NASCEU — o Post (`criado`) e a Categoria (`criada`). As
      operações que mexem no que já existe saem com 200, e nenhuma das duas
      chaves existe na resposta delas. */
@@ -295,6 +320,6 @@ export default async function handler(req, res) {
     resultado.dados.criado === true || resultado.dados.criada === true;
   res.status(nasceu ? 201 : 200).json({
     ok: true,
-    dados: resultado.dados,
+    dados,
   });
 }

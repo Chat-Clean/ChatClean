@@ -88,6 +88,7 @@ import {
   LIMITE_DE_IGNORADOS,
   MARGEM_DE_RELOGIO_MS,
   PADRAO_UUID,
+  removerCapaAnterior,
   salvarPost,
   TAMANHO_MAXIMO_DO_CONTEUDO,
   TIPOS_DE_ERRO,
@@ -175,6 +176,23 @@ import {
   NOS_PERMITIDOS,
   PROTOCOLOS_DE_LINK,
 } from "../src/domain/blog/schema.js";
+/* O vocabulário do ARQUIVO (Story 3.1), pela MESMA razão: `enderecoDeImagemPermitido`
+   é comparada com `endereco_de_imagem_e_permitido` sobre um corpus, e o teto e a
+   lista de espécies são comparados com o que o bucket declara. */
+import {
+  BUCKET_DAS_IMAGENS,
+  ESPECIES_DE_IMAGEM,
+  TAMANHO_MAXIMO_DA_IMAGEM,
+  TAMANHO_MAXIMO_DO_ALTERNATIVO,
+  TAMANHO_MAXIMO_DO_ENDERECO,
+  caminhoDaCapa,
+  caminhoDaCapaNoEndereco,
+  ehCaminhoDeCapa,
+  enderecoDeImagemPermitido,
+  formatarTamanho,
+  enderecoPublicoDaCapa,
+  problemaNoArquivo,
+} from "../src/domain/blog/arquivos.js";
 import {
   ERRO_CONFIGURACAO,
   ERRO_INESPERADO,
@@ -695,6 +713,101 @@ const CORPUS_DE_ENTIDADES = Object.freeze([
   "&nbsp;&NonBreakingSpace;",
   "texto sem entidade nenhuma",
   "",
+]);
+
+/**
+ * O corpus da COLUNA DA CAPA (Story 3.1).
+ *
+ * O corpus acima cobre o `href` de um link DENTRO do conteúdo, e a regra de lá
+ * é larga de propósito: caminho relativo, âncora, `mailto:` e `tel:` são links
+ * legítimos de artigo. A coluna da capa é outra coisa — ela guarda o endereço
+ * de um arquivo que o navegador vai buscar sozinho —, e a regra dela é
+ * estreita: **só `https://` absoluto**.
+ *
+ * Ele começa com o corpus do `href` inteiro, e não com uma lista nova: toda
+ * evasão que alguém já pensou para um endereço vale para o outro, e escrever
+ * uma segunda lista aqui garantiria que a próxima evasão descoberta fosse
+ * corrigida só de um lado.
+ *
+ * O que ele acrescenta é o que a story nomeia: CONTEÚDO DE ARQUIVO em qualquer
+ * codificação. Nenhuma dessas linhas pode ser representável na coluna — e a
+ * cláusula que as mata não é o teto de tamanho (uma imagem de um pixel cabe em
+ * 100 caracteres), é o esquema.
+ */
+/**
+ * Os casos do corpus da capa que precisam ser CALCULADOS.
+ *
+ * Escrever um endereço de 2048 caracteres à mão é impossível de manter e fácil
+ * de errar por um. Sem eles, a cláusula de TETO das duas implementações nunca
+ * roda — e a diferença entre o `String.length` do JavaScript (unidades UTF-16)
+ * e o `char_length` do Postgres (pontos de código) nunca é medida.
+ */
+const RAIZ_DO_CORPUS = "https://x.supabase.co/";
+const enderecoComTamanho = (n) =>
+  RAIZ_DO_CORPUS + "a".repeat(n - RAIZ_DO_CORPUS.length);
+
+const CORPUS_DE_COMPRIMENTO = Object.freeze([
+  /* Exatamente no teto: precisa PASSAR nos dois lados. */
+  enderecoComTamanho(TAMANHO_MAXIMO_DO_ENDERECO),
+  /* Um caractere acima: precisa ser recusado nos dois. */
+  enderecoComTamanho(TAMANHO_MAXIMO_DO_ENDERECO + 1),
+  /* Um a menos, para o corpus ter os dois lados da fronteira. */
+  enderecoComTamanho(TAMANHO_MAXIMO_DO_ENDERECO - 1),
+]);
+
+const CORPUS_DE_ENDERECOS_DE_IMAGEM = Object.freeze([
+  ...CORPUS_DE_COMPRIMENTO,
+  ...CORPUS_DE_ENDERECOS,
+  /* ── Conteúdo de arquivo, em toda codificação que alguém tentaria ──── */
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+  "data:image/webp;base64,UklGRh4AAABXRUJQ",
+  "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3C%2Fsvg%3E",
+  "data:image/svg+xml;utf8,<svg onload=alert(1)></svg>",
+  "DATA:IMAGE/PNG;BASE64,iVBORw0KGgo=",
+  "data:;base64,iVBORw0KGgo=",
+  "data:text/plain,oi",
+  /* ── E as outras origens que um `src` aceitaria ─────────────────────── */
+  "blob:https://x.supabase.co/9a1f-4b2c",
+  "filesystem:https://x.com/temporary/a.png",
+  /* ── O endereço do NOSSO bucket, que precisa continuar passando ─────── */
+  "https://rkoxomfgkloukitqizma.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+  "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.webp",
+  /* ── E endereços absolutos de fora, que a COLUNA aceita e o SERVIDOR
+        recusa: a coluna guarda formato, e a origem é decidida em
+        `salvarPost`, que é quem conhece a URL do projeto. A Story 3.2 abre
+        essa porta sem tocar na restrição. ────────────────────────────── */
+  "https://cdn.exemplo.com/foto.jpg",
+  "https://cdn.exemplo.com:8443/foto.jpg?v=2#topo",
+  /* ── HOST LOCAL: `http://` passa SÓ aqui, e é a mesma distinção que
+        `problemaNaUrl` já fazia. É o endereço que o stack local e o Supabase
+        de mentira produzem — sem estas linhas, a regra do banco não teria
+        como ser exercida sem rede. ─────────────────────────────────────── */
+  "http://127.0.0.1:54321/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+  "http://localhost:3000/capa.png",
+  "http://LOCALHOST/capa.png",
+  /* Esquema em MAIÚSCULAS: precisa passar dos dois lados. Ele é o caso
+     positivo que impede a correção de "recuse o que não começa com https://"
+     de virar "recuse tudo o que não é minúsculo". */
+  "HTTPS://X.SUPABASE.CO/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+  "HttPs://cdn.exemplo.com/capa.png",
+  /* E as vizinhanças que NÃO são host local — o sufixo é a evasão clássica. */
+  "http://127.0.0.1.exemplo.com/capa.png",
+  "http://localhost.exemplo.com/capa.png",
+  "http://cdn.exemplo.com/capa.png",
+  /* ── Autoridade torta ────────────────────────────────────────────────── */
+  "https://",
+  "https:///caminho.png",
+  "https://usuario:senha@cdn.exemplo.com/foto.jpg",
+  "https://cdn exemplo.com/foto.jpg",
+  "https://cdn.exemplo.com:99999999/foto.jpg",
+  "https://cdn.exemplo.com/foto.jpg?titulo=<script>",
+  /* ── Caractere fora de ASCII imprimível: as duas implementações
+        precisam concordar até aqui, e é onde `\\s` do JavaScript e
+        `[[:space:]]` do Postgres divergiriam. ─────────────────────────── */
+  "https://cdn.exemplo.com/fo\u00a0to.jpg",
+  "https://cdn.exemplo.com/f\u2028oto.jpg",
+  "https://cdn.exemplo.com/ção.jpg",
 ]);
 
 /* ─── Mascarador de comentário de JS (com autoteste) ─────────────────────── */
@@ -1701,6 +1814,146 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
       CAMPOS_ACEITOS.join(", "),
     );
   }
+  /* A CAPA (Story 3.1). As duas colunas existiam desde a Story 2.1 e não
+     havia caminho nenhum para preenchê-las — fora desta lista, `imagem_url`
+     chegava como campo IGNORADO e era relatado com nome, que é o
+     comportamento certo para um campo que a porta não conhece, e a explicação
+     de por que nenhuma capa nunca foi gravada. */
+  for (const campo of ["imagem_url", "imagem_alt"]) {
+    afirmar(
+      `\`${campo}\` é ACEITO — sem isso não existe caminho de escrita para a capa`,
+      CAMPOS_ACEITOS.includes(campo) && !CAMPOS_IGNORADOS.includes(campo),
+      CAMPOS_ACEITOS.join(", "),
+    );
+  }
+
+  /* E A CONSEQUÊNCIA DA LISTA, EXECUTADA.
+     A lista sozinha não impede a gravação: quem lê os campos é `lerCorpo`, e
+     ela seguiria lendo `imagem_url` com a linha apagada daqui. O que a lista
+     DECIDE é o relatório de ignorados — então é ele que a asserção observa.
+     Medido: tirar as duas linhas da lista não fazia asserção nenhuma falhar,
+     e o único sintoma era o Painel avisando que descartou uma capa que gravou. */
+  {
+    const lido = lerCorpo(
+      {
+        titulo: "Um post com capa",
+        slug: "um-post-com-capa",
+        resumo: "Resumo",
+        conteudo: DOCUMENTO_COMPLETO,
+        imagem_url:
+          "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+        imagem_alt: "Uma descrição",
+      },
+      { criando: true },
+    );
+    afirmar(
+      "e um salvamento com capa não relata NADA como ignorado — a tela avisaria que descartou o que acabou de gravar",
+      lido.ok === true &&
+        lido.ignorados.length === 0 &&
+        lido.totalIgnorado === 0 &&
+        lido.campos.imagem_url !== undefined &&
+        lido.campos.imagem_alt !== undefined,
+      JSON.stringify({ ignorados: lido.ignorados, campos: Object.keys(lido.campos ?? {}) }),
+    );
+  }
+
+  /* ── O PAR CAPA + DESCRIÇÃO, NOS DOIS SENTIDOS ────────────────────────
+     Três regras, e nenhuma delas tinha asserção antes desta revisão — as três
+     sabotagens passaram verdes. `posts_imagem_exige_alt` cobre UM dos lados e
+     só depois da viagem; o que se cobra aqui é a recusa ANTES dela, com a
+     frase certa. */
+  {
+    const base = {
+      titulo: "Um post com capa",
+      slug: "um-post-com-capa",
+      resumo: "Resumo",
+      conteudo: DOCUMENTO_COMPLETO,
+    };
+    const CAPA =
+      "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png";
+    const FRASE_DO_PAR =
+      "A capa precisa de uma descrição: é ela que quem não enxerga a imagem recebe no lugar dela.";
+
+    /* (1) CAPA SEM A CHAVE `imagem_alt` NO PEDIDO.
+       A versão anterior só cobrava o par quando a chave estava PRESENTE:
+       um pedido com capa e sem ela atravessava, e o banco devolvia
+       "violates check constraint" cru — a recusa tardia que este bloco
+       existe para evitar. */
+    {
+      const r = lerCorpo({ ...base, imagem_url: CAPA }, { criando: true });
+      afirmar(
+        "capa informada SEM a chave da descrição é recusada aqui — não deixada para o banco recusar com uma frase que ninguém entende",
+        r.ok === false && r.mensagem.includes(FRASE_DO_PAR),
+        `${r.ok ? "PASSOU" : r.mensagem}`,
+      );
+    }
+
+    /* (2) DESCRIÇÃO SÓ COM ESPAÇOS.
+       `"   "` não é `""`, e a comparação com string vazia acontecia ANTES de
+       aparar: três espaços viravam uma descrição gravada na coluna, que
+       escapava do par aqui e era recusada pelo `btrim` do banco. */
+    for (const branco of ["   ", "\t", "\n  ", "   "]) {
+      const r = lerCorpo(
+        { ...base, imagem_url: CAPA, imagem_alt: branco },
+        { criando: true },
+      );
+      afirmar(
+        `descrição só com espaços (${JSON.stringify(branco)}) é vazia — não uma descrição de espaços gravada na coluna`,
+        r.ok === false && r.mensagem.includes(FRASE_DO_PAR),
+        r.ok ? `PASSOU com ${JSON.stringify(r.campos.imagem_alt)}` : r.mensagem,
+      );
+    }
+
+    /* (3) LIMPAR A CAPA LIMPA A DESCRIÇÃO — diga o pedido o que disser.
+       Nenhuma restrição do banco cobre este lado: uma descrição órfã de uma
+       imagem que não existe mais reapareceria como texto alternativo da
+       próxima capa, que ninguém descreveu. */
+    for (const [rotulo, corpo] of [
+      ["sem falar da descrição", { imagem_url: null }],
+      ["mandando uma descrição junto", { imagem_url: null, imagem_alt: "Sobrou" }],
+      ["com a capa vazia", { imagem_url: "", imagem_alt: "Sobrou" }],
+    ]) {
+      const r = lerCorpo({ ...base, ...corpo }, { criando: true });
+      afirmar(
+        `limpar a capa ${rotulo} limpa a descrição junto — descrição órfã viraria o texto da próxima imagem`,
+        r.ok === true && r.campos.imagem_url === null && r.campos.imagem_alt === null,
+        JSON.stringify({ url: r.campos?.imagem_url, alt: r.campos?.imagem_alt }),
+      );
+    }
+
+    /* E O CAMINHO POSITIVO CONTINUA PASSANDO. Sem ele, uma regra que
+       recusasse TODO pedido com capa passaria as asserções acima. */
+    {
+      const r = lerCorpo(
+        { ...base, imagem_url: CAPA, imagem_alt: "  Uma descrição  " },
+        { criando: true },
+      );
+      afirmar(
+        "e o par completo passa, com a descrição APARADA — o espaço em volta não é parte do que se escreveu",
+        r.ok === true &&
+          r.campos.imagem_url === CAPA &&
+          r.campos.imagem_alt === "Uma descrição",
+        JSON.stringify({ url: r.campos?.imagem_url, alt: r.campos?.imagem_alt }),
+      );
+    }
+
+    /* E MEXER SÓ NA DESCRIÇÃO continua sendo possível: editar a legenda de uma
+       capa que já está gravada não fala de `imagem_url`, e exigir a capa no
+       pedido faria a tela ter de reenviá-la para corrigir uma vírgula. */
+    {
+      const r = lerCorpo(
+        { ...base, imagem_alt: "Só a descrição mudou" },
+        { criando: true },
+      );
+      afirmar(
+        "e mexer SÓ na descrição não exige reenviar a capa — o pedido que não fala dela preserva o que está gravado",
+        r.ok === true &&
+          r.campos.imagem_url === undefined &&
+          r.campos.imagem_alt === "Só a descrição mudou",
+        JSON.stringify({ url: r.campos?.imagem_url, alt: r.campos?.imagem_alt }),
+      );
+    }
+  }
   /* `estado` SAIU dos ignorados na Story 2.8 — e "aceito" aqui não é o mesmo
      que aceito para os metadados da 2.6. A data é dado que o Autor preenche e
      que o servidor grava como veio; o Estado é PEDIDO de transição, conferido
@@ -2341,8 +2594,22 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          filtro ausente no PostgREST não é um erro: é um `DELETE` na tabela
          inteira. Acrescentar uma terceira remoção exige editar esta lista, que
          é o ponto. */
-      "api/_nucleo/acesso.js": ["excluirPost", "excluirCategoria"],
-      "api/_nucleo/salvarPost.js": [],
+      /* Story 3.1: `removerArquivoDaCapa` é a TERCEIRA remoção do transporte, e
+         a primeira que não é do banco — ela apaga um objeto do Storage com a
+         chave de serviço, que ignora política. Por isso ela tem a guarda
+         equivalente à do `DELETE` sem filtro: `ehCaminhoDeCapa`, lista de
+         PERMISSÃO do domínio, porque o caminho vem de um endereço gravado e um
+         caminho torto apagaria coisa que ninguém pediu. */
+      "api/_nucleo/acesso.js": [
+        "excluirPost",
+        "excluirCategoria",
+        "removerArquivoDaCapa",
+      ],
+      /* E o núcleo passou a ter remoção: `removerCapaAnterior` decide QUAL
+         arquivo sai e QUANDO — sempre depois de a linha ser gravada ou
+         apagada —, e chama o transporte. Ela nunca desfaz nada por falhar: o
+         resíduo é nomeado, e é a única coisa que sobra. */
+      "api/_nucleo/salvarPost.js": ["removerCapaAnterior", "removerArquivoDaCapa"],
     });
 
     /** Os nomes de função de remoção que um arquivo declara ou chama. */
@@ -3337,9 +3604,25 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
       destaque: false,
       autor_id: CONTA,
       autor_nome: "Autor do Perfil",
+      /* A CAPA (Story 3.1). A linha de mentira tem capa porque é dela que o
+         caminho no bucket é derivado quando o Post é excluído — sem ela, a
+         remoção do arquivo não teria o que remover e a asserção passaria por
+         vacuidade. O endereço é montado pelo DOMÍNIO, sobre a URL do servidor
+         local: escrevê-lo à mão faria a asserção provar o formato que ela
+         mesma inventou. */
+      imagem_url: null,
+      imagem_alt: "A capa de teste",
       criado_em: "2026-01-01T00:00:00.000Z",
       atualizado_em: "2026-01-01T00:00:00.000Z",
     };
+
+    /* O que a rota de Storage responde. Trocado pelas asserções que provam
+       que falha na remoção NÃO desfaz nem impede a exclusão. */
+    let respostaDoStorage = [200, { message: "removido" }];
+    /* E a falha da gravação de TAGS, para provar que ela não rouba a remoção
+       da capa anterior — a ordem entre as duas é o conserto de um resíduo que
+       nascia sem nome. */
+    let falharAoDefinirTags = false;
 
     const servidor = createServer((req, res) => {
       let corpoBruto = "";
@@ -3358,17 +3641,66 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
         if (req.url.startsWith("/rest/v1/perfis")) {
           return responder(200, [{ id: CONTA, nome_exibicao: "Autor do Perfil" }]);
         }
+        /* ── O SELECT= É RESPEITADO (Story 3.1, revisão) ────────────────
+             O servidor de mentira devolvia a linha INTEIRA em toda resposta,
+             então `COLUNAS_DO_POST` não estava presa por nada: tirar
+             `imagem_url` da lista passava a suíte verde e, contra o PostgREST
+             de verdade, fazia TODO salvamento apagar a capa que acabou de ser
+             mantida (a linha gravada volta sem o campo, `atual` vira `null`, e
+             a remoção da anterior dispara). Recortar a resposta pelas colunas
+             pedidas é uma função, e transforma a família inteira de asserções
+             de lista de colunas em observação real. */
+        const recortar = (linhas) => {
+          const pedido = /[?&]select=([^&]*)/.exec(req.url)?.[1];
+          if (!pedido) return linhas;
+          const colunas = decodeURIComponent(pedido)
+            .split(",")
+            .map((c) => c.trim())
+            .filter((c) => c !== "" && c !== "*");
+          if (colunas.length === 0) return linhas;
+          return linhas.map((linha) =>
+            Object.fromEntries(
+              colunas
+                .filter((c) => Object.hasOwn(linha, c))
+                .map((c) => [c, linha[c]]),
+            ),
+          );
+        };
         if (req.url.startsWith("/rest/v1/posts")) {
           /* Consulta por ENDEREÇO devolve vazio: é a pergunta "alguém já usa
              este slug?", e responder que sim faria toda gravação virar conflito
              antes de o despacho ser observado. Consulta por id devolve a linha,
              que é o Post existente que destacar e excluir alcançam. */
           if (req.method === "GET") {
-            return responder(200, req.url.includes("slug=eq.") ? [] : [linhaDoPost]);
+            return responder(
+              200,
+              req.url.includes("slug=eq.") ? [] : recortar([linhaDoPost]),
+            );
           }
-          if (req.method === "POST") return responder(201, [linhaDoPost]);
-          if (req.method === "PATCH") return responder(200, [{ ...linhaDoPost, ...corpo }]);
-          if (req.method === "DELETE") return responder(200, [linhaDoPost]);
+          if (req.method === "POST") return responder(201, recortar([linhaDoPost]));
+          if (req.method === "PATCH") {
+            return responder(200, recortar([{ ...linhaDoPost, ...corpo }]));
+          }
+          if (req.method === "DELETE") return responder(200, recortar([linhaDoPost]));
+        }
+        /* ── A ROTA DO STORAGE (Story 3.1) ──────────────────────────────
+           Ela entra no Supabase de mentira pela mesma razão que as outras: a
+           remoção do arquivo é comportamento, e comportamento se observa. Sem
+           ela, "excluir o Post remove o arquivo" só seria conferível lendo o
+           código — e trocar a ordem, ou não chamar nada, passaria verde.
+
+           `respostaDoStorage` é o que o teste QUER que o Storage responda:
+           por padrão sucesso, e a falha é armada para provar que ela não
+           impede a exclusão. */
+        if (req.url.startsWith("/storage/v1/object/")) {
+          const [status, dados] = respostaDoStorage;
+          return responder(status, dados);
+        }
+        if (req.url.startsWith("/rest/v1/rpc/definir_tags_do_post")) {
+          if (falharAoDefinirTags) {
+            return responder(500, { code: "XX000", message: "as tags nao entraram" });
+          }
+          return responder(200, []);
         }
         if (req.url.startsWith("/rest/v1/")) return responder(200, []);
         return responder(404, { message: "rota de mentira não prevista" });
@@ -3475,6 +3807,395 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
           `${salvou.status} / ${destacou.status} / ${excluiu.status}`,
         );
 
+        /* ─── O SERVIDOR DE MENTIRA RESPEITA `select=`, e isso é AFIRMADO ──
+           O recorte é o que prende as listas de coluna: sem ele, tirar
+           `imagem_url` de `COLUNAS_DO_POST` passava verde e, contra o
+           PostgREST de verdade, fazia TODO salvamento apagar a capa que
+           acabou de ser mantida.
+
+           Mas o recorte é ANDAIME, e andaime sem asserção é andaime que
+           alguém desliga sem perceber — e aí a família inteira de asserções
+           de coluna volta a não provar nada, em silêncio. Esta pergunta ao
+           servidor de mentira é o autoteste dele. */
+        {
+          const resposta = await fetch(
+            `${AMBIENTE_LOCAL.SUPABASE_URL}/rest/v1/posts?select=id,slug&id=eq.${ID}`,
+          );
+          const linhas = await resposta.json();
+          const completa = await fetch(
+            `${AMBIENTE_LOCAL.SUPABASE_URL}/rest/v1/posts?id=eq.${ID}`,
+          ).then((r) => r.json());
+          afirmar(
+            "o Supabase de mentira RECORTA a resposta pelas colunas de `select=` — é isso que prende as listas de coluna",
+            mesmoConjunto(Object.keys(linhas[0] ?? {}), ["id", "slug"]) &&
+              Object.keys(completa[0] ?? {}).length > 5,
+            `com select: ${Object.keys(linhas[0] ?? {}).join(",")} | sem select: ${Object.keys(completa[0] ?? {}).length} colunas`,
+          );
+          recebidos.length = 0;
+        }
+        /* ─── A CAPA, PELO SUPABASE DE MENTIRA (Story 3.1) ────────────────
+           Quatro coisas que só se observam com o servidor local: o que chega
+           ao banco no corpo do comando, o que chega ao Storage, a ORDEM entre
+           os dois, e o que acontece quando a remoção falha. */
+
+        const BASE_LOCAL = `http://127.0.0.1:${porta}`;
+        const CAMINHO_DA_CAPA = caminhoDaCapa(
+          "image/png",
+          "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+        );
+        const ENDERECO_DA_CAPA = enderecoPublicoDaCapa(BASE_LOCAL, CAMINHO_DA_CAPA);
+
+        /* — O CORPO QUE CHEGA AO BANCO LEVA ENDEREÇO, NUNCA CONTEÚDO — */
+        recebidos.length = 0;
+        respostaDoStorage = [200, { message: "removido" }];
+        linhaDoPost.imagem_url = null;
+        const comCapa = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            slug: "um-post-com-capa",
+            titulo: "Um post com capa",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: ENDERECO_DA_CAPA,
+            imagem_alt: "Uma descrição da capa",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const insercao = naTabela().find((r) => r.metodo === "POST");
+        afirmar(
+          "o corpo que chega ao banco leva o ENDEREÇO da capa e a descrição, e mais nada de arquivo",
+          comCapa.corpo?.ok === true &&
+            insercao !== undefined &&
+            insercao.corpo?.imagem_url === ENDERECO_DA_CAPA &&
+            insercao.corpo?.imagem_alt === "Uma descrição da capa",
+          `HTTP ${comCapa.status} | imagem_url no comando: ${JSON.stringify(insercao?.corpo?.imagem_url)}`,
+        );
+        afirmar(
+          "e NENHUM comando ao banco carrega conteúdo de arquivo, em codificação nenhuma",
+          !recebidos.some((r) =>
+            /data:[a-z/+.-]*;?base64,|blob:|filesystem:/i.test(JSON.stringify(r.corpo ?? "")),
+          ),
+          JSON.stringify(recebidos.map((r) => r.corpo)).slice(0, 200),
+        );
+
+        /* — CONTEÚDO DE ARQUIVO NA COLUNA É RECUSADO ANTES DO BANCO — */
+        recebidos.length = 0;
+        const comBase64 = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            slug: "um-post-com-base64",
+            titulo: "Um post com base64",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA",
+            imagem_alt: "Uma descrição",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "conteúdo de arquivo na coluna da capa é recusado pela função, SEM nenhuma ida ao banco",
+          comBase64.status === CODIGO_HTTP[ERRO_DADOS_INVALIDOS] &&
+            comBase64.corpo?.ok === false &&
+            !naTabela().some((r) => r.metodo === "POST"),
+          `HTTP ${comBase64.status} | comandos: ${naTabela().map((r) => r.metodo).join(", ") || "nenhum"}`,
+        );
+
+        /* — E CAPA DE OUTRO DOMÍNIO TAMBÉM: é a Story 3.2 — */
+        recebidos.length = 0;
+        const deFora = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            slug: "um-post-com-capa-de-fora",
+            titulo: "Um post com capa de fora",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: "https://cdn.exemplo.com/foto.png",
+            imagem_alt: "Uma descrição",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "capa de outro domínio é recusada — o endereço tem forma válida, e a ORIGEM é que não é aceita ainda",
+          deFora.status === CODIGO_HTTP[ERRO_DADOS_INVALIDOS] &&
+            !naTabela().some((r) => r.metodo === "POST") &&
+            enderecoDeImagemPermitido("https://cdn.exemplo.com/foto.png") === true,
+          `HTTP ${deFora.status} | comandos: ${naTabela().map((r) => r.metodo).join(", ") || "nenhum"}`,
+        );
+
+        /* — TROCAR A CAPA REMOVE A ANTERIOR, DEPOIS DE GRAVAR — */
+        const CAMINHO_ANTIGO = caminhoDaCapa(
+          "image/png",
+          "11112222-3333-4444-5555-666677778888",
+        );
+        const ENDERECO_ANTIGO = enderecoPublicoDaCapa(BASE_LOCAL, CAMINHO_ANTIGO);
+        recebidos.length = 0;
+        linhaDoPost.imagem_url = ENDERECO_ANTIGO;
+        const trocou = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            id: ID,
+            slug: "um-post-de-teste",
+            titulo: "Um post de teste",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: ENDERECO_DA_CAPA,
+            imagem_alt: "A capa nova",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const noStorage = recebidos.filter((r) => r.url.startsWith("/storage/v1/object/"));
+        const indiceDoPatch = recebidos.findIndex(
+          (r) => r.metodo === "PATCH" && r.url.startsWith("/rest/v1/posts"),
+        );
+        const indiceDaRemocao = recebidos.findIndex((r) =>
+          r.url.startsWith("/storage/v1/object/"),
+        );
+        afirmar(
+          "trocar a capa REMOVE o arquivo anterior do Storage — e remove o anterior, não o novo",
+          trocou.corpo?.ok === true &&
+            noStorage.length === 1 &&
+            noStorage[0].metodo === "DELETE" &&
+            noStorage[0].url.includes(CAMINHO_ANTIGO) &&
+            !noStorage[0].url.includes(CAMINHO_DA_CAPA),
+          `chamadas ao Storage: ${noStorage.map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+        );
+        afirmar(
+          "e a ORDEM é a que não perde nada: a linha é gravada ANTES de o arquivo sair",
+          indiceDoPatch >= 0 && indiceDaRemocao > indiceDoPatch,
+          `gravação em ${indiceDoPatch}, remoção em ${indiceDaRemocao}`,
+        );
+
+        /* — SALVAR SEM MEXER NA CAPA NÃO REMOVE NADA — */
+        recebidos.length = 0;
+        linhaDoPost.imagem_url = ENDERECO_DA_CAPA;
+        await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            id: ID,
+            slug: "um-post-de-teste",
+            titulo: "Um post de teste",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: ENDERECO_DA_CAPA,
+            imagem_alt: "A capa nova",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "salvar sem trocar a capa NÃO remove arquivo nenhum — apagar aqui apagaria a capa que acabou de ser gravada",
+          !recebidos.some((r) => r.url.startsWith("/storage/v1/object/")),
+          recebidos
+            .filter((r) => r.url.startsWith("/storage/v1/object/"))
+            .map((r) => r.url)
+            .join(", "),
+        );
+
+        /* — EXCLUIR O POST REMOVE O ARQUIVO, DEPOIS DE A LINHA SAIR — */
+        recebidos.length = 0;
+        linhaDoPost.imagem_url = ENDERECO_DA_CAPA;
+        const excluiuComCapa = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        const remocaoNaExclusao = recebidos.filter((r) =>
+          r.url.startsWith("/storage/v1/object/"),
+        );
+        const indiceDoDelete = recebidos.findIndex(
+          (r) => r.metodo === "DELETE" && r.url.startsWith("/rest/v1/posts"),
+        );
+        const indiceDoArquivo = recebidos.findIndex((r) =>
+          r.url.startsWith("/storage/v1/object/"),
+        );
+        afirmar(
+          "excluir o Post REMOVE o arquivo da capa do Storage",
+          excluiuComCapa.corpo?.ok === true &&
+            remocaoNaExclusao.length === 1 &&
+            remocaoNaExclusao[0].metodo === "DELETE" &&
+            remocaoNaExclusao[0].url.includes(CAMINHO_DA_CAPA),
+          `chamadas ao Storage: ${remocaoNaExclusao.map((r) => `${r.metodo} ${r.url}`).join(", ") || "nenhuma"}`,
+        );
+        afirmar(
+          "e a LINHA sai antes do arquivo — Post apontando para arquivo que não existe é pior que arquivo órfão",
+          indiceDoDelete >= 0 && indiceDoArquivo > indiceDoDelete,
+          `linha em ${indiceDoDelete}, arquivo em ${indiceDoArquivo}`,
+        );
+
+        /* — E FALHA AO REMOVER NÃO IMPEDE NEM DESFAZ A EXCLUSÃO — */
+        recebidos.length = 0;
+        respostaDoStorage = [500, { message: "o Storage caiu" }];
+        linhaDoPost.imagem_url = ENDERECO_DA_CAPA;
+        const excluiuComFalha = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "falha ao remover o arquivo NÃO impede a exclusão do Post — a exclusão é a operação autoritativa",
+          excluiuComFalha.status === 200 &&
+            excluiuComFalha.corpo?.ok === true &&
+            excluiuComFalha.corpo.dados.operacao === OPERACAO_EXCLUIR,
+          `HTTP ${excluiuComFalha.status} ${JSON.stringify(excluiuComFalha.corpo).slice(0, 200)}`,
+        );
+        afirmar(
+          "e o resíduo é NOMEADO: a resposta diz qual arquivo ficou, e o log do servidor registra o motivo",
+          excluiuComFalha.corpo?.dados?.residuo?.arquivo === CAMINHO_DA_CAPA &&
+            excluiuComFalha.log.some(
+              (l) => l.includes(CAMINHO_DA_CAPA) && /resíduo/i.test(l),
+            ),
+          `resíduo: ${JSON.stringify(excluiuComFalha.corpo?.dados?.residuo)} | log: ${excluiuComFalha.log.join(" | ").slice(0, 200)}`,
+        );
+        /* E O MOTIVO NÃO VIAJA. É a mesma regra que `respostaDeErro` aplica ao
+           `detalhe`: texto do Storage, SQLSTATE e nome de restrição são
+           diagnóstico de servidor, e a resposta leva só o que a tela usaria. */
+        afirmar(
+          "e o MOTIVO fica no log e não na resposta — detalhe interno não viaja, nem no caminho de sucesso",
+          mesmoConjunto(Object.keys(excluiuComFalha.corpo?.dados?.residuo ?? {}), ["arquivo"]) &&
+            excluiuComFalha.log.join(" ").length > 0,
+          JSON.stringify(excluiuComFalha.corpo?.dados?.residuo),
+        );
+
+        /* — E NÃO TENTA REMOVER O QUE NÃO É NOSSO — */
+        recebidos.length = 0;
+        respostaDoStorage = [200, { message: "removido" }];
+        linhaDoPost.imagem_url = "https://cdn.exemplo.com/foto.png";
+        const excluiuDeFora = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "capa de outro domínio não gera remoção nenhuma no nosso bucket — nem resíduo",
+          excluiuDeFora.corpo?.ok === true &&
+            !recebidos.some((r) => r.url.startsWith("/storage/v1/object/")) &&
+            excluiuDeFora.corpo?.dados?.residuo === undefined,
+          `chamadas ao Storage: ${recebidos.filter((r) => r.url.startsWith("/storage/v1/object/")).length}`,
+        );
+        linhaDoPost.imagem_url = null;
+
+        /* — (22) FALHA NA REMOÇÃO AO TROCAR A CAPA: a outra metade — */
+        //
+        // A simetria faltava: só a exclusão exercitava o caminho da falha, e a
+        // TROCA — que é o caso comum — não. O resíduo dela nasce de outro
+        // lugar do núcleo, e um `return` mal posto ali deixaria a capa anterior
+        // órfã sem nada acusar.
+        recebidos.length = 0;
+        respostaDoStorage = [500, { message: "o Storage caiu" }];
+        linhaDoPost.imagem_url = ENDERECO_ANTIGO;
+        const trocouComFalha = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            id: ID,
+            slug: "um-post-de-teste",
+            titulo: "Um post de teste",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: ENDERECO_DA_CAPA,
+            imagem_alt: "A capa nova",
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "falha ao remover a capa anterior NÃO desfaz o salvamento — a gravação é a operação autoritativa",
+          trocouComFalha.status === 200 &&
+            trocouComFalha.corpo?.ok === true &&
+            trocouComFalha.corpo.dados.post?.imagem_url === ENDERECO_DA_CAPA,
+          `HTTP ${trocouComFalha.status} ${JSON.stringify(trocouComFalha.corpo?.erro ?? "")}`,
+        );
+        afirmar(
+          "e o resíduo da TROCA também é nomeado, com o caminho da capa ANTERIOR",
+          trocouComFalha.corpo?.dados?.residuo?.arquivo === CAMINHO_ANTIGO &&
+            trocouComFalha.log.some((l) => l.includes(CAMINHO_ANTIGO)),
+          `resíduo: ${JSON.stringify(trocouComFalha.corpo?.dados?.residuo)}`,
+        );
+
+        /* — (5) E AS TAGS NÃO PODEM ROUBAR A REMOÇÃO — */
+        //
+        // `gravarTags` retornava ANTES de `removerCapaAnterior`, então uma
+        // falha ao gravar tags depois de a linha já ter o endereço novo
+        // deixava a capa anterior órfã PARA SEMPRE: nenhum salvamento futuro
+        // teria como saber qual arquivo sobrou.
+        recebidos.length = 0;
+        respostaDoStorage = [200, { message: "removido" }];
+        falharAoDefinirTags = true;
+        linhaDoPost.imagem_url = ENDERECO_ANTIGO;
+        const comTagsQuebradas = await dirigir({
+          corpo: {
+            operacao: OPERACAO_SALVAR,
+            id: ID,
+            slug: "um-post-de-teste",
+            titulo: "Um post de teste",
+            resumo: "Resumo",
+            conteudo: DOCUMENTO_COMPLETO,
+            imagem_url: ENDERECO_DA_CAPA,
+            imagem_alt: "A capa nova",
+            tags: ["uma"],
+          },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        falharAoDefinirTags = false;
+        afirmar(
+          "falha ao gravar as TAGS não impede a remoção da capa anterior — senão o arquivo ficaria órfão para sempre",
+          comTagsQuebradas.corpo?.ok === false &&
+            recebidos.some(
+              (r) =>
+                r.url.startsWith("/storage/v1/object/") &&
+                r.url.includes(CAMINHO_ANTIGO),
+            ),
+          `chamadas ao Storage: ${recebidos.filter((r) => r.url.startsWith("/storage/v1/object/")).length}`,
+        );
+
+        /* — (23) OS DOIS RAMOS DECLARADOS E NUNCA EXERCIDOS — */
+        //
+        // "404 é sucesso" e "caminho inválido é recusado no transporte" eram
+        // prosa: nenhum teste os alcançava. Ramo declarado e nunca exercido é
+        // ramo que ninguém sabe se funciona.
+        for (const [rotulo, resposta] of [
+          ["404 puro", [404, { message: "Object not found" }]],
+          ["400 com not_found no corpo", [400, { statusCode: "404", error: "not_found", message: "Object not found" }]],
+        ]) {
+          recebidos.length = 0;
+          respostaDoStorage = resposta;
+          linhaDoPost.imagem_url = ENDERECO_DA_CAPA;
+          const jaAusente = await dirigir({
+            corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+            cabecalhos: COMO_SESSAO,
+            ambiente: AMBIENTE_LOCAL,
+          });
+          afirmar(
+            `arquivo que já não estava lá (${rotulo}) NÃO vira resíduo — ausência é o estado desejado`,
+            jaAusente.corpo?.ok === true &&
+              jaAusente.corpo?.dados?.residuo === undefined,
+            `resíduo: ${JSON.stringify(jaAusente.corpo?.dados?.residuo)}`,
+          );
+        }
+
+        /* E `not_found` DENTRO de uma mensagem qualquer não é veredito: a
+           comparação é por igualdade com o vocabulário, senão qualquer recusa
+           que mencionasse a palavra faria o resíduo desaparecer em silêncio. */
+        recebidos.length = 0;
+        respostaDoStorage = [400, { message: "bucket not_found is not the reason" }];
+        linhaDoPost.imagem_url = ENDERECO_DA_CAPA;
+        const mencaoSolta = await dirigir({
+          corpo: { operacao: OPERACAO_EXCLUIR, id: ID },
+          cabecalhos: COMO_SESSAO,
+          ambiente: AMBIENTE_LOCAL,
+        });
+        afirmar(
+          "e `not_found` dentro de uma mensagem qualquer NÃO conta como ausência — a comparação é por igualdade, não por contenção",
+          mencaoSolta.corpo?.dados?.residuo?.arquivo === CAMINHO_DA_CAPA,
+          `resíduo: ${JSON.stringify(mencaoSolta.corpo?.dados?.residuo)}`,
+        );
+
+        respostaDoStorage = [200, { message: "removido" }];
+        linhaDoPost.imagem_url = null;
         /* — E O `detalhe` NUNCA VIAJA NA RESPOSTA — */
         const recusado = await dirigir({
           corpo: { operacao: OPERACAO_EXCLUIR, id: "nao-e-uuid" },
@@ -3693,6 +4414,585 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
   }
 }
 
+/* ─── (c8) O envio do arquivo (Story 3.1) ────────────────────────────────── */
+
+secao("(c8) o envio da capa: recusa antes da rede, e endereço na volta");
+
+{
+  const envio = await import(
+    new URL("../src/data/blog/arquivos.js", import.meta.url).href
+  );
+
+  /* ── O dublê do cliente ────────────────────────────────────────────────
+     Ele REGISTRA cada coisa que aconteceria de verdade: obter cliente e
+     mandar o arquivo. É o registro que transforma "recusa antes da rede" em
+     propriedade observável — sem ele, uma recusa que acontecesse DEPOIS do
+     envio devolveria o mesmo erro e a asserção passaria. */
+  const criarDuble = () => {
+    const registro = { clientes: 0, envios: [], caminho: null };
+    const cliente = {
+      storage: {
+        from: (balde) => ({
+          upload: async (caminho, arquivo, opcoes) => {
+            registro.envios.push({ balde, caminho, tamanho: arquivo.size, opcoes });
+            registro.caminho = caminho;
+            return { data: { path: caminho }, error: null };
+          },
+          getPublicUrl: (caminho) => ({
+            data: {
+              publicUrl: `https://x.supabase.co/storage/v1/object/public/${balde}/${caminho}`,
+            },
+          }),
+        }),
+      },
+    };
+    return {
+      registro,
+      obterCliente: async () => {
+        registro.clientes += 1;
+        return { ok: true, dados: cliente };
+      },
+    };
+  };
+
+  /** Um arquivo de mentira que se comporta como `File` no que importa. */
+  const arquivo = (tamanho, tipo, bytes) => ({
+    size: tamanho,
+    type: tipo,
+    slice: () => ({
+      arrayBuffer: async () => Uint8Array.from(bytes ?? []).buffer,
+    }),
+  });
+
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const JPEG = [0xff, 0xd8, 0xff, 0xe0];
+  const WEBP = [0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50];
+  const PDF = [0x25, 0x50, 0x44, 0x46];
+
+  /* ── ACIMA DO LIMITE: recusado, DIZENDO O LIMITE ────────────────────── */
+  {
+    const { registro, obterCliente } = criarDuble();
+    const r = await envio.enviarImagemDeCapa(
+      arquivo(TAMANHO_MAXIMO_DA_IMAGEM + 1, "image/png", PNG),
+      { obterCliente },
+    );
+    afirmar(
+      "arquivo acima do limite é recusado ANTES de qualquer rede — nem o cliente é obtido",
+      r.ok === false && registro.clientes === 0 && registro.envios.length === 0,
+      `clientes: ${registro.clientes} | envios: ${registro.envios.length}`,
+    );
+    /* A FRASE DIZ O LIMITE. Não "arquivo grande demais": o critério de
+       aceite pede o número, e a asserção o procura na frase em vez de
+       conferir que a frase existe. */
+    afirmar(
+      "e a recusa DIZ O LIMITE, no formato que a pessoa compara com o próprio arquivo",
+      String(r.erro?.mensagem ?? "").includes(formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM)),
+      r.erro?.mensagem ?? "(sem mensagem)",
+    );
+    afirmar(
+      "e ela é `dados_invalidos`, e não `inesperado` — o arquivo não serve, e isso é diferente de defeito",
+      r.erro?.tipo === "dados_invalidos",
+      String(r.erro?.tipo),
+    );
+  }
+
+  /* ── ESPÉCIE FORA DO VOCABULÁRIO: recusada dizendo O QUE SE ACEITA ──── */
+  {
+    const { registro, obterCliente } = criarDuble();
+    const r = await envio.enviarImagemDeCapa(arquivo(1000, "application/pdf", PDF), {
+      obterCliente,
+    });
+    afirmar(
+      "espécie fora do vocabulário é recusada antes da rede",
+      r.ok === false && registro.clientes === 0 && registro.envios.length === 0,
+      `clientes: ${registro.clientes} | envios: ${registro.envios.length}`,
+    );
+    afirmar(
+      "e a recusa nomeia TODAS as espécies aceitas — não a que veio",
+      ESPECIES_DE_IMAGEM.every((e) =>
+        String(r.erro?.mensagem ?? "").includes(e.rotulo),
+      ),
+      r.erro?.mensagem ?? "(sem mensagem)",
+    );
+  }
+
+  /* ── ARQUIVO QUE MENTE A ESPÉCIE: quem decide é o CONTEÚDO ──────────── */
+  {
+    const { registro, obterCliente } = criarDuble();
+    /* Um PDF renomeado para `.png`. O sistema operacional entrega
+       `type: "image/png"` a partir da extensão, e é exatamente por isso que o
+       tipo declarado não pode ser a palavra final. */
+    const r = await envio.enviarImagemDeCapa(arquivo(1000, "image/png", PDF), {
+      obterCliente,
+    });
+    afirmar(
+      "arquivo que mente a espécie é recusado — quem decide é a assinatura, não o nome nem o tipo declarado",
+      r.ok === false && registro.envios.length === 0,
+      `envios: ${registro.envios.length} | ${r.erro?.mensagem ?? ""}`,
+    );
+    /* CONTROLE NEGATIVO DO DETECTOR: sem a assinatura, o mesmo arquivo
+       PASSA. É o que prova que a recusa acima veio da conferência de
+       conteúdo, e não de qualquer outra coisa no caminho. */
+    afirmar(
+      "e sem a assinatura o mesmo arquivo passaria — a recusa vem da conferência de conteúdo, e de nada mais",
+      problemaNoArquivo({ tamanho: 1000, tipo: "image/png" }) === null &&
+      problemaNoArquivo({ tamanho: 1000, tipo: "image/png", assinatura: PDF }) !== null,
+      String(problemaNoArquivo({ tamanho: 1000, tipo: "image/png" })),
+    );
+  }
+
+  /* ── ARQUIVO VAZIO ─────────────────────────────────────────────────── */
+  {
+    const { registro, obterCliente } = criarDuble();
+    const r = await envio.enviarImagemDeCapa(arquivo(0, "image/png", []), { obterCliente });
+    afirmar(
+      "arquivo vazio é recusado antes da rede — 0 B não é imagem",
+      r.ok === false && registro.envios.length === 0,
+      `envios: ${registro.envios.length}`,
+    );
+  }
+
+  /* ── AS TRÊS ESPÉCIES ACEITAS SOBEM, E O QUE VOLTA É ENDEREÇO ────────── */
+  for (const [rotulo, tipo, bytes] of [
+    ["PNG", "image/png", PNG],
+    ["JPEG", "image/jpeg", JPEG],
+    ["WebP", "image/webp", WEBP],
+  ]) {
+    const { registro, obterCliente } = criarDuble();
+    const r = await envio.enviarImagemDeCapa(arquivo(1000, tipo, bytes), {
+      obterCliente,
+      novoIdentificador: () => "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+    });
+    afirmar(
+      `${rotulo} dentro do limite é enviado, e o que volta é o ENDEREÇO público absoluto`,
+      r.ok === true &&
+        registro.envios.length === 1 &&
+        registro.envios[0].balde === BUCKET_DAS_IMAGENS &&
+        ehCaminhoDeCapa(r.dados.caminho) &&
+        r.dados.url ===
+          enderecoPublicoDaCapa("https://x.supabase.co", r.dados.caminho),
+      `${JSON.stringify(r.erro ?? r.dados)} | envios: ${registro.envios.length}`,
+    );
+    afirmar(
+      `e o envio do ${rotulo} não sobrescreve nada: \`upsert\` é falso e o nome é próprio`,
+      registro.envios[0]?.opcoes?.upsert === false &&
+        registro.envios[0]?.opcoes?.contentType === tipo,
+      JSON.stringify(registro.envios[0]?.opcoes),
+    );
+  }
+
+  /* ── O QUE VOLTA É ACEITÁVEL PELA COLUNA — as duas pontas se encontram ─
+     Sem esta asserção, o envio poderia devolver um endereço que o servidor
+     recusaria em seguida: a miniatura apareceria e o salvamento falharia por
+     um motivo que o Autor não causou. */
+  {
+    const { obterCliente } = criarDuble();
+    const r = await envio.enviarImagemDeCapa(arquivo(1000, "image/png", PNG), {
+      obterCliente,
+      novoIdentificador: () => "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+    });
+    afirmar(
+      "o endereço que o envio devolve é aceitável pela regra da COLUNA — as duas pontas se encontram",
+      r.ok === true &&
+        enderecoDeImagemPermitido(r.dados.url) === true &&
+        caminhoDaCapaNoEndereco("https://x.supabase.co", r.dados.url) === r.dados.caminho,
+      JSON.stringify(r.dados ?? r.erro),
+    );
+  }
+
+  /* ── O NOME DE ARQUIVO DE RESERVA PRECISA CABER NO FORMATO ──────────────
+     Quando o runtime não tem `crypto.randomUUID` — jsdom antigo, navegador
+     fora de contexto seguro — o envio monta o nome sozinho. A versão anterior
+     usava `Math.random().toString(36).slice(2, 10)`, que devolve MENOS de oito
+     caracteres com frequência nada desprezível (`(0.5).toString(36)` é `"0.i"`)
+     e `""` quando o sorteio dá zero: o nome saía curto, `caminhoDaCapa` o
+     reprovava, e o envio morria em `inesperado` — o problema grande que o
+     comentário de lá dizia estar evitando.
+
+     Duzentas amostras: com o defeito antigo, a chance de nenhuma sair curta é
+     desprezível. E o gerador roda SEM o `randomUUID` disponível, senão o ramo
+     de reserva nunca é o exercitado. */
+  {
+    const cryptoOriginal = globalThis.crypto;
+    const semRandomUUID = {};
+    for (const chave of Object.getOwnPropertyNames(Object.getPrototypeOf(cryptoOriginal ?? {}))) {
+      if (chave !== "randomUUID" && chave !== "constructor") {
+        try {
+          semRandomUUID[chave] = cryptoOriginal[chave]?.bind?.(cryptoOriginal);
+        } catch {
+          /* propriedade que não dá para copiar não faz falta aqui */
+        }
+      }
+    }
+    Object.defineProperty(globalThis, "crypto", {
+      value: semRandomUUID,
+      configurable: true,
+      writable: true,
+    });
+
+    const caminhos = [];
+    try {
+      for (let i = 0; i < 200; i += 1) {
+        const { registro, obterCliente } = criarDuble();
+        const r = await envio.enviarImagemDeCapa(arquivo(1000, "image/png", PNG), {
+          obterCliente,
+        });
+        caminhos.push(r.ok ? r.dados.caminho : `RECUSADO: ${r.erro.tipo}`);
+        if (!r.ok) break;
+        void registro;
+      }
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        value: cryptoOriginal,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    const tortos = caminhos.filter((c) => !ehCaminhoDeCapa(c));
+    afirmar(
+      "sem `crypto.randomUUID`, o nome de reserva SEMPRE cabe no formato — 200 amostras, nenhuma curta",
+      caminhos.length === 200 && tortos.length === 0,
+      `amostras: ${caminhos.length} | tortas: ${tortos.slice(0, 3).join(" | ")}`,
+    );
+    afirmar(
+      "e ele não se repete — nome que colide sobrescreveria a capa de outro Post, e o envio não faz `upsert`",
+      new Set(caminhos).size === caminhos.length,
+      `distintos: ${new Set(caminhos).size} de ${caminhos.length}`,
+    );
+  }
+  /* ── OS RAMOS DE ERRO DO ENVIO, QUE ERAM CÓDIGO MORTO ─────────────────
+     O dublê sempre devolvia envio bem-sucedido, então `resposta?.error`
+     inteiro — sessão vencida, rede fora, exceção — nunca rodava. Ramo que a
+     verificação não alcança é ramo que ninguém sabe se funciona, e estes
+     decidem justamente o que a pessoa lê quando o envio falha. */
+  {
+    /** Um cliente que responde o erro que o teste pedir. */
+    const comErro = (erro) => ({
+      ok: true,
+      dados: {
+        storage: {
+          from: () => ({
+            upload: async () => ({ data: null, error: erro }),
+            getPublicUrl: () => ({ data: { publicUrl: "" } }),
+          }),
+        },
+      },
+    });
+    const arquivoBom = {
+      size: 1000,
+      type: "image/png",
+      slice: () => ({
+        arrayBuffer: async () => Uint8Array.from(PNG).buffer,
+      }),
+    };
+
+    /* SESSÃO VENCIDA. A política do bucket recusa quem não é `authenticated`, e
+       o Storage responde violação de RLS. A frase genérica da leitura ("Esta
+       leitura exige uma sessão válida") fala de uma consulta que ninguém fez. */
+    {
+      const r = await envio.enviarImagemDeCapa(arquivoBom, {
+        obterCliente: async () =>
+          comErro({
+            message: "new row violates row-level security policy",
+            status: 403,
+          }),
+      });
+      afirmar(
+        "sessão vencida no envio vira `permissao`, e a frase manda ENTRAR DE NOVO — não falar de uma leitura que ninguém fez",
+        r.ok === false &&
+          r.erro.tipo === "permissao" &&
+          /entre no painel/i.test(r.erro.mensagem) &&
+          /envi/i.test(r.erro.mensagem),
+        `${r.erro?.tipo}: ${r.erro?.mensagem}`,
+      );
+    }
+
+    /* REDE FORA. Nada foi decidido pelo servidor, e a classificação precisa
+       dizer isso — mandar "entre de novo" a quem não tem o que consertar é
+       conselho errado. */
+    {
+      const r = await envio.enviarImagemDeCapa(arquivoBom, {
+        obterCliente: async () =>
+          comErro({ message: "Failed to fetch", name: "TypeError" }),
+      });
+      afirmar(
+        "falha de rede no envio vira `rede`, e não `permissao` — a distinção é o que separa “tente de novo” de “entre de novo”",
+        r.ok === false && r.erro.tipo === "rede",
+        `${r.erro?.tipo}: ${r.erro?.mensagem}`,
+      );
+    }
+
+    /* EXCEÇÃO QUE SOBE DO CLIENTE. Ela não pode escapar: uma exceção daqui
+       derrubaria o Editor inteiro para o limite de erro. */
+    {
+      const r = await envio.enviarImagemDeCapa(arquivoBom, {
+        obterCliente: async () => ({
+          ok: true,
+          dados: {
+            storage: {
+              from: () => ({
+                upload: async () => {
+                  throw new Error("o cliente explodiu");
+                },
+                getPublicUrl: () => ({ data: { publicUrl: "" } }),
+              }),
+            },
+          },
+        }),
+      });
+      afirmar(
+        "exceção que sobe do cliente vira erro TIPADO — ela nunca escapa, senão derrubaria o Editor inteiro",
+        r.ok === false && typeof r.erro.tipo === "string" && r.erro.tipo !== "",
+        JSON.stringify(r.erro),
+      );
+    }
+
+    /* O ENDEREÇO QUE VOLTA TORTO. O arquivo subiu, e o que não dá para fazer é
+       devolver à tela um endereço que o servidor vai recusar no salvamento: a
+       pessoa veria a miniatura aparecer e a gravação falhar por um motivo que
+       ela não causou. */
+    {
+      const r = await envio.enviarImagemDeCapa(arquivoBom, {
+        obterCliente: async () => ({
+          ok: true,
+          dados: {
+            storage: {
+              from: () => ({
+                upload: async (caminho) => ({ data: { path: caminho }, error: null }),
+                getPublicUrl: () => ({
+                  data: { publicUrl: "https://outro.dominio.com/qualquer/coisa.png" },
+                }),
+              }),
+            },
+          },
+        }),
+        novoIdentificador: () => "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+      });
+      afirmar(
+        "endereço público fora do formato esperado é RECUSADO na volta — a tela nunca recebe um endereço que o servidor rejeitaria",
+        r.ok === false && r.erro.tipo === "configuracao",
+        JSON.stringify(r.erro),
+      );
+    }
+
+    /* E A REMOÇÃO DO CLIENTE só alcança o bucket das imagens. A chave aqui é a
+       sessão do Autor, e apagar às cegas com ela é tão ruim quanto com a de
+       serviço. */
+    {
+      const pedidos = [];
+      const clienteQueRemove = {
+        ok: true,
+        dados: {
+          storage: {
+            from: () => ({
+              remove: async (caminhos) => {
+                pedidos.push(caminhos);
+                return { data: caminhos, error: null };
+              },
+            }),
+          },
+        },
+      };
+      const deFora = await envio.removerImagemDeCapa(
+        "https://outro.dominio.com/capas/abcdefgh.png",
+        { obterCliente: async () => clienteQueRemove },
+      );
+      afirmar(
+        "a remoção pela sessão NÃO alcança endereço de fora do bucket — nada é pedido ao Storage",
+        deFora.ok === false &&
+          deFora.erro.tipo === "nao_encontrado" &&
+          pedidos.length === 0,
+        `${deFora.erro?.tipo} | pedidos: ${pedidos.length}`,
+      );
+
+      const nosso = await envio.removerImagemDeCapa(
+        enderecoPublicoDaCapa(
+          "https://x.supabase.co",
+          "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+        ),
+        { obterCliente: async () => clienteQueRemove },
+      );
+      afirmar(
+        "e alcança o do bucket, pedindo o CAMINHO — é este consumidor que dá uso à política de remoção autenticada",
+        nosso.ok === true &&
+          pedidos.length === 1 &&
+          pedidos[0][0] === "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+        JSON.stringify(pedidos),
+      );
+    }
+  }
+  /* ── AS DUAS COSTURAS DEFENSIVAS, EXERCITADAS ───────────────────────────
+     Elas falhavam em direções OPOSTAS e nenhuma era asserida.
+
+     Sem `baseDoProjeto`, `gravar` caía na recusa de origem com base vazia e
+     respondia "A capa precisa ser uma imagem enviada pelo Painel" a quem tinha
+     acabado de enviar exatamente isso: culpa do Autor por um acesso montado
+     pela metade. Sem `removerArquivoDaCapa`, `removerCapaAnterior` devolvia
+     `null` — indistinguível de "removeu" e de "não era nosso" — e o arquivo
+     vazava em SILÊNCIO, que é o modo de falha que a função existe para não
+     ter. */
+  {
+    const CAPA =
+      "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png";
+    const ANTIGA =
+      "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/hgfedcba.png";
+
+    /* SEM `baseDoProjeto`: defeito de montagem, e a frase não culpa o Autor. */
+    {
+      const acessoTorto = {
+        ...acessoDeTeste(),
+      };
+      delete acessoTorto.baseDoProjeto;
+      const r = await salvarPost({
+        token: "bom",
+        corpo: corpoValido({ imagem_url: CAPA, imagem_alt: "Uma descrição" }),
+        acesso: acessoTorto,
+      });
+      /* O DETALHE PRECISA NOMEAR A CAUSA, e não só o tipo. Sem a guarda, a
+         chamada a `acesso.baseDoProjeto()` LANÇA e o `catch` do topo devolve
+         `inesperado` do mesmo jeito: julgar só o tipo faria "defeito
+         reportado" e "exceção que ninguém previu" serem a mesma coisa, e a
+         sabotagem que remove a guarda passava verde. */
+      afirmar(
+        "acesso sem `baseDoProjeto` responde DEFEITO NOMEADO, e não “a capa precisa ser enviada pelo Painel” — não se culpa o Autor por montagem quebrada",
+        r.ok === false &&
+          r.erro.tipo === ERRO_INESPERADO &&
+          !/enviada pelo painel/i.test(r.erro.mensagem) &&
+          /url do projeto/i.test(r.erro.detalhe ?? "") &&
+          !/exceção não prevista/i.test(r.erro.detalhe ?? ""),
+        `${r.erro?.tipo}: ${r.erro?.detalhe}`,
+      );
+    }
+
+    /* SEM `removerArquivoDaCapa`: resíduo NOMEADO, e nunca silêncio. */
+    {
+      const semTransporte = {
+        baseDoProjeto: () => "https://x.supabase.co",
+      };
+      const residuo = await removerCapaAnterior({
+        acesso: semTransporte,
+        anterior: ANTIGA,
+        atual: CAPA,
+      });
+      afirmar(
+        "acesso sem `removerArquivoDaCapa` produz RESÍDUO nomeado — devolver `null` faria o arquivo vazar em silêncio",
+        residuo !== null &&
+          residuo.arquivo === "capas/hgfedcba.png" &&
+          /montagem/i.test(residuo.motivo),
+        JSON.stringify(residuo),
+      );
+      /* E as duas saídas legítimas de `null` continuam sendo `null`: não havia
+         anterior, e o anterior não é nosso. Sem isto, "sempre resíduo" passaria
+         a asserção acima e todo salvamento anunciaria lixo que não existe. */
+      const semAnterior = await removerCapaAnterior({
+        acesso: semTransporte,
+        anterior: null,
+        atual: CAPA,
+      });
+      const deFora = await removerCapaAnterior({
+        acesso: semTransporte,
+        anterior: "https://cdn.exemplo.com/foto.png",
+        atual: CAPA,
+      });
+      const mesmoEndereco = await removerCapaAnterior({
+        acesso: semTransporte,
+        anterior: CAPA,
+        atual: CAPA,
+      });
+      afirmar(
+        "e as três saídas legítimas continuam sem resíduo: não havia anterior, o anterior não é nosso, e o endereço não mudou",
+        semAnterior === null && deFora === null && mesmoEndereco === null,
+        JSON.stringify({ semAnterior, deFora, mesmoEndereco }),
+      );
+    }
+  }
+  /* ── A GUARDA DO TRANSPORTE, EXERCITADA ─────────────────────────────────
+     `removerArquivoDaCapa` roda com a chave de SERVIÇO, que ignora política:
+     um caminho torto — `..`, barra no começo, pasta que não é `capas/`, outra
+     extensão — apagaria coisa que ninguém pediu. A guarda existia e nada a
+     alcançava; ramo declarado e nunca exercido é ramo que ninguém sabe se
+     funciona. */
+  {
+    const pedidos = [];
+    const acessoDeMentira = criarAcesso({
+      url: "https://x.supabase.co",
+      chavePublicavel: "sb_publishable_x",
+      chaveDeServico: "sb_secret_x",
+      buscar: async (endereco, opcoes) => {
+        pedidos.push({ endereco, metodo: opcoes?.method });
+        return new Response("", { status: 200 });
+      },
+    });
+    const TORTOS = [
+      "capas/../../../etc/passwd",
+      "/capas/abcdefgh.png",
+      "outra-pasta/abcdefgh.png",
+      "capas/abcdefgh.exe",
+      "capas/x.png",
+      "",
+      null,
+    ];
+    const passaram = [];
+    for (const caminho of TORTOS) {
+      acessoDeMentira.reiniciarPrazo();
+      const r = await acessoDeMentira.removerArquivoDaCapa(caminho);
+      if (r.ok || r.codigo !== "CaminhoInvalido") passaram.push(String(caminho));
+    }
+    afirmar(
+      "a guarda do transporte recusa TODO caminho que não é o de uma capa deste bucket — e nada vai para a rede",
+      passaram.length === 0 && pedidos.length === 0,
+      `passaram: ${passaram.join(" | ")} | chamadas: ${pedidos.length}`,
+    );
+    /* CONTROLE POSITIVO: o caminho legítimo ATRAVESSA. Sem ele, uma guarda que
+       recusasse tudo passaria a asserção acima e a remoção nunca aconteceria —
+       o arquivo antigo ficaria para sempre, em silêncio. */
+    acessoDeMentira.reiniciarPrazo();
+    const legitimo = await acessoDeMentira.removerArquivoDaCapa(
+      "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+    );
+    afirmar(
+      "e o caminho legítimo ATRAVESSA, virando um DELETE no Storage — senão a remoção nunca aconteceria",
+      legitimo.ok === true &&
+        pedidos.length === 1 &&
+        pedidos[0].metodo === "DELETE" &&
+        pedidos[0].endereco.includes(
+          "/storage/v1/object/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png",
+        ),
+      JSON.stringify(pedidos),
+    );
+  }
+
+  /* ── E NADA DE LER O ARQUIVO INTEIRO ────────────────────────────────── */
+  {
+    /* O envio pede uma FATIA, e a fatia tem o tamanho da maior assinatura.
+       Ler o arquivo inteiro para decidir a espécie seria trazer um megabyte à
+       memória para olhar doze bytes — e é o primeiro passo do caminho que
+       terminava em base64 na coluna. */
+    const pedidos = [];
+    const { obterCliente } = criarDuble();
+    const espiao = {
+      size: 1000,
+      type: "image/png",
+      slice: (inicio, fim) => {
+        pedidos.push([inicio, fim]);
+        return { arrayBuffer: async () => Uint8Array.from(PNG).buffer };
+      },
+    };
+    await envio.enviarImagemDeCapa(espiao, {
+      obterCliente,
+      novoIdentificador: () => "0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+    });
+    afirmar(
+      "o envio lê só o CABEÇALHO do arquivo para decidir a espécie — uma fatia, do tamanho da maior assinatura",
+      pedidos.length === 1 &&
+        pedidos[0][0] === 0 &&
+        pedidos[0][1] > 0 &&
+        pedidos[0][1] <= 64,
+      JSON.stringify(pedidos),
+    );
+  }
+}
 /* ─── (c7) As operações de Categoria (Story 2.14) ────────────────────────── */
 
 secao("(c7) Categorias: vocabulário fechado de cor e de ícone, e a recusa que conta");
@@ -7373,6 +8673,339 @@ if (!temToken) {
           "endereço nulo é recusado nas duas implementações",
           nulo.dados?.[0]?.ok === false && enderecoPermitido(null) === false,
           JSON.stringify(nulo.dados?.[0] ?? nulo.erro),
+        );
+      }
+
+      /* — A COLUNA DA CAPA: as duas implementações concordam (Story 3.1) — */
+      //
+      // Mesma disciplina do corpus acima, sobre a outra regra:
+      // `enderecoDeImagemPermitido` (JS, em `domain/blog/arquivos.js`) e
+      // `endereco_de_imagem_e_permitido` (SQL, na restrição da coluna). Uma
+      // divergência aqui apareceria como capa que a tela aceita e o banco
+      // recusa — com o Autor lendo "o banco recusou" sobre uma imagem que já
+      // subiu para o bucket.
+
+      {
+        const casos = CORPUS_DE_ENDERECOS_DE_IMAGEM.map((e) => `(${literal(e)})`).join(",");
+        const veredito = await executarSql(
+          token,
+          `select v.e as endereco, public.endereco_de_imagem_e_permitido(v.e) as ok
+             from (values ${casos}) as v(e)`,
+        );
+        const doSql = new Map(
+          (veredito.dados ?? []).map((l) => [String(l.endereco), l.ok === true]),
+        );
+        const divergentes = CORPUS_DE_ENDERECOS_DE_IMAGEM.filter(
+          (e) => doSql.get(e) !== enderecoDeImagemPermitido(e),
+        );
+        afirmar(
+          `as duas implementações de "endereço de imagem permitido" concordam nos ${CORPUS_DE_ENDERECOS_DE_IMAGEM.length} endereços do corpus`,
+          veredito.ok &&
+            doSql.size === CORPUS_DE_ENDERECOS_DE_IMAGEM.length &&
+            divergentes.length === 0,
+          veredito.ok
+            ? divergentes
+                .map(
+                  (e) =>
+                    `${JSON.stringify(e)}: js=${enderecoDeImagemPermitido(e)} sql=${doSql.get(e)}`,
+                )
+                .join(" | ")
+            : (veredito.erro ?? ""),
+        );
+
+        /* O CORPUS PRECISA TER OS DOIS VEREDITOS. Só negativos e a
+           concordância seria trivial — e a regra da coluna é estreita, então
+           a maioria das linhas do corpus do `href` cai aqui: sem esta
+           asserção, uma implementação que recusasse TUDO passaria. */
+        const permitidos = CORPUS_DE_ENDERECOS_DE_IMAGEM.filter((e) =>
+          enderecoDeImagemPermitido(e),
+        );
+        afirmar(
+          "o corpus da capa tem os dois vereditos representados",
+          permitidos.length >= 4 &&
+            permitidos.length < CORPUS_DE_ENDERECOS_DE_IMAGEM.length - 10,
+          `permitidos: ${permitidos.length} de ${CORPUS_DE_ENDERECOS_DE_IMAGEM.length}`,
+        );
+
+        /* NENHUM `data:` PASSA — em nenhuma codificação. É a linha da matriz
+           que diz "não é representável", e ela é conferida sobre o corpus em
+           vez de sobre um caso escolhido a dedo. */
+        const conteudoDeArquivo = CORPUS_DE_ENDERECOS_DE_IMAGEM.filter((e) =>
+          /^(data|blob|filesystem):/i.test(e),
+        );
+        afirmar(
+          "conteúdo de arquivo NÃO É REPRESENTÁVEL na coluna, em codificação nenhuma",
+          conteudoDeArquivo.length >= 10 &&
+            conteudoDeArquivo.every(
+              (e) => enderecoDeImagemPermitido(e) === false && doSql.get(e) === false,
+            ),
+          conteudoDeArquivo
+            .filter((e) => enderecoDeImagemPermitido(e) || doSql.get(e))
+            .join(" | "),
+        );
+
+        const nuloDaImagem = await executarSql(
+          token,
+          `select public.endereco_de_imagem_e_permitido(null) as ok`,
+        );
+        afirmar(
+          "capa nula é ACEITA nas duas implementações — capa é opcional",
+          nuloDaImagem.dados?.[0]?.ok === true &&
+            enderecoDeImagemPermitido(null) === true,
+          JSON.stringify(nuloDaImagem.dados?.[0] ?? nuloDaImagem.erro),
+        );
+      }
+
+      /* — (27) VEREDITO ABSOLUTO NA FRONTEIRA DO HOST LOCAL — */
+      //
+      // A concordância JS↔SQL sozinha é satisfeita por qualquer deriva
+      // SIMÉTRICA: afrouxar os dois lados juntos para um `startsWith` faria
+      // `http://127.0.0.1.exemplo.com/…` — host de TERCEIRO — virar gravável,
+      // e o corpus continuaria concordando. O que fecha isso é veredito
+      // absoluto: estes endereços têm uma resposta certa, e ela está escrita.
+      {
+        const ABSOLUTOS = [
+          ["https://cdn.exemplo.com/capa.png", true],
+          ["http://127.0.0.1:54321/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png", true],
+          ["http://localhost:3000/capa.png", true],
+          /* A FRONTEIRA. O sufixo é a evasão clássica, e os dois são hosts de
+             terceiro que o navegador resolve na internet. */
+          ["http://127.0.0.1.exemplo.com/capa.png", false],
+          ["http://localhost.exemplo.com/capa.png", false],
+          ["http://cdn.exemplo.com/capa.png", false],
+          ["data:image/png;base64,iVBORw0KGgo=", false],
+          ["blob:https://x.supabase.co/9a1f", false],
+          ["//cdn.exemplo.com/capa.png", false],
+          ["https://usuario:senha@cdn.exemplo.com/capa.png", false],
+        ];
+        const errados = ABSOLUTOS.filter(
+          ([e, esperado]) => enderecoDeImagemPermitido(e) !== esperado,
+        );
+        afirmar(
+          "o veredito da fronteira do host local é ABSOLUTO, e não só concordante — sufixo de terceiro é recusado",
+          errados.length === 0,
+          errados
+            .map(([e, esperado]) => `${JSON.stringify(e)}: esperava ${esperado}`)
+            .join(" | "),
+        );
+        /* E o mesmo veredito, no BANCO. Sem isto, a deriva simétrica ainda
+           poderia acontecer do lado do SQL e a concordância continuaria. */
+        const casosAbsolutos = ABSOLUTOS.map(([e]) => `(${literal(e)})`).join(",");
+        const doBanco = await executarSql(
+          token,
+          `select v.e as endereco, public.endereco_de_imagem_e_permitido(v.e) as ok
+             from (values ${casosAbsolutos}) as v(e)`,
+        );
+        const vereditos = new Map(
+          (doBanco.dados ?? []).map((l) => [String(l.endereco), l.ok === true]),
+        );
+        const errondoBanco = ABSOLUTOS.filter(
+          ([e, esperado]) => vereditos.get(e) !== esperado,
+        );
+        afirmar(
+          "e o BANCO dá o mesmo veredito absoluto — os dois lados presos, e não só amarrados um ao outro",
+          doBanco.ok && errondoBanco.length === 0,
+          doBanco.ok
+            ? errondoBanco
+                .map(([e, esperado]) => `${JSON.stringify(e)}: banco=${vereditos.get(e)} esperava ${esperado}`)
+                .join(" | ")
+            : (doBanco.erro ?? ""),
+        );
+      }
+
+      /* — (25) OS NÚMEROS DO BANCO SÃO OS DO DOMÍNIO, MEDIDOS — */
+      //
+      // `TAMANHO_MAXIMO_DO_ENDERECO` e `TAMANHO_MAXIMO_DO_ALTERNATIVO`
+      // apareciam como literais na função SQL e na restrição, e nada
+      // comparava os dois lados — ao contrário de `file_size_limit` e
+      // `allowed_mime_types`, que SÃO comparados. Um comentário do núcleo
+      // chega a se justificar dizendo que "as duas conferências precisam
+      // continuar dizendo a mesma coisa se uma mudar".
+      //
+      // A comparação é por COMPORTAMENTO, e não por leitura do texto do SQL:
+      // o que importa é onde o banco corta, e é isso que se mede.
+      {
+        const raiz = "https://x.supabase.co/";
+        const noTeto = raiz + "a".repeat(TAMANHO_MAXIMO_DO_ENDERECO - raiz.length);
+        const acimaDoTeto = noTeto + "a";
+        const fronteira = await executarSql(
+          token,
+          `select
+             public.endereco_de_imagem_e_permitido(${literal(noTeto)}) as no_teto,
+             public.endereco_de_imagem_e_permitido(${literal(acimaDoTeto)}) as acima`,
+        );
+        afirmar(
+          `o banco corta o endereço EXATAMENTE em ${TAMANHO_MAXIMO_DO_ENDERECO} caracteres — o número do domínio, medido e não lido`,
+          fronteira.ok &&
+            fronteira.dados?.[0]?.no_teto === true &&
+            fronteira.dados?.[0]?.acima === false &&
+            enderecoDeImagemPermitido(noTeto) === true &&
+            enderecoDeImagemPermitido(acimaDoTeto) === false,
+          fronteira.erro ?? JSON.stringify(fronteira.dados?.[0]),
+        );
+
+        /* O TETO DA DESCRIÇÃO, do mesmo jeito — e o texto do teste é DERIVADO
+           da constante, e não um `301` escrito à mão. */
+        const noLimite = slug("alt-no-limite");
+        const acimaDoLimite = slug("alt-acima");
+        const capaValida =
+          "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png";
+        const cabe = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, imagem_url, imagem_alt)
+           values (${literal(noLimite)}, 'Pelo console', ${literal(capaValida)},
+                   repeat('a', ${TAMANHO_MAXIMO_DO_ALTERNATIVO}))`,
+        );
+        const naoCabe = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, imagem_url, imagem_alt)
+           values (${literal(acimaDoLimite)}, 'Pelo console', ${literal(capaValida)},
+                   repeat('a', ${TAMANHO_MAXIMO_DO_ALTERNATIVO + 1}))`,
+        );
+        afirmar(
+          `o banco corta a descrição EXATAMENTE em ${TAMANHO_MAXIMO_DO_ALTERNATIVO} caracteres — o mesmo número do domínio`,
+          cabe.ok &&
+            !naoCabe.ok &&
+            /posts_imagem_alt_com_teto/.test(naoCabe.erro ?? ""),
+          cabe.ok ? (naoCabe.erro ?? "o insert acima do teto PASSOU") : (cabe.erro ?? ""),
+        );
+        await executarSql(
+          token,
+          `delete from public.posts where slug in (${literal(noLimite)}, ${literal(acimaDoLimite)})`,
+        );
+      }
+
+      /* — (6) E AS TRÊS RESTRIÇÕES ESTÃO VALIDADAS — */
+      //
+      // Elas nasceram `not valid` na migração corretiva, para não poderem
+      // ABORTAR o arquivo inteiro num banco com dado ruim. `not valid` sem o
+      // `validate constraint` depois é meia restrição com cara de restrição
+      // inteira: ela valeria só para linha nova, e um `UPDATE` pelo console
+      // sobre uma linha antiga escaparia.
+      {
+        const validadas = await executarSql(
+          token,
+          `select coalesce(string_agg(conname || '=' || convalidated::text, ',' order by conname), '') as v
+             from pg_constraint
+            where conrelid = 'public.posts'::regclass
+              and conname in ('posts_imagem_url_e_endereco',
+                              'posts_seo_imagem_url_e_endereco',
+                              'posts_imagem_alt_com_teto')`,
+        );
+        const texto = String(validadas.dados?.[0]?.v ?? "");
+        afirmar(
+          "as três restrições da capa existem e estão VALIDADAS — `not valid` sem validar é meia restrição",
+          validadas.ok &&
+            texto.split(",").filter(Boolean).length === 3 &&
+            !texto.includes("=false"),
+          validadas.erro ?? `encontrado: ${texto || "nenhuma"}`,
+        );
+      }
+      /* — E O BANCO RECUSA DE VERDADE, pelo console (Story 3.1) — */
+      //
+      // A comparação acima julga a FUNÇÃO. Isto julga a RESTRIÇÃO: sem o
+      // `check` na coluna, a função poderia estar perfeita e a gravação passar
+      // do mesmo jeito. O caminho é o console do projeto, que função nenhuma
+      // cobre — e é ele que torna "por qualquer via" verdadeiro.
+
+      {
+        const RESTRICAO_DA_CAPA = "posts_imagem_url_e_endereco";
+        const RECUSAS_DE_CAPA = [
+          [
+            "png",
+            "uma imagem inteira em base64",
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          ],
+          ["svg", "um SVG com script embutido", "data:image/svg+xml;utf8,<svg onload=alert(1)></svg>"],
+          ["blob", "um endereço de blob do navegador", "blob:https://x.supabase.co/9a1f"],
+          ["js", "um endereço executável", "javascript:alert(1)"],
+          ["relativo", "um caminho relativo", "/imagens/capa.png"],
+          ["http", "um endereço sem TLS", "http://cdn.exemplo.com/capa.png"],
+          ["protocolo", "um endereço relativo de protocolo", "//cdn.exemplo.com/capa.png"],
+          /* A FRONTEIRA DO HOST LOCAL, pelo console: o sufixo é a evasão
+             clássica, e sem este caso a concordância JS↔SQL seria satisfeita
+             por qualquer afrouxamento simétrico dos dois lados. */
+          ["sufixo", "um host de terceiro com sufixo de localhost", "http://localhost.exemplo.com/capa.png"],
+          ["sufixoIp", "um host de terceiro com sufixo de 127.0.0.1", "http://127.0.0.1.exemplo.com/capa.png"],
+        ];
+
+        for (const [chave, descricao, valor] of RECUSAS_DE_CAPA) {
+          const r = await executarSql(
+            token,
+            `insert into public.posts (slug, titulo, imagem_url, imagem_alt)
+             values (${literal(slug(`capa-${chave}`))}, 'Pelo console', ${literal(valor)}, 'descrição')`,
+          );
+          afirmar(
+            `escrita pelo console — ${descricao} na coluna da capa é recusada por ${RESTRICAO_DA_CAPA}`,
+            !r.ok && new RegExp(RESTRICAO_DA_CAPA).test(r.erro ?? ""),
+            r.ok ? "o comando PASSOU — a restrição não pega este caso" : (r.erro ?? ""),
+          );
+        }
+
+        /* A MESMA restrição vale para `seo_imagem_url`. Ela não tem campo e
+           nenhuma porta a escreve — e é exatamente por isso que ela seria o
+           buraco por onde a regressão voltaria pelo console. */
+        const seo = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, seo_imagem_url)
+           values (${literal(slug("capa-seo"))}, 'Pelo console', 'data:image/png;base64,iVBORw0KGgo=')`,
+        );
+        afirmar(
+          "e a coluna da imagem de compartilhamento recusa a mesma coisa, por posts_seo_imagem_url_e_endereco",
+          !seo.ok && /posts_seo_imagem_url_e_endereco/.test(seo.erro ?? ""),
+          seo.ok ? "o comando PASSOU" : (seo.erro ?? ""),
+        );
+
+        /* CONTROLE POSITIVO: a MESMA chave, pelo MESMO caminho, grava um
+           endereço legítimo. Sem ele, uma restrição que recusasse TODA
+           gravação faria as oito recusas acima passarem por vacuidade. */
+        const legitimo = slug("capa-aceita");
+        const bom = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, imagem_url, imagem_alt)
+           values (${literal(legitimo)}, 'Pelo console',
+                   'https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png',
+                   'Uma descrição')`,
+        );
+        afirmar(
+          "controle positivo: o banco ACEITA um endereço de capa legítimo pelo mesmo caminho",
+          bom.ok,
+          bom.erro ?? "",
+        );
+
+        /* E O PAR CONTINUA COBRADO. `posts_imagem_exige_alt` é da Story 2.1 e
+           é a razão de o campo de descrição ser oferecido JUNTO da imagem: sem
+           ela, a recusa chegaria depois do envio. */
+        const semAlt = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, imagem_url)
+           values (${literal(slug("capa-sem-alt"))}, 'Pelo console',
+                   'https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png')`,
+        );
+        afirmar(
+          "capa sem descrição continua recusada pelo banco — é por isso que o campo é oferecido junto",
+          !semAlt.ok && /posts_imagem_exige_alt/.test(semAlt.erro ?? ""),
+          semAlt.ok ? "o comando PASSOU" : (semAlt.erro ?? ""),
+        );
+
+        /* E o TETO da descrição, que a Story 3.1 acrescentou: a coluna aceitava
+           um documento inteiro. */
+        const altLongo = await executarSql(
+          token,
+          `insert into public.posts (slug, titulo, imagem_url, imagem_alt)
+           values (${literal(slug("capa-alt-longo"))}, 'Pelo console',
+                   'https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png',
+                   repeat('a', 301))`,
+        );
+        afirmar(
+          "descrição de imagem acima do teto é recusada por posts_imagem_alt_com_teto",
+          !altLongo.ok && /posts_imagem_alt_com_teto/.test(altLongo.erro ?? ""),
+          altLongo.ok ? "o comando PASSOU" : (altLongo.erro ?? ""),
+        );
+
+        await executarSql(
+          token,
+          `delete from public.posts where slug like ${literal(`${prefixo}capa-%`)}`,
         );
       }
 

@@ -148,6 +148,9 @@ import {
 } from "@/admin/blog/listagem";
 import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
+/* A fala do resíduo do Storage (Story 3.1) mora no módulo puro da capa — a
+   MESMA que o Editor usa quando a troca de capa deixa arquivo para trás. */
+import { falaDoResiduo } from "@/admin/blog/capa";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { definirDestaque, excluirPost } from "@/data/blog/escrita";
 import { listarPostsDoPainel, ordenarListagem } from "@/data/blog/posts";
@@ -443,6 +446,11 @@ export default function ListaDePosts({
         return;
       }
       notificarSucesso(confirmacaoDaExclusao(post));
+      /* E O RESÍDUO, quando existe. O Post saiu — a confirmação acima é
+         verdade —, e o arquivo da capa não. Sem esta fala, "nunca silencioso"
+         valia para o log do servidor e para o JSON, e não para quem clicou. */
+      const sobrou = falaDoResiduo(resultado.dados?.residuo);
+      if (sobrou) notificarErro(sobrou.oQueHouve, sobrou.oQueFazer);
     },
     [abrirAcao, fecharAcao, removerDaLista, devolverFoco],
   );

@@ -78,6 +78,17 @@ import {
   ehChaveDeIconeDeCategoria,
   ehCorDeCategoria,
 } from "../src/domain/blog/categorias.js";
+/* O vocabulário do ARQUIVO vem do DOMÍNIO pela mesma razão (Story 3.1): o
+   bucket declara teto de tamanho e lista de tipos, e a asserção compara o que
+   está GRAVADO no bucket com o que o código diz — duas listas escritas à mão
+   compararia duas cópias do mesmo engano. */
+import {
+  BUCKET_DAS_IMAGENS,
+  ESPECIES_SEMPRE_RECUSADAS,
+  TAMANHO_MAXIMO_DA_IMAGEM,
+  TIPOS_DE_IMAGEM,
+  ehCaminhoDeCapa,
+} from "../src/domain/blog/arquivos.js";
 
 /**
  * Os ENDEREÇOS das seis Categorias que a Story 2.14 semeou.
@@ -266,9 +277,103 @@ function tabelaCriada(limpo) {
   return m ? m[1].replace(/"/g, "") : null;
 }
 
+/**
+ * ─── A EXCEÇÃO NOMEADA DO STORAGE (Story 3.1) ──────────────────────────────
+ *
+ * A varredura abaixo reprova qualquer política de escrita apontando para papel
+ * de cliente, e ela existe desde a Story 2.1 porque "nenhum cliente escreve no
+ * banco" é a regra que sustenta a RLS inteira. A Story 3.1 a **reabre de
+ * propósito**, e a reabertura é uma lista de PERMISSÃO com quatro travas, não
+ * um buraco:
+ *
+ *   1. a política precisa estar nesta lista, POR NOME;
+ *   2. ela precisa ser sobre `storage.objects` — e sobre nada mais;
+ *   3. o papel precisa ser `authenticated`: `anon` e `public` continuam
+ *      reprovados aqui como em qualquer outro lugar;
+ *   4. a operação precisa ser `insert` ou `delete`. `all` e `update` não estão
+ *      previstos, e uma política `for all` — ou sem cláusula `for`, que em
+ *      Postgres é a mesma coisa — continua caindo na regra;
+ *   5. e o PREDICADO precisa prender a política ao bucket desta story, por
+ *      igualdade com o nome que o domínio declara.
+ *
+ * A quinta trava é a que faltava, e a falta era grave: sem ela,
+ * `with check (true)` passava — qualquer Conta do Painel podia inserir e
+ * apagar objetos de QUALQUER balde do projeto, e a promessa escrita na
+ * própria migração ("todas presas a `bucket_id`… um bucket futuro nasce
+ * fechado") virava mentira, com a suíte inteira verde.
+ *
+ * A quinta trava é a que faltava, e a falta era grave: sem ela,
+ * `with check (true)` passava — e a promessa escrita na própria migração
+ * ("todas presas a `bucket_id`… um bucket futuro nasce fechado") virava
+ * mentira, com qualquer Conta do Painel podendo inserir e apagar objetos de
+ * QUALQUER balde do projeto. Medido: a sabotagem passava a suíte inteira
+ * verde.
+ *
+ * O que a exceção NÃO alcança: as tabelas de `public`. Escrita para papel de
+ * cliente em `posts`, `categorias`, `tags`, `posts_tags` ou `slugs_antigos`
+ * continua reprovada, sem exceção e sem lista — é a mesma varredura, e ela
+ * continua fechada do lado que importa.
+ *
+ * A razão de a distinção existir está escrita no cabeçalho da migração
+ * `20260819234500_capa_no_storage.sql`: o Storage é outro recurso, com outro
+ * cadeado, e o ENDEREÇO continua entrando no Post pela porta única de escrita.
+ */
+const POLITICAS_DE_ESCRITA_NO_STORAGE = Object.freeze([
+  "imagens_do_blog_envio_autenticado",
+  "imagens_do_blog_remocao_autenticada",
+]);
+
+/**
+ * A política de escrita é a exceção nomeada do Storage?
+ *
+ * Recebe o comando já normalizado (minúsculo, espaços colapsados) e devolve
+ * `true` só quando as quatro travas fecham. Qualquer dúvida devolve `false`,
+ * que é reprovar.
+ */
+function ehExcecaoDoStorage(limpo, bruto = limpo) {
+  const nome = /^create\s+policy\s+"?([a-z0-9_]+)"?/.exec(limpo)?.[1] ?? "";
+  if (!POLITICAS_DE_ESCRITA_NO_STORAGE.includes(nome)) return false;
+  /* A TABELA-ALVO, e não "a palavra aparece em algum lugar do comando". O
+     teste solto casava com uma menção a storage.objects DENTRO do predicado —
+     a trava era mais fraca que a prosa que a documentava. */
+  const alvo = /^create\s+policy\s+"?[a-z0-9_]+"?\s+on\s+([a-z0-9_."]+)/
+    .exec(limpo)?.[1]
+    ?.replace(/"/g, "");
+  if (alvo !== "storage.objects") return false;
+  const operacao = /\bfor\s+(select|insert|update|delete|all)\b/.exec(limpo)?.[1] ?? "";
+  if (!["insert", "delete"].includes(operacao)) return false;
+  const papeis = /\bto\s+([a-z0-9_,\s]+?)\s+(?:using|with)\b/.exec(limpo)?.[1] ?? "";
+  const lista = papeis.split(/[,\s]+/).filter(Boolean);
+  if (lista.length !== 1 || lista[0] !== "authenticated") return false;
+  /* E O PREDICADO PRENDE A POLÍTICA AO BUCKET.
+     `using` para `delete`, `with check` para `insert`, e a comparação é por
+     IGUALDADE com a forma exata — o nome do bucket vem do DOMÍNIO, e não de um
+     literal escrito aqui. Sem esta trava, `with check (true)` passava: qualquer
+     Conta do Painel podia inserir e apagar objetos de QUALQUER balde do
+     projeto, e a promessa escrita na migração ("todas presas a bucket_id, um
+     bucket futuro nasce fechado") era falsa. Igualdade e não contenção: um
+     predicado que só MENCIONE bucket_id numa comparação mais frouxa
+     (`like`, `in`, `or`) não prende nada.
+
+     `limpo` já vem em minúsculas e com espaços colapsados de `comandosSql`, e
+     é por isso que a comparação pode ser de string em vez de expressão
+     regular — que precisaria escapar o nome do bucket. */
+  /* O PREDICADO É LIDO DO COMANDO CRU, e não do normalizado: `comandosSql`
+     MASCARA literais de string — e o que ela apaga é exatamente o nome do
+     bucket, que é o único texto que precisa ser comparado aqui. Ler o
+     normalizado faria toda política de verdade ser reprovada e só os
+     exemplos do autoteste passarem, que foi o que aconteceu na primeira
+     tentativa desta correção. */
+  const cru = String(bruto).replace(/\s+/g, " ").trim().toLowerCase();
+  const predicado = /\b(?:using|with\s+check)\s*\((.*)\)\s*;?$/.exec(cru)?.[1] ?? "";
+  return predicado.trim() === "bucket_id = '" + BUCKET_DAS_IMAGENS + "'";
+}
+
 const tabelasCriadas = new Map(); // nome → arquivo
 const rlsPorArquivo = new Map(); // arquivo → Set de tabelas com RLS ligada ali
 const politicasDeEscrita = [];
+/** As exceções encontradas de verdade — a lista não pode ser decorativa. */
+const excecoesDoStorageVistas = [];
 const viewsSemInvoker = [];
 const definerSemSearchPath = [];
 const tabelasSemRls = [];
@@ -322,7 +427,19 @@ for (const m of migracoes) {
       );
       const semPapel = !/\bto\s+/.test(limpo); // sem TO explícito = PUBLIC
       if (paraEscrita && (paraPapelAberto || semPapel)) {
-        politicasDeEscrita.push(`${m.nome}: ${bruto.slice(0, 90)}…`);
+        /* A EXCEÇÃO NOMEADA DO STORAGE — ver o comentário de
+           `POLITICAS_DE_ESCRITA_NO_STORAGE`. Ela é conferida DEPOIS de a
+           política já ter sido reconhecida como escrita para papel de cliente:
+           a regra continua sendo a mesma, e o que muda é que duas políticas
+           declaradas por nome, sobre `storage.objects`, para `authenticated`,
+           em `insert` e `delete`, deixam de reprovar. */
+        if (ehExcecaoDoStorage(limpo, bruto)) {
+          excecoesDoStorageVistas.push(
+            /^create\s+policy\s+"?([a-z0-9_]+)"?/.exec(limpo)?.[1] ?? "",
+          );
+        } else {
+          politicasDeEscrita.push(`${m.nome}: ${bruto.slice(0, 90)}…`);
+        }
       }
     }
 
@@ -399,10 +516,81 @@ afirmar(
   sqlMalformado.join(" | "),
 );
 afirmar(
-  "nenhuma política concede escrita a anon, authenticated ou public",
+  "nenhuma política concede escrita a anon, authenticated ou public — exceto as duas do Storage, nomeadas",
   politicasDeEscrita.length === 0,
   politicasDeEscrita.join(" | "),
 );
+
+/* ─── A EXCEÇÃO REABERTA, JULGADA (Story 3.1) ────────────────────────────── */
+//
+// Uma exceção que ninguém confere é um buraco com nome bonito. Três asserções:
+// ela foi USADA (senão a lista é decoração), ela é EXATAMENTE a declarada
+// (senão sobra permissão que nada exerce), e o detector recusa as variações
+// vizinhas — que é o autoteste que impede a reabertura de virar uma porta.
+
+afirmar(
+  "as duas políticas de escrita no Storage existem de verdade — a exceção não é decorativa",
+  excecoesDoStorageVistas.length === POLITICAS_DE_ESCRITA_NO_STORAGE.length &&
+    POLITICAS_DE_ESCRITA_NO_STORAGE.every((n) => excecoesDoStorageVistas.includes(n)),
+  `encontradas: ${excecoesDoStorageVistas.join(", ") || "nenhuma"} — declaradas: ${POLITICAS_DE_ESCRITA_NO_STORAGE.join(", ")}`,
+);
+
+{
+  /* AUTOTESTE, NOS DOIS SENTIDOS. Sem ele, um `ehExcecaoDoStorage` que
+     devolvesse `true` para tudo deixaria a varredura inteira sem efeito e a
+     suíte continuaria verde — sobre um repositório em que qualquer política de
+     escrita para `anon` passaria a ser aceita. */
+  const normalizar = (sql) => sql.trim().replace(/\s+/g, " ").toLowerCase();
+
+  /* O BALDE DOS EXEMPLOS É O DE VERDADE. Eles usavam um balde arbitrário — o
+     que, sozinho, já denunciava que o predicado não estava sendo julgado. */
+  const B = BUCKET_DAS_IMAGENS;
+  const DEVE_ACEITAR = [
+    `create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to authenticated with check (bucket_id = '${B}')`,
+    `create policy "imagens_do_blog_remocao_autenticada" on storage.objects for delete to authenticated using (bucket_id = '${B}')`,
+  ];
+  /* Cada linha é uma trava diferente, e a razão de ela existir: nome fora da
+     lista, tabela do banco em vez do Storage, `anon` no lugar de
+     `authenticated`, os dois papéis juntos, `for all` (que alcança update), e
+     política sem cláusula `for` — que em Postgres É `for all`. */
+  const DEVE_RECUSAR = [
+    'create policy "outra_qualquer" on storage.objects for insert to authenticated with check (true)',
+    'create policy "imagens_do_blog_envio_autenticado" on public.posts for insert to authenticated with check (true)',
+    'create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to anon with check (true)',
+    'create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to anon, authenticated with check (true)',
+    'create policy "imagens_do_blog_envio_autenticado" on storage.objects for all to authenticated using (true)',
+    'create policy "imagens_do_blog_envio_autenticado" on storage.objects to authenticated using (true)',
+    'create policy "imagens_do_blog_remocao_autenticada" on storage.objects for update to authenticated using (true)',
+    /* AS TRAVAS DO PREDICADO, uma por linha: alcançar o projeto inteiro,
+       alcançar o balde errado, e prender por comparação mais frouxa sobre o
+       nome certo — que não prende. */
+    'create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to authenticated with check (true)',
+    `create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to authenticated with check (bucket_id = 'outro-balde')`,
+    `create policy "imagens_do_blog_remocao_autenticada" on storage.objects for delete to authenticated using (bucket_id like '${B}%')`,
+    `create policy "imagens_do_blog_envio_autenticado" on storage.objects for insert to authenticated with check (bucket_id = '${B}' or true)`,
+    /* E a MENÇÃO à tabela dentro do predicado não vale como tabela-alvo. */
+    `create policy "imagens_do_blog_envio_autenticado" on public.posts for insert to authenticated with check (bucket_id = '${B}' and exists (select 1 from storage.objects))`,
+  ];
+
+  /* Os DOIS argumentos, como no uso real: o normalizado (com literais
+     mascarados, que é o que a varredura tem em mãos) e o CRU (que é de onde
+     o predicado sai). `mascarar` reproduz o que `comandosSql` faz aos
+     literais — sem isso o autoteste exercitaria um caminho que não existe. */
+  const mascarar = (t) => t.replace(/'[^']*'/g, (m) => " ".repeat(m.length));
+  const julgar = (t) => ehExcecaoDoStorage(normalizar(mascarar(t)), normalizar(t));
+  const escaparam = DEVE_ACEITAR.filter((s) => !julgar(s));
+  const passaram = DEVE_RECUSAR.filter((s) => julgar(s));
+  afirmar(
+    "autoteste: a exceção do Storage reconhece as duas políticas declaradas",
+    escaparam.length === 0,
+    escaparam.join(" | "),
+  );
+  afirmar(
+    "autoteste: e RECUSA nome fora da lista, tabela do banco, `anon`, papel duplo, `for all`, política sem `for` e predicado que não prende o bucket",
+    passaram.length === 0,
+    passaram.join(" | "),
+  );
+}
 afirmar(
   "nenhum grant de escrita a papel de cliente",
   privilegioConcedido.length === 0,
@@ -1546,6 +1734,351 @@ function comoLista(resposta) {
   }
 }
 
+/* ─── O Storage, exercitado de verdade (Story 3.1) ───────────────────────── */
+
+/**
+ * Um PNG de 1x1, em bytes.
+ *
+ * Ele existe como bytes e não como texto porque é isso que o Storage recebe — e
+ * porque a assinatura (`89 50 4E 47 …`) é o que faz o bucket aceitá-lo como
+ * `image/png` de verdade. Um "arquivo" de texto com nome `.png` provaria outra
+ * coisa.
+ */
+const PNG_DE_UM_PIXEL = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+/** Chamada ao Storage. Sem `Authorization` é o visitante; com, é o Autor. */
+async function storage(caminho, opcoes = {}) {
+  try {
+    const r = await fetch(`${URL_PROJETO}/storage/v1/${caminho}`, {
+      ...opcoes,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        apikey: chavePublicavel,
+        ...(opcoes.headers ?? {}),
+      },
+    });
+    const corpo = await r.text();
+    return { alcancou: true, status: r.status, corpo, tipo: r.headers.get("content-type") ?? "" };
+  } catch (erro) {
+    return {
+      alcancou: false,
+      status: 0,
+      corpo: "",
+      tipo: "",
+      erro: String(erro?.message ?? erro),
+    };
+  }
+}
+
+/**
+ * O que a seção do Storage afirma, por nome.
+ *
+ * Existe para que o ramo do 429 possa ADIAR cada uma pelo nome em vez de
+ * deixar a seção inteira sumir — e é usada nos DOIS ramos: `provarStorage`
+ * afirma a partir desta lista, então uma asserção nova sem entrada aqui é
+ * acusada pela última asserção da seção, que compara o que foi dito com o que
+ * está declarado. Sem essa comparação, a lista viraria documentação
+ * desatualizada e o ramo do 429 voltaria a esconder o que não conhece.
+ */
+const ASSERCOES_DO_STORAGE = Object.freeze([
+  "o bucket das imagens existe e é de leitura pública",
+  "o teto de tamanho GRAVADO no bucket é o mesmo do vocabulário do domínio",
+  "e a lista de espécies do bucket é IGUAL à do domínio, nos dois sentidos",
+  "e nenhuma espécie da lista de recusa declarada entrou no bucket",
+  "o caminho da prova é um caminho de capa válido pelo vocabulário do domínio",
+  "envio ANÔNIMO ao bucket é recusado pela política — não há política de escrita para anon",
+  "envio com SESSÃO é aceito — é a política de inserção para authenticated",
+  "controle positivo: o visitante ANÔNIMO lê o arquivo pelo endereço público",
+  "e o que ele recebe é a IMAGEM, com o tipo que foi enviado",
+  "espécie fora do vocabulário é recusada pelo próprio BUCKET, mesmo com sessão válida",
+  "e a política NÃO alcança outro balde do projeto — ela está presa ao bucket_id desta story",
+  "arquivo que MENTE a espécie atravessa o bucket — quem confere o conteúdo é a tela, e isso está dito",
+  "exclusão ANÔNIMA é recusada pela política",
+  "e o arquivo continua NO BUCKET depois da tentativa anônima — a recusa não é só o código de status",
+  "exclusão com SESSÃO é aceita — é a política de remoção para authenticated, e é ela que limpa a prova",
+  "e o arquivo sumiu de verdade do bucket — perguntado ao bucket, não ao cache do endereço público",
+  "nenhum arquivo da prova ficou no bucket de produção",
+]);
+
+/**
+ * As quatro políticas do bucket, provadas por TENTATIVA.
+ *
+ * O cabeçalho desta ferramenta diz que ler o texto de uma política não prova
+ * que o banco a aplica. Vale igual para o Storage — e ali a tentação é maior,
+ * porque a política mora numa tabela que ninguém deste projeto criou.
+ *
+ * A ordem das tentativas é deliberada: **o envio anônimo é tentado ANTES do
+ * autenticado**. Se fosse depois, o arquivo já existiria e um conflito de nome
+ * seria confundido com a recusa da política — a asserção passaria pela razão
+ * errada, que é o modo de falha que este projeto persegue.
+ *
+ * E há CONTROLE POSITIVO: a mesma credencial anônima que recebe as recusas
+ * precisa conseguir LER o arquivo público. Sem isso, uma chave ruim faria as
+ * três negações passarem por vacuidade.
+ */
+async function provarStorage(jwt) {
+  secao("(g) o Storage: leitura pública, escrita e exclusão atrás de sessão");
+
+  /* O QUE FOI DITO, para a lista de nomes não virar documentação vencida.
+     Toda asserção desta seção passa por aqui, e a última compara o conjunto
+     com `ASSERCOES_DO_STORAGE` — a mesma lista que o ramo do 429 adia. Sem a
+     comparação, uma asserção nova simplesmente não teria entrada de adiamento
+     e voltaria a sumir sem rastro numa execução com limite de taxa. */
+  const ditas = [];
+  const afirmarNoStorage = (descricao, condicao, detalhe = "") => {
+    ditas.push(descricao);
+    return afirmar(descricao, condicao, detalhe);
+  };
+
+  /* ── O bucket declara o MESMO vocabulário que o código ────────────────── */
+  const linha = await executarSql(
+    token,
+    `select public, file_size_limit,
+            coalesce(array_to_string(allowed_mime_types, ','), '') as tipos
+       from storage.buckets where id = ${literal(BUCKET_DAS_IMAGENS)}`,
+  );
+  const bucket = linha.ok ? (linha.dados?.[0] ?? null) : null;
+  const tiposDoBucket = String(bucket?.tipos ?? "").split(",").filter(Boolean);
+
+  afirmarNoStorage(
+    "o bucket das imagens existe e é de leitura pública",
+    bucket !== null && bucket.public === true,
+    linha.erro ?? `encontrado: ${JSON.stringify(bucket)}`,
+  );
+  afirmarNoStorage(
+    "o teto de tamanho GRAVADO no bucket é o mesmo do vocabulário do domínio",
+    Number(bucket?.file_size_limit) === TAMANHO_MAXIMO_DA_IMAGEM,
+    `bucket: ${bucket?.file_size_limit ?? "—"} | domínio: ${TAMANHO_MAXIMO_DA_IMAGEM}`,
+  );
+  afirmarNoStorage(
+    "e a lista de espécies do bucket é IGUAL à do domínio, nos dois sentidos",
+    [...tiposDoBucket].sort().join(",") === [...TIPOS_DE_IMAGEM].sort().join(","),
+    `bucket: ${tiposDoBucket.join(",") || "—"} | domínio: ${TIPOS_DE_IMAGEM.join(",")}`,
+  );
+  /* A LISTA DE RECUSA DECLARADA, conferida contra o bucket. Uma lista de
+     permissão diz o que passa e não diz o que foi pensado e recusado: sem
+     isto, alguém acrescentando SVG "porque é imagem" — o formato que carrega
+     script executável — não encontraria nada que discordasse. */
+  {
+    const entraram = ESPECIES_SEMPRE_RECUSADAS.filter(
+      (e) => tiposDoBucket.includes(e.tipo) || TIPOS_DE_IMAGEM.includes(e.tipo),
+    );
+    afirmarNoStorage(
+      "e nenhuma espécie da lista de recusa declarada entrou no bucket",
+      ESPECIES_SEMPRE_RECUSADAS.length >= 3 && entraram.length === 0,
+      entraram.map((e) => `${e.tipo} (${e.motivo})`).join(" | "),
+    );
+  }
+
+  const nome = `capas/zzz-verificacao-3-1-${randomUUID()}.png`;
+  afirmarNoStorage(
+    "o caminho da prova é um caminho de capa válido pelo vocabulário do domínio",
+    ehCaminhoDeCapa(nome),
+    nome,
+  );
+
+  const comoAutor = { Authorization: `Bearer ${jwt}` };
+  const alvo = `object/${BUCKET_DAS_IMAGENS}/${nome}`;
+
+  /* Tudo o que a prova cria, para a faxina do fim alcançar mesmo o que uma
+     asserção esperava ver recusado. Arquivo de teste esquecido num bucket de
+     PRODUÇÃO é o preço de uma regressão que a própria asserção persegue. */
+  const criados = [nome];
+  const espuria = `capas/zzz-verificacao-3-1-${randomUUID()}.png`;
+  const mentirosa = `capas/zzz-verificacao-3-1-${randomUUID()}.png`;
+
+  try {
+    /* ── 1. Envio ANÔNIMO: recusado pela política ─────────────────────────
+       Primeiro, e por isso: com o arquivo já no bucket, a recusa poderia ser
+       conflito de nome em vez de política. */
+    const envioAnonimo = await storage(alvo, {
+      method: "POST",
+      headers: { "Content-Type": "image/png" },
+      body: PNG_DE_UM_PIXEL,
+    });
+    afirmarNoStorage(
+      "envio ANÔNIMO ao bucket é recusado pela política — não há política de escrita para anon",
+      envioAnonimo.alcancou && envioAnonimo.status >= 400 && envioAnonimo.status < 500,
+      envioAnonimo.erro ?? `HTTP ${envioAnonimo.status} ${envioAnonimo.corpo.slice(0, 200)}`,
+    );
+
+    /* ── 2. Envio AUTENTICADO: aceito ─────────────────────────────────── */
+    const envio = await storage(alvo, {
+      method: "POST",
+      headers: { ...comoAutor, "Content-Type": "image/png" },
+      body: PNG_DE_UM_PIXEL,
+    });
+    const enviou = afirmarNoStorage(
+      "envio com SESSÃO é aceito — é a política de inserção para authenticated",
+      envio.alcancou && envio.status >= 200 && envio.status < 300,
+      envio.erro ?? `HTTP ${envio.status} ${envio.corpo.slice(0, 250)}`,
+    );
+
+    /* ── 3. Leitura ANÔNIMA do endereço público: permitida ────────────────
+       É também o CONTROLE POSITIVO da credencial: sem uma leitura que devolve
+       200, as recusas acima e abaixo passariam com uma chave inválida. */
+    const publico = await storage(`object/public/${BUCKET_DAS_IMAGENS}/${nome}`);
+    afirmarNoStorage(
+      "controle positivo: o visitante ANÔNIMO lê o arquivo pelo endereço público",
+      enviou && publico.alcancou && publico.status === 200,
+      publico.erro ?? `HTTP ${publico.status} ${publico.corpo.slice(0, 120)}`,
+    );
+    afirmarNoStorage(
+      "e o que ele recebe é a IMAGEM, com o tipo que foi enviado",
+      publico.status === 200 && publico.tipo.startsWith("image/png"),
+      `content-type: ${publico.tipo || "—"}`,
+    );
+
+    /* ── 4. Espécie fora do vocabulário: recusada PELO BUCKET ─────────────
+       A tela recusa antes da rede, e é lá que a frase diz o que se aceita.
+       Esta asserção é a segunda linha: quem não passou pela tela — um script,
+       um cliente próprio — esbarra na lista de permissão do próprio bucket.
+
+       O nome entra em `criados` ANTES do envio: se a lista de MIME for
+       afrouxada — que é a regressão que esta asserção persegue —, o arquivo
+       ENTRA, e sem o registro ele ficaria num bucket de produção. */
+    criados.push(espuria);
+    const foraDoVocabulario = await storage(`object/${BUCKET_DAS_IMAGENS}/${espuria}`, {
+      method: "POST",
+      headers: { ...comoAutor, "Content-Type": "application/pdf" },
+      body: Buffer.from("%PDF-1.4 nao e imagem"),
+    });
+    afirmarNoStorage(
+      "espécie fora do vocabulário é recusada pelo próprio BUCKET, mesmo com sessão válida",
+      foraDoVocabulario.alcancou &&
+        foraDoVocabulario.status >= 400 &&
+        foraDoVocabulario.status < 500,
+      foraDoVocabulario.erro ??
+        `HTTP ${foraDoVocabulario.status} ${foraDoVocabulario.corpo.slice(0, 200)}`,
+    );
+
+    /* ── 5. A POLÍTICA NÃO ALCANÇA OUTRO BALDE ────────────────────────────
+       O predicado `bucket_id = 'imagens-do-blog'` é o que prende as duas
+       políticas de escrita a ESTE bucket, e a varredura estática o cobra no
+       texto. Aqui ele é cobrado no comportamento: a mesma sessão que acabou de
+       enviar não alcança outro balde. O que a asserção prova é que a
+       capacidade concedida NÃO é a do projeto inteiro. */
+    const outroBalde = await storage(`object/zzz-balde-que-nao-existe/${nome}`, {
+      method: "POST",
+      headers: { ...comoAutor, "Content-Type": "image/png" },
+      body: PNG_DE_UM_PIXEL,
+    });
+    afirmarNoStorage(
+      "e a política NÃO alcança outro balde do projeto — ela está presa ao bucket_id desta story",
+      outroBalde.alcancou && outroBalde.status >= 400 && outroBalde.status < 500,
+      outroBalde.erro ?? `HTTP ${outroBalde.status} ${outroBalde.corpo.slice(0, 200)}`,
+    );
+
+    /* ── 6. O ARQUIVO QUE MENTE A ESPÉCIE ATRAVESSA — e isso é DITO ───────
+       O Storage decide a espécie pelo `Content-Type` DECLARADO; ele não olha
+       um byte do corpo. Então bytes de PDF sob `image/png` ENTRAM no bucket, e
+       a asserção afirma isso em vez de fingir o contrário.
+
+       A linha da matriz — "quem decide é o conteúdo, não o nome" — é uma
+       promessa da TELA, e é lá que ela é cumprida: `problemaNoArquivo` lê a
+       assinatura antes de qualquer rede, e `verificar:escrita` prova isso
+       executando. O que o bucket garante é outra coisa: tamanho e tipo
+       DECLARADO. Escrever a fronteira aqui é o que impede alguém de ler a
+       recusa de espécie acima como se ela cobrisse o conteúdo.
+
+       Consequência aceita: quem chama o Storage direto, com sessão do Painel,
+       consegue guardar um arquivo que não é imagem sob nome de imagem. Ele não
+       vira capa de Post nenhum — o endereço só entra em `posts` pela porta
+       única — e o `<img>` do site simplesmente não o desenha. */
+    criados.push(mentirosa);
+    const mentiu = await storage(`object/${BUCKET_DAS_IMAGENS}/${mentirosa}`, {
+      method: "POST",
+      headers: { ...comoAutor, "Content-Type": "image/png" },
+      body: Buffer.from("%PDF-1.4 bytes de PDF sob nome de PNG"),
+    });
+    afirmarNoStorage(
+      "arquivo que MENTE a espécie atravessa o bucket — quem confere o conteúdo é a tela, e isso está dito",
+      mentiu.alcancou && mentiu.status >= 200 && mentiu.status < 300,
+      mentiu.erro ??
+        `HTTP ${mentiu.status} — se o bucket passou a recusar, a fronteira mudou e o comentário acima precisa mudar junto`,
+    );
+
+    /* ── 7. Exclusão ANÔNIMA: recusada ───────────────────────────────────
+       E o arquivo precisa CONTINUAR LÁ depois dela: "recusou" sem conferir que
+       nada saiu seria acreditar no código de status. */
+    const exclusaoAnonima = await storage(alvo, { method: "DELETE" });
+    afirmarNoStorage(
+      "exclusão ANÔNIMA é recusada pela política",
+      exclusaoAnonima.alcancou &&
+        exclusaoAnonima.status >= 400 &&
+        exclusaoAnonima.status < 500,
+      exclusaoAnonima.erro ??
+        `HTTP ${exclusaoAnonima.status} ${exclusaoAnonima.corpo.slice(0, 200)}`,
+    );
+    /* A MESMA pergunta, ao mesmo lugar: o objeto continua REGISTRADO no
+       bucket. Ela é o controle positivo da asserção de remoção lá embaixo —
+       sem ela, "sumiu" passaria num bucket em que o envio nunca chegou. */
+    const aindaLa = await executarSql(
+      token,
+      `select count(*)::int as n from storage.objects
+         where bucket_id = ${literal(BUCKET_DAS_IMAGENS)} and name = ${literal(nome)}`,
+    );
+    afirmarNoStorage(
+      "e o arquivo continua NO BUCKET depois da tentativa anônima — a recusa não é só o código de status",
+      aindaLa.ok && Number(aindaLa.dados?.[0]?.n) === 1,
+      aindaLa.erro ?? `objetos com este nome: ${aindaLa.dados?.[0]?.n}`,
+    );
+  } finally {
+    /* ── 8. Exclusão AUTENTICADA: aceita — e é ela que limpa ────────────── */
+    const exclusao = await storage(alvo, { method: "DELETE", headers: comoAutor });
+    afirmarNoStorage(
+      "exclusão com SESSÃO é aceita — é a política de remoção para authenticated, e é ela que limpa a prova",
+      exclusao.alcancou && exclusao.status >= 200 && exclusao.status < 300,
+      exclusao.erro ?? `HTTP ${exclusao.status} ${exclusao.corpo.slice(0, 200)}`,
+    );
+
+    /* ── E A FAXINA ALCANÇA TUDO O QUE A PROVA CRIOU ─────────────────────
+       Inclusive o que uma asserção esperava ver recusado: se a recusa deixar
+       de acontecer, o arquivo entrou — e ele não pode ficar num bucket de
+       PRODUÇÃO só porque a asserção já gritou. */
+    for (const restante of criados) {
+      await storage(`object/${BUCKET_DAS_IMAGENS}/${restante}`, {
+        method: "DELETE",
+        headers: comoAutor,
+      });
+    }
+
+    const sobraram = await executarSql(
+      token,
+      `select coalesce(string_agg(name, ', ' order by name), '') as nomes
+         from storage.objects
+        where bucket_id = ${literal(BUCKET_DAS_IMAGENS)}
+          and name like 'capas/zzz-verificacao-%'`,
+    );
+    afirmarNoStorage(
+      "e o arquivo sumiu de verdade do bucket — perguntado ao bucket, não ao cache do endereço público",
+      sobraram.ok && !String(sobraram.dados?.[0]?.nomes ?? "").includes(nome),
+      sobraram.erro ?? `ainda no bucket: ${sobraram.dados?.[0]?.nomes}`,
+    );
+    /* A varredura é por PREFIXO, e não pelos nomes desta execução: ela é o que
+       encontra o resto de uma execução anterior que morreu no meio. */
+    afirmarNoStorage(
+      "nenhum arquivo da prova ficou no bucket de produção",
+      sobraram.ok && String(sobraram.dados?.[0]?.nomes ?? "") === "",
+      sobraram.erro ?? `restos: ${sobraram.dados?.[0]?.nomes}`,
+    );
+
+    /* E A LISTA DE NOMES ESTÁ EM DIA. Sem esta comparação, uma asserção nova
+       ficaria fora de `ASSERCOES_DO_STORAGE` e voltaria a sumir sem rastro no
+       ramo do 429 — que é exatamente o defeito que a lista veio corrigir. */
+    const faltando = ditas.filter((d) => !ASSERCOES_DO_STORAGE.includes(d));
+    const sobrando = ASSERCOES_DO_STORAGE.filter((d) => !ditas.includes(d));
+    afirmar(
+      "a lista de asserções do Storage é EXATAMENTE o que a seção afirma — é ela que o ramo do 429 adia",
+      faltando.length === 0 && sobrando.length === 0,
+      `sem entrada de adiamento: ${faltando.join(" | ") || "nenhuma"} — declaradas e nunca ditas: ${sobrando.join(" | ") || "nenhuma"}`,
+    );
+  }
+}
+
 if (temToken && temChave) {
   /* — Controle positivo da credencial, ANTES de qualquer prova negativa — */
   //
@@ -1922,6 +2455,16 @@ if (temToken && temChave) {
             adiar("a sessão do Painel foi aberta", MOTIVO_LIMITE);
             adiar("o Painel vê os SEIS posts da matriz, inclusive o rascunho", MOTIVO_LIMITE);
             adiar("o Painel vê as tabelas de apoio do módulo", MOTIVO_LIMITE);
+            /* E AS DO STORAGE, UMA A UMA. Elas dependem da MESMA sessão, e
+               sem estas linhas a seção (g) inteira — bucket, políticas,
+               envio, leitura e remoção — simplesmente não era impressa numa
+               execução com 429: nem `secao("(g) …")` aparecia, e o relatório
+               não distinguia isso de "todas passaram". É a regra 4 do
+               projeto — asserção adiada não conta como passou, e asserção
+               que some não conta como nada. */
+            for (const descricao of ASSERCOES_DO_STORAGE) {
+              adiar(descricao, MOTIVO_LIMITE);
+            }
           } else {
             afirmar(
               "a sessão do Painel foi aberta",
@@ -1964,6 +2507,18 @@ if (temToken && temChave) {
                 tamanhos[3] === 2,
               `categorias/tags/associação/slugs_antigos: ${tamanhos.join(" / ")} (esperado 1 / 2 / 1 / 2) — status ${apoio.map((r) => r.status).join(", ")}`,
             );
+
+            /* ─── O STORAGE, EXERCITADO (Story 3.1) ────────────────────────
+               O cabeçalho desta ferramenta diz que ler o texto de uma política
+               não prova que o banco a aplica, e isso vale igual para o
+               Storage: as quatro políticas do bucket são conferidas por
+               TENTATIVA REAL, da mesma sessão de Conta temporária que acabou
+               de provar a leitura do Painel.
+
+               A matriz é a da story, linha por linha: leitura anônima
+               permitida, envio anônimo recusado, envio autenticado aceito,
+               exclusão anônima recusada, exclusão autenticada aceita. */
+            if (jwt) await provarStorage(jwt);
           }
         }
       } finally {

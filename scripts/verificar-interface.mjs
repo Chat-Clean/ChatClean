@@ -382,6 +382,13 @@ const CAMINHO_MODULO_DAS_CATEGORIAS = "src/admin/blog/categorias.js";
 const CAMINHO_ICONES_DE_CATEGORIA = "src/admin/blog/iconesDeCategoria.js";
 const CAMINHO_CATEGORIAS_DO_DOMINIO = "src/domain/blog/categorias.js";
 const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
+/* A Story 3.1: a gaveta ganhou o campo de capa — a primeira superfície do
+   Painel que mostra uma IMAGEM vinda de fora —, e com ela o módulo de situações
+   do envio e o vocabulário do arquivo. Os três entram na lista fechada pela
+   razão que o comentário acima já registra: superfície nova que fica de fora
+   não é julgada por hex solto, paleta aposentada nem raio da direção. */
+const CAMINHO_MODULO_DA_CAPA = "src/admin/blog/capa.js";
+const CAMINHO_ARQUIVOS_DO_DOMINIO = "src/domain/blog/arquivos.js";
 const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 const CAMINHO_FORMATO = "src/domain/blog/formato.js";
 const CAMINHO_PAGINA = "src/pages/AdminBlog.jsx";
@@ -425,6 +432,12 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_ICONES_DE_CATEGORIA,
   CAMINHO_CATEGORIAS_DO_DOMINIO,
   CAMINHO_TAGS_DO_DOMINIO,
+  /* A Story 3.1: a gaveta passou a desenhar miniatura, progresso e recusa, e
+     por isso ela entra AQUI — ela nunca esteve nesta lista, e a capa é a
+     primeira coisa que a faz pintar alguma coisa. */
+  CAMINHO_GAVETA,
+  CAMINHO_MODULO_DA_CAPA,
+  CAMINHO_ARQUIVOS_DO_DOMINIO,
 ];
 
 function acharCssCompilado() {
@@ -2877,6 +2890,161 @@ secao("(i) o cartão de erro: tinta destrutiva sobre o próprio tom, calculada")
   }
 }
 
+/* ─── (j) Nenhum arquivo vira texto nem base64 (Story 3.1) ──────────────── */
+
+secao("(j) nenhuma leitura de arquivo para texto ou base64");
+
+/*
+ * ─── ESTA ASSERÇÃO NASCE PREVENTIVA, E ISSO ESTÁ DECLARADO ─────────────────
+ *
+ * A prosa histórica deste projeto fala de imagem em base64 estourando a cota
+ * do navegador — e o CÓDIGO que fazia isso saiu na Story 2.6. Hoje não há um
+ * `readAsDataURL` em lugar nenhum, e a Story 3.1 é a primeira a introduzir um
+ * `<input type="file">`. Ou seja: a varredura não corrige nada. Ela impede a
+ * volta.
+ *
+ * E preventiva sem autoteste é decoração: uma expressão regular quebrada
+ * devolveria zero achados e a asserção passaria por vacuidade, verde para
+ * sempre, inclusive no dia em que alguém colasse um `FileReader` de volta.
+ *
+ * ─── O QUE ELA PROÍBE, E O QUE ELA NÃO PROÍBE ─────────────────────────────
+ *
+ * Proíbe transformar o CONTEÚDO de um arquivo em texto ou em base64 — que é a
+ * forma pela qual ele passaria a caber numa coluna, num `localStorage` ou num
+ * corpo de JSON.
+ *
+ * NÃO proíbe ler o cabeçalho: `arquivo.slice(0, 12).arrayBuffer()` traz doze
+ * bytes à memória para decidir a espécie pela assinatura, e é justamente o que
+ * a story exige quando diz que quem decide é o conteúdo e não o nome. A regra
+ * é sobre CODIFICAR o arquivo, não sobre tocá-lo — e a diferença é conferida
+ * pelo autoteste, nos dois sentidos.
+ */
+{
+  /**
+   * O vocabulário FECHADO do que transforma arquivo em texto ou base64.
+   *
+   * Lista de PERMISSÃO invertida — cada entrada é um nome de API, não um
+   * padrão de forma: nome é o que sobrevive a minificação, a renomeação de
+   * variável e a quebra de linha. `btoa` e `toString("base64")` entram porque
+   * são o caminho manual, que uma lista só com `FileReader` deixaria aberto.
+   */
+  const CODIFICADORES_DE_ARQUIVO = Object.freeze([
+    ["FileReader", /\bnew\s+FileReader\b|\bFileReader\s*\(/],
+    ["readAsDataURL", /\breadAsDataURL\s*\(/],
+    ["readAsBinaryString", /\breadAsBinaryString\s*\(/],
+    ["readAsText", /\breadAsText\s*\(/],
+    ["toDataURL", /\btoDataURL\s*\(/],
+    ["btoa", /\bbtoa\s*\(/],
+    ["toString(\"base64\")", /\.toString\s*\(\s*["'`]base64["'`]\s*\)/],
+    /* `.text()` sobre um FILE não pode ser detectado por NOME DE VARIÁVEL: o
+       próprio bloco declara que nome de API é o que sobrevive a renomeação, e
+       `const bruto = imagem.text()` escapava enquanto `arquivo.text()` era
+       acusado. O que se procura agora é a API do Blob aplicada a algo que a
+       linha identifica como arquivo — `new File`, `new Blob`, ou o resultado
+       de `.slice(...)`. Fora disso, `.text()` é o de `Response`, que é rede e
+       não arquivo. */
+    ["File/Blob.text()", /\b(?:new\s+(?:File|Blob)\([^)]*\)|\.slice\s*\([^)]*\))\s*\.\s*text\s*\(\s*\)/],
+  ]);
+
+  /** Os codificadores que um trecho de código usa, por nome. */
+  const codificadoresEm = (codigo) =>
+    CODIFICADORES_DE_ARQUIVO.filter(([, padrao]) => padrao.test(codigo)).map(
+      ([nome]) => nome,
+    );
+
+  /* ── AUTOTESTE, NOS DOIS SENTIDOS ──────────────────────────────────── */
+  const DEVE_ACUSAR = [
+    "const leitor = new FileReader(); leitor.readAsDataURL(arquivo);",
+    "leitor.readAsText(arquivo)",
+    "leitor.readAsBinaryString(arquivo)",
+    "const dados = canvas.toDataURL(\"image/png\");",
+    "const b = btoa(bruto);",
+    "const b = Buffer.from(bytes).toString(\"base64\");",
+    "const texto = await new Blob([b]).text();",
+    "const texto = await arquivo.slice(0, 12).text();",
+  ];
+  /* E o que ela NÃO pode acusar: a leitura do cabeçalho, que é o caminho
+     certo — e o texto de uma RESPOSTA de rede, que não é arquivo nenhum. */
+  const NAO_DEVE_ACUSAR = [
+    "const buffer = await arquivo.slice(0, 12).arrayBuffer();",
+    "const bytes = new Uint8Array(buffer);",
+    "const texto = await resposta.text();",
+    "const corpo = await r.text().catch(() => \"\");",
+    /* O caso que o detector antigo acusava por engano: `.text()` sobre uma
+       RESPOSTA cujo nome de variável lembra arquivo. */
+    "const corpo = await arquivo.text();",
+    "const bruto = imagem.text();",
+    "accept={ACEITO_NO_SELETOR}",
+  ];
+
+  const escaparam = DEVE_ACUSAR.filter((t) => codificadoresEm(t).length === 0);
+  const falsos = NAO_DEVE_ACUSAR.filter((t) => codificadoresEm(t).length > 0);
+  afirmar(
+    "autoteste do detector: acusa toda forma de transformar arquivo em texto ou base64",
+    escaparam.length === 0,
+    `escaparam: ${escaparam.join(" | ")}`,
+  );
+  afirmar(
+    "autoteste do detector: NÃO acusa a leitura do cabeçalho nem o texto de uma resposta de rede",
+    falsos.length === 0,
+    `falsos positivos: ${falsos.map((t) => `${t} → ${codificadoresEm(t)}`).join(" | ")}`,
+  );
+  afirmar(
+    "e o vocabulário do detector é fechado e não trivial",
+    CODIFICADORES_DE_ARQUIVO.length >= 8,
+    `${CODIFICADORES_DE_ARQUIVO.length} formas declaradas`,
+  );
+
+  /* ── E AGORA O REPOSITÓRIO ─────────────────────────────────────────── */
+  const infratores = [];
+  for (const arquivo of fontesSrc) {
+    const achados = codificadoresEm(semComentarios(ler(arquivo)));
+    if (achados.length > 0) infratores.push(`${rel(arquivo)}: ${achados.join(", ")}`);
+  }
+  afirmar(
+    "NENHUM arquivo de `src/` transforma arquivo em texto ou em base64",
+    infratores.length === 0,
+    infratores.join(" | "),
+  );
+
+  /* ── E O CAMINHO CERTO EXISTE DE VERDADE ───────────────────────────── */
+  //
+  // Sem esta asserção, a de cima passaria num projeto que simplesmente não lê
+  // arquivo nenhum — que era o estado do repositório ANTES desta story. O que
+  // ela cobra é que o envio da capa leia o CABEÇALHO: é a diferença entre
+  // "ninguém faz" e "faz do jeito certo".
+  {
+    const daCamada = semComentarios(ler(path.join(raiz, "src/data/blog/arquivos.js")));
+    afirmar(
+      "o envio da capa lê o CABEÇALHO do arquivo por uma fatia — é assim que a espécie é decidida pelo conteúdo",
+      /\.slice\s*\(\s*0\s*,\s*BYTES_DA_ASSINATURA\s*\)/.test(daCamada) &&
+        /\barrayBuffer\s*\(\s*\)/.test(daCamada) &&
+        codificadoresEm(daCamada).length === 0,
+      codificadoresEm(daCamada).join(", ") || "a fatia do cabeçalho não foi encontrada",
+    );
+  }
+
+  /* ── E O `localStorage` CONTINUA FORA DO CAMINHO DA IMAGEM ─────────── */
+  //
+  // A cota do navegador era estourada por imagem em base64 DENTRO do
+  // armazenamento local. As duas metades saíram (o armazenamento na Story
+  // 2.15, o base64 na 2.6); esta asserção cobra que nenhuma volte junto da
+  // outra pelo caminho novo.
+  {
+    const doPainel = fontesSrc.filter((a) => {
+      const nome = rel(a);
+      return nome.startsWith("src/admin/") || nome.startsWith("src/data/");
+    });
+    const comArmazenamento = doPainel.filter((a) =>
+      /\b(localStorage|sessionStorage)\b/.test(semComentarios(ler(a))),
+    );
+    afirmar(
+      "nem o Painel nem a camada de dados tocam armazenamento do navegador — o caminho da imagem não o reintroduz",
+      comArmazenamento.length === 0,
+      comArmazenamento.map(rel).join(", "),
+    );
+  }
+}
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");

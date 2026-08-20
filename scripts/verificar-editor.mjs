@@ -74,6 +74,7 @@ const CAMINHO_APP_CSS = "src/App.css";
 const CAMINHO_TELA = "src/admin/blog/EditorDePost.jsx";
 const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
 const CAMINHO_MODULO_DA_GAVETA = "src/admin/blog/gaveta.js";
+const CAMINHO_METADADOS = "src/admin/blog/metadados.js";
 const CAMINHO_PENDENCIA = "src/admin/blog/pendencia.js";
 const CAMINHO_FOCO = "src/admin/shell/foco.js";
 const CAMINHO_VOZ = "src/admin/shell/voz.js";
@@ -107,6 +108,12 @@ const CAMINHO_TELA_DE_CATEGORIAS = "src/admin/blog/TelaDeCategorias.jsx";
 const CAMINHO_MODULO_DAS_CATEGORIAS = "src/admin/blog/categorias.js";
 const CAMINHO_CATEGORIAS_DO_DOMINIO = "src/domain/blog/categorias.js";
 const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
+/* Story 3.1: o envio da capa. `capa.js` traz as situações e as falas do envio;
+   `domain/blog/arquivos.js` traz o vocabulário fechado de espécie e o teto; e
+   `data/blog/arquivos.js` é a fronteira de rede que o dublê troca. */
+const CAMINHO_MODULO_DA_CAPA = "src/admin/blog/capa.js";
+const CAMINHO_ARQUIVOS_DO_DOMINIO = "src/domain/blog/arquivos.js";
+const CAMINHO_ARQUIVOS_DA_CAMADA = "src/data/blog/arquivos.js";
 /* O FILTRO DO BLOG PÚBLICO. Ele lê as Categorias do banco desde a Story 2.14, e
    a única asserção sobre isso eram duas expressões regulares sobre o texto do
    arquivo — que continuam passando com `categoria.slug` no lugar de
@@ -1702,6 +1709,20 @@ async function compilarComponentes() {
       "  categoria_excluida: { ok: true, dados: { operacao: 'excluirCategoria', id: null, categoria: null } },\n" +
       "  aoSalvarCategoria: null,\n" +
       "  aoExcluirCategoria: null,\n" +
+      /* Story 3.1: O ENVIO DA CAPA. `pedidos_de_envio` guarda os arquivos que
+         a tela mandou — é por aí que se prova que ela manda o arquivo escolhido
+         e não outro. `aoEnviar`, quando é função, tem precedência: é ela que
+         permite SEGURAR a resposta e observar a indicação de progresso, que de
+         outro modo resolve no primeiro microtask e nunca chega a ser
+         desenhada. */
+      "  pedidos_de_envio: [],\n" +
+      /* E as REMOÇÕES pedidas pela tela (Story 3.1, revisão): é por aqui que
+         se prova que a capa enviada e nunca salva sai do bucket pela sessão,
+         e que a capa GRAVADA não sai — os dois arquivos têm donos
+         diferentes. */
+      "  pedidos_de_remocao: [],\n" +
+      "  aoEnviar: null,\n" +
+      "  envio: { ok: true, dados: { url: 'https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png', caminho: 'capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png' } },\n" +
       /* O que a tela ANUNCIOU, em ordem. `{ tom, oQueHouve, oQueFazer }` — as
          duas metades separadas, como `notificarErro` as exige. */
       "  avisos: [],\n" +
@@ -1736,6 +1757,27 @@ async function compilarComponentes() {
       "  controle.pedidos_de_exclusao_de_categoria.push(id);\n" +
       "  if (typeof controle.aoExcluirCategoria === 'function') return controle.aoExcluirCategoria(id);\n" +
       "  return controle.categoria_excluida;\n" +
+      "}\n",
+  );
+
+  /* O ENVIO DA CAPA, dublado (Story 3.1). O módulo real fala com o Storage —
+     e `verificar:editor` roda sem rede. O que interessa aqui é o que a TELA
+     faz: recusar, mostrar progresso, mostrar miniatura. O comportamento do
+     módulo real é provado onde ele existe, em `verificar:escrita`, com as
+     costuras injetáveis dele. */
+  const arquivoDosArquivos = path.join(pasta, "duble-arquivos.js");
+  writeFileSync(
+    arquivoDosArquivos,
+    `export * from ${caminhoDeModulo(CAMINHO_ARQUIVOS_DA_CAMADA)};\n` +
+      'import { controle } from "./controle.js";\n' +
+      "export async function enviarImagemDeCapa(arquivo) {\n" +
+      "  controle.pedidos_de_envio.push(arquivo);\n" +
+      "  if (typeof controle.aoEnviar === 'function') return controle.aoEnviar(arquivo);\n" +
+      "  return controle.envio;\n" +
+      "}\n" +
+      "export async function removerImagemDeCapa(endereco) {\n" +
+      "  controle.pedidos_de_remocao.push(endereco);\n" +
+      "  return { ok: true, dados: { caminho: endereco } };\n" +
       "}\n",
   );
 
@@ -1857,6 +1899,16 @@ async function compilarComponentes() {
          Tag por vírgula são dela, e montá-la pelo Editor inteiro faria a
          asserção depender de tudo o que o Editor carrega. */
       `export { default as GavetaDeMetadados } from ${caminhoDeModulo(CAMINHO_GAVETA)};\n` +
+      /* Story 3.1: as regras puras do envio e o vocabulário do arquivo. Os
+         dois entram porque as asserções os EXECUTAM — "a indicação não mente"
+         só é regra provada quando a fala é uma função chamada, e "a recusa diz
+         o limite" só se confere comparando a frase com o número que o
+         vocabulário declara. */
+      `export * as regrasDaCapa from ${caminhoDeModulo(CAMINHO_MODULO_DA_CAPA)};\n` +
+      `export * as regrasDosMetadados from ${caminhoDeModulo(CAMINHO_METADADOS)};\n` +
+      `export * as arquivosDoDominio from ${caminhoDeModulo(CAMINHO_ARQUIVOS_DO_DOMINIO)};\n` +
+      `export * as arquivosReal from ${caminhoDeModulo(CAMINHO_ARQUIVOS_DA_CAMADA)};\n` +
+      `export * as arquivosDuble from ${comoModulo(arquivoDosArquivos)};\n` +
       `export { default as BlogPublico } from ${caminhoDeModulo(CAMINHO_BLOG_PUBLICO)};\n` +
       /* A segunda tela pública e as regras puras das duas (Story 2.15). O
          módulo entra porque as asserções o EXECUTAM: "a tela diz o que houve e
@@ -1889,6 +1941,7 @@ async function compilarComponentes() {
       "@/data/blog/escrita": arquivoDaEscrita,
       "@/data/blog/posts": arquivoDosPosts,
       "@/data/blog/taxonomia": arquivoDaTaxonomia,
+      "@/data/blog/arquivos": arquivoDosArquivos,
     },
   });
 }
@@ -9227,6 +9280,843 @@ if (janela && schema && configuracao && compilado) {
 
           await act(async () => raizReact.unmount());
           alvo.remove();
+        }
+
+        /* ─── (p) A CAPA (Story 3.1) ────────────────────────────────────
+           Duas montagens, e a divisão é a mesma que a arquitetura declara:
+           a GAVETA sozinha, para o que é desenho (miniatura, progresso,
+           recusa, descrição colada na imagem), e o EDITOR inteiro, para o
+           que é coordenação (o arquivo escolhido virar envio, o endereço
+           voltar para o formulário, a recusa virar frase). */
+        {
+          secao("(p) a capa: recusa antes da rede, progresso honesto, miniatura ao concluir");
+
+          const capa = modulo.regrasDaCapa;
+          const regrasDosMetadados = modulo.regrasDosMetadados;
+          const doArquivo = modulo.arquivosDoDominio;
+
+          /* — AS REGRAS PURAS, EXECUTADAS — */
+          afirmar(
+            "`capa.js` chega ao pacote e as situações do envio são um vocabulário FECHADO",
+            capa !== undefined &&
+              Array.isArray(capa.SITUACOES_DO_ENVIO) &&
+              Object.isFrozen(capa.SITUACOES_DO_ENVIO) &&
+              capa.SITUACOES_DO_ENVIO.length === 3 &&
+              capa.ehSituacaoDoEnvio(capa.ENVIO_EM_CURSO) &&
+              !capa.ehSituacaoDoEnvio("carregando"),
+            JSON.stringify(capa?.SITUACOES_DO_ENVIO),
+          );
+
+          /* AS SITUAÇÕES NÃO COLIDEM com as das outras telas. Sem isto, a
+             fala de uma tela responderia pela outra sem nada lançar — foi um
+             achado real da Story 2.15, e a correção foi prefixar. */
+          {
+            const outras = [
+              ...Object.values(modulo.regrasDaPrevia ?? {}),
+              ...Object.values(modulo.regrasDoBlogPublico ?? {}),
+            ].filter((v) => typeof v === "string");
+            const colisoes = capa.SITUACOES_DO_ENVIO.filter((v) => outras.includes(v));
+            afirmar(
+              "e elas não colidem com as situações da prévia nem as do blog público — interseção vazia",
+              colisoes.length === 0,
+              colisoes.join(", "),
+            );
+          }
+
+          /* A INDICAÇÃO NÃO MENTE: a fala do envio não tem número nenhum.
+             É a asserção que impede um percentual desenhado à mão de voltar
+             — e ela roda sobre a função, não sobre o JSX. */
+          afirmar(
+            "a fala do envio não traz percentual nem número — o que se sabe é “está enviando”, e é isso que ela diz",
+            capa.falaDoEnvio(capa.ENVIO_EM_CURSO) === capa.FALA_DO_ENVIO_EM_CURSO &&
+              !/[0-9]|%/.test(capa.FALA_DO_ENVIO_EM_CURSO) &&
+              capa.falaDoEnvio(capa.ENVIO_PARADO) === "" &&
+              capa.falaDoEnvio("inventada") === "",
+            JSON.stringify(capa.FALA_DO_ENVIO_EM_CURSO),
+          );
+
+          /* A FRASE DA FALTA É A MESMA NOS DOIS LUGARES.
+             `FRASES_DE_FALTA.imagem_alt` é o que a gaveta desenha embaixo do
+             campo; `problemaNoTextoAlternativo` é o que a montagem do pedido
+             devolve e a notificação mostra. Duas grafias seriam duas
+             explicações para a mesma recusa — uma no campo e outra no aviso —, e
+             o comentário de `metadados.js` promete esta comparação. */
+          afirmar(
+            "a frase de “falta a descrição” é a MESMA no campo e na recusa do pedido — uma promessa do comentário, agora conferida",
+            regrasDosMetadados.FRASES_DE_FALTA.imagem_alt ===
+              doArquivo.problemaNoTextoAlternativo("", { temCapa: true }),
+            `gaveta: ${JSON.stringify(regrasDosMetadados.FRASES_DE_FALTA.imagem_alt)} | pedido: ${JSON.stringify(doArquivo.problemaNoTextoAlternativo("", { temCapa: true }))}`,
+          );
+
+          /* — A GAVETA SOZINHA: o desenho — */
+          {
+            const alvo = janela.document.createElement("div");
+            janela.document.body.appendChild(alvo);
+            const raizReact = createRoot(alvo);
+            let valores = {
+              titulo: "",
+              slug: "",
+              resumo: "",
+              imagem_url: "",
+              imagem_alt: "",
+              categoria_id: "",
+              tags: "",
+              publicado_em: "",
+              tempo_leitura: "",
+            };
+            let situacao = capa.ENVIO_PARADO;
+            let recusa = null;
+            const escolhidos = [];
+            let removeu = 0;
+            const desenhar = () =>
+              React.createElement(modulo.GavetaDeMetadados, {
+                valores,
+                situacaoDoEnvio: situacao,
+                recusaDoEnvio: recusa,
+                aoEscolherArquivo: (a) => escolhidos.push(a),
+                aoRemoverCapa: () => {
+                  removeu += 1;
+                  valores = { ...valores, imagem_url: "", imagem_alt: "" };
+                  raizReact.render(desenhar());
+                },
+                aoMudar: (campo, valor) => {
+                  valores = { ...valores, [campo]: valor };
+                  raizReact.render(desenhar());
+                },
+              });
+            await act(async () => {
+              raizReact.render(desenhar());
+            });
+
+            /* A ORDEM DOS CAMPOS. A capa é conteúdo: ela entra entre Resumo e
+               Categoria, e a ordem é lida do DOCUMENTO — não da lista que a
+               declara, que provaria a lista contra si mesma. */
+            {
+              /* O CONTROLE DA CAPA É O SELETOR DE ARQUIVO, e é ele que
+                 representa `imagem_url` na ordem. O campo de endereço existe
+                 escondido e sem `data-campo` de propósito: ele não é operável,
+                 e o rótulo "Imagem de capa" aponta para o seletor — que era o
+                 único controle da seção sem nome acessível antes desta
+                 correção. A tradução é declarada aqui, e não presumida. */
+              const CONTROLE_DO_CAMPO = { "arquivo-da-capa": "imagem_url" };
+              const ordem = [...alvo.querySelectorAll("[data-campo]")]
+                .map((e) => e.getAttribute("data-campo"))
+                .map((n) => CONTROLE_DO_CAMPO[n] ?? n)
+                .filter((n) => regrasDosMetadados.CAMPOS_DA_GAVETA.includes(n));
+              afirmar(
+                "a gaveta desenha os campos na ordem que `CAMPOS_DA_GAVETA` declara, com a capa entre Resumo e Categoria",
+                ordem.join(",") === regrasDosMetadados.CAMPOS_DA_GAVETA.join(",") &&
+                  ordem.indexOf("imagem_url") === ordem.indexOf("resumo") + 1 &&
+                  ordem.indexOf("imagem_alt") === ordem.indexOf("imagem_url") + 1 &&
+                  ordem.indexOf("categoria_id") === ordem.indexOf("imagem_alt") + 1,
+                `desenhada: ${ordem.join(",")} | declarada: ${regrasDosMetadados.CAMPOS_DA_GAVETA.join(",")}`,
+              );
+            }
+
+            /* O CAMPO DE DESCRIÇÃO É OFERECIDO JUNTO DA IMAGEM — a promessa
+               central da story do lado da tela. Junto quer dizer no MESMO
+               formulário e adjacente, e é isso que a asserção mede. */
+            const seletor = alvo.querySelector('[data-campo="arquivo-da-capa"]');
+            const descricao = alvo.querySelector('[data-campo="imagem_alt"]');
+            afirmar(
+              "o campo de texto alternativo é oferecido JUNTO da imagem — não num bloco de acessibilidade no fim",
+              seletor !== null &&
+                descricao !== null &&
+                descricao.tagName === "TEXTAREA" &&
+                seletor.compareDocumentPosition(descricao) &
+                  janela.Node.DOCUMENT_POSITION_FOLLOWING,
+              `seletor: ${seletor !== null} | descrição: ${descricao?.tagName ?? "ausente"}`,
+            );
+
+            /* O SELETOR OFERECE O QUE O VOCABULÁRIO ACEITA — derivado, e não
+               escrito à mão: um `accept` fora de sincronia ofereceria ao
+               Autor um formato que o envio recusaria em seguida. */
+            afirmar(
+              "o seletor de arquivo aceita exatamente as espécies do vocabulário do domínio",
+              seletor?.getAttribute("accept") === doArquivo.TIPOS_DE_IMAGEM.join(",") &&
+                doArquivo.TIPOS_DE_IMAGEM.length === 3,
+              seletor?.getAttribute("accept") ?? "sem accept",
+            );
+
+            /* A AJUDA DIZ O LIMITE ANTES DE A PESSOA ESCOLHER. Dizer só
+               depois da recusa é deixar quem tem um arquivo de 4 MB
+               descobrir esperando. */
+            afirmar(
+              "a gaveta diz o limite e as espécies ANTES da escolha, e o número vem do vocabulário",
+              (alvo.textContent ?? "").includes(
+                doArquivo.formatarTamanho(doArquivo.TAMANHO_MAXIMO_DA_IMAGEM),
+              ) &&
+                doArquivo.ROTULOS_DE_IMAGEM.every((r) => (alvo.textContent ?? "").includes(r)),
+              (alvo.textContent ?? "").slice(0, 200),
+            );
+
+            /* SEM CAPA: não há miniatura, e o recurso é DITO — um espaço em
+               branco não informa que a capa é opcional. */
+            afirmar(
+              "sem capa não há miniatura, e a ausência é DITA em vez de ser um espaço em branco",
+              alvo.querySelector('[data-papel="miniatura-da-capa"]') === null &&
+                alvo.querySelector('[data-papel="capa-ausente"]') !== null,
+              alvo.querySelector('[data-papel="capa-ausente"]')?.textContent ?? "nada",
+            );
+
+            /* ENQUANTO ENVIA: a indicação aparece, numa REGIÃO VIVA, e o
+               seletor fica indisponível — escolher outro arquivo no meio do
+               envio produziria dois envios e uma capa imprevisível. */
+            await act(async () => {
+              situacao = capa.ENVIO_EM_CURSO;
+              raizReact.render(desenhar());
+            });
+            const emCurso = alvo.querySelector('[data-papel="envio-em-curso"]');
+            afirmar(
+              "durante o envio a indicação APARECE, como região viva, e diz o que está acontecendo",
+              emCurso !== null &&
+                emCurso.getAttribute("data-enviando") === "true" &&
+                emCurso.getAttribute("role") === "status" &&
+                emCurso.getAttribute("aria-live") === "polite" &&
+                (emCurso.textContent ?? "").includes(capa.FALA_DO_ENVIO_EM_CURSO),
+              `${emCurso?.getAttribute("role")} | ${emCurso?.textContent}`,
+            );
+            afirmar(
+              "e a indicação NÃO desenha percentual: não há `progressbar` com valor, nem número na tela",
+              alvo.querySelector('[role="progressbar"]') === null &&
+                !/[0-9]+\s*%/.test(emCurso?.textContent ?? ""),
+              emCurso?.textContent ?? "",
+            );
+            afirmar(
+              "e o seletor fica indisponível enquanto o arquivo sobe — dois envios produziriam uma capa imprevisível",
+              alvo.querySelector('[data-campo="arquivo-da-capa"]')?.disabled === true,
+              String(alvo.querySelector('[data-campo="arquivo-da-capa"]')?.disabled),
+            );
+
+            /* AO CONCLUIR: a indicação SOME e a miniatura aparece — e ela
+               aponta para o endereço PÚBLICO, que é o mesmo que o site vai
+               usar. Uma pré-visualização local existiria mesmo se o envio
+               tivesse falhado. */
+            const ENDERECO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png";
+            await act(async () => {
+              situacao = capa.ENVIO_PARADO;
+              valores = { ...valores, imagem_url: ENDERECO };
+              raizReact.render(desenhar());
+            });
+            const miniatura = alvo.querySelector('[data-papel="miniatura-da-capa"]');
+            /* A REGIÃO VIVA CONTINUA MONTADA, e o que muda é o TEXTO. Ela
+               era escondida com `hidden`, e região viva que aparece e some é
+               anunciada de forma inconsistente: alguns leitores só leem o que
+               MUDA dentro de uma região que já estava no documento. */
+            afirmar(
+              "ao concluir, a indicação SOME e a miniatura aparece — apontando para o endereço público, o mesmo que o site usa",
+              alvo.querySelector('[data-papel="envio-em-curso"]')?.getAttribute("data-enviando") ===
+                "false" &&
+                (alvo.querySelector('[data-papel="envio-em-curso"]')?.textContent ?? "x") === "" &&
+                /* E ELA CONTINUA NA ÁRVORE DE ACESSIBILIDADE. `hidden` a
+                   tiraria de lá, e região viva que entra e sai do documento é
+                   anunciada de forma inconsistente — alguns leitores só leem o
+                   que MUDA dentro de uma região que já estava presente. Sem
+                   esta cláusula, pôr `hidden` de volta passava verde. */
+                alvo
+                  .querySelector('[data-papel="envio-em-curso"]')
+                  ?.hasAttribute("hidden") === false &&
+                miniatura !== null &&
+                miniatura.getAttribute("src") === ENDERECO &&
+                alvo.querySelector('[data-papel="capa-ausente"]') === null,
+              `miniatura: ${miniatura?.getAttribute("src") ?? "ausente"}`,
+            );
+            afirmar(
+              "e a miniatura nunca fica sem descrição: sem texto alternativo ela diz que falta um, e nunca o endereço do arquivo",
+              (miniatura?.getAttribute("alt") ?? "") ===
+                capa.alternativoDaMiniatura("") &&
+                !(miniatura?.getAttribute("alt") ?? "").includes("http"),
+              miniatura?.getAttribute("alt") ?? "sem alt",
+            );
+
+            /* O SELETOR TEM NOME ACESSÍVEL, e o nome é o rótulo da seção.
+               Ele é o único controle operável da capa — visualmente escondido
+               e acionado pelo botão —, e o rótulo apontava para o campo de
+               endereço, que ninguém opera: quem navega por leitor de tela ouvia
+               "botão para escolher arquivo" e nada mais. */
+            {
+              const rotulo = [...alvo.querySelectorAll("label")].find(
+                (l) => l.getAttribute("for") === seletor?.id,
+              );
+              afirmar(
+                "o seletor de arquivo tem NOME ACESSÍVEL — o rótulo da seção aponta para ele, e não para o campo escondido do endereço",
+                seletor !== null &&
+                  rotulo !== undefined &&
+                  (rotulo.textContent ?? "").trim().startsWith("Imagem de capa"),
+                `rótulo do seletor: ${rotulo?.textContent ?? "NENHUM"}`,
+              );
+              /* E o campo do endereço continua no documento, guardando o valor
+                 — ele é `readOnly` e escondido, e a Story 3.2 é que o abre. */
+              const doEndereco = alvo.querySelector('[data-valor="imagem_url"]');
+              afirmar(
+                "e o endereço continua guardado num campo `readOnly` e escondido — digitar endereço de fora é a Story 3.2",
+                doEndereco !== null &&
+                  doEndereco.readOnly === true &&
+                  doEndereco.hasAttribute("hidden") &&
+                  doEndereco.getAttribute("data-campo") === null,
+                `readOnly: ${doEndereco?.readOnly} | hidden: ${doEndereco?.hasAttribute("hidden")}`,
+              );
+            }
+
+            /* A RECUSA DA DESCRIÇÃO DIZ QUAL DOS DOIS MOTIVOS É.
+               `problemaNoTextoAlternativo` tem duas saídas — falta e teto —, e
+               a versão anterior mostrava sempre a primeira: uma descrição longa
+               demais era acusada de "precisa de uma descrição", com o campo
+               cheio de texto na frente da pessoa. */
+            {
+              const longa = "a".repeat(doArquivo.TAMANHO_MAXIMO_DO_ALTERNATIVO + 1);
+              await act(async () => {
+                valores = { ...valores, imagem_url: ENDERECO, imagem_alt: longa };
+                raizReact.render(desenhar());
+              });
+              const doCampo = alvo.querySelector('[data-campo="imagem_alt"]');
+              /* O alvo do `aria-describedby`, buscado por identificador em vez de
+                 seletor: `CSS.escape` é do navegador e não existe no Node, e o
+                 identificador do React tem dois-pontos. */
+              const dito = janela.document.getElementById(
+                doCampo.getAttribute("aria-describedby"),
+              );
+              afirmar(
+                "descrição longa demais é acusada PELO TETO, e não por “precisa de uma descrição” — são dois motivos e duas frases",
+                doCampo?.getAttribute("aria-invalid") === "true" &&
+                  (dito?.textContent ?? "").includes(
+                    String(doArquivo.TAMANHO_MAXIMO_DO_ALTERNATIVO),
+                  ) &&
+                  (dito?.textContent ?? "") !==
+                    regrasDosMetadados.FRASES_DE_FALTA.imagem_alt,
+                `dito: ${dito?.textContent ?? "nada"}`,
+              );
+              /* E O TEXTO NÃO É CORTADO PELO CONTROLE. `maxLength` faria o
+                 parágrafo colado sumir sem aviso; o que se quer é a recusa
+                 explicando, com o texto ainda lá para a pessoa encurtar. */
+              afirmar(
+                "e o campo não corta o texto sozinho — quem cola um parágrafo vê a recusa, não o texto sumindo",
+                doCampo?.value === longa && doCampo?.getAttribute("maxlength") === null,
+                `valor com ${doCampo?.value?.length} caracteres | maxlength: ${doCampo?.getAttribute("maxlength")}`,
+              );
+              await act(async () => {
+                valores = { ...valores, imagem_alt: "Uma descrição curta" };
+                raizReact.render(desenhar());
+              });
+            }
+
+            /* A CAPA QUE NÃO CARREGA VIRA FRASE, e não ícone quebrado.
+               Um endereço morto desenharia o ícone padrão do navegador e mais
+               nada, e o Autor salvaria um Post cuja capa não existe achando que
+               ela está lá. */
+            {
+              const img = alvo.querySelector('[data-papel="miniatura-da-capa"]');
+              await act(async () => {
+                img.dispatchEvent(new janela.Event("error", { bubbles: false }));
+              });
+              const quebrada = alvo.querySelector('[data-papel="capa-quebrada"]');
+              afirmar(
+                "capa cujo arquivo sumiu vira uma FRASE que diz o que houve e o que fazer — não o ícone de imagem quebrada",
+                quebrada !== null &&
+                  quebrada.getAttribute("role") === "alert" &&
+                  (quebrada.textContent ?? "").trim() === capa.FALA_DA_CAPA_QUEBRADA &&
+                  alvo.querySelector('[data-papel="miniatura-da-capa"]') === null,
+                quebrada?.textContent ?? "nada",
+              );
+              /* E TROCAR A CAPA DEVOLVE O BENEFÍCIO DA DÚVIDA: uma falha antiga
+                 não pode condenar a imagem seguinte. */
+              await act(async () => {
+                valores = {
+                  ...valores,
+                  imagem_url: ENDERECO.replace("0a1b2c3d", "0a1b2c3e"),
+                };
+                raizReact.render(desenhar());
+              });
+              afirmar(
+                "e trocar a capa volta a tentar desenhar — a falha é do endereço anterior, não da seção",
+                alvo.querySelector('[data-papel="miniatura-da-capa"]') !== null &&
+                  alvo.querySelector('[data-papel="capa-quebrada"]') === null,
+                "a miniatura não voltou depois da troca",
+              );
+              await act(async () => {
+                valores = { ...valores, imagem_url: ENDERECO };
+                raizReact.render(desenhar());
+              });
+            }
+            /* E A DESCRIÇÃO PASSA A SER OBRIGATÓRIA quando há capa: é a
+               regra que o banco impõe desde a Story 2.1, dita na tela ANTES
+               de o salvamento falhar. */
+            {
+              const rotulo = [...alvo.querySelectorAll("label")].find(
+                (l) => l.getAttribute("for") === descricao?.id,
+              );
+              afirmar(
+                "com capa, a descrição é anunciada como OBRIGATÓRIA — por extenso, e não por asterisco",
+                (rotulo?.textContent ?? "").includes("obrigatório"),
+                rotulo?.textContent ?? "sem rótulo",
+              );
+            }
+
+            /* A DESCRIÇÃO DIGITADA CHEGA À MINIATURA. */
+            await act(async () => {
+              valores = { ...valores, imagem_alt: "Uma sala de reunião" };
+              raizReact.render(desenhar());
+            });
+            afirmar(
+              "a descrição digitada vira o texto alternativo da própria miniatura",
+              alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("alt") ===
+                "Uma sala de reunião",
+              alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("alt") ?? "",
+            );
+
+            /* REMOVER A CAPA limpa o par inteiro. */
+            {
+              const botao = alvo.querySelector('[data-acao-da-capa="remover"]');
+              await act(async () => {
+                botao?.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+              });
+              afirmar(
+                "remover a capa limpa o endereço E a descrição — descrição órfã viraria o texto da próxima imagem",
+                removeu === 1 &&
+                  valores.imagem_url === "" &&
+                  valores.imagem_alt === "" &&
+                  alvo.querySelector('[data-papel="miniatura-da-capa"]') === null,
+                JSON.stringify({ removeu, ...valores }),
+              );
+            }
+
+            /* A RECUSA APARECE NO CAMPO, com a frase de quem recusou — e a
+               gaveta não a inventa: quem sabe o limite é o vocabulário. */
+            {
+              const frase = doArquivo.recusaDeTamanho(doArquivo.TAMANHO_MAXIMO_DA_IMAGEM + 1);
+              await act(async () => {
+                situacao = capa.ENVIO_RECUSADO;
+                recusa = frase;
+                raizReact.render(desenhar());
+              });
+              const campoDoArquivo = alvo.querySelector('[data-campo="arquivo-da-capa"]');
+              const alerta = [...alvo.querySelectorAll('[role="alert"]')].find((e) =>
+                (e.textContent ?? "").includes(frase),
+              );
+              afirmar(
+                "a recusa aparece no campo, marcada e ligada por `aria-describedby` — quem usa leitor de tela recebe o motivo",
+                campoDoArquivo?.getAttribute("aria-invalid") === "true" &&
+                  alerta !== undefined &&
+                  campoDoArquivo?.getAttribute("aria-describedby") === alerta.id,
+                `invalid: ${campoDoArquivo?.getAttribute("aria-invalid")} | descrito por: ${campoDoArquivo?.getAttribute("aria-describedby")} | alerta: ${alerta?.id}`,
+              );
+              afirmar(
+                "e a frase mostrada DIZ O LIMITE — a gaveta não a inventa, ela vem de quem recusou",
+                (alerta?.textContent ?? "").includes(
+                  doArquivo.formatarTamanho(doArquivo.TAMANHO_MAXIMO_DA_IMAGEM),
+                ),
+                alerta?.textContent ?? "",
+              );
+            }
+
+            /* E A GAVETA CONTINUA SEM CONHECER REDE. Ela emite o arquivo e
+               nada mais — a asserção é sobre o CÓDIGO porque "não fala com a
+               rede" é ausência, e ausência não se observa montando. */
+            {
+              const codigo = mascararComentariosJs(ler(CAMINHO_GAVETA));
+              const daRede =
+                /(?<!Array)\.from\s*\(|createClient|\bfetch\s*\(|\bupload\s*\(|storage/i;
+              afirmar(
+                "a gaveta continua sem conhecer rede: nem cliente, nem envio, nem Storage — ela emite o arquivo e desenha a situação",
+                !daRede.test(codigo) &&
+                  /aoEscolherArquivo/.test(codigo),
+                (daRede.exec(codigo) ?? [])[0] ?? "",
+              );
+              afirmar(
+                "e o detector acusa um envio de verdade, sem confundi-lo com `Array.from`",
+                daRede.test('cliente.storage.from("b").upload(c, a)') &&
+                  daRede.test("await fetch(rota)") &&
+                  !daRede.test("Array.from({ length: 4 }, (_, i) => i)"),
+              );
+            }
+
+            /* O ARQUIVO ESCOLHIDO É EMITIDO, e o seletor é REARMADO — sem
+               isso, escolher o mesmo arquivo depois de uma recusa não
+               dispara evento nenhum e a tela parece travada. */
+            {
+              await act(async () => {
+                situacao = capa.ENVIO_PARADO;
+                recusa = null;
+                raizReact.render(desenhar());
+              });
+              const campoDoArquivo = alvo.querySelector('[data-campo="arquivo-da-capa"]');
+              const arquivoFalso = { name: "capa.png", size: 10, type: "image/png" };
+              Object.defineProperty(campoDoArquivo, "files", {
+                configurable: true,
+                get: () => [arquivoFalso],
+              });
+              await act(async () => {
+                campoDoArquivo.dispatchEvent(new janela.Event("change", { bubbles: true }));
+              });
+              afirmar(
+                "o arquivo escolhido é EMITIDO para quem monta a tela — a gaveta não o guarda nem o manda",
+                escolhidos.length === 1 && escolhidos[0] === arquivoFalso,
+                `emitidos: ${escolhidos.length}`,
+              );
+              afirmar(
+                "e o seletor é rearmado — escolher o MESMO arquivo de novo depois de uma recusa precisa disparar",
+                campoDoArquivo.value === "",
+                JSON.stringify(campoDoArquivo.value),
+              );
+            }
+
+            await act(async () => raizReact.unmount());
+            alvo.remove();
+          }
+
+          /* — O EDITOR INTEIRO: a coordenação — */
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            /* A RESPOSTA DO SALVAMENTO É FIXADA AQUI, e isso não é higiene de
+               teste: com o Post nascendo com identificador, a tela passa a
+               EDITAR e relê a linha do dublê de leitura — que carrega o Post de
+               outra seção por cima deste formulário. Aconteceu na primeira
+               execução, e a asserção acusou. */
+            modulo.controle.resposta = { ok: true, dados: { criado: false, post: null } };
+            const tela = await montarTela({ postId: null });
+            const seletor = tela.campo("arquivo-da-capa");
+            const arquivoFalso = { name: "capa.png", size: 10, type: "image/png" };
+            Object.defineProperty(seletor, "files", {
+              configurable: true,
+              get: () => [arquivoFalso],
+            });
+
+            /* O ENVIO SEGURADO: é assim que a indicação de progresso chega a
+               ser desenhada. Com a resposta pronta, ela resolve no primeiro
+               microtask e nunca aparece. */
+            let liberar = null;
+            modulo.controle.aoEnviar = () =>
+              new Promise((resolver) => {
+                liberar = resolver;
+              });
+
+            await act(async () => {
+              seletor.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "o Editor manda o arquivo escolhido para a camada de dados — e é o arquivo escolhido, não outro",
+              modulo.controle.pedidos_de_envio.length === 1 &&
+                modulo.controle.pedidos_de_envio[0] === arquivoFalso,
+              `pedidos: ${modulo.controle.pedidos_de_envio.length}`,
+            );
+            afirmar(
+              "e enquanto o pedido está em voo a indicação está NA TELA",
+              tela.alvo
+                .querySelector('[data-papel="envio-em-curso"]')
+                ?.getAttribute("data-enviando") === "true",
+              String(tela.alvo.querySelector('[data-papel="envio-em-curso"]')?.outerHTML).slice(0, 120),
+            );
+
+            /* SALVAR COM O ENVIO EM VOO NÃO GRAVA. Sem esta trava, o Post
+               nasceria sem capa e a miniatura apareceria depois — o Autor
+               descobriria no site. */
+            modulo.controle.pedidos.length = 0;
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            afirmar(
+              "salvar com a imagem ainda subindo NÃO grava, e a tela diz por quê",
+              modulo.controle.pedidos.length === 0 &&
+                modulo.controle.avisos.some(
+                  (a) =>
+                    a.tom === "erro" && /ainda está subindo/i.test(a.oQueHouve),
+                ),
+              `pedidos: ${modulo.controle.pedidos.length} | avisos: ${JSON.stringify(modulo.controle.avisos.at(-1))}`,
+            );
+
+            const ENDERECO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png";
+            await act(async () => {
+              liberar({ ok: true, dados: { url: ENDERECO, caminho: "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png" } });
+            });
+            afirmar(
+              "concluído o envio, a indicação SOME e a miniatura aparece no Editor",
+              tela.alvo
+                .querySelector('[data-papel="envio-em-curso"]')
+                ?.getAttribute("data-enviando") === "false" &&
+                tela.alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("src") ===
+                  ENDERECO,
+              String(tela.alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("src")),
+            );
+
+            /* E O QUE VAI PARA A PORTA DE ESCRITA É O ENDEREÇO. */
+            modulo.controle.pedidos.length = 0;
+            await tela.digitar(tela.campo("titulo"), "Um post com capa");
+            await tela.digitar(tela.campo("resumo"), "O resumo");
+            await tela.digitar(tela.campo("imagem_alt"), "Uma sala de reunião");
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            const enviado = modulo.controle.pedidos.at(-1);
+            afirmar(
+              "o corpo que sai para a porta única leva o ENDEREÇO da capa e a descrição — nunca o arquivo",
+              enviado?.imagem_url === ENDERECO &&
+                enviado?.imagem_alt === "Uma sala de reunião" &&
+                !/data:|base64/i.test(JSON.stringify(enviado)),
+              JSON.stringify({ url: enviado?.imagem_url, alt: enviado?.imagem_alt }),
+            );
+
+            /* A RECUSA DO ENVIO VIRA FRASE E NÃO DESCARTA NADA. */
+            modulo.controle.aoEnviar = null;
+            modulo.controle.avisos.length = 0;
+            const RECUSA = doArquivo.recusaDeTamanho(doArquivo.TAMANHO_MAXIMO_DA_IMAGEM + 1);
+            modulo.controle.envio = {
+              ok: false,
+              erro: { tipo: "dados_invalidos", mensagem: RECUSA, operacao: "enviarImagemDeCapa", detalhe: "", codigo: "", status: null },
+            };
+            await act(async () => {
+              seletor.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "envio recusado vira NOTIFICAÇÃO com a frase de quem recusou, e o formulário fica inteiro",
+              modulo.controle.avisos.some(
+                (a) => a.tom === "erro" && a.oQueFazer === RECUSA,
+              ) &&
+                tela.campo("titulo")?.value === "Um post com capa",
+              JSON.stringify(modulo.controle.avisos.at(-1)),
+            );
+            afirmar(
+              "e a capa que já estava lá NÃO é perdida por um envio recusado",
+              tela.alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("src") ===
+                ENDERECO,
+              String(tela.alvo.querySelector('[data-papel="miniatura-da-capa"]')?.getAttribute("src")),
+            );
+
+            await tela.desmontar();
+            modulo.controle.envio = {
+              ok: true,
+              dados: { url: ENDERECO, caminho: "capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png" },
+            };
+          }
+
+          /* — REABRIR UM POST QUE JÁ TEM CAPA — */
+          //
+          // A asserção que faltava, e a falta era destrutiva. `valoresDoPost`
+          // passou a mapear `imagem_url` e `imagem_alt`, e nada executava esse
+          // mapeamento: toda a seção montava com `postId: null` e injetava
+          // `valores` à mão. Apagar as duas linhas passava verde — e o efeito
+          // no produto era APAGAR O ARQUIVO: o Editor abriria mostrando "sem
+          // capa", o salvamento seguinte mandaria `imagem_url: null`, o
+          // servidor limparia a coluna, e `removerCapaAnterior` receberia
+          // `anterior = endereço` e `atual = null` e removeria o arquivo do
+          // bucket. Perda silenciosa, e sem nem virar resíduo: do ponto de
+          // vista do servidor a remoção deu certo.
+          //
+          // Os dois lados são afirmados: o que a tela DESENHA ao abrir, e o
+          // que ela REENVIA ao salvar sem ninguém tocar na capa.
+          {
+            const ID_COM_CAPA = "33333333-4444-4555-8666-777777777777";
+            const CAPA_GRAVADA =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/aaaabbbb-cccc-dddd-eeee-ffff00001111.png";
+            const ALT_GRAVADO = "Uma sala de reunião vazia";
+
+            modulo.controle.post = {
+              ok: true,
+              dados: {
+                id: ID_COM_CAPA,
+                slug: "post-com-capa",
+                titulo: "Post com capa",
+                resumo: "O resumo do post com capa",
+                conteudo: null,
+                conteudo_html: "",
+                estado: "rascunho",
+                publicado_em: null,
+                categoria_id: null,
+                tempo_leitura: 4,
+                imagem_url: CAPA_GRAVADA,
+                imagem_alt: ALT_GRAVADO,
+                autor_nome: "Quem Escreve",
+              },
+            };
+            modulo.controle.resposta = {
+              ok: true,
+              dados: { criado: false, post: null },
+            };
+            modulo.controle.pedidos.length = 0;
+
+            const tela = await montarTela({ postId: ID_COM_CAPA });
+
+            const miniatura = tela.alvo.querySelector(
+              '[data-papel="miniatura-da-capa"]',
+            );
+            afirmar(
+              "abrir um Post que JÁ TEM capa desenha a miniatura do endereço GRAVADO — e não a tela de capa ausente",
+              miniatura !== null &&
+                miniatura.getAttribute("src") === CAPA_GRAVADA &&
+                tela.alvo.querySelector('[data-papel="capa-ausente"]') === null,
+              `src: ${miniatura?.getAttribute("src") ?? "sem miniatura"}`,
+            );
+            afirmar(
+              "e a descrição gravada volta para o campo — é ela que o `alt` da miniatura usa",
+              tela.campo("imagem_alt")?.value === ALT_GRAVADO &&
+                miniatura?.getAttribute("alt") === ALT_GRAVADO,
+              `campo: ${JSON.stringify(tela.campo("imagem_alt")?.value)} | alt: ${JSON.stringify(miniatura?.getAttribute("alt"))}`,
+            );
+
+            /* E O SALVAMENTO REENVIA O MESMO ENDEREÇO. É esta metade que
+               impede a perda: um corpo com `imagem_url: null` faria o servidor
+               limpar a coluna E apagar o arquivo. */
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            const reenviado = modulo.controle.pedidos.at(-1);
+            afirmar(
+              "e salvar SEM TOCAR NA CAPA reenvia o mesmo endereço — mandar `null` aqui apagaria o arquivo do bucket",
+              reenviado?.imagem_url === CAPA_GRAVADA &&
+                reenviado?.imagem_alt === ALT_GRAVADO,
+              JSON.stringify({
+                url: reenviado?.imagem_url,
+                alt: reenviado?.imagem_alt,
+              }),
+            );
+
+            /* E TIRAR A CAPA DE UM POST GRAVADO NÃO REMOVE NADA DAQUI:
+               o arquivo ainda é o que está no ar até o salvamento, e quem o
+               remove é o servidor, depois de a linha sair sem ele. */
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(
+              tela.alvo.querySelector('[data-acao-da-capa="remover"]'),
+            );
+            afirmar(
+              "tirar a capa de um Post GRAVADO não remove o arquivo pela tela — ele ainda é o que está no ar até o salvamento",
+              modulo.controle.pedidos_de_remocao.length === 0 &&
+                tela.campo("imagem_alt")?.value === "",
+              `remoções pedidas: ${modulo.controle.pedidos_de_remocao.length}`,
+            );
+
+            await tela.desmontar();
+            modulo.controle.post = {
+              ok: false,
+              erro: { tipo: "nao_encontrado", mensagem: "sem post" },
+            };
+          }
+
+          /* — A CAPA ENVIADA E NUNCA SALVA SAI DO BUCKET PELA TELA — */
+          //
+          // O outro dono. O que o servidor nunca viu, o servidor nunca remove:
+          // trocar a capa duas vezes antes de salvar deixava a primeira no
+          // bucket PARA SEMPRE, e sem nem virar resíduo, porque não havia quem
+          // a nomeasse. É também o que dá uso à política de remoção
+          // autenticada — sem consumidor, ela seria capacidade concedida e
+          // nunca exercida.
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.resposta = {
+              ok: true,
+              dados: { criado: false, post: null },
+            };
+            const tela = await montarTela({ postId: null });
+            const seletor = tela.campo("arquivo-da-capa");
+            const arquivoFalso = { name: "capa.png", size: 10, type: "image/png" };
+            Object.defineProperty(seletor, "files", {
+              configurable: true,
+              get: () => [arquivoFalso],
+            });
+
+            const PRIMEIRA =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/11112222-3333-4444-5555-666677778888.png";
+            const SEGUNDA =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/99998888-7777-6666-5555-444433332222.png";
+
+            modulo.controle.envio = {
+              ok: true,
+              dados: { url: PRIMEIRA, caminho: "capas/11112222-3333-4444-5555-666677778888.png" },
+            };
+            await act(async () => {
+              seletor.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "a primeira capa enviada não é removida de nada — não havia anterior desta sessão",
+              modulo.controle.pedidos_de_remocao.length === 0,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            modulo.controle.envio = {
+              ok: true,
+              dados: { url: SEGUNDA, caminho: "capas/99998888-7777-6666-5555-444433332222.png" },
+            };
+            await act(async () => {
+              seletor.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "trocar a capa ANTES de salvar remove a anterior do bucket pela sessão — o servidor nunca a viu, ninguém mais viria removê-la",
+              modulo.controle.pedidos_de_remocao.length === 1 &&
+                modulo.controle.pedidos_de_remocao[0] === PRIMEIRA,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+            afirmar(
+              "e a que ficou é a SEGUNDA — a faxina remove a anterior, nunca a nova",
+              tela.alvo
+                .querySelector('[data-papel="miniatura-da-capa"]')
+                ?.getAttribute("src") === SEGUNDA,
+              String(
+                tela.alvo
+                  .querySelector('[data-papel="miniatura-da-capa"]')
+                  ?.getAttribute("src"),
+              ),
+            );
+
+            /* E, DEPOIS DE SALVAR, ela deixa de ser da sessão: quem remove
+               passa a ser o servidor. */
+            await tela.digitar(tela.campo("titulo"), "Com capa");
+            await tela.digitar(tela.campo("resumo"), "Resumo");
+            await tela.digitar(tela.campo("imagem_alt"), "Descrição");
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(
+              tela.alvo.querySelector('[data-acao-da-capa="remover"]'),
+            );
+            afirmar(
+              "depois de salvar, tirar a capa NÃO a remove pela tela — ela passou a ser do servidor",
+              modulo.controle.pedidos_de_remocao.length === 0,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            await tela.desmontar();
+          }
+
+          /* — O RESÍDUO CHEGA AO AUTOR — */
+          //
+          // O servidor registra no log e nomeia na resposta; até aqui isso
+          // valia para o log e para o JSON, e não para quem clicou. A fala é do
+          // módulo puro, e ela é um AVISO ao lado da confirmação: a operação
+          // deu certo, e só o arquivo anterior não saiu.
+          {
+            afirmar(
+              "a fala do resíduo NOMEIA o arquivo e diz que a operação foi concluída — resíduo ausente não vira fala nenhuma",
+              capa.falaDoResiduo(null) === null &&
+                capa.falaDoResiduo({ arquivo: "" }) === null &&
+                capa.falaDoResiduo({ arquivo: "capas/x.png" })?.oQueFazer.includes(
+                  "capas/x.png",
+                ) === true,
+              JSON.stringify(capa.falaDoResiduo({ arquivo: "capas/x.png" })),
+            );
+
+            modulo.controle.resposta = {
+              ok: true,
+              dados: {
+                criado: false,
+                post: null,
+                residuo: { arquivo: "capas/ficou-para-tras.png" },
+              },
+            };
+            modulo.controle.avisos.length = 0;
+            const tela = await montarTela({ postId: null });
+            await tela.digitar(tela.campo("titulo"), "Um post");
+            await tela.digitar(tela.campo("resumo"), "Resumo");
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            afirmar(
+              "salvar com resíduo confirma o salvamento E avisa que o arquivo antigo ficou, nomeando-o",
+              modulo.controle.avisos.some((a) => a.tom === "sucesso") &&
+                modulo.controle.avisos.some(
+                  (a) =>
+                    a.tom === "erro" &&
+                    a.oQueFazer.includes("capas/ficou-para-tras.png"),
+                ),
+              JSON.stringify(modulo.controle.avisos),
+            );
+            await tela.desmontar();
+            modulo.controle.resposta = {
+              ok: true,
+              dados: { criado: false, post: null },
+            };
+          }
         }
       }
     }

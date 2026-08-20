@@ -27,6 +27,15 @@
  * pública deixa claro que a identidade vem do token, e de nada mais.
  */
 
+/* O bucket e a forma do caminho vêm do DOMÍNIO — os MESMOS que a tela usa para
+   montar o envio e que a migração usa para criar o bucket. Escrever o nome do
+   bucket à mão aqui criaria a segunda grafia, e a divergência apareceria como
+   uma remoção silenciosamente bem-sucedida contra um bucket vazio. */
+import {
+  BUCKET_DAS_IMAGENS,
+  ehCaminhoDeCapa,
+} from "../../src/domain/blog/arquivos.js";
+
 /**
  * As variáveis que a função exige, e de onde ela as aceita.
  *
@@ -65,6 +74,31 @@ export const PRAZO_TOTAL_PADRAO_MS = 9000;
  * verificação compara os dois padrões sobre um corpus, que é o que impede as
  * duas cópias de divergirem em silêncio.
  */
+/**
+ * A resposta do Storage significa "este arquivo não existe"?
+ *
+ * `404` puro e `400` com `error: "not_found"` — as duas formas que o Storage
+ * do Supabase usa para a mesma coisa. Exportada porque a verificação exercita
+ * as duas: um ramo declarado e nunca exercido é um ramo que ninguém sabe se
+ * funciona.
+ */
+export const CODIGOS_DE_ARQUIVO_AUSENTE = Object.freeze([
+  "404",
+  "not_found",
+  "Not Found",
+  "NoSuchKey",
+]);
+
+export function ehArquivoAusente(resposta) {
+  if (resposta?.status === 404) return true;
+  if (resposta?.status !== 400) return false;
+  /* Igualdade contra o vocabulário, e não busca de substring: "not_found"
+     dentro de uma mensagem qualquer não é um veredito, e tratá-lo como um
+     transformaria qualquer recusa que mencionasse a palavra em "o arquivo já
+     não estava lá" — resíduo desaparecendo em silêncio. */
+  return CODIGOS_DE_ARQUIVO_AUSENTE.includes(String(resposta?.codigo ?? ""));
+}
+
 export const PADRAO_DE_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const PRAZO_POR_CHAMADA_PADRAO_MS = 5000;
@@ -94,6 +128,12 @@ export const COLUNAS_DO_POST = Object.freeze([
   "destaque",
   "autor_id",
   "autor_nome",
+  /* Story 3.1: a CAPA. As duas colunas saem na resposta porque a exclusão
+     precisa do endereço para remover o arquivo — `excluirPost` devolve a
+     linha apagada, e é dela que o caminho no bucket é derivado. Sem elas na
+     lista, o arquivo de todo Post excluído ficaria órfão e nada acusaria. */
+  "imagem_url",
+  "imagem_alt",
   "criado_em",
   "atualizado_em",
 ]);
@@ -345,9 +385,13 @@ export function criarAcesso({
         dados: null,
         faixa,
         // O PostgREST devolve `code` (SQLSTATE) e `message`; o GoTrue devolve
-        // `error_code` e `msg`. Os dois entram, porque a classificação depende
-        // deles e olhar só um deixa metade dos casos em "inesperado".
-        codigo: String(objeto.code ?? objeto.error_code ?? ""),
+        // `error_code` e `msg`; o STORAGE devolve `statusCode` e `error`, e é
+        // ele que responde 400 no corpo com 404 dentro quando o objeto não
+        // existe. Os três entram, porque a classificação depende deles e olhar
+        // só um deixa metade dos casos em "inesperado".
+        codigo: String(
+          objeto.code ?? objeto.error_code ?? objeto.statusCode ?? objeto.error ?? "",
+        ),
         mensagem: esconder(
           objeto.message ?? objeto.msg ?? objeto.error_description ?? texto.slice(0, 300),
         ),
@@ -412,12 +456,15 @@ export function criarAcesso({
      *
      * `publicado_em` entra porque é ele, junto de `estado`, que diz se o Post já
      * teve URL pública — e é isso que decide se trocar o endereço exige aposentar
-     * o anterior.
+     * o anterior. `imagem_url` entra na Story 3.1 pela mesma natureza: é o
+     * endereço ANTERIOR da capa, e é ele que diz qual arquivo sai do bucket
+     * quando a capa é trocada. Lê-lo da linha que já vem para a transição é
+     * uma chamada a menos num pedido que tem prazo total.
      */
     async lerPost(id) {
       return primeira(
         await pedir(
-          `/rest/v1/posts?select=id,slug,estado,publicado_em,autor_id,autor_nome&id=eq.${encodeURIComponent(id)}&limit=1`,
+          `/rest/v1/posts?select=id,slug,estado,publicado_em,autor_id,autor_nome,imagem_url&id=eq.${encodeURIComponent(id)}&limit=1`,
           { cabecalhos: comServico() },
         ),
       );
@@ -745,6 +792,73 @@ export function criarAcesso({
           },
         ),
       );
+    },
+
+    /* ─── O Storage (Story 3.1) ────────────────────────────────────────────
+       O ENVIO não passa por aqui: o arquivo vai do navegador direto para o
+       bucket, com o JWT do Autor, sob a política de `storage.objects`. O que
+       passa por aqui é a REMOÇÃO — porque ela acontece do lado do servidor,
+       depois de a linha sair, e quem tem a linha é esta função. */
+
+    /**
+     * O endereço público de um caminho do bucket, montado a partir da URL do
+     * projeto que este acesso já conhece.
+     *
+     * Existe para que o núcleo possa perguntar "este endereço é do NOSSO
+     * bucket?" sem ler variável de ambiente — a direção de dependência é esta,
+     * e a montagem do endereço em si é do domínio, importada.
+     */
+    baseDoProjeto() {
+      return url;
+    },
+
+    /**
+     * Remove um arquivo do bucket das imagens.
+     *
+     * ─── A GUARDA, pela mesma razão do `DELETE` sem filtro ─────────────────
+     *
+     * Isto roda com a chave de serviço, que ignora política. O caminho vem de
+     * um endereço GRAVADO no banco, e um caminho torto — `..`, barra no
+     * começo, pasta que não é `capas/` — apagaria coisa que ninguém pediu.
+     * `ehCaminhoDeCapa` é lista de PERMISSÃO, do domínio, a mesma que monta o
+     * caminho do outro lado.
+     *
+     * Devolve o mesmo `{ ok, status, … }` de qualquer outra chamada. **204 e
+     * 200 são sucesso; ARQUIVO AUSENTE também**, porque "o arquivo já não está
+     * lá" é o estado desejado — tratá-lo como falha faria uma segunda exclusão
+     * do mesmo Post relatar resíduo que não existe.
+     *
+     * E "ausente" não é só `404`: o Storage do Supabase responde **400 com
+     * `{"error":"not_found"}` no corpo** para objeto que não existe, e ler só o
+     * código faria o caso mais comum de ausência virar resíduo fantasma. Os
+     * dois entram, e o corpo é conferido por igualdade com o vocabulário do
+     * Storage, não por busca de substring: `not_found` dentro de uma mensagem
+     * qualquer não é um veredito.
+     */
+    async removerArquivoDaCapa(caminho) {
+      const alvo = typeof caminho === "string" ? caminho.trim() : "";
+      if (!ehCaminhoDeCapa(alvo)) {
+        return {
+          ok: false,
+          status: 0,
+          faixa: "",
+          codigo: "CaminhoInvalido",
+          mensagem:
+            "remoção recusada no transporte: o caminho não é o de uma capa deste bucket",
+          dados: null,
+        };
+      }
+      const resposta = await pedir(
+        `/storage/v1/object/${BUCKET_DAS_IMAGENS}/${alvo
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
+        { metodo: "DELETE", cabecalhos: comServico() },
+      );
+      if (!resposta.ok && ehArquivoAusente(resposta)) {
+        return { ...resposta, ok: true, dados: null, codigo: "", mensagem: "" };
+      }
+      return resposta;
     },
   };
 }

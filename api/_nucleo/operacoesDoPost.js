@@ -42,6 +42,7 @@ import {
   identificarChamador,
   PADRAO_UUID,
   perfilOuFalha,
+  removerCapaAnterior,
 } from "./salvarPost.js";
 
 /**
@@ -178,12 +179,31 @@ export async function excluirPost({ token, corpo, acesso }) {
       });
     }
 
+    /* ── E O ARQUIVO DA CAPA SAI DEPOIS DA LINHA (Story 3.1) ─────────────
+       A ordem é a mesma que o cabeçalho do transporte já registrava para
+       `posts_tags` e `slugs_antigos`, e a story a escolhe por escrito: se o
+       arquivo saísse antes e a linha não saísse, sobraria um Post apontando
+       para uma capa que não existe — defeito visível para o leitor. Saindo
+       depois, o que sobra é um arquivo que ninguém alcança num bucket de
+       leitura pública: lixo, não vazamento.
+
+       **A EXCLUSÃO É AUTORITATIVA.** Falha ao remover o arquivo não desfaz nem
+       impede nada: ela vira `residuo`, que viaja na resposta e é registrado
+       pelo invólucro. O Post foi excluído, e dizer "não deu" por causa de um
+       arquivo faria a pessoa clicar de novo sobre uma linha que já saiu. */
+    const residuo = await removerCapaAnterior({
+      acesso,
+      anterior: apagado.dados.imagem_url ?? null,
+      atual: null,
+    });
+
     return Object.freeze({
       ok: true,
       dados: Object.freeze({
         operacao: OPERACAO_EXCLUIR,
         id: alvo.id,
         post: apagado.dados,
+        ...(residuo === null ? {} : { residuo: Object.freeze(residuo) }),
       }),
     });
   } catch (excecao) {

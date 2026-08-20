@@ -231,7 +231,7 @@ const arquivosDaCamada = (() => {
 
 afirmar(
   "src/data/blog/ tem os módulos da story",
-  ["resultado.js", "comum.js", "posts.js", "taxonomia.js", "slugs.js"].every((n) =>
+  ["resultado.js", "comum.js", "posts.js", "taxonomia.js", "slugs.js", "arquivos.js"].every((n) =>
     arquivosDaCamada.some((a) => a.nome === n),
   ),
   `encontrados: ${arquivosDaCamada.map((a) => a.nome).join(", ") || "nenhum"}`,
@@ -302,6 +302,15 @@ afirmar(
       else if (fonte[i] === ")") parenteses -= 1;
     }
     if (parenteses !== 0) return null;
+    /* A LISTA DE PARÂMETROS VAI JUNTO (Story 3.1). Ela era descartada, e com
+       ela ia embora a obtenção de cliente por PARÂMETRO PADRÃO —
+       `{ obterCliente = clienteDoPainelOuFalha } = {}` mora na assinatura, não
+       no corpo. O envio da capa obtinha o cliente do Painel e a asserção lia um
+       corpo em que ele não aparecia: a função era declarada na lista de
+       permissão e reprovada por não conter o que estava logo acima dela.
+       Julgar a assinatura junto do corpo é o que faz a costura injetável ser
+       vista pelo que ela é — uma escolha de cliente com valor padrão. */
+    const assinatura = fonte.slice(inicio.index, i);
     const abertura = fonte.indexOf("{", i);
     if (abertura === -1) return null;
     let profundidade = 0;
@@ -310,7 +319,7 @@ afirmar(
       if (c === "{") profundidade += 1;
       else if (c === "}") {
         profundidade -= 1;
-        if (profundidade === 0) return fonte.slice(abertura, i + 1);
+        if (profundidade === 0) return assinatura + fonte.slice(abertura, i + 1);
       }
     }
     return null;
@@ -325,9 +334,22 @@ afirmar(
   function clientesDe(corpo) {
     return [
       ...semComentarios(corpo).matchAll(
-        /(?<!function\s)\bcliente(Publico|DoPainel)OuFalha\s*\(/g,
+        /* DUAS FORMAS DE OBTER, e a segunda entrou na Story 3.1.
+
+           A primeira é a CHAMADA (`clienteDoPainelOuFalha(op)`). A segunda é o
+           PARÂMETRO PADRÃO (`{ obterCliente = clienteDoPainelOuFalha }`), que é
+           a costura injetável que `escrita.js` estabeleceu e o envio da capa
+           reusa: ali a obtenção não tem parêntese na frente, e o detector antigo
+           simplesmente não a via. O envio da capa atravessou esta varredura sem
+           ser julgado, e a lista "fechada" tinha um buraco do tamanho dele.
+
+           O segundo padrão exige o `=` na frente, e não uma pontuação
+           qualquer: sem isso ele casaria com a linha de IMPORT de todo módulo
+           que consome as funções, e a contagem passaria a acusar sete pontos
+           que não obtêm nada — foi o que aconteceu na primeira tentativa. */
+        /(?<!function\s)\bcliente(Publico|DoPainel)OuFalha\s*\(|=\s*cliente(Publico|DoPainel)OuFalha\b/g,
       ),
-    ].map((m) => m[1]);
+    ].map((m) => m[1] ?? m[2]);
   }
 
   /* AUTOTESTE dos dois detectores. Sem ele, um extrator que devolvesse corpo
@@ -367,6 +389,36 @@ afirmar(
       "export async function outra(c) {\n" +
       "  return clienteDoPainelOuFalha(op);\n" +
       "}\n";
+    /* AUTOTESTE DA FORMA NOVA. Sem ele, a expressão regular podia continuar
+       cega ao parâmetro padrão e a lista fechada continuaria com o buraco —
+       verde, sobre um módulo que obtém cliente e ninguém julga. */
+    {
+      const comPadrao =
+        "export async function envia(a, { obterCliente = clienteDoPainelOuFalha } = {}) {\n" +
+        "  const c = await obterCliente(op);\n" +
+        "}\n";
+      afirmar(
+        "o detector vê a obtenção por PARÂMETRO PADRÃO, e não só a chamada direta",
+        JSON.stringify(clientesDe(comPadrao)) === JSON.stringify(["DoPainel"]),
+        JSON.stringify(clientesDe(comPadrao)),
+      );
+      /* E O EXTRATOR PRECISA ENTREGAR A ASSINATURA JUNTO. Sem isto, o detector
+         acima estaria certo e a asserção continuaria falhando — a obtenção mora
+         num pedaço de texto que o extrator descartava. */
+      afirmar(
+        "e o extrator de corpo entrega a ASSINATURA junto, que é onde o parâmetro padrão mora",
+        JSON.stringify(clientesDe(corpoDaFuncao(comPadrao, "envia") ?? "")) ===
+          JSON.stringify(["DoPainel"]),
+        JSON.stringify(corpoDaFuncao(comPadrao, "envia")),
+      );
+      afirmar(
+        "e continua não confundindo a DECLARAÇÃO das duas funções com uma obtenção",
+        clientesDe("export async function clienteDoPainelOuFalha(operacao) {").length === 0 &&
+          clientesDe("export function clientePublicoOuFalha(operacao) {").length === 0,
+        JSON.stringify(clientesDe("export async function clienteDoPainelOuFalha(operacao) {")),
+      );
+    }
+
     afirmar(
       "e um auxiliar PRIVADO declarado depois não entra no corpo da função anterior — nem some da conta",
       JSON.stringify(clientesDe(corpoDaFuncao(comAuxiliar, "alvo") ?? "")) ===
@@ -411,6 +463,18 @@ afirmar(
        categoria" sobre uma Categoria com três rascunhos — bem na hora em que
        alguém decide se pode excluí-la. */
     ["taxonomia.js", "listarCategoriasDoPainel"],
+    /* Story 3.1: o ENVIO DA CAPA. Ele obtém o cliente do Painel porque a
+       política do bucket exige sessão para inserir — com o cliente anônimo o
+       Storage recusa, e a recusa chegaria depois de o arquivo ter subido pela
+       metade. Ele entra na lista pela mesma razão que os outros: é a
+       incondicionalidade da escolha do cliente que o torna previsível. */
+    ["arquivos.js", "enviarImagemDeCapa"],
+    /* E a REMOÇÃO da capa que o servidor nunca viu (Story 3.1, revisão).
+       Ela obtém o cliente do Painel pela mesma razão que o envio: a política
+       do bucket exige sessão para remover, e é ela que dá uso à capacidade
+       que o bucket concede. A lista fechada a acusou assim que ela nasceu —
+       que é exatamente o que ela existe para fazer. */
+    ["arquivos.js", "removerImagemDeCapa"],
     /* E as Tags SUGERIDAS também (Story 2.14). Elas vinham do cliente público,
        e a política anônima de `tags` só devolve Tag associada a Post visível:
        uma Tag criada num rascunho nunca era sugerida — que é exatamente o caso

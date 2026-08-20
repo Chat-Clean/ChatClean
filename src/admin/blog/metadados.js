@@ -18,18 +18,29 @@ import {
    normalizar o que chega pela rede. Uma segunda regra aqui faria a tela e o
    servidor discordarem sobre o que é a mesma Tag. */
 import { separarTags, textoDasTags } from "@/domain/blog/tags";
+/* A regra do par capa + descrição vem do DOMÍNIO, e é a MESMA que o servidor
+   cobra e que `posts_imagem_exige_alt` impõe no banco desde a Story 2.1. */
+import { problemaNoTextoAlternativo } from "@/domain/blog/arquivos";
 
 /**
- * Os sete campos da gaveta, na ordem em que ela os oferece.
+ * Os NOVE campos da gaveta, na ordem em que ela os oferece.
  *
  * A ordem é significativa e está declarada uma vez: Título e Slug primeiro
  * porque um gera o outro; Resumo em seguida porque é o segundo obrigatório; e a
  * classificação depois, porque ela é escolha e não escrita.
+ *
+ * A CAPA entra entre Resumo e Categoria (Story 3.1) porque ela é CONTEÚDO: o
+ * que o Post diz de si mesmo, não como ele é classificado. E a descrição vem
+ * colada nela, e não num bloco de acessibilidade lá embaixo — o banco recusa
+ * capa sem descrição, e oferecer as duas separadas produziria a recusa tardia
+ * que a story existe para não ter.
  */
 export const CAMPOS_DA_GAVETA = Object.freeze([
   "titulo",
   "slug",
   "resumo",
+  "imagem_url",
+  "imagem_alt",
   "categoria_id",
   "tags",
   "publicado_em",
@@ -65,6 +76,11 @@ export const FRASES_DE_FALTA = Object.freeze({
      recebia motivo nenhum. */
   publicado_em:
     "Para agendar, informe o dia e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
+  /* Story 3.1. A frase é a MESMA de `problemaNoTextoAlternativo`, e a
+     verificação compara as duas: duas grafias seriam duas explicações para a
+     mesma recusa, uma na gaveta e outra na notificação. */
+  imagem_alt:
+    "A capa precisa de uma descrição: é ela que quem não enxerga a imagem recebe no lugar dela.",
 });
 
 /** A gaveta de um Post que ainda não existe. */
@@ -73,6 +89,10 @@ export function valoresVazios() {
     titulo: "",
     slug: "",
     resumo: "",
+    /* A capa é ENDEREÇO, e o endereço é o que a tela guarda: o arquivo já
+       está no bucket quando este campo deixa de ser vazio. */
+    imagem_url: "",
+    imagem_alt: "",
     categoria_id: "",
     /* TEXTO, e não lista: o campo é digitado, e um valor normalizado a cada
        tecla impediria de escrever a vírgula que separa a próxima tag. Quem
@@ -100,6 +120,8 @@ export function valoresDoPost(post, tags = []) {
     titulo: typeof post.titulo === "string" ? post.titulo : "",
     slug: typeof post.slug === "string" ? post.slug : "",
     resumo: typeof post.resumo === "string" ? post.resumo : "",
+    imagem_url: typeof post.imagem_url === "string" ? post.imagem_url : "",
+    imagem_alt: typeof post.imagem_alt === "string" ? post.imagem_alt : "",
     categoria_id: typeof post.categoria_id === "string" ? post.categoria_id : "",
     // As Tags do Post viram o TEXTO do campo, na forma que `separarTags` lê
     // de volta sem mudar nada — é o que faz abrir e fechar o Editor sem tocar
@@ -175,12 +197,34 @@ export function corpoDoPedido({
     return { ok: false, campo: "tags", motivo: tags.problemas.join(" ") };
   }
 
+  /* ── A CAPA E A DESCRIÇÃO, COMO PAR (Story 3.1) ─────────────────────────
+     A recusa acontece ANTES de o pedido sair, e nomeia o campo `imagem_alt`
+     para a gaveta poder marcá-lo. O servidor recusa do mesmo jeito e o banco
+     recusa depois dele — o que se ganha aqui é não gastar uma viagem, e não
+     mostrar "o banco recusou este post" para uma descrição em branco.
+
+     A regra é a do domínio, importada: a gaveta, este módulo, o servidor e a
+     restrição do banco precisam concordar sobre o que é "capa sem descrição". */
+  const imagem_url = String(v.imagem_url ?? "").trim();
+  const imagem_alt = String(v.imagem_alt ?? "").trim();
+  const problemaNaCapa = problemaNoTextoAlternativo(imagem_alt, {
+    temCapa: imagem_url !== "",
+  });
+  if (problemaNaCapa !== null) {
+    return { ok: false, campo: "imagem_alt", motivo: problemaNaCapa };
+  }
+
   const corpo = {
     titulo: String(v.titulo ?? "").trim(),
     slug: String(v.slug ?? "").trim(),
     resumo: String(v.resumo ?? "").trim(),
     conteudo: documento,
     categoria_id: String(v.categoria_id ?? "").trim() === "" ? null : v.categoria_id,
+    /* `null` LIMPA e é o que a ausência de capa manda: campo vazio virando `""`
+       faria o servidor recusar um Post sem capa nenhuma, porque `""` não é
+       endereço permitido. A descrição acompanha, pelo mesmo motivo. */
+    imagem_url: imagem_url === "" ? null : imagem_url,
+    imagem_alt: imagem_alt === "" ? null : imagem_alt,
     publicado_em,
     tempo_leitura: minutos === "" ? 0 : Number(minutos),
   };

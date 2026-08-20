@@ -76,6 +76,26 @@
  * aqui esperando relógio: um Post agendado fica visível porque a política de
  * leitura o inclui quando `publicado_em` chega, com o Painel fechado.
  *
+ * ─── O ARQUIVO TEM DOIS DONOS, E ISSO É DECLARADO ───────────────────────────
+ *
+ * A capa que já está GRAVADA num Post é do servidor: ela sai depois de a linha
+ * mudar, com a chave de serviço, porque enquanto o Autor não salvou a capa que
+ * está no ar continua sendo aquela.
+ *
+ * A capa ENVIADA nesta sessão e ainda não salva é do Autor, e é esta tela que a
+ * limpa — com a sessão dele, pela política de remoção do bucket. Sem isso,
+ * trocar a capa duas vezes antes de salvar deixava a primeira no bucket para
+ * sempre: o servidor não sabe que ela existe, então nenhum salvamento futuro a
+ * alcança, e ela nem vira resíduo porque não há quem a nomeie.
+ *
+ * **O que continua sem cobertura, e a decisão está aqui:** fechar a aba ou
+ * recarregar depois de enviar e antes de salvar deixa o arquivo no bucket. A
+ * limpeza exigiria trabalho no evento de descarregamento, que não espera
+ * promessa — o navegador mata a página antes de a remoção sair —, e a
+ * alternativa (uma varredura de órfãos) é infraestrutura que esta story não
+ * tem. O custo é um arquivo inerte de no máximo 1 MB num bucket de leitura
+ * pública, e o caminho comum — trocar e tirar a capa — está coberto.
+ *
  * ─── O que esta tela NÃO faz ────────────────────────────────────────────────
  *
  * Não grava direto no banco: nenhum cliente escreve, e o único caminho é
@@ -117,6 +137,16 @@ import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
+/* O ENVIO DA CAPA (Story 3.1). Ele mora aqui, e não na gaveta, porque a gaveta
+   é um componente controlado que não conhece rede — e porque é esta tela que
+   já sabe distinguir nascimento de edição e coordenar o que está em curso. */
+import { enviarImagemDeCapa, removerImagemDeCapa } from "@/data/blog/arquivos";
+import {
+  ENVIO_EM_CURSO,
+  ENVIO_PARADO,
+  ENVIO_RECUSADO,
+  falaDoResiduo,
+} from "@/admin/blog/capa";
 import { lerPostDoPainelPorId } from "@/data/blog/posts";
 import { listarCategorias, listarTagsDoPainel, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
 import { paraCampoDeInstante } from "@/domain/blog/formato";
@@ -169,6 +199,39 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   const [faltando, setFaltando] = useState([]);
   const [problemaNoEndereco, setProblemaNoEndereco] = useState(null);
+
+  /* ── O ENVIO DA CAPA (Story 3.1) ────────────────────────────────────────
+     Duas informações, e não uma: a SITUAÇÃO (parado, enviando, recusado) e a
+     FRASE da recusa. Guardar só a frase faria "sem recusa" e "recusa vazia"
+     serem o mesmo estado, e a região viva do progresso não teria como saber se
+     deve anunciar. A frase vem pronta de quem recusou — o vocabulário do
+     domínio, quando é tamanho ou espécie; o erro tipado da camada, quando é
+     rede ou permissão. Esta tela não escreve nenhuma das duas. */
+  const [situacaoDoEnvio, setSituacaoDoEnvio] = useState(ENVIO_PARADO);
+  const [recusaDoEnvio, setRecusaDoEnvio] = useState(null);
+
+  /* AS CAPAS QUE SUBIRAM E O SERVIDOR NUNCA VIU.
+     Trocar a capa duas vezes antes de salvar deixava a primeira no bucket para
+     sempre: o servidor não sabe que ela existe, então nenhum salvamento futuro
+     a alcança — e ela nem vira resíduo, porque não há quem a nomeie. O que
+     está aqui é do Autor, e é esta tela que limpa, com a sessão dele.
+
+     `ref` e não estado: nada na tela depende disto para desenhar, e uma
+     renderização a mais por envio não paga nada. */
+  const capasNaoSalvas = useRef(new Set());
+
+  /** Descarta do Storage um endereço que só existe nesta sessão. */
+  const descartarSeNaoSalva = useCallback(async (endereco) => {
+    const alvo = String(endereco ?? "").trim();
+    if (alvo === "" || !capasNaoSalvas.current.has(alvo)) return;
+    capasNaoSalvas.current.delete(alvo);
+    /* Falha aqui NÃO vira aviso: o Autor não pediu esta remoção, ela é faxina
+       de uma decisão que ele já desfez, e um erro sobre um arquivo que ele nem
+       sabe que existe é ruído. O que sobra é um arquivo inerte num bucket de
+       leitura pública — a mesma escolha, e a mesma razão, do resíduo do
+       servidor. */
+    await removerImagemDeCapa(alvo);
+  }, []);
   /* Qual ação está em curso, e não apenas "está salvando": é ela que ganha o
      giro e some do caminho, enquanto as outras só ficam indisponíveis. Um
      spinner em quatro botões ao mesmo tempo não diz o que está acontecendo. */
@@ -209,6 +272,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     criando ? instantaneo(valoresVazios(), documentoVazio()) : null,
   );
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+
+  /* O ESPELHO DOS VALORES, para a faxina da capa ler o endereço de AGORA.
+     `enviarCapa` e `removerCapa` não podem depender de `valores`: elas seriam
+     recriadas a cada tecla digitada, e a gaveta recebe as duas como
+     propriedade. O espelho é atualizado a cada renderização e lido dentro do
+     callback, que é o que mantém as duas estáveis e corretas. */
+  const valoresAgora = useRef(valores);
+  valoresAgora.current = valores;
 
   const retratoAtual = useMemo(
     () => instantaneo(valores, documento),
@@ -380,6 +451,74 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     [criando],
   );
 
+  /* ── A capa: escolher, enviar, e tirar ───────────────────────────────── */
+
+  /**
+   * O arquivo escolhido vai para o Storage, e o que volta é o ENDEREÇO.
+   *
+   * A recusa de espécie e de tamanho acontece dentro de `enviarImagemDeCapa`,
+   * **antes de qualquer rede** — é lá que o vocabulário do domínio mora, e
+   * repetir a conferência aqui criaria a segunda regra que a story existe para
+   * não ter. O que esta tela faz é desenhar a situação e guardar o endereço.
+   *
+   * O arquivo ANTERIOR não é removido aqui. Ele sai no salvamento, do lado do
+   * servidor, depois de a linha ser gravada: enquanto o Autor não salvou, a
+   * capa que está no ar continua sendo a antiga, e apagá-la agora deixaria o
+   * Post publicado apontando para um arquivo que não existe mais.
+   */
+  const enviarCapa = useCallback(async (arquivo) => {
+    setSituacaoDoEnvio(ENVIO_EM_CURSO);
+    setRecusaDoEnvio(null);
+
+
+    const resultado = await enviarImagemDeCapa(arquivo);
+
+    if (!resultado.ok) {
+      setSituacaoDoEnvio(ENVIO_RECUSADO);
+      setRecusaDoEnvio(resultado.erro.mensagem);
+      /* A NOTIFICAÇÃO E A MARCA NO CAMPO, as duas. A marca fica onde a pessoa
+         vai olhar de novo; a notificação é o que ela ouve agora. Nada do
+         formulário é descartado: repetir o envio é escolher outro arquivo, e o
+         resto do Post continua exatamente onde estava. */
+      notificarErro("Não deu para enviar a imagem", resultado.erro.mensagem);
+      return;
+    }
+
+    setSituacaoDoEnvio(ENVIO_PARADO);
+    /* A ANTERIOR SAI, se ela também era desta sessão. A que veio do banco NÃO
+       sai daqui: ela ainda é a capa que está no ar até o salvamento. */
+    await descartarSeNaoSalva(valoresAgora.current.imagem_url);
+    capasNaoSalvas.current.add(resultado.dados.url);
+    setValores((atuais) => ({ ...atuais, imagem_url: resultado.dados.url }));
+    /* A MARCA DE "FALTA A DESCRIÇÃO" NÃO SOME AQUI, e a ausência é a decisão:
+       trocar a imagem não descreve a nova. A versão anterior filtrava
+       `"imagem_url"` de `faltando` — um campo que nunca entra nessa lista —,
+       então o filtro era um no-op e o comentário ao lado falava de outro
+       campo. Quem tira a marca é `mudarCampo`, quando a descrição é digitada. */
+  }, [descartarSeNaoSalva]);
+
+  /**
+   * Tirar a capa é limpar o ENDEREÇO, e nada mais.
+   *
+   * O arquivo continua no bucket até o salvamento: é lá, no servidor, que ele
+   * sai — depois de a linha ser gravada sem ele. Removê-lo daqui faria um
+   * "removi sem querer, vou desfazer" perder o arquivo de vez, e faria um Post
+   * publicado apontar para um arquivo apagado enquanto o Autor pensa.
+   *
+   * A descrição vai junto: descrição órfã de uma imagem que não existe mais
+   * reapareceria como texto alternativo da próxima capa.
+   */
+  const removerCapa = useCallback(async () => {
+    setSituacaoDoEnvio(ENVIO_PARADO);
+    setRecusaDoEnvio(null);
+    /* Se a capa era desta sessão, ela sai do bucket agora: o servidor nunca a
+       viu, então ninguém mais viria removê-la. Se ela veio do banco, fica —
+       quem a remove é o servidor, depois de a linha ser gravada sem ela. */
+    await descartarSeNaoSalva(valoresAgora.current.imagem_url);
+    setValores((atuais) => ({ ...atuais, imagem_url: "", imagem_alt: "" }));
+    setFaltando((atuais) => atuais.filter((c) => c !== "imagem_alt"));
+  }, [descartarSeNaoSalva]);
+
   const mudarDocumento = useCallback((doc) => {
     setDocumento(doc);
     setFaltando((atuais) => atuais.filter((c) => c !== "conteudo"));
@@ -406,6 +545,19 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
   const salvar = useCallback(async (acao) => {
     if (salvando) return;
+
+    /* SALVAR COM A IMAGEM AINDA SUBINDO GRAVARIA O POST SEM A CAPA.
+       O endereço só existe depois que o envio conclui; salvar antes mandaria
+       `imagem_url: null` e o Autor veria a miniatura aparecer sobre um Post que
+       já foi gravado sem ela — e descobriria no site. Esperar é o certo, e
+       dizer que se está esperando é o que separa esperar de travar. */
+    if (situacaoDoEnvio === ENVIO_EM_CURSO) {
+      notificarErro(
+        "A imagem de capa ainda está subindo",
+        "Espere o envio terminar e salve de novo — assim o post já nasce com a capa.",
+      );
+      return;
+    }
 
     /* A ação que EXIGE data recusa aqui, com a frase da tela.
        O banco recusaria de qualquer jeito — a restrição `posts_publicavel_
@@ -513,6 +665,10 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     const detalheDaConfirmacao =
       confirmacaoDoAgendamento(gravado, valores.titulo) ?? valores.titulo;
 
+    /* O RESÍDUO DA TROCA DE CAPA, quando existe. Mesma regra da listagem: o
+       Post foi salvo, e só o arquivo anterior não saiu. */
+    const sobrou = falaDoResiduo(resultado.dados?.residuo);
+
     notificarSucesso(
       /* A confirmação vem da AÇÃO, não do Estado: "Post publicado" é o que
          aconteceu, e "Post salvo" para tudo deixaria o Autor sem saber se a
@@ -521,6 +677,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       resultado.dados?.criado && acao.chave === "salvar" ? "Post criado" : acao.confirmacao,
       detalheDaConfirmacao,
     );
+    if (sobrou) notificarErro(sobrou.oQueHouve, sobrou.oQueFazer);
 
     /* O QUE A TELA MOSTRA PASSA A SER O QUE O SERVIDOR GRAVOU.
        O endereço pode ter sido aposentado e trocado lá; a data de publicação
@@ -534,7 +691,20 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       ...(gravado && Object.hasOwn(gravado, "publicado_em")
         ? { publicado_em: gravado.publicado_em ? paraCampoDeInstante(gravado.publicado_em) : "" }
         : {}),
+      /* A CAPA GRAVADA (Story 3.1). O servidor pode ter recusado o endereço, ou
+         limpado a descrição junto com a imagem — o que a tela mostra passa a
+         ser o que ficou na linha, e não o que ela mandou. */
+      ...(gravado && Object.hasOwn(gravado, "imagem_url")
+        ? { imagem_url: gravado.imagem_url ?? "" }
+        : {}),
+      ...(gravado && Object.hasOwn(gravado, "imagem_alt")
+        ? { imagem_alt: gravado.imagem_alt ?? "" }
+        : {}),
     };
+    /* O QUE FOI SALVO PASSA A SER DO SERVIDOR. A partir daqui quem remove
+       esse arquivo é ele, na próxima troca ou na exclusão — e a tela não pode
+       mais descartá-lo por conta própria. */
+    capasNaoSalvas.current.clear();
     setValores(valoresGravados);
     /* O endereço gravado acompanha a resposta do servidor: ele pode ter sido
        aposentado e trocado lá, e é o novo que passa a estar no ar. */
@@ -558,7 +728,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     }
 
     aoSalvar?.(gravado);
-  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis]);
+  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis, situacaoDoEnvio]);
 
   useEffect(() => {
     salvarDeNovo.current = salvar;
@@ -803,6 +973,10 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
             categorias={categorias}
             tags={tags}
             problemaNoEndereco={problemaNoEndereco}
+            situacaoDoEnvio={situacaoDoEnvio}
+            recusaDoEnvio={recusaDoEnvio}
+            aoEscolherArquivo={enviarCapa}
+            aoRemoverCapa={removerCapa}
             desabilitado={salvando}
             aberta={gavetaAberta}
             aoAlternar={alternarGaveta}

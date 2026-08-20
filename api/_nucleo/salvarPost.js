@@ -124,6 +124,17 @@ import {
    data passada devolve a data POR EXTENSO — é assim que quem digitou "hoje às
    9h" por engano vê que o sistema entendeu hoje de manhã, e não amanhã. */
 import { formatarDataEHoraPorExtenso } from "../../src/domain/blog/formato.js";
+/* O vocabulário do ARQUIVO vem do DOMÍNIO (Story 3.1) — o MESMO que a tela usa
+   para recusar antes da rede, que o bucket aplica sobre o arquivo e que a
+   restrição `posts_imagem_url_e_endereco` espelha em SQL. Uma quarta cópia da
+   regra de endereço aqui apareceria como capa aceita pela tela e recusada pelo
+   banco, com o Autor lendo "o banco recusou" sobre uma imagem que subiu. */
+import {
+  TAMANHO_MAXIMO_DO_ALTERNATIVO,
+  TAMANHO_MAXIMO_DO_ENDERECO,
+  caminhoDaCapaNoEndereco,
+  enderecoDeImagemPermitido,
+} from "../../src/domain/blog/arquivos.js";
 import { derivarHtml } from "../../src/render/blog/paraHtml.js";
 
 /* ─── O vocabulário de erro ──────────────────────────────────────────────── */
@@ -257,6 +268,17 @@ export const CAMPOS_ACEITOS = Object.freeze([
   "tags",
   "publicado_em",
   "tempo_leitura",
+  /* Story 3.1: A CAPA. Elas eram a lacuna central da story — as colunas
+     existiam desde a 2.1 e não havia caminho nenhum para preenchê-las: fora
+     desta lista, `imagem_url` chegava como campo ignorado e era relatado com
+     nome, o que é o comportamento certo para um campo que a porta não conhece
+     e a explicação de por que nenhuma capa nunca foi gravada.
+
+     As duas entram JUNTAS, e não é conveniência: `posts_imagem_exige_alt`
+     recusa capa sem descrição desde a Story 2.1, então aceitar uma sem a outra
+     seria abrir um caminho cuja única saída é a recusa do banco. */
+  "imagem_url",
+  "imagem_alt",
   /* Story 2.8. `estado` é aceito, e "aceito" aqui significa VALIDADO contra a
      máquina de transições — não gravado como veio. É a única coisa do corpo
      cujo valor é conferido contra o que já está no banco. */
@@ -696,6 +718,97 @@ export function lerCorpo(corpo, { criando }) {
     }
   }
 
+  /* ── A CAPA (Story 3.1) ─────────────────────────────────────────────────
+     Duas colunas, uma regra. `imagem_url` guarda ENDEREÇO — e a lista de
+     permissão é o que torna conteúdo de arquivo não representável: só
+     `https://` absoluto entra, então `data:image/png;base64,…` morre aqui e
+     morre de novo na restrição do banco, que é o espelho desta função.
+
+     Ausente preserva, `null` (ou vazio) LIMPA — a mesma convenção dos outros
+     metadados. Limpar a capa limpa o texto alternativo junto: deixá-lo para
+     trás produziria uma descrição órfã de uma imagem que não existe mais, e
+     `posts_imagem_exige_alt` não cobre esse lado do par. */
+  if (corpo.imagem_url !== undefined) {
+    if (corpo.imagem_url === null || corpo.imagem_url === "") {
+      campos.imagem_url = null;
+    } else {
+      const endereco = texto(corpo.imagem_url);
+      if (endereco === null || !enderecoDeImagemPermitido(endereco)) {
+        problemas.push(
+          "O endereço da imagem de capa precisa ser um endereço https absoluto. " +
+            "Envie a imagem pelo campo de capa em vez de colar o conteúdo dela.",
+        );
+        detalhes.push(
+          `imagem_url fora da lista de permissão (${String(corpo.imagem_url).length} caracteres): ` +
+            JSON.stringify(String(corpo.imagem_url).slice(0, 80)),
+        );
+      } else if (endereco.length > TAMANHO_MAXIMO_DO_ENDERECO) {
+        // Inalcançável hoje — `enderecoDeImagemPermitido` já corta no mesmo
+        // número —, e mantido porque o teto é o que o banco cobra e as duas
+        // conferências precisam continuar dizendo a mesma coisa se uma mudar.
+        problemas.push("O endereço da imagem de capa é longo demais.");
+        detalhes.push(`imagem_url com ${endereco.length} caracteres`);
+      } else {
+        campos.imagem_url = endereco;
+      }
+    }
+  }
+
+  if (corpo.imagem_alt !== undefined) {
+    /* SÓ ESPAÇOS É VAZIO. `texto()` apara, e a versão anterior comparava com
+       `""` ANTES de aparar: `"   "` virava uma descrição de três espaços
+       gravada na coluna, que escapava da conferência do par aqui e era
+       recusada pelo `btrim` do banco — a recusa tardia, com mensagem crua,
+       que este bloco existe para evitar. */
+    const alternativo = corpo.imagem_alt === null ? "" : texto(corpo.imagem_alt);
+    if (alternativo === null) {
+      problemas.push("A descrição da imagem de capa precisa ser texto.");
+      detalhes.push(`imagem_alt veio ${descreverValor(corpo.imagem_alt)}`);
+    } else if (alternativo === "") {
+      campos.imagem_alt = null;
+    } else if (alternativo.length > TAMANHO_MAXIMO_DO_ALTERNATIVO) {
+      problemas.push(
+        `A descrição da imagem passa de ${TAMANHO_MAXIMO_DO_ALTERNATIVO} caracteres. Encurte antes de salvar.`,
+      );
+      detalhes.push(`imagem_alt com ${alternativo.length} caracteres`);
+    } else {
+      campos.imagem_alt = alternativo;
+    }
+  }
+
+  /* ── O PAR, NOS DOIS SENTIDOS, DECIDIDO AQUI E NÃO NO BANCO ───────────
+     A regra é UMA, e ela vale nas duas direções:
+
+       capa informada  → descrição TEM de vir no mesmo pedido, não vazia;
+       capa limpa      → descrição sai junto, diga o pedido o que disser.
+
+     **A primeira metade é mais dura que `posts_imagem_exige_alt`, de
+     propósito.** A restrição do banco olha a LINHA depois da gravação, então
+     um pedido com `imagem_url` e sem a chave `imagem_alt` sobre um Post que
+     já tinha descrição passa por ela — e sobre um que não tinha volta como
+     `violates check constraint` cru, que é a recusa tardia. Exigir as duas no
+     mesmo pedido troca "às vezes o banco recusa com uma frase que ninguém
+     entende" por "sempre a mesma frase, antes da viagem". A tela manda as
+     duas juntas desde que o campo existe.
+
+     A segunda metade é o outro lado, e nenhuma restrição a cobre: descrição
+     órfã de uma imagem que não existe mais reapareceria como texto
+     alternativo da próxima capa, que ninguém descreveu. */
+  if (campos.imagem_url === null) {
+    campos.imagem_alt = null;
+  } else if (typeof campos.imagem_url === "string") {
+    if (campos.imagem_alt === null || campos.imagem_alt === undefined) {
+      problemas.push(
+        "A capa precisa de uma descrição: é ela que quem não enxerga a imagem recebe no lugar dela.",
+      );
+      detalhes.push(
+        Object.hasOwn(corpo, "imagem_alt")
+          ? "imagem_url informada com imagem_alt vazia"
+          : "imagem_url informada sem imagem_alt no pedido",
+      );
+    }
+  }
+
   if (corpo.tempo_leitura !== undefined) {
     if (corpo.tempo_leitura === null || corpo.tempo_leitura === "") {
       campos.tempo_leitura = 0;
@@ -913,6 +1026,41 @@ async function gravar({ token, corpo, acesso }) {
     });
   }
 
+  /* ── 2b. A CAPA PRECISA SER DO NOSSO BUCKET (Story 3.1) ─────────────────
+     `lerCorpo` já garantiu a FORMA — endereço `https://` absoluto, a mesma
+     regra que a restrição do banco espelha. O que só pode ser decidido aqui é
+     a ORIGEM, porque quem conhece a URL do projeto é o transporte, não a
+     lógica.
+
+     Endereço de outro domínio é RECUSADO, e a frase diz por quê: imagem por
+     endereço externo é a Story 3.2, e até lá aceitá-la produziria capas que
+     dependem de um servidor que ninguém controla — e nenhuma delas seria
+     removível quando o Post saísse. A recusa é do servidor e não da tela: o
+     campo de endereço externo nem existe hoje, então quem chega aqui com um é
+     quem chamou a API direto. */
+  if (typeof lido.campos.imagem_url === "string") {
+    /* SEM A COSTURA, O DEFEITO É NOSSO — E A FRASE PRECISA DIZER ISSO.
+       A versão anterior caía na recusa de baixo com base vazia e respondia "A
+       capa precisa ser uma imagem enviada pelo Painel" a quem tinha acabado de
+       enviar exatamente isso: culpa do Autor por um acesso montado pela
+       metade. Um acesso sem `baseDoProjeto` não sabe responder à pergunta, e
+       "não sei" é `inesperado`, não "você errou". */
+    if (typeof acesso.baseDoProjeto !== "function") {
+      return falha(ERRO_INESPERADO, {
+        detalhe:
+          "o acesso não sabe dizer a URL do projeto, então não há como julgar a origem da capa",
+      });
+    }
+    const base = acesso.baseDoProjeto();
+    if (caminhoDaCapaNoEndereco(base, lido.campos.imagem_url) === null) {
+      return falha(ERRO_DADOS_INVALIDOS, {
+        mensagem:
+          "A capa precisa ser uma imagem enviada pelo Painel. Endereço de imagem de fora ainda não é aceito.",
+        detalhe: `imagem_url fora do bucket do projeto: ${JSON.stringify(lido.campos.imagem_url.slice(0, 120))}`,
+      });
+    }
+  }
+
   /* ── 3. O conteúdo, validado e derivado no mesmo passo ─────────────────── */
   //
   // A validação é a MESMA função que o Editor usa (`validarDocumento`), e o HTML
@@ -1084,9 +1232,92 @@ async function gravar({ token, corpo, acesso }) {
       detalhe: `o post ${id} desapareceu entre a leitura e a gravação`,
     });
   }
+  /* ── A CAPA ANTERIOR SAI DEPOIS QUE A NOVA ESTÁ NO LUGAR (Story 3.1) ────
+     A ordem é a única que não perde nada. Removendo antes, uma gravação que
+     falhasse deixaria o Post apontando para um arquivo que já não existe —
+     defeito visível para o leitor. Removendo depois, uma remoção que falhe
+     deixa um arquivo que ninguém alcança num bucket de leitura pública: lixo
+     inerte, e o resíduo é NOMEADO em vez de silencioso.
+
+     E ela roda só quando o endereço MUDOU. Salvar um Post sem tocar na capa
+     manda `imagem_url` com o mesmo valor, e apagar o arquivo aí seria apagar a
+     capa que acabou de ser gravada. */
+  const residuo = await removerCapaAnterior({
+    acesso,
+    anterior: existente.dados.imagem_url ?? null,
+    atual: escrita.dados.imagem_url ?? null,
+  });
+
+  /* AS TAGS VÊM DEPOIS DA REMOÇÃO, e a ordem importa.
+     Com a gravação das tags antes, uma falha ali retornava do meio da função e
+     a capa anterior ficava órfã PARA SEMPRE: a linha já apontava para o
+     endereço novo, então nenhum salvamento futuro teria como saber qual
+     arquivo sobrou. Trocar a ordem custa nada — a remoção não depende das tags
+     e as tags não dependem dela — e fecha o único caminho em que o resíduo
+     nasce sem nome. */
   const tags = await gravarTags({ acesso, id, lido });
   if (!tags.ok) return tags;
-  return sucesso({ post: escrita.dados, criado: false, lido, derivado, tags: tags.tags });
+
+  return sucesso({
+    post: escrita.dados,
+    criado: false,
+    lido,
+    derivado,
+    tags: tags.tags,
+    residuo,
+  });
+}
+
+/**
+ * Remove o arquivo da capa anterior — e NUNCA desfaz nada por falhar.
+ *
+ * Devolve `null` quando não havia o que remover ou a remoção deu certo, e
+ * `{ arquivo, motivo }` quando sobrou resíduo. O resíduo viaja na resposta e é
+ * registrado pelo invólucro: "o arquivo antigo ficou" precisa ser dizível, e um
+ * `catch` vazio aqui seria exatamente o silêncio que a story proíbe.
+ *
+ * Endereço que não é do NOSSO bucket devolve `null` sem tentar nada — um Post
+ * cuja capa aponta para outro domínio (o que a Story 3.2 vai permitir) não tem
+ * arquivo nosso a remover, e tentar removê-lo seria apagar às cegas.
+ *
+ * ─── E UM ACESSO SEM O TRANSPORTE NÃO É "NADA A FAZER" ──────────────────────
+ *
+ * A versão anterior devolvia `null` quando `removerArquivoDaCapa` não existia
+ * no acesso — indistinguível de "removeu" e de "não era nosso". Um acesso
+ * montado pela metade (um dublê incompleto, um caminho novo) passaria a vazar
+ * arquivo em SILÊNCIO, que é exatamente o modo de falha que esta função existe
+ * para não ter. Agora é resíduo, com o motivo dizendo que o defeito é de
+ * montagem e não do Storage.
+ */
+export async function removerCapaAnterior({ acesso, anterior, atual }) {
+  if (typeof anterior !== "string" || anterior === "") return null;
+  if (anterior === atual) return null;
+
+  const base = typeof acesso.baseDoProjeto === "function" ? acesso.baseDoProjeto() : "";
+  const caminho = caminhoDaCapaNoEndereco(base, anterior);
+  if (caminho === null) return null;
+
+  if (typeof acesso.removerArquivoDaCapa !== "function") {
+    return {
+      arquivo: caminho,
+      motivo: "o acesso não sabe remover arquivo do Storage — defeito de montagem, não do Storage",
+    };
+  }
+
+  let remocao;
+  try {
+    remocao = await acesso.removerArquivoDaCapa(caminho);
+  } catch (excecao) {
+    return {
+      arquivo: caminho,
+      motivo: `exceção ao remover: ${String(excecao?.message ?? excecao)}`,
+    };
+  }
+  if (remocao?.ok) return null;
+  return {
+    arquivo: caminho,
+    motivo: detalhar(remocao, "remoção do arquivo da capa anterior"),
+  };
 }
 
 /**
@@ -1301,7 +1532,13 @@ async function enderecoLivre({ acesso, slug, id }) {
 /** Os metadados que são COLUNA de `posts`. `tags` não é, e por isso fica fora. */
 function colunasDeMetadado(campos) {
   const saida = {};
-  for (const nome of ["categoria_id", "publicado_em", "tempo_leitura"]) {
+  for (const nome of [
+    "categoria_id",
+    "publicado_em",
+    "tempo_leitura",
+    "imagem_url",
+    "imagem_alt",
+  ]) {
     if (campos[nome] !== undefined) saida[nome] = campos[nome];
   }
   return saida;
@@ -1540,12 +1777,13 @@ async function resolverAutor({ acesso, conta }) {
  * poder dizer "o que você mandou em `conteudo_html` foi ignorado" e "a tabela
  * colada foi removida" — conteúdo que some sem aviso vira perda permanente.
  */
-function sucesso({ post, criado, lido, derivado, tags = null }) {
+function sucesso({ post, criado, lido, derivado, tags = null, residuo = null }) {
   return Object.freeze({
     ok: true,
     dados: Object.freeze({
       post,
       criado,
+      ...(residuo === null ? {} : { residuo: Object.freeze(residuo) }),
       // `null` significa "o pedido não falou de tags", que é diferente de `[]`,
       // que significa "o pedido pediu nenhuma tag". A tela precisa distinguir os
       // dois para não apagar o que não tocou.
