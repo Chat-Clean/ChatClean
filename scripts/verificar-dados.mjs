@@ -58,6 +58,29 @@ import {
 // A Conta temporária nasce pelo MESMO SQL do onboarding real: uma sessão de
 // teste aberta por outro caminho não provaria nada sobre o caminho de verdade.
 import { sqlDeCriacaoDeConta, sqlDeRemocaoDeConta } from "./criar-conta.mjs";
+/* A regra de resolução da imagem de compartilhamento é função PURA de domínio:
+   ela é importada e EXECUTADA, nunca lida como texto. Vive nesta ferramenta
+   porque é a dona da cadeia de dados que representa um Post — e porque ela não
+   precisa de rede nenhuma para se provar. */
+import {
+  DEFEITO_DE_DOMINIO_AUSENTE,
+  ESPECIES_FORA_DA_PREVIA,
+  IMAGEM_PADRAO_DO_SITE,
+  LOGOTIPO_DA_MARCA,
+  ORIGENS_DA_IMAGEM,
+  RECUSA_DE_ENDERECO_INALCANCAVEL,
+  TIPOS_NA_PREVIA,
+  TIPO_POR_EXTENSAO,
+  enderecoDaImagemPadrao,
+  enderecoDoLogotipo,
+  imagemDoPost,
+  tipoDaImagem,
+} from "../src/domain/blog/compartilhamento.js";
+import {
+  TIPOS_DE_IMAGEM,
+  enderecoDeImagemPermitido,
+  problemaNoEnderecoDaImagem,
+} from "../src/domain/blog/arquivos.js";
 
 let falhas = 0;
 let adiadas = 0;
@@ -3277,6 +3300,404 @@ afirmar(
   chamadas > 0 && foraDoContrato.length === 0,
   foraDoContrato.join(" | ") || (chamadas === 0 ? "nenhuma chamada foi feita" : ""),
 );
+
+/* ─── (g) A imagem que representa um Post, EXECUTADA (Story 3.3) ─────────── */
+
+secao("(g) a imagem que representa um Post: uma função pura, quatro combinações");
+
+/*
+ * ─── POR QUE ISTO É EXECUTADO, E NÃO LIDO ─────────────────────────────────
+ *
+ * A cadeia "Imagem de Compartilhamento → Imagem de Capa → Imagem Padrão do
+ * Site" é uma decisão só, e ela tem DOIS consumidores futuros que precisam
+ * concordar: a Prévia do Editor (Story 3.5), que promete ao Autor que o que ele
+ * vê é o que o WhatsApp vai mostrar, e a Função de Borda do Épico 4, que emite
+ * o metadado no HTML servido. A divergência entre os dois é o defeito que a
+ * função existe para impedir — e nenhuma leitura de texto prova concordância.
+ *
+ * O campo `seo_imagem_url` ainda NÃO tem caminho de escrita (é a Story 3.4).
+ * A função responde por ele hoje mesmo assim, e estas asserções o exercitam:
+ * é o que permite à 3.4 ligar o campo sem reabrir a regra.
+ */
+{
+  const DOMINIO = "https://chatclean.com.br";
+  const PADRAO = `${DOMINIO}${IMAGEM_PADRAO_DO_SITE.caminho}`;
+  const CAPA = "https://chatclean.com.br/storage/v1/object/public/imagens-do-blog/capas/abcdefgh12.png";
+  const COMPARTILHAMENTO = "https://cdn.exemplo.com/previa-do-post.jpg";
+
+  /* ── AS QUATRO COMBINAÇÕES DA MATRIZ ───────────────────────────────── */
+
+  const semNada = imagemDoPost({ imagem_url: null, seo_imagem_url: null }, { dominio: DOMINIO });
+  afirmar(
+    "Post sem capa e sem imagem de compartilhamento resolve para a Imagem Padrão do Site",
+    semNada.endereco === PADRAO && semNada.origem === "padrao",
+    `${semNada.origem}: ${semNada.endereco}`,
+  );
+  afirmar(
+    "e ela vem com as medidas, o tipo e a DESCRIÇÃO — quem declara a etiqueta precisa dos quatro",
+    semNada.largura === IMAGEM_PADRAO_DO_SITE.largura &&
+      semNada.altura === IMAGEM_PADRAO_DO_SITE.altura &&
+      semNada.tipo === IMAGEM_PADRAO_DO_SITE.tipo &&
+      semNada.alternativo === IMAGEM_PADRAO_DO_SITE.alternativo,
+    `${semNada.largura}x${semNada.altura} ${semNada.tipo} — ${semNada.alternativo}`,
+  );
+
+  const soCapa = imagemDoPost({ imagem_url: CAPA, seo_imagem_url: null }, { dominio: DOMINIO });
+  afirmar(
+    "Post só com capa resolve para a capa",
+    soCapa.endereco === CAPA && soCapa.origem === "capa",
+    `${soCapa.origem}: ${soCapa.endereco}`,
+  );
+
+  const asDuas = imagemDoPost(
+    { imagem_url: CAPA, seo_imagem_url: COMPARTILHAMENTO },
+    { dominio: DOMINIO },
+  );
+  afirmar(
+    "Post com as duas resolve para a de compartilhamento — o campo específico ganha do herdado",
+    asDuas.endereco === COMPARTILHAMENTO && asDuas.origem === "compartilhamento",
+    `${asDuas.origem}: ${asDuas.endereco}`,
+  );
+
+  const soCompartilhamento = imagemDoPost(
+    { imagem_url: null, seo_imagem_url: COMPARTILHAMENTO },
+    { dominio: DOMINIO },
+  );
+  afirmar(
+    "Post só com imagem de compartilhamento resolve para ela",
+    soCompartilhamento.endereco === COMPARTILHAMENTO &&
+      soCompartilhamento.origem === "compartilhamento",
+    `${soCompartilhamento.origem}: ${soCompartilhamento.endereco}`,
+  );
+
+  /* ── E AS MEDIDAS DE UMA IMAGEM QUE NÃO É NOSSA NÃO SÃO INVENTADAS ─── */
+  //
+  // O critério pede que os valores declarados sejam "os do arquivo real". De
+  // uma capa enviada ou de fora este projeto não conhece medida nenhuma —
+  // repetir 1200x630 ali seria escrever um número que o arquivo desmente. O
+  // `null` é a instrução de OMITIR a etiqueta, e é a única resposta honesta.
+  afirmar(
+    "capa e imagem de compartilhamento vêm SEM medidas — declarar 1200x630 para elas seria mentir",
+    soCapa.largura === null &&
+      soCapa.altura === null &&
+      asDuas.largura === null &&
+      asDuas.altura === null,
+    `${soCapa.largura}x${soCapa.altura} | ${asDuas.largura}x${asDuas.altura}`,
+  );
+  afirmar(
+    "mas o tipo delas é conhecido, porque a extensão o diz",
+    soCapa.tipo === "image/png" && asDuas.tipo === "image/jpeg",
+    `${soCapa.tipo} | ${asDuas.tipo}`,
+  );
+  /* E A DESCRIÇÃO DA CAPA VEM DO POST. O banco já obriga capa a ter descrição
+     desde a Story 2.1; a prévia herda a mesma, em vez de cada consumidor
+     inventar a sua — que é a divergência que a função existe para impedir. */
+  {
+    const comDescricao = imagemDoPost(
+      { imagem_url: CAPA, imagem_alt: "  Painel do ChatClean em uso  " },
+      { dominio: DOMINIO },
+    );
+    const semDescricao = imagemDoPost({ imagem_url: CAPA }, { dominio: DOMINIO });
+    afirmar(
+      "a descrição da capa vem do Post, aparada — e é `null` quando o Post não tem, nunca a do ativo do site",
+      comDescricao.alternativo === "Painel do ChatClean em uso" &&
+        semDescricao.alternativo === null,
+      `${JSON.stringify(comDescricao.alternativo)} | ${JSON.stringify(semDescricao.alternativo)}`,
+    );
+  }
+
+  /* ── O QUE O VOCABULÁRIO RECUSA CAI PARA O ELO SEGUINTE ─────────────── */
+  //
+  // A varredura roda sobre os DOIS campos. Rodá-la só sobre `imagem_url`
+  // deixava o elo de precedência MAIS ALTA sem prova — e é justamente ele que a
+  // Story 3.4 vai abrir para digitação livre: remover a conferência de
+  // permissão só do primeiro elo deixaria tudo verde.
+  const RECUSADOS = Object.freeze([
+    ["relativo", "/imagens/capa.png"],
+    ["conteúdo de arquivo", "data:image/png;base64,iVBORw0KGgo="],
+    ["blob", "blob:https://chatclean.com.br/9f2c"],
+    ["javascript", "javascript:alert(1)"],
+    ["http de host que não é local", "http://exemplo.com/capa.png"],
+    ["com credencial embutida", "https://um:dois@exemplo.com/capa.png"],
+    ["com espaço", "https://exemplo.com/capa 1.png"],
+  ]);
+  for (const campo of ["imagem_url", "seo_imagem_url"]) {
+    const passaram = RECUSADOS.filter(([, endereco]) => {
+      const r = imagemDoPost({ [campo]: endereco }, { dominio: DOMINIO });
+      return r.endereco !== PADRAO || r.origem !== "padrao";
+    }).map(([nome]) => nome);
+    afirmar(
+      `\`${campo}\`: os ${RECUSADOS.length} endereços que o vocabulário recusa caem para o padrão — nenhum vira prévia quebrada`,
+      passaram.length === 0 && RECUSADOS.length >= 7,
+      passaram.join(", "),
+    );
+  }
+  /* E O MESMO JULGAMENTO, NÃO UM SEGUNDO. Uma cópia da regra de endereço
+     divergiria na primeira mudança — a asserção prende as duas pontas. */
+  const divergem = RECUSADOS.filter(([, endereco]) => enderecoDeImagemPermitido(endereco)).map(
+    ([nome]) => nome,
+  );
+  afirmar(
+    "e é o MESMO `enderecoDeImagemPermitido` que os recusa — não há segunda opinião sobre endereço bom",
+    divergem.length === 0,
+    divergem.join(", "),
+  );
+
+  /* ── E O QUE FOI RECUSADO SAI NOMEADO ───────────────────────────────── */
+  //
+  // Sem isto, a Prévia da Story 3.5 mostraria a imagem padrão e o Autor não
+  // teria como saber por que o endereço que ele digitou sumiu. `origem` sozinha
+  // não responde: ela diz o que ENTROU, não o que foi barrado nem por quê.
+  {
+    const semMotivo = RECUSADOS.filter(([, endereco]) => {
+      const r = imagemDoPost({ seo_imagem_url: endereco }, { dominio: DOMINIO });
+      return (
+        r.recusadas.length !== 1 ||
+        r.recusadas[0].campo !== "seo_imagem_url" ||
+        r.recusadas[0].origem !== "compartilhamento" ||
+        typeof r.recusadas[0].motivo !== "string" ||
+        r.recusadas[0].motivo.trim() === ""
+      );
+    }).map(([nome]) => nome);
+    afirmar(
+      `os ${RECUSADOS.length} endereços recusados saem NOMEADOS em \`recusadas\`, com campo, origem e motivo`,
+      semMotivo.length === 0,
+      semMotivo.join(", "),
+    );
+    /* E O MOTIVO É O DA CAUSA CERTA — a mesma frase que o formulário mostraria,
+       vinda de `problemaNoEnderecoDaImagem`. Um motivo genérico mandaria o
+       Autor consertar a coisa errada. */
+    const daCredencial = imagemDoPost(
+      { seo_imagem_url: "https://um:dois@exemplo.com/capa.png" },
+      { dominio: DOMINIO },
+    );
+    const doEsquema = imagemDoPost(
+      { seo_imagem_url: "data:image/png;base64,iVBORw0KGgo=" },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "e o motivo é o da CAUSA — a mesma frase que o formulário mostra, e não uma recusa genérica",
+      /* Com `?.`: uma sabotagem que esvazie `recusadas` tem de virar FALHA
+         relatada, e não uma exceção que derruba a ferramenta antes das seções
+         seguintes. Medido — foi o que aconteceu na primeira sabotagem. */
+      daCredencial.recusadas[0]?.motivo ===
+        problemaNoEnderecoDaImagem("https://um:dois@exemplo.com/capa.png") &&
+        doEsquema.recusadas[0]?.motivo ===
+          problemaNoEnderecoDaImagem("data:image/png;base64,iVBORw0KGgo=") &&
+        daCredencial.recusadas[0]?.motivo !== doEsquema.recusadas[0]?.motivo,
+      `${daCredencial.recusadas[0]?.motivo} | ${doEsquema.recusadas[0]?.motivo}`,
+    );
+    afirmar(
+      "e um Post cujos dois elos servem não tem recusa nenhuma a relatar",
+      asDuas.recusadas.length === 0 && semNada.recusadas.length === 0,
+      `${asDuas.recusadas.length} | ${semNada.recusadas.length}`,
+    );
+  }
+
+  /* ── VETOR NÃO SERVE DE PRÉVIA, NEM VINDO DO POST ───────────────────── */
+  //
+  // É o defeito exato que esta story conserta, e ele voltaria pela porta do
+  // Post se a regra valesse só para o `index.html`.
+  {
+    const comVetor = imagemDoPost(
+      { imagem_url: "https://chatclean.com.br/chatclean.svg" },
+      { dominio: DOMINIO },
+    );
+    const comVetorNoSeo = imagemDoPost(
+      { seo_imagem_url: "https://cdn.exemplo.com/marca.svg", imagem_url: CAPA },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "capa que aponta para vetor cai para o padrão — WhatsApp e Meta não renderizam SVG em prévia",
+      comVetor.endereco === PADRAO && comVetor.origem === "padrao",
+      `${comVetor.origem}: ${comVetor.endereco}`,
+    );
+    afirmar(
+      "e vetor no campo de compartilhamento cai para o ELO SEGUINTE, que é a capa — não direto para o padrão",
+      comVetorNoSeo.endereco === CAPA && comVetorNoSeo.origem === "capa",
+      `${comVetorNoSeo.origem}: ${comVetorNoSeo.endereco}`,
+    );
+    /* O julgamento de espécie, nos dois sentidos. A consulta e a âncora saem
+       antes da extensão: sem isso `foto.png?v=2` seria "espécie desconhecida"
+       e uma capa legítima cairia para o padrão. */
+    const ESPERADO_DE_TIPO = Object.freeze([
+      ["https://x.com/a.svg", null],
+      ["https://x.com/a.ico", null],
+      ["https://x.com/a.gif", null],
+      ["https://x.com/imagem?id=7", null],
+      ["https://x.com/pasta.png/imagem", null],
+      ["https://x.com/a.PNG", "image/png"],
+      ["https://x.com/a.jpg", "image/jpeg"],
+      ["https://x.com/a.jpeg?v=2", "image/jpeg"],
+    ]);
+    const erraram = ESPERADO_DE_TIPO.filter(
+      ([endereco, esperado]) => tipoDaImagem(endereco) !== esperado,
+    ).map(([endereco, esperado]) => `${endereco} → ${tipoDaImagem(endereco)} (esperado ${esperado})`);
+    afirmar(
+      `o julgamento de espécie é LISTA DE PERMISSÃO, conferido nos ${ESPERADO_DE_TIPO.length} casos: vetor, ícone, GIF e endereço sem extensão são desconhecidos`,
+      erraram.length === 0 && ESPERADO_DE_TIPO.length >= 8,
+      erraram.join(" | "),
+    );
+  }
+
+  /* ── E O WEBP FICA DE FORA DA PRÉVIA, DE PROPÓSITO ──────────────────── */
+  //
+  // Ele ESTÁ no vocabulário da capa — o bucket o aceita, e a Story 3.1 o
+  // decidiu. A prévia é outra pergunta: o suporte a WebP nos geradores de
+  // prévia de link é irregular, e uma imagem que existe e não aparece é a MESMA
+  // classe de defeito que esta story conserta. A subtração está declarada em
+  // `ESPECIES_FORA_DA_PREVIA`, com o motivo escrito — sem ela, "o WebP sumiu" e
+  // "ninguém lembrou do WebP" seriam indistinguíveis.
+  {
+    const comWebp = imagemDoPost(
+      { imagem_url: "https://cdn.exemplo.com/capa.webp" },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "capa em WebP — aceita pelo bucket — cai para o padrão na prévia, e a subtração está DECLARADA com motivo",
+      comWebp.origem === "padrao" &&
+        tipoDaImagem("https://x.com/a.webp") === null &&
+        ESPECIES_FORA_DA_PREVIA.some(
+          (e) => e.tipo === "image/webp" && typeof e.motivo === "string" && e.motivo.length > 40,
+        ),
+      `${comWebp.origem} | webp → ${tipoDaImagem("https://x.com/a.webp")}`,
+    );
+    afirmar(
+      "e o vocabulário da prévia é DERIVADO do da capa menos a subtração — não uma segunda lista",
+      TIPOS_NA_PREVIA.every((t) => TIPOS_DE_IMAGEM.includes(t)) &&
+        TIPOS_DE_IMAGEM.filter((t) => !TIPOS_NA_PREVIA.includes(t)).join() ===
+          ESPECIES_FORA_DA_PREVIA.map((e) => e.tipo).join(),
+      `capa: ${TIPOS_DE_IMAGEM.join(", ")} | prévia: ${TIPOS_NA_PREVIA.join(", ")}`,
+    );
+    afirmar(
+      "e o alias `jpeg` deriva do tipo de `jpg`, sem ser escrito de novo",
+      TIPO_POR_EXTENSAO.jpeg === TIPO_POR_EXTENSAO.jpg && TIPO_POR_EXTENSAO.jpg === "image/jpeg",
+      `${TIPO_POR_EXTENSAO.jpeg} | ${TIPO_POR_EXTENSAO.jpg}`,
+    );
+  }
+
+  /* ── IMAGEM QUE O RASTREADOR NÃO ALCANÇA TAMBÉM NÃO SERVE ───────────── */
+  //
+  // Uma capa em `http://localhost:5173` é endereço que o vocabulário aceita — o
+  // stack local do Supabase responde ali, e a Story 3.1 abriu isso de propósito.
+  // Mas num site servido por https ela vira um `og:image` que nenhum rastreador
+  // de fora busca: a prévia vazia de novo, com uma terceira causa. Em
+  // desenvolvimento, com o site também local, os dois lados são locais e a
+  // conferência não se aplica — senão a Prévia mentiria justamente na máquina
+  // de quem desenvolve.
+  {
+    const emProducao = imagemDoPost(
+      { imagem_url: "http://localhost:5173/capa.png" },
+      { dominio: DOMINIO },
+    );
+    const emDesenvolvimento = imagemDoPost(
+      { imagem_url: "http://localhost:5173/capa.png" },
+      { dominio: "http://localhost:5173" },
+    );
+    afirmar(
+      "capa local num site https cai para o padrão, com o motivo nomeado — o rastreador não a buscaria",
+      emProducao.origem === "padrao" &&
+        emProducao.recusadas[0]?.motivo === RECUSA_DE_ENDERECO_INALCANCAVEL,
+      `${emProducao.origem}: ${emProducao.recusadas[0]?.motivo}`,
+    );
+    afirmar(
+      "e num site LOCAL a mesma capa vale — senão a Prévia mentiria na máquina de quem desenvolve",
+      emDesenvolvimento.origem === "capa" &&
+        emDesenvolvimento.endereco === "http://localhost:5173/capa.png",
+      `${emDesenvolvimento.origem}: ${emDesenvolvimento.endereco}`,
+    );
+  }
+
+  /* ── TODO ENDEREÇO RESOLVIDO É ABSOLUTO ─────────────────────────────── */
+  //
+  // Rastreador não resolve caminho relativo: um `og:image` relativo é uma
+  // prévia sem imagem com aparência de prévia com imagem.
+  {
+    const casos = [
+      imagemDoPost(null, { dominio: DOMINIO }),
+      imagemDoPost({}, { dominio: DOMINIO }),
+      semNada,
+      soCapa,
+      asDuas,
+    ];
+    const relativos = casos.filter((r) => !/^https?:\/\//i.test(r.endereco));
+    afirmar(
+      `os ${casos.length} endereços resolvidos são absolutos, e Post nulo ou vazio não lança`,
+      relativos.length === 0 && casos.every((r) => ORIGENS_DA_IMAGEM.includes(r.origem)),
+      relativos.map((r) => r.endereco).join(" | "),
+    );
+  }
+
+  /* ── O DOMÍNIO CANÔNICO É PARÂMETRO, E A AUSÊNCIA DELE É DEFEITO NOMEADO ── */
+  //
+  // Fixar o domínio no código faria a Prévia mentir em todo ambiente que não
+  // fosse produção — o único momento em que alguém a olha é ANTES de publicar.
+  // E devolver algo sem domínio produziria endereço relativo, que é o retângulo
+  // cinza de volta com outra causa: julgar só "lançou" não bastaria, porque
+  // qualquer defeito lança. O que se cobra é a frase.
+  {
+    const SEM_DOMINIO = [
+      null,
+      undefined,
+      {},
+      { dominio: "" },
+      { dominio: "  " },
+      { dominio: "chatclean.com.br" },
+      { dominio: "/" },
+      /* Domínio com caminho, consulta ou âncora: os três produziriam
+         `https://site.com/blog?x=1/imagem-padrao-do-site.png`, que é endereço
+         malformado com cara de endereço bom. */
+      { dominio: "https://chatclean.com.br/blog" },
+      { dominio: "https://chatclean.com.br/?utm=1" },
+      { dominio: "https://chatclean.com.br/#topo" },
+    ];
+    const naoLancaram = [];
+    const frasesErradas = [];
+    for (const opcoes of SEM_DOMINIO) {
+      try {
+        imagemDoPost({}, opcoes);
+        naoLancaram.push(JSON.stringify(opcoes ?? null));
+      } catch (erro) {
+        if (erro.message !== DEFEITO_DE_DOMINIO_AUSENTE) {
+          frasesErradas.push(`${JSON.stringify(opcoes ?? null)} → ${erro.message}`);
+        }
+      }
+    }
+    afirmar(
+      `os ${SEM_DOMINIO.length} jeitos de chamar sem Domínio Canônico utilizável falham alto, com o defeito NOMEADO`,
+      naoLancaram.length === 0 && frasesErradas.length === 0,
+      [...naoLancaram.map((c) => `não lançou: ${c}`), ...frasesErradas].join(" | "),
+    );
+    afirmar(
+      "e com domínio válido o endereço dos dois ativos se monta sem barra dobrada",
+      enderecoDaImagemPadrao("https://chatclean.com.br/") === PADRAO &&
+        enderecoDaImagemPadrao("http://localhost:5173") ===
+          `http://localhost:5173${IMAGEM_PADRAO_DO_SITE.caminho}` &&
+        enderecoDoLogotipo(DOMINIO) === `${DOMINIO}${LOGOTIPO_DA_MARCA.caminho}`,
+      `${enderecoDaImagemPadrao("https://chatclean.com.br/")} | ${enderecoDoLogotipo(DOMINIO)}`,
+    );
+  }
+
+  /* ── E A CADEIA NÃO PODE PERDER UM ELO SEM NADA ACUSAR ──────────────── */
+  //
+  // Sem esta asserção, apagar a linha do `seo_imagem_url` deixaria a Story 3.4
+  // sem onde ligar o campo, e as combinações acima continuariam passando se
+  // alguém trocasse a ordem por engano em outro ponto. O que se cobra é o
+  // vocabulário fechado das três origens, e que cada uma seja alcançável.
+  {
+    const alcancadas = new Set([
+      imagemDoPost({ seo_imagem_url: COMPARTILHAMENTO }, { dominio: DOMINIO }).origem,
+      imagemDoPost({ imagem_url: CAPA }, { dominio: DOMINIO }).origem,
+      imagemDoPost({}, { dominio: DOMINIO }).origem,
+    ]);
+    afirmar(
+      "as três origens do vocabulário são alcançáveis, e nenhuma outra aparece",
+      alcancadas.size === ORIGENS_DA_IMAGEM.length &&
+        ORIGENS_DA_IMAGEM.every((o) => alcancadas.has(o)),
+      `${[...alcancadas].join(", ")} vs ${ORIGENS_DA_IMAGEM.join(", ")}`,
+    );
+  }
+}
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */
 

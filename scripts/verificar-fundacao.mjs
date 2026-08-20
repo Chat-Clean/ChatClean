@@ -73,6 +73,20 @@ import {
   CORES_DE_CATEGORIA,
   aparenciaDaCor,
 } from "../src/domain/blog/categorias.js";
+/* A Imagem Padrão do Site (Story 3.3). O caminho e as medidas vêm do domínio;
+   esta ferramenta é a que já lê o `dist/`, e existir no repositório e SER
+   SERVIDO são coisas diferentes — quem lê prévia lê o que é servido. */
+import {
+  IMAGEM_PADRAO_DO_SITE,
+  LOGOTIPO_DA_MARCA,
+} from "../src/domain/blog/compartilhamento.js";
+/* Os caminhos vêm da MESMA declaração que o gerador usa, e a leitura das
+   etiquetas é a mesma de `verificar:interface`: duas grafias do caminho, ou
+   duas expressões para a mesma etiqueta, divergiriam — e a asserção passaria a
+   vigiar um arquivo que não existe mais, ou a não ver o que existe para ver.
+   Nenhum dos dois importes traz binário nativo. */
+import { COMPOSICOES } from "./ativos-comum.mjs";
+import { conteudoDaMeta } from "./html-comum.mjs";
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const acharCssCompilado = () => acharCssEm(raiz);
@@ -1354,6 +1368,86 @@ try {
       `saiu com código ${erro.status}: ${saida.slice(0, 1500)}`,
     );
   }
+}
+
+/* ─── (g) Os ativos de prévia chegam ao pacote (Story 3.3) ──────────── */
+
+secao("(g) os ativos de prévia chegam ao pacote compilado");
+
+/*
+ * Existir em `public/` e ser SERVIDO são coisas diferentes, e quem lê prévia de
+ * link lê o que é servido. Um `og:image` apontando para um arquivo que o build
+ * não copiou é o mesmo retângulo cinza de antes, com outra causa — e nenhuma
+ * asserção sobre o repositório o pegaria.
+ *
+ * Esta ferramenta é a que já lê o `dist/`, então a conferência mora aqui. Os
+ * caminhos vêm de `COMPOSICOES` — a mesma declaração que o gerador usa —, e não
+ * de uma remontagem à mão: duas grafias do mesmo caminho divergiriam no dia do
+ * renome, e a asserção passaria a vigiar um arquivo que não existe mais.
+ */
+{
+  for (const { nome, destino, ativo } of COMPOSICOES) {
+    const noRepositorio = existsSync(path.join(raiz, destino))
+      ? readFileSync(path.join(raiz, destino))
+      : null;
+    const caminhoNoPacote = path.join(raiz, "dist", ativo.caminho.slice(1));
+    const noPacote = existsSync(caminhoNoPacote) ? readFileSync(caminhoNoPacote) : null;
+
+    afirmar(
+      `${nome}: está no pacote em \`dist${ativo.caminho}\` (rode \`npm run build\` antes)`,
+      noPacote !== null,
+      `esperado em ${path.relative(raiz, caminhoNoPacote)}`,
+    );
+    afirmar(
+      `${nome}: o que foi copiado é BYTE A BYTE o arquivo versionado — o que é servido é o que foi conferido`,
+      noRepositorio !== null && noPacote !== null && noRepositorio.equals(noPacote),
+      noRepositorio && noPacote
+        ? `repositório ${noRepositorio.length} B, pacote ${noPacote.length} B`
+        : "um dos dois não existe",
+    );
+  }
+
+  /* E O DOCUMENTO SERVIDO APONTA PARA ELES. O `index.html` do repositório é
+     fonte; o do `dist/` é o que o rastreador baixa. Vite reescreve endereço de
+     ativo no documento, e uma reescrita que quebrasse a prévia não apareceria
+     em asserção nenhuma sobre a fonte.
+
+     A leitura das etiquetas é a de `html-comum.mjs`, a MESMA de
+     `verificar:interface`: a versão anterior tinha uma expressão por ferramenta,
+     as duas exigindo `property` antes de `content` com um espaço exato, e um
+     minificador de HTML no build faria as duas devolverem `null` — verificação
+     que deixa de ver o que existe para ver fica VERDE. */
+  const htmlDoPacote = existsSync(path.join(raiz, "dist", "index.html"))
+    ? ler(path.join(raiz, "dist", "index.html"))
+    : "";
+  const conteudoDe = (nome) => conteudoDaMeta(htmlDoPacote, nome);
+
+  afirmar(
+    "o `index.html` servido aponta as duas etiquetas de prévia para a Imagem Padrão do Site, em endereço absoluto",
+    typeof conteudoDe("og:image") === "string" &&
+      conteudoDe("og:image").endsWith(IMAGEM_PADRAO_DO_SITE.caminho) &&
+      /^https:\/\//.test(conteudoDe("og:image")) &&
+      conteudoDe("twitter:image") === conteudoDe("og:image"),
+    `og:image=${conteudoDe("og:image")} | twitter:image=${conteudoDe("twitter:image")}`,
+  );
+  afirmar(
+    "e declara largura, altura e tipo — os mesmos que o domínio declara",
+    conteudoDe("og:image:width") === String(IMAGEM_PADRAO_DO_SITE.largura) &&
+      conteudoDe("og:image:height") === String(IMAGEM_PADRAO_DO_SITE.altura) &&
+      conteudoDe("og:image:type") === IMAGEM_PADRAO_DO_SITE.tipo,
+    `w=${conteudoDe("og:image:width")} h=${conteudoDe("og:image:height")} t=${conteudoDe("og:image:type")}`,
+  );
+  afirmar(
+    "e a descrição servida é a que o domínio declara, nas duas etiquetas",
+    conteudoDe("og:image:alt") === IMAGEM_PADRAO_DO_SITE.alternativo &&
+      conteudoDe("twitter:image:alt") === IMAGEM_PADRAO_DO_SITE.alternativo,
+    `og=${conteudoDe("og:image:alt")} | twitter=${conteudoDe("twitter:image:alt")}`,
+  );
+  afirmar(
+    "e o `logo` do dado estruturado servido aponta para o Logotipo Rasterizado",
+    htmlDoPacote.includes(LOGOTIPO_DA_MARCA.caminho),
+    `${LOGOTIPO_DA_MARCA.caminho} não aparece no documento servido`,
+  );
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────── */

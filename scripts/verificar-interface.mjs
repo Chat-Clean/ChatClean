@@ -32,16 +32,75 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+/* Os ativos de prévia (Story 3.3): as medidas, o tipo e a descrição vêm do
+   DOMÍNIO; a composição vem de `ativos-comum.mjs`, que é PURO. O rasterizador
+   NÃO entra aqui no topo: ele é binário nativo, e uma máquina sem o binário da
+   plataforma derrubaria a ferramenta inteira — onze seções deixando de rodar por
+   causa de um arquivo que muda uma vez por ano. Ele entra por `await import()`,
+   dentro do bloco, e a falta dele ADIA aquelas asserções em vez de matar tudo. */
+import {
+  ATIVOS_DE_PREVIA,
+  IMAGEM_PADRAO_DO_SITE,
+  LOGOTIPO_DA_MARCA,
+  TIPOS_NA_PREVIA,
+  tipoDaImagem,
+} from "../src/domain/blog/compartilhamento.js";
+import {
+  BYTES_DA_ASSINATURA,
+  TAMANHO_MAXIMO_DA_IMAGEM,
+  especiePelosBytes,
+  formatarTamanho,
+} from "../src/domain/blog/arquivos.js";
+import {
+  ATIVO_DE_MARCA,
+  COMPOSICOES,
+  FONTE_DO_TOKEN,
+  corDoToken,
+  desmontarSvg,
+  impressaoDaComposicao,
+  svgDaComposicao,
+} from "./ativos-comum.mjs";
+import {
+  blocosDeDadoEstruturado,
+  conteudoDaMeta,
+  etiquetasLink,
+  etiquetasMeta,
+} from "./html-comum.mjs";
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 let falhas = 0;
+let adiadas = 0;
+
+/**
+ * Adiar por INFRAESTRUTURA deixa de derrubar a execução só com esta variável
+ * ligada, e explicitamente — o mesmo contrato de `verificar:dados`.
+ *
+ * O padrão é código 1: uma execução em que a prova do ativo não rodou não pode
+ * terminar verde, porque um `og:image` apontando para vetor passaria batido
+ * exatamente aí.
+ */
+const TOLERA_ADIADAS = /^(1|true|sim)$/i.test(
+  String(process.env.VERIFICAR_TOLERAR_ADIADAS ?? "").trim(),
+);
 
 function secao(titulo) {
   console.log(`\n${titulo}`);
+}
+
+/**
+ * Asserção que o ambiente impediu de exercer — hoje, só o rasterizador nativo
+ * ausente nesta plataforma, e o binário que codifica PNG de outro jeito.
+ * NÃO é sucesso: o veredito final avisa.
+ */
+function adiar(descricao, motivo) {
+  adiadas += 1;
+  console.log(`  ADIADA ${descricao} — ${motivo}`);
 }
 
 function afirmar(descricao, condicao, detalhe = "") {
@@ -3327,13 +3386,879 @@ secao("(k) o monograma da Categoria: uma implementação, dois consumidores");
   }
 }
 
+/* ─── (l) Os ativos de prévia (Story 3.3) ──────────────────────────────── */
+
+secao("(l) os ativos de prévia: medidos nos bytes, e nenhuma referência apontando para vetor");
+
+/*
+ * ─── O DEFEITO QUE ESTA SEÇÃO FECHA ───────────────────────────────────────
+ *
+ * O `og:image` e o `twitter:image` do `index.html` apontavam para
+ * `chatclean.svg`, e WhatsApp, Facebook e LinkedIn NÃO renderizam vetor em
+ * prévia de link. Todo link do site compartilhado abria com retângulo cinza —
+ * e os dois blocos de dados estruturados apontavam para o mesmo arquivo, então
+ * consertar só as duas etiquetas deixaria metade do defeito de pé.
+ *
+ * ─── E POR QUE A MEDIDA É LIDA DOS BYTES ──────────────────────────────────
+ *
+ * O critério pede que a declaração diga largura e altura. Um número escrito à
+ * mão ao lado do arquivo é verdade no dia em que foi escrito e mentira no dia
+ * em que alguém trocar a imagem. Aqui a largura, a altura e a ESPÉCIE saem do
+ * arquivo — cabeçalho IHDR e assinatura —, e tudo o mais (a constante do
+ * domínio, as etiquetas do `index.html`) é comparado com elas.
+ */
+{
+  const CAMINHO_INDEX_HTML = "index.html";
+  const html = ler(path.join(raiz, CAMINHO_INDEX_HTML));
+
+  /* ── (l1) O ARQUIVO: ESPÉCIE E MEDIDAS LIDAS DOS BYTES ─────────────── */
+
+  /**
+   * O cabeçalho IHDR de um PNG — ou `null` se não for um.
+   *
+   * A ESPÉCIE não é decidida aqui: quem a decide é `especiePelosBytes`, do
+   * domínio, o mesmo julgamento que a capa usa. Uma segunda opinião sobre o que
+   * é PNG divergiria na primeira espécie nova.
+   */
+  const medidasDoPng = (bytes) => {
+    if (!bytes || bytes.length < 24) return null;
+    if (especiePelosBytes(bytes.subarray(0, BYTES_DA_ASSINATURA)) !== "image/png") return null;
+    if (String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]) !== "IHDR") return null;
+    return { largura: bytes.readUInt32BE(16), altura: bytes.readUInt32BE(20) };
+  };
+
+  const bytesDe = (composicao) => {
+    const caminho = path.join(raiz, composicao.destino);
+    return existsSync(caminho) ? Buffer.from(readFileSync(caminho)) : null;
+  };
+
+  /* AUTOTESTE DO LEITOR, NOS DOIS SENTIDOS. Sem ele, um leitor quebrado
+     devolveria `null` para tudo e as asserções de medida falhariam — ou, pior,
+     devolveria um par constante e passaria sem olhar arquivo nenhum. */
+  {
+    const doVetor = Buffer.from(readFileSync(path.join(raiz, ATIVO_DE_MARCA)));
+    const truncado = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const daPrevia = bytesDe(COMPOSICOES[0]);
+    const assinaturaTorta = daPrevia ? Buffer.from(daPrevia) : Buffer.alloc(64);
+    assinaturaTorta[1] = 0x00;
+    const alturaTorta = daPrevia ? Buffer.from(daPrevia) : Buffer.alloc(64);
+    if (daPrevia) alturaTorta.writeUInt32BE(IMAGEM_PADRAO_DO_SITE.altura + 1, 20);
+    afirmar(
+      "autoteste do leitor de PNG: só lê medida de quem é PNG de verdade — vetor, truncado e assinatura torta são `null`",
+      medidasDoPng(doVetor) === null &&
+        medidasDoPng(truncado) === null &&
+        medidasDoPng(assinaturaTorta) === null &&
+        medidasDoPng(null) === null,
+      "o leitor aceitou algo que não é PNG",
+    );
+    afirmar(
+      "e ele LÊ a altura de verdade — mexer no cabeçalho muda a resposta, então a medida não é constante",
+      Boolean(daPrevia) &&
+        medidasDoPng(alturaTorta)?.altura === IMAGEM_PADRAO_DO_SITE.altura + 1,
+      `altura lida do cabeçalho adulterado: ${medidasDoPng(alturaTorta)?.altura}`,
+    );
+  }
+
+  const medidasPorDestino = new Map();
+
+  for (const composicao of COMPOSICOES) {
+    const { ativo, destino, nome } = composicao;
+    const bytes = bytesDe(composicao);
+    const medidas = medidasDoPng(bytes);
+    medidasPorDestino.set(destino, { bytes, medidas });
+
+    afirmar(
+      `${nome}: o ativo existe em \`${destino}\``,
+      bytes !== null,
+      "rode `npm run ativo:imagem-padrao`",
+    );
+    afirmar(
+      `${nome}: é RASTER de verdade — a ASSINATURA dos bytes diz ${ativo.tipo}, e não a extensão do nome`,
+      bytes !== null &&
+        especiePelosBytes(bytes.subarray(0, BYTES_DA_ASSINATURA)) === ativo.tipo,
+      bytes ? String(especiePelosBytes(bytes.subarray(0, BYTES_DA_ASSINATURA))) : "sem bytes",
+    );
+    afirmar(
+      `${nome}: as medidas GRAVADAS no arquivo são ${ativo.largura}x${ativo.altura}, as que o domínio declara`,
+      medidas !== null &&
+        medidas.largura === ativo.largura &&
+        medidas.altura === ativo.altura,
+      medidas ? `${medidas.largura}x${medidas.altura}` : "sem medidas",
+    );
+    /* O TETO DE TAMANHO. `arquivos.js` registra por que a capa tem teto de 1 MB:
+       os geradores de prévia da Meta e do WhatsApp impõem limites bem abaixo do
+       usual e tempos de espera curtos. O arquivo cuja ÚNICA razão de existir é
+       ser buscado por esses geradores não pode ficar de fora dessa regra — uma
+       geração futura com 3 MB traria o retângulo cinza por uma terceira causa. */
+    afirmar(
+      `${nome}: cabe no mesmo teto da capa (${formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM)}) — quem o busca é o mesmo gerador de prévia`,
+      bytes !== null && bytes.length <= TAMANHO_MAXIMO_DA_IMAGEM,
+      bytes ? formatarTamanho(bytes.length) : "sem bytes",
+    );
+    afirmar(
+      `${nome}: o tipo que o domínio declara (${ativo.tipo}) é o da extensão do próprio caminho`,
+      tipoDaImagem(ativo.caminho) === ativo.tipo,
+      `${ativo.caminho} → ${tipoDaImagem(ativo.caminho)}`,
+    );
+  }
+
+  afirmar(
+    "e os dois ativos são arquivos DIFERENTES — o cartão da prévia e o logotipo têm papéis opostos",
+    IMAGEM_PADRAO_DO_SITE.caminho !== LOGOTIPO_DA_MARCA.caminho &&
+      ATIVOS_DE_PREVIA.length === COMPOSICOES.length,
+    `${IMAGEM_PADRAO_DO_SITE.caminho} | ${LOGOTIPO_DA_MARCA.caminho}`,
+  );
+
+  /* ── (l2) A DERIVAÇÃO, QUE NÃO PRECISA DO RASTERIZADOR ─────────────── */
+  //
+  // A impressão é o SHA-256 do documento SVG composto. Ela prende a
+  // COMPOSIÇÃO — fração, token e ativo de marca — sem depender de binário
+  // nenhum, e é o que permite, mais abaixo, distinguir "alguém mexeu na
+  // composição" de "este rasterizador codifica diferente".
+  {
+    const marca = readFileSync(path.join(raiz, ATIVO_DE_MARCA), "utf8");
+    const css = readFileSync(path.join(raiz, FONTE_DO_TOKEN), "utf8");
+    const { conteudo } = desmontarSvg(marca);
+    /* Um pedaço REAL do ativo de marca — o primeiro desenho dele. Se a
+       composição tivesse sido inventada, ele não estaria lá. */
+    const primeiroDesenho = (conteudo.match(/<path\b[^>]*\bd="[^"]{80,}"/) ?? [])[0] ?? "";
+
+    for (const composicao of COMPOSICOES) {
+      const fundo = corDoToken(css, composicao.token);
+      const composto = svgDaComposicao(composicao, { marca, fundo });
+      afirmar(
+        `${composicao.nome}: a composição é a IMPRESSÃO registrada — fração, token \`${composicao.token}\` e ativo de marca, tudo preso, sem depender do rasterizador`,
+        impressaoDaComposicao(composto) === composicao.impressao,
+        `${impressaoDaComposicao(composto)} ≠ ${composicao.impressao}`,
+      );
+      afirmar(
+        `${composicao.nome}: a composição carrega o desenho de \`${ATIVO_DE_MARCA}\` — é derivação, não invenção`,
+        primeiroDesenho.length > 80 && composto.includes(primeiroDesenho),
+        primeiroDesenho.slice(0, 40),
+      );
+      afirmar(
+        `${composicao.nome}: sem texto e sem fonte — o mesmo arquivo sai em qualquer máquina`,
+        !/<text\b/.test(composto) && !/font-family/.test(composto),
+        "há texto ou fonte na composição — a rasterização dependeria das fontes da máquina",
+      );
+    }
+
+    /* E A IMPRESSÃO NÃO É DECORAÇÃO: mexer na composição muda a impressão. */
+    {
+      const primeira = COMPOSICOES[0];
+      const comOutraFracao = svgDaComposicao(
+        { ...primeira, fracaoDaLargura: primeira.fracaoDaLargura / 2 },
+        { marca, fundo: corDoToken(css, primeira.token) },
+      );
+      const comOutroFundo = svgDaComposicao(primeira, { marca, fundo: "#ffffff" });
+      /* Um SVG mínimo escrito AQUI, e não um dos arquivos soltos de `public/`:
+         uma faxina que renomeasse um deles derrubaria a ferramenta com `ENOENT`
+         em vez de falhar com frase. */
+      const outraMarca =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">' +
+        '<circle cx="5" cy="5" r="4"/></svg>';
+      const comOutraMarca = svgDaComposicao(primeira, {
+        marca: outraMarca,
+        fundo: corDoToken(css, primeira.token),
+      });
+      const impressoes = [comOutraFracao, comOutroFundo, comOutraMarca].map(impressaoDaComposicao);
+      afirmar(
+        "trocar a fração, o fundo ou o ativo de marca muda a impressão — ela julga a composição, e não a si mesma",
+        new Set([...impressoes, primeira.impressao]).size === 4,
+        impressoes.join(" | "),
+      );
+    }
+
+    /* ── O LEITOR DE TOKEN FALHA ALTO, E NOS QUATRO MODOS ───────────── */
+    afirmarQueLanca(
+      "o leitor de token recusa token ausente",
+      () => corDoToken(":root { --outro: #fff; }", "--brand-wash"),
+    );
+    afirmarQueLanca(
+      "e recusa token declarado duas vezes",
+      () => corDoToken("a{--brand-wash:#111;} b{--brand-wash:#222;}", "--brand-wash"),
+    );
+    afirmarQueLanca(
+      "e recusa valor que não é hexadecimal literal — `var(...)` só resolve no navegador",
+      () => corDoToken("a{--brand-wash: var(--outro);}", "--brand-wash"),
+    );
+    afirmarQueLanca(
+      "e recusa hexadecimal com canal alfa — fundo transparente rasterizado em silêncio",
+      () => corDoToken("a{--brand-wash:#11223344;}", "--brand-wash"),
+    );
+    afirmar(
+      "e COMENTÁRIO não é declaração: a prosa do CSS que cita a cor não impede a geração",
+      corDoToken("/* --brand-wash: #000000; era isto antes */ a{--brand-wash:#e8f5ec;}", "--brand-wash") ===
+        "#e8f5ec",
+      "comentário contado como segunda declaração",
+    );
+    afirmar(
+      "e o NOME acaba onde acha que acaba: `--surface` não casa `--surface-sunk`",
+      corDoToken("a{--surface:#ffffff;--surface-sunk:#f4f7f5;}", "--surface") === "#ffffff",
+      "o prefixo casou um token mais longo",
+    );
+
+    /* ── E O DESMONTADOR NÃO SE PERDE NO PRIMEIRO `>` ───────────────── */
+    {
+      const comSetaNoAtributo =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" ' +
+        'style="--x: a>b" fill="#123456"><rect width="10" height="10"/></svg>';
+      const desmontado = desmontarSvg(comSetaNoAtributo);
+      afirmar(
+        "o desmontador atravessa `>` dentro de valor de atributo e leva os atributos HERDÁVEIS da raiz",
+        desmontado.conteudo.includes("<rect") &&
+          desmontado.largura === 10 &&
+          desmontado.herdados.includes('fill="#123456"') &&
+          desmontado.herdados.includes("style="),
+        `conteúdo: ${desmontado.conteudo.slice(0, 40)} | herdados: ${desmontado.herdados}`,
+      );
+      afirmar(
+        "e o que a raiz herda chega ao grupo do documento composto",
+        svgDaComposicao(COMPOSICOES[0], {
+          marca: comSetaNoAtributo,
+          fundo: "#ffffff",
+        }).includes('fill="#123456"'),
+        "o atributo herdável ficou para trás",
+      );
+      afirmarQueLanca(
+        "e um SVG sem viewBox é recusado — a escala não seria derivável",
+        () => desmontarSvg('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'),
+      );
+    }
+  }
+
+  /* ── (l3) REPRODUÇÃO — a única parte que precisa do rasterizador ───── */
+  //
+  // Ativo que ninguém consegue reproduzir é ativo que ninguém consegue
+  // corrigir. O rasterizador é binário NATIVO: numa máquina sem o binário da
+  // plataforma estas asserções são ADIADAS, e o resto da ferramenta continua.
+  {
+    const NOMES_DA_REPRODUCAO = [
+      "o gerador é determinístico: duas execuções seguidas devolvem os mesmos bytes",
+      "e o que ele produz é EXATAMENTE o arquivo versionado — o ativo no ar é reproduzível",
+      "e o comando de linha grava os dois ativos, com os mesmos bytes",
+      "e o codificador que produziu essa comparação é o PREGADO — sem isso, a comparação de bytes não julgaria nada",
+      "`--saida` seguido de outra bandeira é RECUSADO, dizendo o que falta — nunca vira nome de arquivo",
+      "e um diretório que não existe é CRIADO, em vez de estourar com um erro que não diz o que fazer",
+    ];
+    let gerador = null;
+    try {
+      gerador = await import("./gerar-imagem-padrao.mjs");
+    } catch (erro) {
+      for (const nome of NOMES_DA_REPRODUCAO) {
+        adiar(nome, `rasterizador nativo indisponível nesta plataforma: ${erro.message}`);
+      }
+    }
+
+    if (gerador) {
+      const geradosAgora = new Map();
+      let determinístico = true;
+      for (const composicao of COMPOSICOES) {
+        const primeira = Buffer.from(gerador.bytesDoAtivo(composicao));
+        const segunda = Buffer.from(gerador.bytesDoAtivo(composicao));
+        if (!primeira.equals(segunda)) determinístico = false;
+        geradosAgora.set(composicao.destino, primeira);
+      }
+      afirmar(NOMES_DA_REPRODUCAO[0], determinístico, "duas execuções deram bytes diferentes");
+
+      /* ─── DEFEITO CONTRA INFRAESTRUTURA, E A LINHA ENTRE OS DOIS ───
+       *
+       * A tentação era adiar sempre que a IMPRESSÃO da composição batesse e só
+       * os bytes divergissem — "então só o codificador mudou". SABOTADO, isso
+       * classificou como infraestrutura duas coisas que são defeito puro: o
+       * ativo versionado substituído por lixo, e o ativo inchado com um
+       * megabyte de zeros no fim. Nos dois a composição continua a mesma, e a
+       * ferramenta dizia ADIADA.
+       *
+       * A condição de infraestrutura precisa ser MEDIDA, não inferida. As duas
+       * entradas do byte são a composição — presa pela impressão — e o
+       * codificador, que é o `@resvg/resvg-js` PREGADO numa versão exata. Com as
+       * duas iguais, byte diferente é defeito, em qualquer plataforma. Só
+       * quando a versão INSTALADA difere da pregada é que o codificador é
+       * variável livre — e é essa a pergunta que se faz.
+       */
+      let versaoInstalada = null;
+      try {
+        versaoInstalada = JSON.parse(
+          ler(path.join(raiz, "node_modules", "@resvg", "resvg-js", "package.json")),
+        ).version;
+      } catch {
+        versaoInstalada = null;
+      }
+      const versaoPregada = JSON.parse(ler(path.join(raiz, "package.json"))).devDependencies?.[
+        "@resvg/resvg-js"
+      ];
+      const codificadorPregado =
+        versaoInstalada !== null && versaoInstalada === versaoPregada;
+
+      const divergentes = [];
+      for (const composicao of COMPOSICOES) {
+        const versionado = medidasPorDestino.get(composicao.destino)?.bytes ?? null;
+        const gerado = geradosAgora.get(composicao.destino);
+        if (versionado && gerado.equals(versionado)) continue;
+        divergentes.push(
+          `${composicao.nome}: ${gerado.length} B vs ${versionado ? `${versionado.length} B` : "ativo ausente"}`,
+        );
+      }
+      if (divergentes.length > 0 && !codificadorPregado) {
+        adiar(
+          NOMES_DA_REPRODUCAO[1],
+          `o rasterizador instalado (${versaoInstalada ?? "ausente"}) não é o pregado (${versaoPregada}) — rode \`npm install\` — ${divergentes.join(" | ")}`,
+        );
+      } else {
+        afirmar(NOMES_DA_REPRODUCAO[1], divergentes.length === 0, divergentes.join(" | "));
+      }
+      afirmar(
+        NOMES_DA_REPRODUCAO[3],
+        codificadorPregado,
+        `instalado: ${versaoInstalada} | pregado: ${versaoPregada}`,
+      );
+
+      /* E O COMANDO DE VERDADE, ponta a ponta: a asserção acima exercita a
+         função; esta exercita o que uma pessoa vai digitar no dia em que a
+         marca mudar. Grava fora do repositório — verificação não escreve no
+         projeto. */
+      const temporario = mkdtempSync(path.join(tmpdir(), "ativos-de-previa-"));
+      try {
+        execFileSync(process.execPath, ["scripts/gerar-imagem-padrao.mjs", "--saida", temporario], {
+          cwd: raiz,
+          stdio: "pipe",
+        });
+        const diferentes = COMPOSICOES.filter((composicao) => {
+          const arquivo = path.join(temporario, path.basename(composicao.ativo.caminho));
+          if (!existsSync(arquivo)) return true;
+          return !Buffer.from(readFileSync(arquivo)).equals(geradosAgora.get(composicao.destino));
+        }).map((c) => c.nome);
+        afirmar(NOMES_DA_REPRODUCAO[2], diferentes.length === 0, diferentes.join(", "));
+      } catch (erro) {
+        afirmar(NOMES_DA_REPRODUCAO[2], false, `${erro.stderr ?? erro.message}`.slice(0, 400));
+      } finally {
+        rmSync(temporario, { recursive: true, force: true });
+      }
+      /* ── E A BANDEIRA `--saida` NÃO ENGOLE A BANDEIRA SEGUINTE ─────── */
+      //
+      // `--saida --impressoes` gravava um arquivo chamado `--impressoes` e a
+      // bandeira seguinte sumia em silêncio; diretório inexistente estourava com
+      // `ENOENT` cru, que não diz o que fazer. As duas são conferidas rodando o
+      // comando de verdade, e não lendo o código dele.
+      {
+        const rodar = (argumentos) => {
+          try {
+            execFileSync(process.execPath, ["scripts/gerar-imagem-padrao.mjs", ...argumentos], {
+              cwd: raiz,
+              stdio: "pipe",
+            });
+            return null;
+          } catch (erro) {
+            return `${erro.stdout ?? ""}${erro.stderr ?? ""}`;
+          }
+        };
+        const comBandeira = rodar(["--saida", "--outra-bandeira"]);
+        afirmar(
+          NOMES_DA_REPRODUCAO[4],
+          typeof comBandeira === "string" && /--saida precisa do caminho de um DIRET/.test(comBandeira),
+          String(comBandeira).slice(0, 200),
+        );
+        const inexistente = path.join(
+          mkdtempSync(path.join(tmpdir(), "ativos-fundo-")),
+          "pasta",
+          "que",
+          "nao",
+          "existe",
+        );
+        const criou = rodar(["--saida", inexistente]);
+        afirmar(
+          NOMES_DA_REPRODUCAO[5],
+          criou === null && existsSync(path.join(inexistente, "imagem-padrao-do-site.png")),
+          String(criou).slice(0, 200),
+        );
+        rmSync(path.dirname(path.dirname(path.dirname(path.dirname(inexistente)))), {
+          recursive: true,
+          force: true,
+        });
+      }
+
+    }
+
+    /* E O COMANDO É DECLARADO. Ele é nomeado em três lugares como o caminho de
+       recuperação; um `package.json` sem ele deixaria as três frases mentindo.
+       Mesmo precedente do script `lint`, em `verificar:fundacao`. */
+    {
+      const pacote = JSON.parse(ler(path.join(raiz, "package.json")));
+      const comando = pacote.scripts?.["ativo:imagem-padrao"];
+      afirmar(
+        "`npm run ativo:imagem-padrao` está declarado e aponta para o gerador",
+        typeof comando === "string" && comando.includes("scripts/gerar-imagem-padrao.mjs"),
+        `encontrado: ${comando}`,
+      );
+      afirmar(
+        "e o rasterizador é dependência de DESENVOLVIMENTO — o build de produção não o carrega",
+        typeof pacote.devDependencies?.["@resvg/resvg-js"] === "string" &&
+          !("@resvg/resvg-js" in (pacote.dependencies ?? {})) &&
+          /^\d+\.\d+\.\d+$/.test(pacote.devDependencies["@resvg/resvg-js"]),
+        `dev: ${pacote.devDependencies?.["@resvg/resvg-js"]} | prod: ${pacote.dependencies?.["@resvg/resvg-js"]}`,
+      );
+    }
+  }
+
+  /* ── (l4) LISTA DE PERMISSÃO: NENHUMA REFERÊNCIA APONTA PARA VETOR ── */
+  //
+  // ─── É LISTA DE PERMISSÃO, E A DIFERENÇA IMPORTA ────────────────────
+  //
+  // Uma lista de PROIBIÇÃO diria "não aponte para `.svg`" — e passaria verde no
+  // dia em que alguém apontasse para `.ico`, para `.gif` ou para um endereço sem
+  // extensão nenhuma, que o gerador de prévia também não renderiza. O que se
+  // cobra é o oposto: toda referência de compartilhamento precisa apontar para
+  // uma espécie do vocabulário RASTER, e o julgamento é o mesmo `tipoDaImagem`
+  // que a regra de resolução usa.
+  //
+  // ─── E A VARREDURA É POR FORMA DE NOME, NÃO POR LISTA DE NOMES ──────
+  //
+  // A primeira versão só olhava `og:image`, `twitter:image` e as chaves `image`
+  // e `logo`. Tudo o que estivesse fora dessa lista era INVISÍVEL — que é a
+  // forma de uma lista de proibição: `og:image:url`, `twitter:image:src`,
+  // `itemprop="image"`, `msapplication-TileImage` e `contentUrl` passariam
+  // apontando para vetor. Agora se varre TODO nome que case `image` (e os
+  // parentes que nomeiam imagem) cujo valor PAREÇA endereço, e cada um tem de
+  // estar no vocabulário raster.
+  {
+    /** O nome nomeia uma imagem? FORMA, e não lista de nomes. */
+    const NOME_DE_IMAGEM = /image|imagem|logo|logotipo|thumbnail|contenturl|photo|banner/i;
+    /** O valor parece endereço? Número e tipo MIME não são. */
+    const pareceEndereco = (valor) =>
+      typeof valor === "string" && (/^https?:\/\//i.test(valor) || /^\/[^/]/.test(valor));
+
+    /**
+     * Toda imagem citada dentro de um objeto de dado estruturado.
+     *
+     * Desce carregando "estou debaixo de uma chave que nomeia imagem": é o que
+     * faz `logo: { "@type": "ImageObject", url: "…" }` ser colhido pelo `url`
+     * de dentro, e o que faz `image: ["a.png", "b.svg"]` ser colhido item a
+     * item. A primeira versão perdia os dois — parava no valor direto da chave
+     * — e um `og:image` em `ImageObject` passaria apontando para vetor.
+     */
+    const colherImagens = (no, saida, sobImagem = false, chave = "") => {
+      if (Array.isArray(no)) {
+        for (const item of no) colherImagens(item, saida, sobImagem, chave);
+        return;
+      }
+      if (typeof no === "string") {
+        if (sobImagem && pareceEndereco(no)) saida.push([chave, no]);
+        return;
+      }
+      if (no === null || typeof no !== "object") return;
+      for (const [k, valor] of Object.entries(no)) {
+        const nomeia = NOME_DE_IMAGEM.test(k);
+        colherImagens(valor, saida, sobImagem || nomeia, nomeia ? k : chave);
+      }
+    };
+
+    /** As referências de compartilhamento de um documento HTML. */
+    const referenciasEmHtml = (documento) => {
+      const achadas = [];
+      for (const { nome, conteudo } of etiquetasMeta(documento)) {
+        if (NOME_DE_IMAGEM.test(nome) && pareceEndereco(conteudo)) achadas.push([nome, conteudo]);
+      }
+      let quantosBlocos = 0;
+      for (const corpo of blocosDeDadoEstruturado(documento)) {
+        quantosBlocos += 1;
+        try {
+          colherImagens(JSON.parse(corpo), achadas);
+        } catch (erro) {
+          achadas.push(["dado estruturado ilegível", `bloco ${quantosBlocos}: ${erro.message}`]);
+        }
+      }
+      return { referencias: achadas, blocos: quantosBlocos };
+    };
+
+    /**
+     * As referências de compartilhamento dentro de CÓDIGO.
+     *
+     * O dado estruturado de `src/pages/ApiOficialWhatsApp.jsx` é montado em
+     * JavaScript e não parseia como JSON — mas ele aponta para imagem do mesmo
+     * jeito, e apontava para o mesmo vetor.
+     *
+     * ─── DUAS CORREÇÕES MEDIDAS, E O QUE CADA UMA FECHOU ────────────────
+     *
+     * 1. A varredura vai por JANELA em volta do nome, e não por uma expressão
+     *    que casa o nome e para no primeiro literal seguinte. Aquela versão
+     *    capturava a palavra `content` em
+     *    `setAttribute("property","og:image"); setAttribute("content","…")` —
+     *    e era falsa nos DOIS sentidos: nunca via o vetor (porque `content` não
+     *    é endereço) e teria acusado um PNG correto.
+     * 2. O nome tem de ser CHAVE, não pedaço de valor. Sem isso, o fim de uma
+     *    URL (`…/logotipo-chatclean.png",`) virava "nome de imagem" e a janela
+     *    colhia o endereço da linha SEGUINTE — acusando um endereço que não é
+     *    imagem nenhuma.
+     *
+     * E constante de código em CAIXA ALTA não é chave de metadado:
+     * `BUCKET_DAS_IMAGENS`, no vocabulário do arquivo, é nome de bucket, e a
+     * janela em volta dele colhia o prefixo do Storage. Falha que não é falha
+     * treina a pessoa a ignorar falhas.
+     */
+    const JANELA = 240;
+    const CONSTANTE_DE_CODIGO = /^[A-Z0-9_]+$/;
+    const referenciasEmCodigo = (codigo) => {
+      const candidatos = [];
+      /* Forma 1: chave de objeto ou atribuição — precedida por delimitador, o
+         que é justamente o que o fim de uma URL não tem. */
+      for (const achado of codigo.matchAll(
+        /(?:^|[{,;([\s])["']?([A-Za-z_$][A-Za-z0-9_$:.-]*)["']?\s*[:=]/g,
+      )) {
+        candidatos.push([achado[1], achado.index + achado[0].length]);
+      }
+      /* Forma 2: o NOME DA ETIQUETA como literal citado, que é como ele chega
+         em `setAttribute("property", "og:image")`. Duas formas fechadas, e as
+         duas estreitas de propósito: nome de etiqueta de prévia SEMPRE tem dois
+         pontos (`og:image`, `twitter:image:src`), e o resto entra só quando é
+         argumento nomeado de `setAttribute`. Aceitar qualquer literal citado
+         que contivesse "image" acusava DADO: `"imagens-do-blog"`, o nome do
+         bucket, colhia o prefixo do Storage da linha de baixo. */
+      for (const achado of codigo.matchAll(
+        /["']([A-Za-z][A-Za-z0-9_.-]*:[A-Za-z0-9_:.-]+)["']/g,
+      )) {
+        candidatos.push([achado[1], achado.index]);
+      }
+      for (const achado of codigo.matchAll(
+        /setAttribute\(\s*["'](?:itemprop|property|name)["']\s*,\s*["']([^"']+)["']/g,
+      )) {
+        candidatos.push([achado[1], achado.index]);
+      }
+
+      /* Deduplicado por ENDEREÇO: `logo` e o `"ImageObject"` ao lado dele
+         apontam para a mesma coisa, e relatar duas vezes só engorda a lista. */
+      const porEndereco = new Map();
+      for (const [nome, posicao] of candidatos) {
+        if (!NOME_DE_IMAGEM.test(nome)) continue;
+        if (CONSTANTE_DE_CODIGO.test(nome)) continue;
+        if (nome.includes("/") || pareceEndereco(nome)) continue;
+        const janela = codigo.slice(posicao, posicao + JANELA);
+        for (const literal of janela.matchAll(/["']([^"'\s]+)["']/g)) {
+          if (pareceEndereco(literal[1])) {
+            if (!porEndereco.has(literal[1])) porEndereco.set(literal[1], [nome, literal[1]]);
+            break;
+          }
+        }
+      }
+      return [...porEndereco.values()];
+    };
+
+    /* ── AUTOTESTE DOS DOIS DETECTORES, NOS DOIS SENTIDOS ───────────── */
+    {
+      /* O autoteste afirma O VALOR CAPTURADO, não quantos deram `null`. Contar
+         nulos deixava passar um detector que capturava a palavra `content`:
+         `tipoDaImagem("content")` também é `null`. */
+      const CASOS_DE_HTML = [
+        ['<meta property="og:image" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        ['<meta name="twitter:image" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        ['<meta property="og:image:url" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        ['<meta name="twitter:image:src" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        ['<meta itemprop="image" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        ['<meta name="msapplication-TileImage" content="https://x.com/a.svg" />', "https://x.com/a.svg"],
+        /* AS DUAS FORMAS DE EVASÃO MEDIDAS: atributo na outra ordem e aspas
+           simples. As duas escapavam da versão anterior, e acrescentar uma
+           etiqueta assim reintroduziria o vetor com a ferramenta verde. */
+        ['<meta content="https://x.com/a.svg" property="og:image" />', "https://x.com/a.svg"],
+        ["<meta property='og:image' content='https://x.com/a.svg' />", "https://x.com/a.svg"],
+        ['<script type="application/ld+json">{"logo":"https://x.com/a.svg"}</script>', "https://x.com/a.svg"],
+        [
+          '<script type="application/ld+json">{"publisher":{"logo":{"@type":"ImageObject","url":"https://x.com/a.svg"}}}</script>',
+          "https://x.com/a.svg",
+        ],
+        [
+          '<script type="application/ld+json">{"image":["https://x.com/a.png","https://x.com/b.svg"]}</script>',
+          "https://x.com/b.svg",
+        ],
+      ];
+      const naoCapturaram = CASOS_DE_HTML.filter(
+        ([texto, esperado]) =>
+          !referenciasEmHtml(texto).referencias.some(([, endereco]) => endereco === esperado),
+      ).map(([texto]) => texto.slice(0, 60));
+      afirmar(
+        `autoteste do detector de HTML: captura O ENDEREÇO nos ${CASOS_DE_HTML.length} casos — inclusive ordem de atributo trocada e aspas simples`,
+        naoCapturaram.length === 0,
+        `escaparam: ${naoCapturaram.join(" | ")}`,
+      );
+
+      /* O ÍCONE DO NAVEGADOR SEGUE FORA DA REGRA, e é aqui que isso vira
+         asserção: ele não é prévia — quem o lê é o navegador, e um detector que
+         o pegasse acusaria o alvo errado. */
+      const HTML_QUE_NAO_DEVE_ACUSAR = [
+        '<link rel="icon" type="image/svg+xml" href="/Logo CC.svg" sizes="any" />',
+        '<link rel="apple-touch-icon" href="/Logo CC.svg" />',
+        '<meta property="og:image:type" content="image/png" />',
+        '<meta property="og:image:width" content="1200" />',
+        '<meta property="og:url" content="https://chatclean.com.br/" />',
+        '<script type="application/ld+json">{"url":"https://chatclean.com.br"}</script>',
+        '<script type="text/plain">{"logo":"https://x.com/a.svg"}</script>',
+      ];
+      const falsos = HTML_QUE_NAO_DEVE_ACUSAR.filter(
+        (t) => referenciasEmHtml(t).referencias.length > 0,
+      );
+      afirmar(
+        "autoteste do detector de HTML: NÃO acusa o ícone do navegador, o tipo, a medida nem bloco que não é dado estruturado",
+        falsos.length === 0,
+        `falsos positivos: ${falsos.join(" | ")}`,
+      );
+
+      const CASOS_DE_CODIGO = [
+        ['ldScript.text = JSON.stringify({ image: "https://x.com/a.svg" });', "https://x.com/a.svg"],
+        ['logo: {\n  "@type": "ImageObject",\n  url: "https://x.com/a.svg",\n},', "https://x.com/a.svg"],
+        ['{ "logo": "https://x.com/a.svg" }', "https://x.com/a.svg"],
+        [
+          'meta.setAttribute("property", "og:image");\nmeta.setAttribute("content", "https://x.com/a.svg");',
+          "https://x.com/a.svg",
+        ],
+        ['const dados = { thumbnailUrl: "/a.svg" };', "/a.svg"],
+      ];
+      const codigoEscapou = CASOS_DE_CODIGO.filter(
+        ([texto, esperado]) =>
+          !referenciasEmCodigo(texto).some(([, endereco]) => endereco === esperado),
+      ).map(([texto]) => texto.slice(0, 50));
+      afirmar(
+        `autoteste do detector de código: captura O ENDEREÇO nos ${CASOS_DE_CODIGO.length} casos, e nunca o nome do atributo`,
+        codigoEscapou.length === 0 &&
+          !referenciasEmCodigo(
+            'meta.setAttribute("property", "og:image");\nmeta.setAttribute("content", "https://x.com/a.png");',
+          ).some(([, endereco]) => endereco === "content"),
+        `escaparam: ${codigoEscapou.join(" | ")}`,
+      );
+
+      const CODIGO_QUE_NAO_DEVE_ACUSAR = [
+        '<img src="/chatclean-white.svg" alt="ChatClean" />',
+        'accept="image/*"',
+        'const especie = "image/svg+xml";',
+        "const backgroundImage = `url(${fundo})`;",
+        "const { imagem_url: capa } = post;",
+      ];
+      const falsosCodigo = CODIGO_QUE_NAO_DEVE_ACUSAR.filter(
+        (t) => referenciasEmCodigo(t).length > 0,
+      );
+      afirmar(
+        "autoteste do detector de código: NÃO acusa logotipo de tela, `accept` nem nome de espécie",
+        falsosCodigo.length === 0,
+        `falsos positivos: ${falsosCodigo
+          .map((t) => `${t} → ${JSON.stringify(referenciasEmCodigo(t))}`)
+          .join(" | ")}`,
+      );
+    }
+
+    /* ── E AGORA O REPOSITÓRIO ─────────────────────────────────────── */
+    const { referencias: doHtml, blocos } = referenciasEmHtml(html);
+
+    afirmar(
+      "os três blocos de dado estruturado do `index.html` são JSON válido e foram lidos",
+      blocos >= 3 && doHtml.every(([nome]) => nome !== "dado estruturado ilegível"),
+      `${blocos} bloco(s) — ${doHtml
+        .filter(([n]) => n === "dado estruturado ilegível")
+        .map(([, d]) => d)
+        .join(" | ")}`,
+    );
+
+    /* A VARREDURA DE CÓDIGO VAI ATÉ `api/`, que é onde o Épico 4 vai emitir o
+       metadado por Post. Deixar a função de servidor de fora seria deixar
+       aberta justamente a porta que a próxima story usa. */
+    const fontesDeCodigo = [
+      ...fontesSrc,
+      ...arquivosDe(path.join(raiz, "api"), [".js", ".mjs"]),
+    ];
+    const doCodigo = [];
+    for (const arquivo of fontesDeCodigo) {
+      for (const [nome, endereco] of referenciasEmCodigo(semComentarios(ler(arquivo)))) {
+        doCodigo.push([`${rel(arquivo)} (${nome})`, endereco]);
+      }
+    }
+
+    const todas = [...doHtml.map(([n, e]) => [`index.html (${n})`, e]), ...doCodigo];
+    const paraVetor = todas.filter(([, endereco]) => tipoDaImagem(endereco) === null);
+    afirmar(
+      `as ${todas.length} referências de imagem de compartilhamento do projeto apontam para espécie do vocabulário raster (${TIPOS_NA_PREVIA.join(", ")})`,
+      paraVetor.length === 0,
+      paraVetor.map(([onde, e]) => `${onde}: ${e}`).join(" | "),
+    );
+
+    /* ── A GUARDA DE VACUIDADE É NOMEADA, E NÃO UM PISO ─────────────── */
+    //
+    // `>= 6` não guardava nada: um detector que deixasse de casar devolveria
+    // zero e a asserção acima passaria verde — e ACRESCENTAR uma etiqueta numa
+    // forma que o detector não vê também não mexeria no número. O que se cobra
+    // agora são os SÍTIOS que sabidamente existem, por nome. Um detector cego
+    // perde qualquer um deles e falha aqui.
+    {
+      const SITIOS_ESPERADOS = [
+        ["index.html (og:image)", "a etiqueta de prévia do Open Graph"],
+        ["index.html (twitter:image)", "a etiqueta de prévia do Twitter Card"],
+        ["index.html (logo)", "o `logo` do bloco Organization"],
+        ["index.html (image)", "o `image` dos blocos de dado estruturado"],
+        ["src/pages/ApiOficialWhatsApp.jsx (logo)", "o `publisher.logo` do artigo"],
+      ];
+      const encontrados = new Set(todas.map(([onde]) => onde));
+      const ausentes = SITIOS_ESPERADOS.filter(([sitio]) => !encontrados.has(sitio)).map(
+        ([sitio, oQue]) => `${sitio} (${oQue})`,
+      );
+      afirmar(
+        `a varredura enxerga os ${SITIOS_ESPERADOS.length} sítios de referência que o projeto tem — nomeados, e não contados por piso`,
+        ausentes.length === 0,
+        `não encontrados: ${ausentes.join(" | ")}`,
+      );
+    }
+
+    /* ── E O QUE APONTA PARA O PRÓPRIO SITE PRECISA EXISTIR ─────────── */
+    //
+    // `tipoDaImagem` julga a EXTENSÃO. Um renome do ativo, ou um erro de
+    // digitação, deixa `logo` e `image` apontando para nada — com a extensão
+    // certa, e com a ferramenta verde. É a prévia vazia que a story existe para
+    // eliminar, entrando pela porta que a story abriu.
+    {
+      const canonico = (etiquetasLink(html).find((l) => l.rel === "canonical")?.href ?? "").replace(
+        /\/+$/,
+        "",
+      );
+      const doNossoSite = todas.filter(
+        ([, endereco]) => canonico !== "" && endereco.startsWith(`${canonico}/`),
+      );
+      const inexistentes = doNossoSite.filter(([, endereco]) => {
+        const caminho = endereco.slice(canonico.length).replace(/[?#].*$/s, "");
+        return !existsSync(path.join(raiz, "public", caminho.replace(/^\/+/, "")));
+      });
+      afirmar(
+        `as ${doNossoSite.length} referências que apontam para o próprio site nomeiam arquivo que EXISTE em \`public/\``,
+        inexistentes.length === 0 && doNossoSite.length >= 5,
+        inexistentes.map(([onde, e]) => `${onde}: ${e}`).join(" | ") ||
+          `referências ao próprio site: ${doNossoSite.length}`,
+      );
+    }
+
+    /* ── E O ÍCONE DO NAVEGADOR SEGUE FORA DA REGRA ─────────────────── */
+    //
+    // A story troca a PRÉVIA, não o ícone. Sem esta asserção, "nenhuma
+    // referência aponta para vetor" seria lida um dia como "rasterize tudo".
+    //
+    // ─── E ELA NÃO PRENDE O `apple-touch-icon` COMO VETOR ──────────────
+    //
+    // MEDIDO: o iOS **não** suporta SVG em `rel="apple-touch-icon"` — o atalho
+    // na tela inicial cai hoje no ícone genérico. O argumento de que "vetor é o
+    // formato certo para um ícone que aparece em muitos tamanhos" vale para
+    // `rel="icon"`, que o navegador renderiza, e NÃO para essa. Consertar isso
+    // exigiria um ícone raster e está fora do escopo desta story; o que a
+    // asserção faz é só afirmar que ele está FORA da regra de prévia — nunca
+    // que ser vetor ali está certo. Prender o defeito seria transformá-lo em
+    // requisito.
+    {
+      const links = etiquetasLink(html);
+      const icone = links.find((l) => l.rel === "icon");
+      const apple = links.find((l) => l.rel === "apple-touch-icon");
+      afirmar(
+        "o ícone do navegador (`rel=icon`) continua vetor — ele não é prévia, e vetor é o formato certo para muitos tamanhos",
+        Boolean(icone) && icone.tipo === "image/svg+xml" && icone.href.endsWith(".svg"),
+        `rel=icon: ${icone?.tipo} ${icone?.href}`,
+      );
+      afirmar(
+        "e o `apple-touch-icon` está fora da regra de prévia — sem afirmar que o formato dele está certo (o iOS não lê SVG ali)",
+        Boolean(apple) &&
+          referenciasEmHtml(apple.tag).referencias.length === 0 &&
+          referenciasEmHtml(icone?.tag ?? "").referencias.length === 0,
+        `apple-touch-icon: ${apple?.href}`,
+      );
+    }
+  }
+
+  /* ── (l5) O `index.html` APONTA PARA OS ATIVOS E DECLARA O QUE MEDIU ── */
+  {
+    /* O domínio vem do `canonical` do próprio documento, não de um literal
+       repetido aqui: dois lugares dizendo qual é o site divergiriam no dia da
+       migração de domínio. */
+    const canonico = (etiquetasLink(html).find((l) => l.rel === "canonical")?.href ?? "").replace(
+      /\/+$/,
+      "",
+    );
+    const enderecoDe = (ativo) => `${canonico}${ativo.caminho}`;
+    const conteudoDe = (nome) => conteudoDaMeta(html, nome);
+    const { bytes, medidas } = medidasPorDestino.get(COMPOSICOES[0].destino) ?? {};
+    const especieNosBytes = bytes
+      ? especiePelosBytes(bytes.subarray(0, BYTES_DA_ASSINATURA))
+      : null;
+
+    afirmar(
+      "o `canonical` do documento nomeia o site, e é dele que o endereço absoluto da prévia é derivado",
+      /^https:\/\/[a-z0-9.-]+$/i.test(canonico),
+      `canonical: ${canonico}`,
+    );
+    afirmar(
+      "`og:image` e `twitter:image` apontam para a Imagem Padrão do Site, em endereço ABSOLUTO",
+      conteudoDe("og:image") === enderecoDe(IMAGEM_PADRAO_DO_SITE) &&
+        conteudoDe("twitter:image") === enderecoDe(IMAGEM_PADRAO_DO_SITE),
+      `og:image=${conteudoDe("og:image")} | twitter:image=${conteudoDe("twitter:image")} | esperado=${enderecoDe(IMAGEM_PADRAO_DO_SITE)}`,
+    );
+    /* A DESCRIÇÃO TEM UM DONO SÓ. Duas frases descrevendo a mesma imagem
+       divergiriam, e a que o leitor de tela recebe seria a que ninguém
+       revisou. */
+    afirmar(
+      "`og:image:alt` e `twitter:image:alt` são a descrição que o DOMÍNIO declara para o ativo",
+      conteudoDe("og:image:alt") === IMAGEM_PADRAO_DO_SITE.alternativo &&
+        conteudoDe("twitter:image:alt") === IMAGEM_PADRAO_DO_SITE.alternativo,
+      `og=${conteudoDe("og:image:alt")} | twitter=${conteudoDe("twitter:image:alt")}`,
+    );
+    afirmar(
+      "largura, altura e tipo são DECLARADOS junto da imagem de compartilhamento",
+      conteudoDe("og:image:width") !== null &&
+        conteudoDe("og:image:height") !== null &&
+        conteudoDe("og:image:type") !== null,
+      `w=${conteudoDe("og:image:width")} h=${conteudoDe("og:image:height")} t=${conteudoDe("og:image:type")}`,
+    );
+    afirmar(
+      "e os três valores declarados saem dos BYTES do arquivo — medida do cabeçalho, tipo da assinatura",
+      medidas !== undefined &&
+        medidas !== null &&
+        conteudoDe("og:image:width") === String(medidas.largura) &&
+        conteudoDe("og:image:height") === String(medidas.altura) &&
+        conteudoDe("og:image:type") === especieNosBytes,
+      medidas
+        ? `arquivo ${medidas.largura}x${medidas.altura} ${especieNosBytes} vs declarado ${conteudoDe("og:image:width")}x${conteudoDe("og:image:height")} ${conteudoDe("og:image:type")}`
+        : "sem medidas",
+    );
+    /* O `logo` do dado estruturado é o LOGOTIPO, e não o cartão da prévia: são
+       papéis opostos, e o painel de conhecimento recorta justo o que recebe. */
+    afirmar(
+      "o `logo` do dado estruturado aponta para o Logotipo Rasterizado, e não para o cartão 1200x630 da prévia",
+      html.includes(`"logo": "${enderecoDe(LOGOTIPO_DA_MARCA)}"`),
+      `esperado: "logo": "${enderecoDe(LOGOTIPO_DA_MARCA)}"`,
+    );
+    afirmar(
+      "e `max-image-preview:large` continua pedido — agora existe imagem grande para entregar",
+      /max-image-preview:large/.test(html),
+      "a diretiva saiu do documento",
+    );
+  }
+}
+
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");
-if (falhas === 0) {
-  console.log("Interface verificada: todas as asserções passaram.");
-  process.exitCode = 0;
-} else {
+if (adiadas > 0) {
+  console.log(
+    `ATENÇÃO: ${adiadas} asserção(ões) NÃO foram exercidas (infraestrutura, não defeito).`,
+  );
+}
+if (falhas > 0) {
   console.log(`Interface NÃO verificada: ${falhas} asserção(ões) falharam.`);
   process.exitCode = 1;
+} else if (adiadas > 0 && !TOLERA_ADIADAS) {
+  /* Adiada NÃO é passou. Terminar verde sem ter exercido a prova do ativo
+     diria "verificado" sobre o que ninguém olhou. */
+  console.log(
+    `Interface NÃO verificada: nenhuma falha, mas ${adiadas} asserção(ões) ficaram sem exercício.`,
+  );
+  console.log(
+    "Instale o rasterizador (`npm install`) ou tolere numa execução local com VERIFICAR_TOLERAR_ADIADAS=1.",
+  );
+  process.exitCode = 1;
+} else if (adiadas > 0) {
+  console.log(
+    `Interface verificada com ressalva TOLERADA: ${adiadas} asserção(ões) ficaram sem exercício.`,
+  );
+  process.exitCode = 0;
+} else {
+  console.log("Interface verificada: todas as asserções passaram.");
+  process.exitCode = 0;
 }

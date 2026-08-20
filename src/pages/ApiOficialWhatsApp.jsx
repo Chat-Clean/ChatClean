@@ -69,9 +69,17 @@ export default function ApiOficialWhatsApp() {
       publisher: {
         "@type": "Organization",
         name: "ChatClean",
+        /* O Logotipo Rasterizado (Story 3.3), e não mais o vetor: rastreador
+           que lê dado estruturado também não renderiza SVG. `logo`, em
+           Schema.org, é o LOGOTIPO da marca, no recorte justo — não o cartão
+           1200x630 da prévia de link, que aqui viraria uma marca minúscula no
+           meio de um retângulo vazio. A mesma troca foi feita no `index.html`;
+           consertar metade do defeito deixaria este bloco mentindo sozinho. */
         logo: {
           "@type": "ImageObject",
-          url: "https://chatclean.com.br/chatclean.svg",
+          url: "https://chatclean.com.br/logotipo-chatclean.png",
+          width: 600,
+          height: 120,
         },
       },
       mainEntityOfPage: "https://chatclean.com.br/api-oficial-whatsapp",
