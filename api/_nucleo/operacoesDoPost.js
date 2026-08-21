@@ -42,7 +42,7 @@ import {
   identificarChamador,
   PADRAO_UUID,
   perfilOuFalha,
-  removerCapaAnterior,
+  removerImagensAnteriores,
 } from "./salvarPost.js";
 
 /**
@@ -179,7 +179,11 @@ export async function excluirPost({ token, corpo, acesso }) {
       });
     }
 
-    /* ── E O ARQUIVO DA CAPA SAI DEPOIS DA LINHA (Story 3.1) ─────────────
+    /* ── E OS ARQUIVOS DE IMAGEM SAEM DEPOIS DA LINHA (Story 3.1) ────────
+       As DUAS colunas de imagem, desde a Story 3.4: a capa e a imagem de
+       compartilhamento podem apontar para arquivos do nosso bucket, e cuidar
+       só da primeira deixaria a segunda órfã em toda exclusão.
+
        A ordem é a mesma que o cabeçalho do transporte já registrava para
        `posts_tags` e `slugs_antigos`, e a story a escolhe por escrito: se o
        arquivo saísse antes e a linha não saísse, sobraria um Post apontando
@@ -191,9 +195,9 @@ export async function excluirPost({ token, corpo, acesso }) {
        impede nada: ela vira `residuo`, que viaja na resposta e é registrado
        pelo invólucro. O Post foi excluído, e dizer "não deu" por causa de um
        arquivo faria a pessoa clicar de novo sobre uma linha que já saiu. */
-    const residuo = await removerCapaAnterior({
+    const residuo = await removerImagensAnteriores({
       acesso,
-      anterior: apagado.dados.imagem_url ?? null,
+      anterior: apagado.dados,
       atual: null,
     });
 

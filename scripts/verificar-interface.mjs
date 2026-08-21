@@ -45,9 +45,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
    dentro do bloco, e a falta dele ADIA aquelas asserções em vez de matar tudo. */
 import {
   ATIVOS_DE_PREVIA,
+  CAMPOS_DE_SEO,
   IMAGEM_PADRAO_DO_SITE,
   LOGOTIPO_DA_MARCA,
+  ORIGENS_DA_DESCRICAO,
+  ORIGENS_DO_TITULO,
   TIPOS_NA_PREVIA,
+  metadadosDoPost,
   tipoDaImagem,
 } from "../src/domain/blog/compartilhamento.js";
 import {
@@ -2007,11 +2011,26 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
     "rounded", "shadow", "size", "w", "h", "p", "m", "gap", "grid-cols",
   ].join("|");
 
+  /* A FRONTEIRA DE CLASSE, e por que ela é obrigatória (Story 3.4).
+   *
+   * Sem ela o prefixo casava NO MEIO DE UMA PALAVRA, e o detector acusava o
+   * que ele não julga: `aviso-de-comprimento-${campo}` traz `to-` dentro de
+   * "comprimento", e `origem-de-${campo}` traz `m-` dentro de "origem".
+   * Nenhum dos dois é classe do Tailwind — são um nome de `data-papel` e um
+   * nome de grupo de rádio —, e os dois faziam esta varredura falhar. Falha
+   * que não é falha treina a pessoa a ignorar a falha que importa, que é a
+   * regra 4 do projeto.
+   *
+   * E a fronteira NÃO enfraquece o detector — isto é MEDIDO, não presumido.
+   * Uma classe do Tailwind sempre começa em fronteira: início do literal,
+   * espaço, a variante (`md:`, `hover:`) ou o hífen do utilitário negativo
+   * (`-mt-`). Nenhum desses caracteres é `[a-z0-9]`, e os quatro estão em
+   * `DEVE_ACUSAR` abaixo. */
   /** A classe é montada com interpolação? Devolve o trecho, ou `null`. */
   const classeInterpolada = (texto) => {
     const padroes = [
       // dentro de template: `bg-${x}`, `text-state-${x}`, `rounded-${x}`
-      new RegExp(`(?:${PREFIXOS})-[a-z0-9-]*\\$\\{`),
+      new RegExp(`(?:^|[^a-z0-9])(?:${PREFIXOS})-[a-z0-9-]*\\$\\{`),
       // por concatenação: "bg-" + x
       new RegExp(`["'](?:${PREFIXOS})-[a-z0-9-]*["']\\s*\\+`),
       // e o inverso: x + "-500"
@@ -2033,6 +2052,14 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
     "const c = `rounded-${tamanho}`;",
     "className={`border-state-${estado}-bg`}",
     'const c = prefixo + "-500";',
+    /* AS QUATRO FRONTEIRAS, uma a uma. Elas provam que exigir fronteira não
+       cegou o detector para nenhuma forma real de montar classe: literal,
+       espaço no meio da lista, variante e utilitário negativo. */
+    "className={`text-${tom}`}",
+    "className={`flex items-center to-${fim}`}",
+    "className={`md:bg-${cor}`}",
+    "className={`hover:ring-${cor}`}",
+    "className={`-m-${folga}`}",
   ];
   const NAO_DEVE_ACUSAR = [
     'className={cn("bg-surface", className)}',
@@ -2040,6 +2067,12 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
     'style={{ backgroundColor: fundo }}',
     "const rotulo = `Excluir a categoria ${nome}`;",
     'const url = `/blog/${slug}`;',
+    /* O PREFIXO NO MEIO DE UMA PALAVRA — o falso positivo que a fronteira
+       existe para eliminar, nas duas formas exatas que o Painel escreve. */
+    "data-papel={`aviso-de-comprimento-${campo}`}",
+    "name={idDe(`origem-de-${campo}`)}",
+    "data-papel={`contador-de-${campo}`}",
+    "data-papel={`campo-de-seo-${campo}`}",
   ];
   const escaparam = DEVE_ACUSAR.filter((t) => classeInterpolada(t) === null);
   const falsos = NAO_DEVE_ACUSAR.filter((t) => classeInterpolada(t) !== null);
@@ -4228,6 +4261,402 @@ secao("(l) os ativos de prévia: medidos nos bytes, e nenhuma referência aponta
       "e `max-image-preview:large` continua pedido — agora existe imagem grande para entregar",
       /max-image-preview:large/.test(html),
       "a diretiva saiu do documento",
+    );
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════ */
+
+secao("(m) a herança de metadado: uma função, um lugar, nenhuma segunda opinião");
+
+/*
+ * ─── O QUE ESTA SEÇÃO GUARDA (AD-20) ──────────────────────────────────────
+ *
+ * "A herança de metadados tem um dono só" é decisão técnica do Épico 3: a
+ * resolução de Título SEO, Meta Descrição e Imagem de Compartilhamento — o
+ * recurso à Imagem Padrão do Site incluído — é UMA função pura de
+ * `domain/blog`, e todo consumidor chama ELA. A Prévia (Story 3.5) e a Função
+ * de Borda que emite metadado no HTML (Épico 4) são os consumidores que ainda
+ * não existem, e a promessa que a Prévia vende — "você confere antes de
+ * publicar" — só é verdadeira se os dois lerem a MESMA decisão.
+ *
+ * A Story 3.3 registrou este risco como adiado, com o motivo escrito: naquele
+ * diff o dado estruturado chegou a montar o endereço por conta própria, e foi
+ * a revisão que pegou. A Story 3.4 é a que liga o campo que faltava, e é aqui
+ * que a garantia deixa de ser prosa.
+ *
+ * ─── O QUE SE PROCURA: A QUEDA ESCRITA À MÃO ──────────────────────────────
+ *
+ * Uma segunda opinião sobre "o que este Post declara" tem uma forma só, e ela
+ * é fácil de escrever sem perceber: o campo de SEO de um lado de uma QUEDA
+ * (`||`, `??`, ternário) e o campo do qual ele herda do outro —
+ * `post.seo_titulo || post.titulo`. Uma linha, e a partir dela existem duas
+ * respostas para a mesma pergunta; a terceira nasce no dia em que alguém
+ * acrescentar um quarto campo em só uma das duas.
+ *
+ * A regra é de VIZINHANÇA, e não de forma proibida, como a do monograma: o que
+ * caracteriza a segunda opinião é a queda ENTRE OS DOIS NOMES. Proibir `??` ao
+ * lado de um campo de SEO acusaria `String(v.seo_titulo ?? "")`, que é guarda
+ * de nulo e não decide herança nenhuma — e falha que não é falha treina a
+ * pessoa a ignorar a que importa.
+ *
+ * ─── E A ORDEM DOS OPERANDOS NÃO É DETALHE ────────────────────────────────
+ *
+ * O campo de SEO é sempre o operando da ESQUERDA numa queda de herança, porque
+ * ele é o elo de MAIOR precedência dos três — é o que o módulo do domínio
+ * declara em `ORIGENS_DO_TITULO` e irmãs, sempre com `compartilhamento` na
+ * primeira posição. Escrever `post.titulo || post.seo_titulo` não seria uma
+ * segunda opinião: seria uma opinião INVERTIDA, defeito diferente, e prendê-la
+ * aqui misturaria duas coisas na mesma frase de falha.
+ *
+ * O código é lido SEM COMENTÁRIO. Este projeto argumenta nos comentários, e o
+ * cabeçalho de `admin/blog/seo.js` cita `valores.seo_titulo || valores.titulo`
+ * justamente para dizer que ele não pode existir — ler o comentário faria a
+ * varredura acusar a prosa que a defende.
+ */
+{
+  const CASA_DA_HERANCA = "src/domain/blog/compartilhamento.js";
+
+  /* A JANELA, em caracteres do código com espaço em branco colapsado. 60
+     cobre a queda escrita em três linhas indentadas, que é como o Prettier
+     quebraria `a ? b : c` num arquivo deste projeto, e não alcança a chave
+     seguinte de um objeto literal — que é o vizinho inocente mais próximo. */
+  const JANELA = 60;
+  const colapsado = (codigo) => codigo.replace(/\s+/g, " ");
+
+  /* As três formas de escrever "se não tiver, use o outro". `?.` fica de fora
+     por olhada adiante: encadeamento opcional não é queda, e sem a exclusão
+     todo `post?.seo_titulo` viraria achado. */
+  const QUEDA = String.raw`(?:\|\||\?\?|\?(?!\.))`;
+
+  /**
+   * Cada campo de SEO e o campo do qual ele herda.
+   *
+   * Declarado aqui, e CONFERIDO contra `CAMPOS_DE_SEO` do domínio logo abaixo:
+   * um quarto campo de SEO obriga a editar esta lista, em vez de entrar em
+   * silêncio numa varredura que continuaria verde sobre ele.
+   */
+  const HERANCAS = Object.freeze([
+    Object.freeze({ campo: "seo_titulo", herdaDe: ORIGENS_DO_TITULO[1] }),
+    Object.freeze({ campo: "seo_descricao", herdaDe: ORIGENS_DA_DESCRICAO[1] }),
+    /* A imagem herda a COLUNA `imagem_url`. O vocabulário de origem da imagem
+       chama esse elo de `capa`, que é o nome do papel e não o da coluna — e é
+       a coluna que uma segunda opinião escreveria. */
+    Object.freeze({ campo: "seo_imagem_url", herdaDe: "imagem_url" }),
+  ]);
+
+  afirmar(
+    "os campos vigiados são EXATAMENTE os campos de SEO que o domínio declara",
+    HERANCAS.length === CAMPOS_DE_SEO.length &&
+      HERANCAS.every((h, i) => h.campo === CAMPOS_DE_SEO[i]) &&
+      HERANCAS.every((h) => typeof h.herdaDe === "string" && h.herdaDe !== ""),
+    `vigiados: ${HERANCAS.map((h) => `${h.campo}<-${h.herdaDe}`).join(", ")} | domínio: ${CAMPOS_DE_SEO.join(", ")}`,
+  );
+
+  /**
+   * As quedas escritas à mão que um código contém — o TRECHO de cada uma.
+   *
+   * Devolve o texto casado, e não uma contagem: uma varredura que só conta
+   * some quando o que se acrescenta é um caso a mais, e o autoteste abaixo
+   * afirma o VALOR capturado justamente por isso.
+   */
+  /**
+   * O ÚLTIMO ELO da corrente: a queda para a Imagem Padrão do Site.
+   *
+   * O cabeçalho desta seção afirma o AD-20 "o recurso à Imagem Padrão do Site
+   * incluído", e a família de pares acima não o alcançava: ela liga um campo de
+   * SEO ao campo que ele herda, e o terceiro elo não é um campo do Post — é um
+   * ativo do domínio. `post.seo_imagem_url ?? enderecoDaImagemPadrao(dominio)`
+   * escapava inteiro.
+   *
+   * E ele é justamente onde a segunda opinião tem mais chance de nascer: a
+   * Story 3.3 registrou como risco adiado que "o emissor do Épico 4 monte o
+   * endereço por conta própria", e naquele diff o dado estruturado já tinha
+   * feito exatamente isso.
+   */
+  const COLUNAS_DE_IMAGEM_DO_POST = Object.freeze(["seo_imagem_url", "imagem_url"]);
+  /** Como o ativo padrão é nomeado — o vocabulário que o domínio exporta. */
+  const NOMES_DO_ATIVO_PADRAO = String.raw`(?:enderecoDaImagemPadrao|IMAGEM_PADRAO_DO_SITE|enderecoDoLogotipo|LOGOTIPO_DA_MARCA)`;
+
+  /**
+   * As quedas escritas à mão que um código contém — o TRECHO de cada uma.
+   *
+   * Devolve o texto casado, e não uma contagem: uma varredura que só conta
+   * some quando o que se acrescenta é um caso a mais, e o autoteste abaixo
+   * afirma o VALOR capturado justamente por isso.
+   *
+   * ─── O QUE ELE NÃO ALCANÇA, DITO POR ESCRITO ─────────────────────────────
+   *
+   * A regra é de VIZINHANÇA, e por isso uma variável intermediária a vence:
+   * `const t = post.seo_titulo; … t || post.titulo` separa os dois nomes por
+   * quanto código o autor quiser, e nenhuma janela finita os junta. Fechar isso
+   * exigiria seguir atribuição — análise de fluxo, não varredura de texto — e
+   * este arquivo não é um compilador.
+   *
+   * O que cobre esse buraco é COMPORTAMENTO, não texto: `verificar:editor`
+   * compara a frase que a gaveta DESENHA com a que `metadadosDoPost` produz
+   * para o mesmo formulário, e uma segunda opinião escrita por variável
+   * intermediária só passaria despercebida se produzisse exatamente a mesma
+   * resposta — caso em que ela ainda seria duplicação, mas não divergência.
+   * A varredura pega a forma barata e comum; a asserção de comportamento pega
+   * a consequência.
+   */
+  const quedasEm = (codigo) => {
+    const texto = colapsado(codigo);
+    const achados = [];
+    for (const { campo, herdaDe } of HERANCAS) {
+      const padrao = new RegExp(
+        String.raw`\b${campo}\b[\s\S]{0,${JANELA}}?${QUEDA}[\s\S]{0,${JANELA}}?\b${herdaDe}\b`,
+        "g",
+      );
+      for (const casou of texto.matchAll(padrao)) achados.push(casou[0]);
+    }
+    for (const coluna of COLUNAS_DE_IMAGEM_DO_POST) {
+      const padrao = new RegExp(
+        String.raw`\b${coluna}\b[\s\S]{0,${JANELA}}?${QUEDA}[\s\S]{0,${JANELA}}?${NOMES_DO_ATIVO_PADRAO}\b`,
+        "g",
+      );
+      for (const casou of texto.matchAll(padrao)) achados.push(casou[0]);
+    }
+    return achados;
+  };
+
+  /* ── AUTOTESTE: O VALOR CAPTURADO, E NÃO UMA CONTAGEM ──────────────── */
+  //
+  // Cada caso declara o TRECHO que o detector tem de devolver. Uma asserção
+  // que só perguntasse "achou alguma coisa?" continuaria verde com uma
+  // expressão que casa a linha inteira, ou o nome do campo sozinho — e as duas
+  // fariam a varredura do repositório acusar o inocente e absolver o culpado.
+  const DEVE_ACUSAR = Object.freeze([
+    ["const t = post.seo_titulo || post.titulo;", "seo_titulo || post.titulo"],
+    ["const d = post.seo_descricao ?? post.resumo;", "seo_descricao ?? post.resumo"],
+    [
+      "const i = post.seo_imagem_url ? post.seo_imagem_url : post.imagem_url;",
+      "seo_imagem_url ? post.seo_imagem_url : post.imagem_url",
+    ],
+    /* A MESMA queda quebrada em três linhas — a forma que o Prettier produz, e
+       a que escaparia de um detector que exigisse adjacência. */
+    [
+      "const t =\n    post.seo_titulo\n      ? post.seo_titulo\n      : post.titulo;",
+      "seo_titulo ? post.seo_titulo : post.titulo",
+    ],
+    /* E a forma de servidor: o objeto montado à mão antes de sair. */
+    [
+      "og: { titulo: campos.seo_titulo || campos.titulo },",
+      "seo_titulo || campos.titulo",
+    ],
+    /* ── O ÚLTIMO ELO: A QUEDA PARA A IMAGEM PADRÃO DO SITE ────────────
+       As duas formas que o emissor do Épico 4 escreveria sem pensar, e as
+       duas escapavam da família de pares. */
+    [
+      "const i = post.seo_imagem_url ?? enderecoDaImagemPadrao(dominio);",
+      "seo_imagem_url ?? enderecoDaImagemPadrao",
+    ],
+    [
+      "const i = post.imagem_url || IMAGEM_PADRAO_DO_SITE.caminho;",
+      "imagem_url || IMAGEM_PADRAO_DO_SITE",
+    ],
+  ]);
+  const erradas = DEVE_ACUSAR.filter(([codigo, esperado]) => {
+    const achados = quedasEm(codigo);
+    return achados.length !== 1 || achados[0] !== esperado;
+  });
+  afirmar(
+    `autoteste do detector: captura O TRECHO da queda, e é exatamente o esperado nos ${DEVE_ACUSAR.length} casos`,
+    erradas.length === 0,
+    erradas
+      .map(([codigo]) => `${codigo.slice(0, 40)} → ${JSON.stringify(quedasEm(codigo))}`)
+      .join(" | "),
+  );
+
+  const NAO_DEVE_ACUSAR = Object.freeze([
+    /* Guarda de nulo: não decide herança nenhuma, e é a forma que a gaveta e a
+       função de servidor escrevem hoje. */
+    'const valor = String(v.seo_titulo ?? "").trim();',
+    'const valor = corpo.seo_descricao === null ? "" : texto(corpo.seo_descricao);',
+    /* A leitura de um Post gravado, campo a campo — a forma exata de
+       `valoresDoPost`, com os três seguidos. */
+    'seo_titulo: typeof post.seo_titulo === "string" ? post.seo_titulo : "",\n' +
+      '  seo_descricao: typeof post.seo_descricao === "string" ? post.seo_descricao : "",\n' +
+      '  seo_imagem_url: typeof post.seo_imagem_url === "string" ? post.seo_imagem_url : "",',
+    /* Percorrer os campos por nome não é decidir por eles. */
+    'for (const campo of ["seo_titulo", "seo_descricao"]) {',
+    "campos.seo_imagem_url = null;",
+    /* Encadeamento opcional ao lado do campo herdado: `?.` não é queda. */
+    "const t = post?.seo_titulo; const u = post?.titulo;",
+    /* E a OPINIÃO INVERTIDA, que é outro defeito e não este — prendê-la aqui
+       faria a frase de falha responder por duas coisas diferentes. */
+    "const t = post.titulo || post.seo_titulo;",
+    /* Nomear o ativo padrão não é montar a queda para ele: importar, medir e
+       declarar o endereço são o que `verificar:interface` faz o tempo todo. */
+    'const alvo = IMAGEM_PADRAO_DO_SITE.caminho;',
+    "const largura = IMAGEM_PADRAO_DO_SITE.largura ?? 0;",
+    "const url = enderecoDaImagemPadrao(dominio);",
+  ]);
+  const falsos = NAO_DEVE_ACUSAR.filter((codigo) => quedasEm(codigo).length > 0);
+  afirmar(
+    "autoteste do detector: NÃO acusa guarda de nulo, leitura campo a campo nem `?.`",
+    falsos.length === 0,
+    falsos.map((c) => `${c.slice(0, 50)} → ${JSON.stringify(quedasEm(c))}`).join(" | "),
+  );
+
+  /* ── E AGORA O REPOSITÓRIO: A TELA E O SERVIDOR ────────────────────── */
+  //
+  // O alcance é `src/` INTEIRO mais `api/`, e não só o Painel: "nenhuma tela e
+  // nenhum caminho de servidor decide por conta própria" é a frase do critério,
+  // e o emissor de metadado do Épico 4 vai nascer em `api/`.
+  const fontesDaHeranca = [...fontesSrc, ...arquivosDe(path.join(raiz, "api"), [".js"])];
+
+  /*
+   * ─── E ESTA LISTA ENCOLHEU DE PROPÓSITO ──────────────────────────────────
+   *
+   * `EditorDePost.jsx` e `metadados.js` saíram dela: os dois escreviam os três
+   * nomes à mão e passaram a espalhar `CAMPOS_DE_SEO` do domínio. Arquivo que
+   * NÃO precisa nomear o campo é arquivo onde o quarto campo não pode ser
+   * esquecido — encolher aqui é a medida do conserto, e não a perda de
+   * cobertura: a varredura de quedas continua passando por `src/` e `api/`
+   * inteiros, e é ela que julga o comportamento.
+   */
+  const NOMEIAM_CAMPO_DE_SEO = Object.freeze([
+    "api/_nucleo/acesso.js",
+    "api/_nucleo/salvarPost.js",
+    "src/admin/blog/GavetaDeMetadados.jsx",
+    "src/admin/blog/capa.js",
+    "src/admin/blog/seo.js",
+    "src/data/blog/posts.js",
+    "src/domain/blog/compartilhamento.js",
+  ]);
+
+  const nomeiam = fontesDaHeranca
+    .filter((arquivo) =>
+      HERANCAS.some(({ campo }) =>
+        new RegExp(String.raw`\b${campo}\b`).test(semComentarios(ler(arquivo))),
+      ),
+    )
+    .map(rel)
+    .sort();
+
+  /* A GUARDA É NOMEADA, e não um piso de contagem. Um piso não reage ao que é
+     ACRESCENTADO — o arquivo novo que passasse a falar de SEO entraria sem que
+     nada acusasse, e é assim que a segunda opinião apareceria num lugar que
+     ninguém pensou em olhar. */
+  afirmar(
+    `a varredura enxerga os ${NOMEIAM_CAMPO_DE_SEO.length} arquivos que nomeiam campo de SEO — nomeados, e não contados`,
+    nomeiam.length === NOMEIAM_CAMPO_DE_SEO.length &&
+      nomeiam.every((a, i) => a === NOMEIAM_CAMPO_DE_SEO[i]),
+    `achados: ${nomeiam.join(", ") || "nenhum"}`,
+  );
+
+  const infratores = [];
+  for (const arquivo of fontesDaHeranca) {
+    if (rel(arquivo) === CASA_DA_HERANCA) continue;
+    for (const trecho of quedasEm(semComentarios(ler(arquivo)))) {
+      infratores.push(`${rel(arquivo)}: ${trecho}`);
+    }
+  }
+  afirmar(
+    "NENHUMA tela e NENHUM caminho de servidor decide título, descrição ou imagem por conta própria",
+    infratores.length === 0,
+    infratores.slice(0, 6).join(" | "),
+  );
+
+  /* ── E A CASA DA HERANÇA EXISTE, E É UMA SÓ ────────────────────────── */
+  //
+  // Sem estas duas, a de cima passaria num projeto que não tem herança
+  // nenhuma — que é o estado a que uma "simplificação" chegaria, verde.
+  {
+    const declaram = fontesDaHeranca.filter((arquivo) =>
+      /export\s+function\s+metadadosDoPost\s*\(/.test(semComentarios(ler(arquivo))),
+    );
+    afirmar(
+      "`metadadosDoPost` é DECLARADA num arquivo só, e é o módulo do domínio",
+      declaram.length === 1 && rel(declaram[0]) === CASA_DA_HERANCA,
+      declaram.map(rel).join(", ") || "nenhum arquivo a declara",
+    );
+
+    /* E QUEM A CHAMA, A IMPORTA DE LÁ. Uma cópia local com o mesmo nome
+       satisfaria a asserção de cima e responderia diferente. */
+    const chamadores = fontesDaHeranca.filter((arquivo) => {
+      if (rel(arquivo) === CASA_DA_HERANCA) return false;
+      return /\bmetadadosDoPost\s*\(/.test(semComentarios(ler(arquivo)));
+    });
+    const semImportar = chamadores.filter(
+      (arquivo) =>
+        !/from\s+["'](?:@\/|(?:\.\.\/)+src\/)domain\/blog\/compartilhamento(?:\.js)?["']/.test(
+          semComentarios(ler(arquivo)),
+        ),
+    );
+    afirmar(
+      `os ${chamadores.length} chamador(es) de \`metadadosDoPost\` a IMPORTAM do domínio — nenhum tem cópia local`,
+      chamadores.length > 0 && semImportar.length === 0,
+      chamadores.length === 0
+        ? "ninguém a chama: a cadeia estaria escrita e sem consumidor"
+        : semImportar.map(rel).join(", "),
+    );
+  }
+
+  /* ── E O DOMÍNIO CANÔNICO É LIDO DE UM JEITO QUE O BUILD ALCANÇA ──────
+     O Vite substitui `import.meta.env.VITE_X` ESTATICAMENTE, procurando o
+     texto exato no código-fonte. Um acesso por chave calculada —
+     `import.meta.env[nome]` — atravessa o build intacto e devolve `undefined`
+     no navegador, mesmo com a variável declarada na plataforma: a herança
+     mostrada cairia na origem justamente em produção, que é o defeito que o
+     módulo existe para consertar. Foi medido: com o acesso calculado o valor
+     NÃO chegava ao pacote, e com o literal ele chega.
+
+     `data/supabase/clientes.js` registra a mesma armadilha no comentário dele,
+     e essa é a segunda vez que o projeto passa por ela — daí a asserção. */
+  {
+    const CASA_DO_DOMINIO = "src/admin/blog/dominio.js";
+    const codigo = semComentarios(ler(path.join(raiz, CASA_DO_DOMINIO)));
+    const literais = [...codigo.matchAll(/import\.meta\.env\.([A-Z0-9_]+)/g)].map((m) => m[1]);
+    /* `?.[` também é acesso calculado, e a primeira versão desta expressão não
+       o pegava — a cláusula ficava vacuosa e só a lista de literais acusava. */
+    const calculados = [...codigo.matchAll(/import\.meta\.env\s*(?:\?\.)?\s*\[/g)];
+    afirmar(
+      "o Domínio Canônico é lido por acesso LITERAL a `import.meta.env` — chave calculada não sobrevive ao build",
+      literais.includes("VITE_DOMINIO_DO_SITE") && calculados.length === 0,
+      `literais: ${literais.join(", ") || "nenhum"} | calculados: ${calculados.length}`,
+    );
+    /* E O NOME LIDO É O NOME DECLARADO: duas grafias fariam a plataforma
+       receber uma variável que o código não lê. */
+    afirmar(
+      "e o nome lido é EXATAMENTE o que o módulo declara — a plataforma e o código não podem falar de variáveis diferentes",
+      /VARIAVEL_DO_DOMINIO\s*=\s*"VITE_DOMINIO_DO_SITE"/.test(codigo),
+      (/VARIAVEL_DO_DOMINIO\s*=\s*"[^"]*"/.exec(codigo) ?? [])[0] ?? "não declarado",
+    );
+  }
+
+  /* ── E ELA DECIDE MESMO, EXECUTADA ─────────────────────────────────── */
+  //
+  // As asserções acima são de FORMA. Esta é de comportamento, e existe porque
+  // uma função exportada, importada e vazia passaria por todas elas.
+  {
+    const decidido = metadadosDoPost(
+      {
+        titulo: "O título do Post",
+        resumo: "O resumo do Post",
+        imagem_url:
+          "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+        imagem_alt: "A capa",
+        seo_titulo: null,
+        seo_descricao: null,
+        seo_imagem_url: null,
+      },
+      { dominio: "https://chatclean.com.br" },
+    );
+    afirmar(
+      "e ela DECIDE: com os três vazios, o título vem do Post, a descrição do Resumo e a imagem da capa",
+      decidido.titulo.valor === "O título do Post" &&
+        decidido.titulo.origem === ORIGENS_DO_TITULO[1] &&
+        decidido.descricao.valor === "O resumo do Post" &&
+        decidido.descricao.origem === ORIGENS_DA_DESCRICAO[1] &&
+        decidido.imagem.endereco.endsWith("/capas/abcdefgh.png"),
+      JSON.stringify({
+        titulo: decidido.titulo,
+        descricao: decidido.descricao,
+        imagem: decidido.imagem.endereco,
+      }),
     );
   }
 }

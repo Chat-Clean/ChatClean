@@ -28,7 +28,7 @@
    (`problemaNoEnderecoDaImagem`), que moram lá ao lado de
    `problemaNoTextoAlternativo`. Este módulo só usa a leitura do endereço para
    decidir MODO DE TELA, que é o assunto dele. */
-import { caminhoDaCapaNoEndereco } from "@/domain/blog/arquivos";
+import { ROTULO_DA_CAPA, caminhoDaCapaNoEndereco } from "@/domain/blog/arquivos";
 
 /** Nenhum envio em curso. */
 export const ENVIO_PARADO = "capa-parado";
@@ -118,8 +118,20 @@ export function rotuloDaOrigem(origem) {
   return "";
 }
 
-/** O nome acessível do grupo que escolhe entre as duas. */
-export const ROTULO_DA_ORIGEM_DA_CAPA = "Origem da imagem de capa";
+/**
+ * O nome acessível do grupo que escolhe entre as duas origens.
+ *
+ * Recebe o nome do CAMPO porque a gaveta passou a ter dois controles de imagem
+ * (Story 3.4): a Capa e a Imagem de Compartilhamento. Dois grupos de rádio com
+ * o mesmo nome acessível fariam quem navega por leitor de tela ouvir "Origem da
+ * imagem de capa" duas vezes e não ter como saber qual está operando.
+ */
+export function rotuloDoGrupoDeOrigem(nome) {
+  return `Origem da ${String(nome ?? "").trim().toLowerCase()}`;
+}
+
+/** O nome acessível do grupo da CAPA — derivado, e não escrito de novo. */
+export const ROTULO_DA_ORIGEM_DA_CAPA = rotuloDoGrupoDeOrigem(ROTULO_DA_CAPA);
 
 /** O rótulo do campo onde o endereço de fora é digitado. */
 export const ROTULO_DO_ENDERECO_DA_CAPA = "Endereço da imagem";
@@ -155,6 +167,77 @@ export function origemDoEndereco(endereco, base = "") {
     : ORIGEM_ENVIADA;
 }
 
+/* ─── OS DOIS CAMPOS DE IMAGEM DA GAVETA (Story 3.4) ─────────────────────────
+ *
+ * A gaveta passou a ter DOIS controles de imagem, e os dois são o MESMO
+ * controle: a Capa e a Imagem de Compartilhamento têm o mesmo vocabulário de
+ * esquema, as mesmas duas origens, a mesma recusa antes do salvamento e a mesma
+ * degradação. Um campo de texto cru para a segunda, ao lado de um controle de
+ * dois modos para a primeira, seria a definição de sinônimo — e o Autor teria
+ * de aprender duas maneiras de fazer a mesma coisa.
+ *
+ * O que muda entre eles é só o NOME, e é por isso que ele é parâmetro em toda
+ * fala deste módulo.
+ */
+
+/**
+ * Os nomes com que cada campo de imagem se identifica no documento.
+ *
+ * ─── POR QUE ELES SÃO DECLARADOS, E NÃO MONTADOS ─────────────────────────
+ *
+ * Os dois controles são o MESMO componente, e sem nomes distintos as duas
+ * instâncias seriam indistinguíveis para quem lê o documento — a verificação,
+ * que procura a miniatura da capa, acharia a da imagem de compartilhamento e
+ * afirmaria sobre a errada. Montá-los por interpolação (`miniatura-de-${campo}`)
+ * teria sido mais curto e teria renomeado `miniatura-da-capa`, que é um contrato
+ * de tela fixado na Story 3.1 e lido em dez asserções — mudar contrato para
+ * ganhar simetria de string é trocar o que importa pelo que é bonito.
+ *
+ * O mapa é FECHADO, e a verificação cobra que ele cubra os dois campos com
+ * nomes que não se repetem.
+ */
+export const PAPEIS_DO_CAMPO_DE_IMAGEM = Object.freeze({
+  imagem_url: Object.freeze({
+    campo: "campo-da-capa",
+    origem: "origem-da-capa",
+    seletor: "arquivo-da-capa",
+    miniatura: "miniatura-da-capa",
+    quebrada: "capa-quebrada",
+    ausente: "capa-ausente",
+    degradada: "capa-degradada",
+    ajudaDaAusencia: "ajuda-da-capa-ausente",
+    envio: "envio-em-curso",
+    recusaDaCadeia: "recusa-da-cadeia-da-capa",
+  }),
+  seo_imagem_url: Object.freeze({
+    campo: "campo-da-imagem-de-seo",
+    origem: "origem-da-imagem-de-seo",
+    seletor: "arquivo-da-imagem-de-seo",
+    miniatura: "miniatura-da-imagem-de-seo",
+    quebrada: "imagem-de-seo-quebrada",
+    ausente: "imagem-de-seo-ausente",
+    degradada: "imagem-de-seo-degradada",
+    ajudaDaAusencia: "ajuda-da-imagem-de-seo-ausente",
+    envio: "envio-de-imagem-de-seo-em-curso",
+    recusaDaCadeia: "recusa-da-cadeia-da-imagem-de-seo",
+  }),
+});
+
+/** Os papéis de um campo de imagem, ou os da Capa como último recurso. */
+export function papeisDoCampoDeImagem(campo) {
+  return PAPEIS_DO_CAMPO_DE_IMAGEM[campo] ?? PAPEIS_DO_CAMPO_DE_IMAGEM.imagem_url;
+}
+
+/** O identificador do seletor de arquivo de cada campo de imagem. */
+export function nomeDoSeletorDeArquivo(campo) {
+  return papeisDoCampoDeImagem(campo).seletor;
+}
+
+/** Os campos do Post que a gaveta oferece pelo controle de imagem, na ordem. */
+export const CAMPOS_DE_IMAGEM_DA_GAVETA = Object.freeze(
+  Object.keys(PAPEIS_DO_CAMPO_DE_IMAGEM),
+);
+
 /* ─── O QUE A DEGRADAÇÃO ANUNCIA ─────────────────────────────────────────── */
 
 /**
@@ -181,20 +264,41 @@ export const SITUACOES_DA_CAPA_DEGRADADA = Object.freeze([
   CAPA_COM_ENDERECO_RECUSADO,
 ]);
 
+/**
+ * A fala de cada situação, montada a partir do NOME do campo.
+ *
+ * O nome é parâmetro desde a Story 3.4, quando a gaveta ganhou um segundo
+ * controle de imagem: uma caixa degradada que dissesse "imagem de capa" no
+ * lugar da Imagem de Compartilhamento anunciaria o campo errado — e quem usa
+ * leitor de tela não teria como saber qual dos dois falhou.
+ */
 const FALAS_DA_CAPA_DEGRADADA = Object.freeze({
-  [CAPA_AUSENTE]: "Sem imagem de capa.",
-  [CAPA_QUE_NAO_CARREGOU]: "A imagem de capa não carregou.",
-  [CAPA_COM_ENDERECO_RECUSADO]: "O endereço informado não serve como imagem de capa.",
+  [CAPA_AUSENTE]: (nome) => `Sem ${nome}.`,
+  [CAPA_QUE_NAO_CARREGOU]: (nome) => `A ${nome} não carregou.`,
+  [CAPA_COM_ENDERECO_RECUSADO]: (nome) => `O endereço informado não serve como ${nome}.`,
 });
 
-export function rotuloDaCapaDegradada({ categoria = "", situacao = CAPA_AUSENTE } = {}) {
-  const nome = String(categoria ?? "").trim();
-  const comCategoria = nome === "" ? "" : ` da categoria ${nome}`;
+/**
+ * O nome padrão do campo de imagem: a Capa, que é quem existia primeiro.
+ *
+ * DERIVADO de `ROTULO_DA_CAPA`, do domínio — as falas deste módulo escrevem o
+ * nome em minúsculas no meio da frase, e o rótulo da tela o escreve
+ * capitalizado. São duas apresentações de UM nome, e não dois nomes.
+ */
+export const NOME_DA_CAPA = ROTULO_DA_CAPA.toLowerCase();
+
+export function rotuloDaCapaDegradada({
+  categoria = "",
+  situacao = CAPA_AUSENTE,
+  nome = NOME_DA_CAPA,
+} = {}) {
+  const categoriaNomeada = String(categoria ?? "").trim();
+  const comCategoria = categoriaNomeada === "" ? "" : ` da categoria ${categoriaNomeada}`;
   /* Situação fora do vocabulário cai na ausência em vez de lançar, pela mesma
      razão de `falaDoEnvio`: uma exceção aqui derrubaria a gaveta inteira por
      causa de um rótulo. */
   const fala = FALAS_DA_CAPA_DEGRADADA[situacao] ?? FALAS_DA_CAPA_DEGRADADA[CAPA_AUSENTE];
-  return `${fala} No lugar dela, o monograma${comCategoria}.`;
+  return `${fala(String(nome ?? NOME_DA_CAPA).trim().toLowerCase())} No lugar dela, o monograma${comCategoria}.`;
 }
 
 /**
@@ -213,8 +317,15 @@ export function rotuloDaCapaDegradada({ categoria = "", situacao = CAPA_AUSENTE 
  * diz "a capa que você escolheu não existe". Sem ela, endereço de fora que
  * apodreceu vira um Post salvo com capa morta e ninguém avisado.
  */
-export const FALA_DA_CAPA_QUEBRADA =
-  "A imagem de capa não carregou. Ela pode ter sido removida do servidor — envie outra ou tire a capa antes de salvar.";
+export function falaDaImagemQuebrada(nome = NOME_DA_CAPA) {
+  return (
+    `A ${String(nome ?? NOME_DA_CAPA).trim().toLowerCase()} não carregou. ` +
+    "Ela pode ter sido removida do servidor — envie outra ou tire a imagem antes de salvar."
+  );
+}
+
+/** A fala da CAPA quebrada — derivada, e não escrita de novo. */
+export const FALA_DA_CAPA_QUEBRADA = falaDaImagemQuebrada(NOME_DA_CAPA);
 
 /** O rótulo da ação que tira a capa do Post. */
 export const ROTULO_DE_REMOVER_CAPA = "Remover imagem";
@@ -252,7 +363,13 @@ export function falaDoResiduo(residuo) {
  * ela acabou de escolher o arquivo. Repetir o endereço como descrição, ou
  * deixar `alt` ausente, faria o leitor de tela ler o caminho do arquivo.
  */
-export function alternativoDaMiniatura(alternativo) {
+export function alternativoDaMiniatura(alternativo, nome = ROTULO_DA_CAPA) {
   const texto = String(alternativo ?? "").trim();
-  return texto === "" ? "Imagem de capa escolhida, ainda sem descrição" : texto;
+  if (texto !== "") return texto;
+  /* O nome chega JÁ COMO A TELA O ESCREVE, e não é levantado aqui: extrair a
+     primeira letra e passá-la para maiúscula é a forma do MONOGRAMA, que mora
+     num arquivo só (`listagem.js`) e é cobrada por varredura em
+     `verificar:interface`. Uma capitalização inocente aqui acusaria lá — e a
+     varredura estaria certa: é assim que a segunda implementação começa. */
+  return `${String(nome ?? "").trim()} escolhida, ainda sem descrição`;
 }

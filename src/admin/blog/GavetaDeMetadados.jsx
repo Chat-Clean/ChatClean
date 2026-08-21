@@ -1,12 +1,31 @@
 /**
  * A gaveta de metadados do Post — o que descreve o Post, ao lado do que ele diz.
  *
- * Nove campos: Título, Slug, Resumo, Imagem de capa, Descrição da imagem,
- * Categoria, Tags, Data de Publicação e tempo de leitura. Cada um com
+ * Doze campos: Título, Slug, Resumo, Imagem de capa, Descrição da imagem,
+ * Categoria, Tags, Data de Publicação, tempo de leitura e — na seção de SEO —
+ * Título SEO, Meta Descrição e Imagem de Compartilhamento. Cada um com
  * **rótulo associado** — `<label for>` ligado ao
  * `id` do controle, e não um texto solto acima dele: sem a associação, quem
- * navega por leitor de tela ouve "caixa de edição" nove vezes seguidas e
+ * navega por leitor de tela ouve "caixa de edição" doze vezes seguidas e
  * precisa adivinhar qual é qual.
+ *
+ * ─── A SEÇÃO DE SEO, DEPOIS DA STORY 3.4 ───────────────────────────────────
+ *
+ * Os três campos de SEO são OPCIONAIS, e opcional aqui tem o sentido forte:
+ * vazio não é falta, vazio **herda** — o título do Post, o Resumo, a Imagem de
+ * Capa. E a gaveta **mostra o que será herdado** embaixo de cada campo em
+ * branco: um rótulo dizendo "opcional" não conta o que vai acontecer, e o Autor
+ * teria de publicar e ir olhar.
+ *
+ * Quem decide a herança é `metadadosDoPost`, em `domain/blog/compartilhamento`
+ * — a MESMA função que a Prévia (Story 3.5) e o emissor de metadado do Épico 4
+ * chamam. A gaveta não tem opinião sobre isso, e é essa identidade que sustenta
+ * a promessa de "o que você vê é o que o WhatsApp mostra".
+ *
+ * O contador de caractere **sinaliza** o comprimento usual e nunca bloqueia
+ * nem trunca: não há `maxLength` em campo nenhum desta gaveta, pela decisão que
+ * a Story 3.1 tomou e escreveu. O número que recusa é outro, muito maior, e é
+ * o teto de higiene do domínio.
  *
  * ─── O que esta gaveta NÃO faz ──────────────────────────────────────────────
  *
@@ -115,20 +134,39 @@ import {
   CAPA_AUSENTE,
   CAPA_COM_ENDERECO_RECUSADO,
   CAPA_QUE_NAO_CARREGOU,
-  FALA_DA_CAPA_QUEBRADA,
+  NOME_DA_CAPA,
   ORIGENS_DA_CAPA,
   ORIGEM_DE_FORA,
   ORIGEM_ENVIADA,
-  ROTULO_DA_ORIGEM_DA_CAPA,
   ROTULO_DE_REMOVER_CAPA,
   ROTULO_DO_ENDERECO_DA_CAPA,
   alternativoDaMiniatura,
+  falaDaImagemQuebrada,
   falaDoEnvio,
   origemDoEndereco,
+  papeisDoCampoDeImagem,
   rotuloDaCapaDegradada,
   rotuloDaOrigem,
+  rotuloDoGrupoDeOrigem,
   rotuloDoSeletor,
 } from "@/admin/blog/capa";
+/* A SEÇÃO DE SEO (Story 3.4): o contador que sinaliza e as frases da herança.
+   O que decide a herança é `metadadosDoPost`, do DOMÍNIO — `seo.js` só a chama
+   e traduz o resultado em frase. Nenhum `seo_titulo || titulo` mora aqui. */
+import {
+  ROTULOS_DE_SEO,
+  acimaDoUsual,
+  avisoDeComprimento,
+  falaDaHeranca,
+  herancaDoFormulario,
+  recusaDaCadeia,
+  textoDoContador,
+} from "@/admin/blog/seo";
+import {
+  CAMPOS_DE_TEXTO_DE_SEO,
+  CAMPO_DE_IMAGEM_DE_SEO,
+  problemaNoTextoDeSeo,
+} from "@/domain/blog/compartilhamento";
 /* A CAIXA DO MONOGRAMA é o COMPONENTE que a linha da listagem também desenha —
    não uma caixa parecida montada aqui. É o que faz "Editor e listagem mostram a
    mesma coisa para o mesmo Post" ser estrutura, e não coincidência. */
@@ -139,6 +177,7 @@ import MonogramaDaCapa from "@/admin/blog/MonogramaDaCapa";
 import {
   ACEITO_NO_SELETOR,
   ROTULOS_DE_IMAGEM,
+  ROTULO_DA_CAPA,
   TAMANHO_MAXIMO_DA_IMAGEM,
   TAMANHO_MAXIMO_DO_ALTERNATIVO,
   formatarTamanho,
@@ -173,17 +212,29 @@ export default function GavetaDeMetadados({
      recusa já em palavras, e emite o arquivo escolhido. Quem fala com o
      Storage é o Editor, pela camada de dados — pôr o envio aqui faria o
      componente controlado passar a ter efeito colateral, e a gaveta é montada
-     sozinha pela verificação justamente porque ela não tem. */
-  situacaoDoEnvio = ENVIO_PARADO,
-  recusaDoEnvio = null,
+     sozinha pela verificação justamente porque ela não tem.
+
+     ─── UM POR CAMPO, DESDE A STORY 3.4 ────────────────────────────────
+     A gaveta tem DOIS controles de imagem — a Capa e a Imagem de
+     Compartilhamento —, e os dois podem estar em situações diferentes ao
+     mesmo tempo. Uma situação só, compartilhada, faria o giro do envio de um
+     aparecer sobre o outro, e a recusa de um acusar o campo errado.
+     `{ [campo]: { situacao, recusa } }`; campo ausente é "parado". */
+  envios = {},
   /* A RAIZ DO NOSSO PROJETO, para saber se um endereço gravado é uma capa
      nossa — e só para isso. Ela decide em que modo o campo de capa abre, e
      nunca remoção de arquivo. `""` (o padrão, e o que a gaveta montada sozinha
      recebe) significa "não sei", e "não sei" abre no modo de endereço, que é o
      que mostra o valor em vez de escondê-lo. */
   baseDaCapaDoProjeto = "",
+  /* O DOMÍNIO CANÔNICO, para a seção de SEO poder mostrar O QUE SERÁ HERDADO
+     (Story 3.4). Ele não é adivinhado aqui: quem monta a tela é que sabe de
+     onde o site é servido. `""` é "não sei", e "não sei" faz a seção mostrar o
+     defeito de montagem NOMEADO em vez de uma herança inventada — ver
+     `herancaDoFormulario`, em `admin/blog/seo.js`. */
+  dominioDoSite = "",
   aoEscolherArquivo,
-  aoRemoverCapa,
+  aoRemoverImagem,
   desabilitado = false,
   aberta = true,
   aoAlternar,
@@ -224,116 +275,19 @@ export default function GavetaDeMetadados({
 
   const enderecoRecusado = Boolean(problemaNoEndereco);
 
-  /* ── A capa ────────────────────────────────────────────────────────────
-     `capa` é o ENDEREÇO gravado (ou o que o envio acabou de devolver). A
-     gaveta nunca vê o arquivo depois de emiti-lo: o que ela mostra é a imagem
-     que já está no bucket, pelo mesmo endereço que o site vai usar — é assim
-     que "a miniatura aparece ao concluir" prova que o envio concluiu, em vez
-     de mostrar uma pré-visualização local que existiria mesmo se ele tivesse
-     falhado. */
+  /* ── O QUE É COMUM AOS DOIS CAMPOS DE IMAGEM (Story 3.4) ──────────────
+     O controle de imagem — as duas origens, a miniatura, a degradação para o
+     monograma, o progresso e a recusa — mora em `CampoDeImagem`, no fim deste
+     arquivo, e a gaveta o desenha DUAS vezes: para a Capa e para a Imagem de
+     Compartilhamento. Ele é componente, e não um trecho repetido, porque cada
+     um dos dois tem estado próprio (o modo escolhido, o benefício da dúvida do
+     endereço, a imagem que não carregou) — e um estado compartilhado faria a
+     falha de um contaminar o outro.
+
+     `capa` continua aqui porque a DESCRIÇÃO da imagem depende dela: o banco
+     recusa capa sem descrição, e é a gaveta que decide se aquele campo é
+     obrigatório agora. */
   const capa = String(valores.imagem_url ?? "").trim();
-  /* O VALOR CRU vai para o campo de texto, e o aparado vai para a lógica: um
-     campo controlado que apara a cada tecla não deixa digitar o espaço que a
-     pessoa vai apagar em seguida, e o cursor pula. */
-  const enderecoDigitado = String(valores.imagem_url ?? "");
-  const enviando = situacaoDoEnvio === ENVIO_EM_CURSO;
-
-  /* A CAPA QUE NÃO CARREGA. `onError` do `<img>` é o único sinal que o
-     navegador dá, e ele é por ENDEREÇO: trocar a capa precisa devolver o
-     benefício da dúvida à imagem nova, senão uma falha antiga condenaria todas
-     as seguintes. */
-  const [capaQuebrada, setCapaQuebrada] = useState(false);
-  useEffect(() => {
-    setCapaQuebrada(false);
-  }, [capa]);
-
-  /* ── OS DOIS MODOS DA CAPA (Story 3.2) ─────────────────────────────────
-     O modo é DERIVADO do endereço, e a escolha explícita só vale enquanto não
-     há endereço nenhum. Não é sutileza: a leitura do Post é assíncrona, então
-     o formulário nasce vazio e recebe a capa gravada depois. Um modo guardado
-     em `useState` ficaria preso ao que valia com o formulário em branco — e
-     quem marcasse "Enviar arquivo" nesse instante veria a capa de fora do Post
-     chegar e sumir dentro do campo `readOnly`, invisível e ineditável.
-
-     Com endereço na mão, quem manda é o endereço; sem endereço, quem manda é a
-     escolha da pessoa. As duas regras cabem numa linha, e é por isso que
-     alternar continua funcionando: alternar esvazia o campo do modo de destino,
-     e é esse vazio que devolve a palavra à escolha. */
-  const [origemEscolhida, setOrigemEscolhida] = useState(null);
-  const origem =
-    capa === "" ? (origemEscolhida ?? ORIGEM_ENVIADA) : origemDoEndereco(capa, baseDaCapaDoProjeto);
-  const deFora = origem === ORIGEM_DE_FORA;
-
-  /* O QUE ESTAVA NO OUTRO MODO — O PAR INTEIRO, e não só o endereço.
-     Alternar que apaga o que a pessoa digitou é alternância que ela aprende a
-     não usar; alternar que deixa a DESCRIÇÃO da imagem anterior para trás é
-     pior, porque não some nada — o texto fica, cola na imagem seguinte, e o
-     Post é publicado descrevendo uma foto que ninguém vê. É a mesma razão
-     escrita em `removerCapa`, no Editor: descrição órfã de uma imagem que não
-     existe mais reapareceria como texto alternativo da próxima capa.
-
-     `ref` e não estado: nada na tela depende disto para desenhar, e o que
-     desenha é `valores`, que continua sendo a única verdade. */
-  const guardadoPorOrigem = useRef({
-    [ORIGEM_ENVIADA]: { url: "", alt: "" },
-    [ORIGEM_DE_FORA]: { url: "", alt: "" },
-  });
-  guardadoPorOrigem.current[origem] = {
-    url: enderecoDigitado,
-    alt: String(valores.imagem_alt ?? ""),
-  };
-
-  const trocarOrigem = (nova) => {
-    if (nova === origem) return;
-    guardadoPorOrigem.current[origem] = {
-      url: enderecoDigitado,
-      alt: String(valores.imagem_alt ?? ""),
-    };
-    setOrigemEscolhida(nova);
-    /* A RECUSA VOLTA A ESPERAR. O campo de destino é outro texto, e carregar a
-       marca vermelha do anterior acusaria a pessoa de algo que ela não digitou. */
-    setEnderecoVisto(false);
-    const devolvido = guardadoPorOrigem.current[nova] ?? { url: "", alt: "" };
-    if (devolvido.url !== enderecoDigitado) aoMudar?.("imagem_url", devolvido.url);
-    if (devolvido.alt !== String(valores.imagem_alt ?? "")) {
-      aoMudar?.("imagem_alt", devolvido.alt);
-    }
-  };
-
-  /* O PROBLEMA DO ENDEREÇO, lido a cada renderização pela regra do DOMÍNIO —
-     a mesma que `corpoDoPedido` consulta antes de o pedido sair, que o servidor
-     cobra depois e que a restrição do banco espelha em SQL. É isto que faz a
-     recusa acontecer ANTES do salvamento, em vez de voltar como violação crua. */
-  const problemaNaCapa = problemaNoEnderecoDaImagem(capa);
-
-  /* ─── MAS ELA SÓ APARECE QUANDO A PESSOA TERMINA DE ESCREVER ───────────
-     `https://` digitado letra a letra passa por `h`, `ht`, `htt`… e nenhum
-     deles é endereço válido. Mostrar a recusa a cada tecla pinta o campo de
-     vermelho desde o primeiro caractere de toda digitação bem-sucedida — a
-     falha que não é falha, que treina a pessoa a ignorar a recusa que importa.
-
-     O sinal de "terminei" é o campo perder o foco. Digitar de novo devolve o
-     benefício da dúvida, e um endereço que já é válido nunca chega aqui. */
-  const [enderecoVisto, setEnderecoVisto] = useState(false);
-  const recusaDoEnderecoVisivel = deFora && problemaNaCapa !== null && enderecoVisto;
-
-  /* A capa é DESENHÁVEL quando existe e passa no vocabulário: pôr um endereço
-     recusado dentro de um `<img>` faria o navegador buscar `javascript:` ou
-     `data:` só para descobrir que não presta. */
-  const capaDesenhavel = capa !== "" && problemaNaCapa === null;
-
-  /* ─── A SITUAÇÃO DA CAIXA QUE SUBSTITUI A IMAGEM ────────────────────────
-     Três, e não duas. "Tem endereço" não é o mesmo que "tem capa": enquanto a
-     pessoa digita `h`, `ht`, `htt`… o campo tem endereço e a capa não existe
-     ainda, e anunciar "a imagem não carregou" seria contar um fato que não
-     aconteceu. Enquanto ela escreve, a caixa diz o que a listagem diria de um
-     Post sem capa — e é só quando ela para que a recusa entra. */
-  const situacaoDaCapa =
-    capaQuebrada && capaDesenhavel
-      ? CAPA_QUE_NAO_CARREGOU
-      : recusaDoEnderecoVisivel
-        ? CAPA_COM_ENDERECO_RECUSADO
-        : CAPA_AUSENTE;
 
   /* O PROBLEMA DA DESCRIÇÃO, lido a cada renderização pela regra do DOMÍNIO —
      a mesma que `corpoDoPedido` consulta antes de o pedido sair e que o
@@ -342,26 +296,27 @@ export default function GavetaDeMetadados({
      O teto deixou de ser `maxLength` no controle: um campo que simplesmente
      PARA de aceitar texto no caractere 300 não diz nada a quem colou um
      parágrafo — o texto some sem aviso. Agora ele entra, a recusa aparece com
-     o motivo certo, e a gravação é que não acontece. */
+     o motivo certo, e a gravação é que não acontece. É a MESMA decisão que o
+     contador de SEO herda: sinalizar, nunca cortar. */
   const problemaNaDescricao = problemaNoTextoAlternativo(valores.imagem_alt, {
     temCapa: capa !== "",
   });
-  /* A RECUSA DO ARQUIVO É DO MODO DE ARQUIVO. Ela ficava na tela depois de a
-     pessoa trocar para "informar endereço", falando de um seletor que já não
-     estava montado — uma acusação sem controle a que se referir. */
-  const envioRecusado =
-    !deFora && situacaoDoEnvio === ENVIO_RECUSADO && Boolean(recusaDoEnvio);
-  const seletor = useRef(null);
 
-  /* O seletor é REARMADO depois de cada escolha. Sem isso, escolher o mesmo
-     arquivo duas vezes seguidas — o caminho normal de "recusou, eu conserto e
-     mando de novo" — não dispara evento nenhum, porque o valor do controle não
-     mudou, e a tela parece travada. */
-  const escolher = (evento) => {
-    const arquivo = evento.target.files?.[0] ?? null;
-    evento.target.value = "";
-    if (arquivo !== null) aoEscolherArquivo?.(arquivo);
-  };
+  /** O andaime dos campos, entregue de uma vez a quem desenha um pedaço. */
+  const andaime = { idDe, idDoErro, idDaAjuda, campo, desabilitado };
+
+  /* ── O QUE SERÁ HERDADO (Story 3.4) ────────────────────────────────────
+     Calculado sobre o que está no FORMULÁRIO agora, e não sobre o Post
+     gravado: quem olha para a seção de SEO está justamente decidindo se
+     preenche, e a herança precisa refletir o título que ele acabou de digitar.
+
+     Quem decide é `metadadosDoPost`, do domínio, e nenhuma linha desta gaveta
+     opina sobre isso. O defeito de montagem — o Domínio Canônico que não
+     chegou — vira uma frase DESENHADA na seção, e não uma exceção que derruba
+     a gaveta inteira nem um silêncio. */
+  const heranca = herancaDoFormulario(valores, { dominio: dominioDoSite });
+  const metadadosDaHeranca = heranca.ok ? heranca.metadados : null;
+  const defeitoDaHeranca = heranca.ok ? null : heranca.defeito;
 
   /* ── A Categoria escolhida, com cor e ícone ────────────────────────────
      A gaveta recebe a lista de Categorias da camada de dados, que já traz
@@ -514,303 +469,27 @@ export default function GavetaDeMetadados({
             sem descrição desde a Story 2.1, e oferecer as duas separadas
             produziria a recusa depois do envio — recusa tarde demais.
 
-            Tudo cabe em 340px: a miniatura ocupa a largura da gaveta com
-            proporção fixa, e os dois controles ficam lado a lado abaixo dela.
-
-            ─── O RÓTULO APONTA PARA O CONTROLE QUE A PESSOA OPERA ──────────
-            O rótulo "Imagem de capa" nomeia o controle do MODO ATIVO: o seletor
-            de arquivo quando se envia, o campo de endereço quando se informa um.
-            A primeira versão fazia o contrário: o único controle operável da
-            seção — o `input[type=file]`, visualmente escondido e acionado pelo
-            botão — ficava sem nome acessível nenhum, e o cabeçalho deste arquivo
-            promete rótulo associado para todos os campos.
-
-            ─── DOIS MODOS, UM CAMPO (Story 3.2) ────────────────────────────
-            Enviar arquivo ou informar endereço. O que o Post guarda é o mesmo
-            nos dois casos — `imagem_url` —, e por isso o modo não é campo do
-            formulário: é estado de tela, do vocabulário fechado de `capa.js`.
-            Só o controle do modo ATIVO é montado, e o valor do outro fica
-            guardado: alternar não pode perder o que a pessoa já tinha. */}
-        <div className="flex flex-col gap-1.5" data-papel="campo-da-capa">
-          <Rotulo para={idDe(deFora ? "imagem_url" : "arquivo-da-capa")}>
-            Imagem de capa
-          </Rotulo>
-
-          {/* A ESCOLHA DO MODO. Grupo de rádio nativo: é o controle que diz
-              "uma destas duas" sem inventar semântica, cabe em 340px em duas
-              linhas, e cada opção ganha nome acessível pelo próprio rótulo que
-              a envolve — o vocabulário e as palavras vêm de `capa.js`. */}
-          <div
-            role="radiogroup"
-            aria-label={ROTULO_DA_ORIGEM_DA_CAPA}
-            data-papel="origem-da-capa"
-            data-origem={origem}
-            className="flex flex-wrap gap-x-4 gap-y-1"
-          >
-            {ORIGENS_DA_CAPA.map((opcao) => (
-              <label
-                key={opcao}
-                className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-secondary"
-              >
-                <input
-                  type="radio"
-                  name={idDe("origem-da-capa")}
-                  value={opcao}
-                  data-origem-da-capa={opcao}
-                  checked={origem === opcao}
-                  disabled={desabilitado || enviando}
-                  onChange={() => trocarOrigem(opcao)}
-                  className={cn(ANEL_DE_FOCO, "size-3.5 accent-brand-action")}
-                />
-                {rotuloDaOrigem(opcao)}
-              </label>
-            ))}
-          </div>
-
-          {/* O ENDEREÇO. No modo de envio ele é `readOnly` e escondido — guarda
-              o que o envio devolveu e ninguém o opera, e por isso NÃO carrega
-              `data-campo`: aquele atributo é o que a verificação lê para
-              conferir a ordem dos campos, e quem representa a capa na ordem é o
-              seletor de arquivo.
-
-              No modo de fora ele é o campo: digitável, com rótulo apontando
-              para ele e com a recusa colada, e aí `data-campo` é dele. */}
-          {deFora ? (
-            <>
-              <input
-                type="url"
-                {...campo("imagem_url", {
-                  ajuda: true,
-                  recusa: recusaDoEnderecoVisivel,
-                  extra: "dado",
-                })}
-                data-valor="imagem_url"
-                value={enderecoDigitado}
-                onChange={(evento) => {
-                  /* DIGITAR DEVOLVE O BENEFÍCIO DA DÚVIDA: a recusa some
-                     enquanto a pessoa conserta, e volta quando ela termina. */
-                  setEnderecoVisto(false);
-                  aoMudar?.("imagem_url", evento.target.value);
-                }}
-                onBlur={() => setEnderecoVisto(true)}
-                disabled={desabilitado || enviando}
-                /* O ERRO **E** A AJUDA, e não um ou outro. A ajuda é o que
-                   explica que se cola o LINK e não o conteúdo — e colar o
-                   conteúdo é a causa comum da recusa, então some exatamente
-                   quando é mais útil. A própria frase da recusa de esquema
-                   termina dizendo isso; as duas juntas são a explicação inteira. */
-                aria-describedby={
-                  recusaDoEnderecoVisivel
-                    ? `${idDoErro("imagem_url")} ${idDaAjuda("imagem_url")}`
-                    : idDaAjuda("imagem_url")
-                }
-                placeholder="https://exemplo.com/imagem.jpg"
-              />
-              {/* A RECUSA ANTES DO SALVAMENTO, e ela diz QUAL dos quatro
-                  motivos é: teto, caractere fora do vocabulário, esquema, ou
-                  site ausente. A frase vem do DOMÍNIO, que também dá o
-                  veredito — a gaveta não decide o que é endereço aceitável. */}
-              <Recusa id={idDoErro("imagem_url")} visivel={recusaDoEnderecoVisivel}>
-                {problemaNaCapa}
-              </Recusa>
-              <p id={idDaAjuda("imagem_url")} className="text-xs text-ink-muted">
-                {ROTULO_DO_ENDERECO_DA_CAPA}: o link direto de uma imagem já
-                publicada em outro lugar. Ela não é copiada — o post passa a
-                apontar para lá.
-              </p>
-            </>
-          ) : (
-            <input
-              type="url"
-              id={idDe("imagem_url")}
-              name="imagem_url"
-              data-valor="imagem_url"
-              value={capa}
-              readOnly
-              hidden
-            />
-          )}
-
-          {/* A MINIATURA, E O QUE OCUPA O LUGAR DELA QUANDO NÃO HÁ IMAGEM.
-              Um endereço que não resolve — arquivo removido por fora, host de
-              terceiro que saiu do ar, endereço que o vocabulário recusa —
-              desenharia o ícone de imagem quebrada e mais nada.
-
-              ─── SEMPRE O MONOGRAMA DA CATEGORIA (Story 3.2) ───────────────
-              Nos DOIS ramos: sem capa nenhuma e com capa que não carrega. É o
-              mesmo componente que a linha da listagem desenha para o mesmo
-              Post — se o Editor mostrasse uma frase e a listagem um monograma,
-              o Autor veria duas respostas para a mesma pergunta. E ele não
-              quebra o layout, porque ocupa exatamente o espaço que a imagem
-              ocuparia. Sem Categoria, o recurso é o mesmo símbolo neutro.
-
-              A FRASE, quando a capa QUEBROU, continua ao lado: ela responde
-              outra pergunta. O monograma diz "é assim que este Post aparece sem
-              capa"; a frase diz "a capa que você escolheu não existe" — sem ela
-              o Autor salvaria um Post com capa morta sem nunca saber. */}
-          {capaDesenhavel && !capaQuebrada ? (
-            <img
-              src={capa}
-              alt={alternativoDaMiniatura(valores.imagem_alt)}
-              data-papel="miniatura-da-capa"
-              /* Endereço de fora não recebe o referenciador: a miniatura do
-                 Painel entregaria a um host de terceiro o endereço do Editor. */
-              referrerPolicy="no-referrer"
-              onError={() => setCapaQuebrada(true)}
-              className="aspect-[16/9] w-full rounded-cartao border border-border-soft object-cover"
-            />
-          ) : (
-            <>
-              <MonogramaDaCapa
-                categoria={categoriaEscolhida?.nome ?? ""}
-                papel={
-                  situacaoDaCapa === CAPA_AUSENTE ? "capa-ausente" : "capa-degradada"
-                }
-                /* ELA É ANUNCIADA. Na listagem a caixa é decorativa, porque a
-                   linha inteira diz título e Categoria em texto; aqui não há
-                   esse texto em volta, e quem usa leitor de tela recebia
-                   silêncio no lugar da capa. */
-                rotulo={rotuloDaCapaDegradada({
-                  categoria: categoriaEscolhida?.nome ?? "",
-                  situacao: situacaoDaCapa,
-                })}
-                classeDoSimbolo="size-8"
-                className="aspect-[16/9] w-full rounded-cartao border border-border-soft text-4xl"
-              />
-              {/* `capaQuebrada`, e não uma condição equivalente por acidente: a
-                  frase fala de imagem que FALHOU AO CARREGAR. Endereço que o
-                  vocabulário recusa já tem a recusa dele colada ao campo, e
-                  dizer as duas coisas seria dois motivos para o mesmo erro. */}
-              {situacaoDaCapa === CAPA_QUE_NAO_CARREGOU ? (
-                <p
-                  data-papel="capa-quebrada"
-                  role="alert"
-                  className="flex items-start gap-1.5 rounded-cartao border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"
-                >
-                  <AlertCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-                  <span>{FALA_DA_CAPA_QUEBRADA}</span>
-                </p>
-              ) : situacaoDaCapa === CAPA_AUSENTE ? (
-                <p
-                  data-papel="ajuda-da-capa-ausente"
-                  className="text-center text-xs text-ink-muted"
-                >
-                  Sem imagem de capa. O artigo aparece com o monograma da categoria.
-                </p>
-              ) : null}
-            </>
-          )}
-
-          {/* A INDICAÇÃO DE PROGRESSO NÃO MENTE. Região viva, sem percentual:
-              o que se sabe é "está enviando", e é isso que ela diz. Ver o
-              cabeçalho de `capa.js` para por que não há barra medida.
-
-              ─── E ELA NÃO É MONTADA E DESMONTADA ─────────────────────────
-              A versão anterior a escondia com `hidden`, e região viva que
-              aparece e some é anunciada de forma inconsistente pelos leitores
-              de tela — alguns só leem o que MUDA dentro de uma região que já
-              estava lá. O elemento fica sempre no documento e o que muda é o
-              TEXTO: `falaDoEnvio` devolve `""` quando não há envio, e é essa
-              troca de conteúdo que o leitor anuncia. */}
-          <p
-            data-papel="envio-em-curso"
-            role="status"
-            aria-live="polite"
-            data-enviando={enviando ? "true" : "false"}
-            className={cn(
-              "flex items-center gap-1.5 text-xs font-medium text-ink-secondary",
-              enviando ? "" : "sr-only",
-            )}
-          >
-            {enviando ? (
-              <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
-            ) : null}
-            <span>{falaDoEnvio(situacaoDoEnvio)}</span>
-          </p>
-
-          {/* OS CONTROLES DO MODO ATIVO. Só um seletor de arquivo é montado
-              por vez, e no modo de fora não há nenhum: dois controles
-              representando `imagem_url` ao mesmo tempo fariam a ordem dos
-              campos da gaveta ter o mesmo nome duas vezes, e a pessoa teria
-              dois lugares para dizer a mesma coisa. */}
-          <div className="flex flex-wrap items-center gap-2">
-            {!deFora ? (
-              <>
-                <input
-                  ref={seletor}
-                  type="file"
-                  id={idDe("arquivo-da-capa")}
-                  data-campo="arquivo-da-capa"
-                  /* O `accept` é DERIVADO da lista fechada do domínio. Ele é
-                     conveniência do seletor e não garantia: quem arrasta um PDF
-                     para dentro dele mesmo assim é recusado pela camada de
-                     dados, antes de qualquer rede, e depois pelo bucket. */
-                  accept={ACEITO_NO_SELETOR}
-                  disabled={desabilitado || enviando}
-                  onChange={escolher}
-                  aria-invalid={envioRecusado ? "true" : undefined}
-                  /* A recusa quando ela existe, a ajuda quando não. O que o
-                     leitor de tela precisa ouvir junto do controle é o limite —
-                     antes de a pessoa escolher — e o motivo — depois de errar. */
-                  aria-describedby={
-                    envioRecusado ? idDoErro("arquivo-da-capa") : idDaAjuda("imagem_url")
-                  }
-                  className="sr-only"
-                />
-                {/* `data-acao-da-capa`, e NÃO `data-acao`: aquele atributo é o
-                    vocabulário FECHADO das ações da máquina de transições,
-                    contado pela verificação para cobrar que a barra ofereça
-                    exatamente o que o Estado declara. Escolher e trocar imagem
-                    não são transições — usá-lo aqui faria "Escolher imagem" ser
-                    lida como uma ação de Estado, e a asserção acusou na primeira
-                    execução. */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  data-acao-da-capa="escolher"
-                  disabled={desabilitado || enviando}
-                  onClick={() => seletor.current?.click()}
-                  className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2")}
-                >
-                  <ImagePlus aria-hidden="true" className="size-4" />
-                  {rotuloDoSeletor(capa !== "")}
-                </Button>
-              </>
-            ) : null}
-            {capa !== "" ? (
-              <Button
-                type="button"
-                variant="ghost"
-                data-acao-da-capa="remover"
-                disabled={desabilitado || enviando}
-                onClick={() => aoRemoverCapa?.()}
-                className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2 text-ink-secondary")}
-              >
-                <Trash2 aria-hidden="true" className="size-4" />
-                {ROTULO_DE_REMOVER_CAPA}
-              </Button>
-            ) : null}
-          </div>
-
-          {/* A RECUSA DO ENVIO. Sempre montada, como as outras — ela é o alvo
-              de `aria-describedby` do seletor, e alvo ausente é anunciado como
-              nada. A frase vem pronta de quem recusou; a gaveta não a monta,
-              porque quem sabe o limite é o vocabulário do domínio. */}
-          <Recusa id={idDoErro("arquivo-da-capa")} visivel={envioRecusado}>
-            {recusaDoEnvio}
-          </Recusa>
-
-          {/* A AJUDA DO ENVIO só existe no modo de envio — ela é o alvo de
-              `aria-describedby` do seletor, e o modo de fora tem a sua própria,
-              com o mesmo identificador. Manter as duas montadas produziria
-              `id` repetido, e um alvo de descrição ambíguo. */}
-          {!deFora ? (
-            <p id={idDaAjuda("imagem_url")} className="text-xs text-ink-muted">
-              {ROTULOS_DE_IMAGEM.join(", ")} até{" "}
-              <span className="dado">{formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM)}</span>.
-            </p>
-          ) : null}
-        </div>
+            ─── O CONTROLE VIROU COMPONENTE (Story 3.4) ─────────────────────
+            O mesmo controle desenha a Imagem de Compartilhamento, lá embaixo,
+            na seção de SEO. Copiá-lo teria sido mais rápido e teria produzido
+            duas maneiras de dizer a mesma coisa na mesma gaveta — que é a
+            definição de sinônimo, e o que a convenção do projeto proíbe. */}
+        <CampoDeImagem
+          campo="imagem_url"
+          rotulo={ROTULO_DA_CAPA}
+          nome={NOME_DA_CAPA}
+          papel="campo-da-capa"
+          valor={valores.imagem_url}
+          descricao={valores.imagem_alt}
+          campoDaDescricao="imagem_alt"
+          categoria={categoriaEscolhida?.nome ?? ""}
+          base={baseDaCapaDoProjeto}
+          envio={envios.imagem_url}
+          andaime={andaime}
+          aoMudar={aoMudar}
+          aoEscolherArquivo={aoEscolherArquivo}
+          aoRemoverImagem={aoRemoverImagem}
+        />
 
         {/* ── Descrição da imagem ──────────────────────────────────────────
             OFERECIDA JUNTO DA IMAGEM, e não em outro lugar do formulário. O
@@ -997,8 +676,238 @@ export default function GavetaDeMetadados({
             placeholder="5"
           />
         </div>
+
+        {/* ── SEO: como o post aparece na busca e no compartilhamento ──────
+            (Story 3.4)
+
+            SEÇÃO PRÓPRIA, e no fim: estes três não descrevem o Post, descrevem
+            como ele APARECE fora do site. Os três são opcionais, e opcional
+            aqui tem o sentido forte — vazio não é falta, vazio HERDA.
+
+            ─── E A HERANÇA É MOSTRADA, NÃO PROMETIDA ───────────────────────
+            Um campo vazio com um rótulo dizendo "opcional" não conta ao Autor o
+            que vai acontecer se ele não preencher: ele precisaria publicar e ir
+            olhar. Embaixo de cada campo em branco fica o valor que será usado,
+            e quem o decide é `metadadosDoPost`, do domínio — a MESMA função que
+            a Prévia da Story 3.5 e o emissor de metadado do Épico 4 chamam.
+            Uma segunda opinião aqui apareceria como a Prévia mostrando uma
+            coisa e o WhatsApp mostrando outra. */}
+        <section
+          data-papel="secao-de-seo"
+          aria-labelledby={idDe("titulo-da-secao-de-seo")}
+          className="flex flex-col gap-5 border-t border-border-soft pt-5"
+        >
+          <div className="flex flex-col gap-1">
+            <h3
+              id={idDe("titulo-da-secao-de-seo")}
+              className="text-sm font-semibold text-ink"
+            >
+              Busca e compartilhamento
+            </h3>
+            <p className="text-xs text-ink-muted">
+              Os três são opcionais. Em branco, o post usa o título, o resumo e a
+              imagem de capa que estão aí em cima.
+            </p>
+          </div>
+
+          {/* O DEFEITO DE MONTAGEM, DESENHADO. Sem o Domínio Canônico a
+              herança não pode ser calculada — e a seção diz isso, em vez de
+              mostrar campos sem explicação nenhuma embaixo. */}
+          {defeitoDaHeranca !== null ? (
+            <p
+              data-papel="heranca-indisponivel"
+              role="alert"
+              className="flex items-start gap-1.5 rounded-cartao border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"
+            >
+              <AlertCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+              <span>{defeitoDaHeranca}</span>
+            </p>
+          ) : null}
+
+          {/* OS DOIS DE TEXTO, NA ORDEM DO DOMÍNIO. `CAMPOS_DE_TEXTO_DE_SEO` é
+              a mesma lista que a porta percorre para cobrar o teto — escrever
+              as duas chamadas à mão faria o terceiro campo de texto nascer numa
+              das duas e não na outra. O que é de TELA (linhas, exemplo, e qual
+              parte da herança olhar) fica na tabela abaixo, e a partição é
+              conferida no carregamento do domínio. */}
+          {CAMPOS_DE_TEXTO_DE_SEO.map((campoDeTexto) => (
+            <CampoDeTextoDeSeo
+              key={campoDeTexto}
+              campo={campoDeTexto}
+              linhas={APRESENTACAO_DO_TEXTO_DE_SEO[campoDeTexto].linhas}
+              valor={valores[campoDeTexto]}
+              heranca={
+                metadadosDaHeranca?.[APRESENTACAO_DO_TEXTO_DE_SEO[campoDeTexto].parte] ?? null
+              }
+              recusaDaHeranca={recusaDaCadeia(metadadosDaHeranca, campoDeTexto)}
+              andaime={andaime}
+              aoMudar={aoMudar}
+              placeholder={APRESENTACAO_DO_TEXTO_DE_SEO[campoDeTexto].exemplo}
+            />
+          ))}
+
+          <CampoDeImagem
+            campo="seo_imagem_url"
+            rotulo={ROTULOS_DE_SEO.seo_imagem_url}
+            nome={ROTULOS_DE_SEO.seo_imagem_url}
+            papel="campo-da-imagem-de-seo"
+            valor={valores[CAMPO_DE_IMAGEM_DE_SEO]}
+            descricao={null}
+            campoDaDescricao={null}
+            categoria={categoriaEscolhida?.nome ?? ""}
+            base={baseDaCapaDoProjeto}
+            envio={envios[CAMPO_DE_IMAGEM_DE_SEO]}
+            heranca={metadadosDaHeranca?.imagem ?? null}
+            /* POR QUE O QUE ESTÁ AÍ NÃO SERVE. O endereço pode estar dentro do
+               vocabulário de esquema — e então não há recusa de formulário — e
+               ainda assim ser recusado pela cadeia, por espécie fora da prévia.
+               Sem esta linha a miniatura aparecia, a imagem caía para a capa, e
+               nada dizia por quê. */
+            recusaDaHeranca={recusaDaCadeia(metadadosDaHeranca, CAMPO_DE_IMAGEM_DE_SEO)}
+            andaime={andaime}
+            aoMudar={aoMudar}
+            aoEscolherArquivo={aoEscolherArquivo}
+            aoRemoverImagem={aoRemoverImagem}
+          />
+        </section>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Um campo de TEXTO da seção de SEO: o campo, o contador, e a herança.
+ *
+ * ─── O CONTADOR SINALIZA, E NÃO FAZ MAIS NADA ──────────────────────────────
+ *
+ * Não há `maxLength` no controle, e a ausência é o requisito: um campo que
+ * simplesmente PARA de aceitar texto no caractere 60 faz quem colou um título
+ * pronto perder o resto sem aviso. É a mesma decisão que a Story 3.1 tomou para
+ * a descrição da imagem, pelo mesmo motivo, e o comentário de lá é o precedente.
+ *
+ * O que o contador faz é mudar de cor e ganhar uma frase quando passa do
+ * comprimento usual — e a frase DIZ que dá para salvar assim mesmo. Sem essa
+ * metade, o aviso seria lido como recusa e o Autor encurtaria um título que
+ * escolheu de propósito.
+ *
+ * A recusa de verdade, essa sim, existe: é o teto de HIGIENE, muito acima, e
+ * quem a dá é o domínio — a mesma regra que o servidor cobra e que a restrição
+ * do banco impõe.
+ */
+/**
+ * O que é de TELA em cada campo de texto de SEO.
+ *
+ * Quantas linhas o controle tem, que exemplo ele mostra, e qual parte de
+ * `metadadosDoPost` responde por ele. Nada aqui decide herança — a decisão é do
+ * domínio; o que esta tabela faz é dizer onde LER a decisão de cada um. Ela é
+ * chaveada por `CAMPOS_DE_TEXTO_DE_SEO`, e um campo novo sem entrada aqui
+ * quebra alto em vez de nascer em branco.
+ */
+const APRESENTACAO_DO_TEXTO_DE_SEO = Object.freeze({
+  seo_titulo: Object.freeze({
+    linhas: 2,
+    parte: "titulo",
+    exemplo: "O título que aparece no Google e no WhatsApp",
+  }),
+  seo_descricao: Object.freeze({
+    linhas: 3,
+    parte: "descricao",
+    exemplo: "A frase embaixo do título no resultado de busca",
+  }),
+});
+
+function CampoDeTextoDeSeo({
+  campo,
+  linhas,
+  valor,
+  heranca,
+  recusaDaHeranca = null,
+  andaime,
+  aoMudar,
+  placeholder,
+}) {
+  const { idDe, idDoErro, idDaAjuda, campo: montar } = andaime;
+  const texto = String(valor ?? "");
+  const excedeu = acimaDoUsual(campo, texto);
+  const aviso = avisoDeComprimento(campo, texto);
+  const problema = problemaNoTextoDeSeo(campo, texto);
+  const fala = falaDaHeranca(heranca);
+
+  /* A AJUDA E A RECUSA, AS DUAS, quando as duas existem: a ajuda é o que conta
+     a herança, e ela continua sendo o que o Autor precisa ouvir mesmo quando o
+     teto foi estourado. */
+  const descritores = [
+    problema !== null ? idDoErro(campo) : null,
+    idDaAjuda(campo),
+  ].filter(Boolean);
+
+  return (
+    <div className="flex flex-col gap-1.5" data-papel={`campo-de-seo-${campo}`}>
+      <Rotulo para={idDe(campo)}>{ROTULOS_DE_SEO[campo]}</Rotulo>
+      <textarea
+        rows={linhas}
+        {...montar(campo, { recusa: problema !== null, extra: "resize-y" })}
+        value={texto}
+        onChange={(evento) => aoMudar?.(campo, evento.target.value)}
+        aria-describedby={descritores.join(" ")}
+        placeholder={placeholder}
+      />
+
+      {/* O CONTADOR. Dado em pilha monoespaçada com numeral tabular, como a
+          data e o slug — é regra do épico para contador de caractere, e é o
+          que faz o número não dançar enquanto a pessoa digita. */}
+      {/* UM ELEMENTO SÓ. O `<p>` que envolvia isto tinha um filho único e
+          `justify-between`, que não distribui nada entre um item — a estrutura
+          prometia um segundo elemento que nunca existiu. */}
+      <p
+        data-papel={`contador-de-${campo}`}
+        data-acima={excedeu ? "true" : "false"}
+        className={cn(
+          "dado text-xs",
+          excedeu ? "font-medium text-brand-action" : "text-ink-muted",
+        )}
+      >
+        {textoDoContador(campo, texto)}
+      </p>
+
+      {/* O AVISO DE COMPRIMENTO NÃO É UMA RECUSA, e por isso ele não usa
+          `Recusa`: nem `role="alert"`, nem tinta destrutiva, nem
+          `aria-invalid`. Ele é conselho, e conselho vestido de erro treina a
+          pessoa a ignorar o erro que importa. */}
+      {aviso !== null ? (
+        <p
+          data-papel={`aviso-de-comprimento-${campo}`}
+          className="text-xs text-ink-secondary"
+        >
+          {aviso}
+        </p>
+      ) : null}
+
+      {/* A RECUSA DE VERDADE: o teto de HIGIENE, que é o único número deste
+          campo capaz de impedir o salvamento. */}
+      <Recusa id={idDoErro(campo)} visivel={problema !== null}>
+        {problema}
+      </Recusa>
+
+      {/* POR QUE O QUE ESTÁ AÍ NÃO FOI APROVEITADO — a frase do domínio, quando
+          a cadeia recusou este elo. Ela não é `Recusa`: o teto de higiene já
+          tem a sua logo acima, e esta responde por outro fato. */}
+      {recusaDaHeranca !== null ? (
+        <p
+          data-papel={`recusa-da-cadeia-${campo}`}
+          className="text-xs text-ink-secondary"
+        >
+          {recusaDaHeranca}
+        </p>
+      ) : null}
+
+      {/* O QUE SERÁ HERDADO. Ele fica no `aria-describedby` do campo: quem usa
+          leitor de tela precisa ouvir "vazio herda o título do post" junto do
+          campo, e não descobrir depois de publicar. */}
+      <p id={idDaAjuda(campo)} className="text-xs text-ink-muted">
+        {fala ?? "Este texto é o que vai para a busca e para a prévia do link."}
+      </p>
+    </div>
   );
 }
 
@@ -1044,5 +953,490 @@ function Recusa({ id, visivel, children }) {
       ) : null}
       <span>{children}</span>
     </p>
+  );
+}
+
+/**
+ * O controle de UMA imagem do Post: duas origens, miniatura, degradação,
+ * progresso e recusa.
+ *
+ * ─── UM COMPONENTE, DOIS CAMPOS (Story 3.4) ────────────────────────────────
+ *
+ * A gaveta o desenha duas vezes: para a **Imagem de capa** e para a **Imagem de
+ * Compartilhamento**. Elas são o mesmo tipo de valor — endereço absoluto de
+ * imagem —, com o mesmo vocabulário de esquema, a mesma recusa antes do
+ * salvamento e a mesma degradação. Um campo de texto cru para a segunda, ao
+ * lado deste controle para a primeira, seria a definição de sinônimo: duas
+ * maneiras de dizer a mesma coisa na mesma gaveta, e o Autor teria de aprender
+ * as duas.
+ *
+ * ─── E O ESTADO É DE CADA UM ───────────────────────────────────────────────
+ *
+ * O modo escolhido, o benefício da dúvida do endereço e a imagem que não
+ * carregou vivem AQUI, e é por isso que isto é componente e não um trecho
+ * repetido: com o estado no pai, a capa que falhou marcaria a imagem de
+ * compartilhamento como quebrada, e alternar o modo de uma alternaria o da
+ * outra.
+ *
+ * ─── O QUE ELE NÃO FAZ ─────────────────────────────────────────────────────
+ *
+ * Ele não conhece rede, como o resto da gaveta: recebe a situação do envio já
+ * decidida e a recusa já em palavras, e emite o arquivo escolhido. Quem fala
+ * com o Storage é o Editor, pela camada de dados.
+ */
+function CampoDeImagem({
+  campo,
+  rotulo,
+  nome,
+  valor,
+  descricao,
+  campoDaDescricao,
+  categoria,
+  base,
+  envio,
+  heranca = null,
+  recusaDaHeranca = null,
+  andaime,
+  aoMudar,
+  aoEscolherArquivo,
+  aoRemoverImagem,
+}) {
+  const { idDe, idDoErro, idDaAjuda, campo: montar, desabilitado } = andaime;
+  const papeis = papeisDoCampoDeImagem(campo);
+
+  const situacaoDoEnvio = envio?.situacao ?? ENVIO_PARADO;
+  const recusaDoEnvio = envio?.recusa ?? null;
+
+  /* `endereco` é o ENDEREÇO gravado (ou o que o envio acabou de devolver). A
+     gaveta nunca vê o arquivo depois de emiti-lo: o que ela mostra é a imagem
+     que já está no bucket, pelo mesmo endereço que o site vai usar — é assim
+     que "a miniatura aparece ao concluir" prova que o envio concluiu, em vez
+     de mostrar uma pré-visualização local que existiria mesmo se ele tivesse
+     falhado. */
+  const endereco = String(valor ?? "").trim();
+  /* O VALOR CRU vai para o campo de texto, e o aparado vai para a lógica: um
+     campo controlado que apara a cada tecla não deixa digitar o espaço que a
+     pessoa vai apagar em seguida, e o cursor pula. */
+  const enderecoDigitado = String(valor ?? "");
+  const enviando = situacaoDoEnvio === ENVIO_EM_CURSO;
+
+  /* A IMAGEM QUE NÃO CARREGA. `onError` do `<img>` é o único sinal que o
+     navegador dá, e ele é por ENDEREÇO: trocar a imagem precisa devolver o
+     benefício da dúvida à nova, senão uma falha antiga condenaria todas as
+     seguintes. */
+  const [quebrada, setQuebrada] = useState(false);
+  useEffect(() => {
+    setQuebrada(false);
+  }, [endereco]);
+
+  /* ── OS DOIS MODOS (Story 3.2) ─────────────────────────────────────────
+     O modo é DERIVADO do endereço, e a escolha explícita só vale enquanto não
+     há endereço nenhum. Não é sutileza: a leitura do Post é assíncrona, então
+     o formulário nasce vazio e recebe o endereço gravado depois. Um modo
+     guardado em `useState` ficaria preso ao que valia com o formulário em
+     branco — e quem marcasse "Enviar arquivo" nesse instante veria a imagem de
+     fora do Post chegar e sumir dentro do campo `readOnly`, invisível e
+     ineditável.
+
+     Com endereço na mão, quem manda é o endereço; sem endereço, quem manda é a
+     escolha da pessoa. As duas regras cabem numa linha, e é por isso que
+     alternar continua funcionando: alternar esvazia o campo do modo de destino,
+     e é esse vazio que devolve a palavra à escolha. */
+  const [origemEscolhida, setOrigemEscolhida] = useState(null);
+  const origem =
+    endereco === "" ? (origemEscolhida ?? ORIGEM_ENVIADA) : origemDoEndereco(endereco, base);
+  const deFora = origem === ORIGEM_DE_FORA;
+
+  /* O QUE ESTAVA NO OUTRO MODO — O PAR INTEIRO, e não só o endereço.
+     Alternar que apaga o que a pessoa digitou é alternância que ela aprende a
+     não usar; alternar que deixa a DESCRIÇÃO da imagem anterior para trás é
+     pior, porque não some nada — o texto fica, cola na imagem seguinte, e o
+     Post é publicado descrevendo uma foto que ninguém vê. É a mesma razão
+     escrita em `removerCapa`, no Editor.
+
+     `ref` e não estado: nada na tela depende disto para desenhar, e o que
+     desenha é `valores`, que continua sendo a única verdade. */
+  const textoDaDescricao = String(descricao ?? "");
+  const guardadoPorOrigem = useRef({
+    [ORIGEM_ENVIADA]: { url: "", alt: "" },
+    [ORIGEM_DE_FORA]: { url: "", alt: "" },
+  });
+  guardadoPorOrigem.current[origem] = { url: enderecoDigitado, alt: textoDaDescricao };
+
+  const [enderecoVisto, setEnderecoVisto] = useState(false);
+
+  const trocarOrigem = (nova) => {
+    if (nova === origem) return;
+    guardadoPorOrigem.current[origem] = { url: enderecoDigitado, alt: textoDaDescricao };
+    setOrigemEscolhida(nova);
+    /* A RECUSA VOLTA A ESPERAR. O campo de destino é outro texto, e carregar a
+       marca vermelha do anterior acusaria a pessoa de algo que ela não digitou. */
+    setEnderecoVisto(false);
+    const devolvido = guardadoPorOrigem.current[nova] ?? { url: "", alt: "" };
+    if (devolvido.url !== enderecoDigitado) aoMudar?.(campo, devolvido.url);
+    /* A DESCRIÇÃO SÓ VIAJA QUANDO O CAMPO TEM UMA. A Imagem de
+       Compartilhamento não tem coluna de texto alternativo — o Post guarda um
+       só, o da capa —, e mexer nele daqui faria trocar o modo de um campo
+       reescrever a descrição do outro. */
+    if (campoDaDescricao !== null && devolvido.alt !== textoDaDescricao) {
+      aoMudar?.(campoDaDescricao, devolvido.alt);
+    }
+  };
+
+  /* O PROBLEMA DO ENDEREÇO, lido a cada renderização pela regra do DOMÍNIO —
+     a mesma que `corpoDoPedido` consulta antes de o pedido sair, que o servidor
+     cobra depois e que a restrição do banco espelha em SQL. É isto que faz a
+     recusa acontecer ANTES do salvamento, em vez de voltar como violação crua. */
+  const problemaNoEnderecoDaImagemDoCampo = problemaNoEnderecoDaImagem(endereco);
+
+  /* ─── MAS ELA SÓ APARECE QUANDO A PESSOA TERMINA DE ESCREVER ───────────
+     `https://` digitado letra a letra passa por `h`, `ht`, `htt`… e nenhum
+     deles é endereço válido. Mostrar a recusa a cada tecla pinta o campo de
+     vermelho desde o primeiro caractere de toda digitação bem-sucedida — a
+     falha que não é falha, que treina a pessoa a ignorar a recusa que importa.
+
+     O sinal de "terminei" é o campo perder o foco. Digitar de novo devolve o
+     benefício da dúvida, e um endereço que já é válido nunca chega aqui. */
+  const recusaDoEnderecoVisivel =
+    deFora && problemaNoEnderecoDaImagemDoCampo !== null && enderecoVisto;
+
+  /* A imagem é DESENHÁVEL quando existe e passa no vocabulário: pôr um endereço
+     recusado dentro de um `<img>` faria o navegador buscar `javascript:` ou
+     `data:` só para descobrir que não presta. */
+  const desenhavel = endereco !== "" && problemaNoEnderecoDaImagemDoCampo === null;
+
+  /* ─── A SITUAÇÃO DA CAIXA QUE SUBSTITUI A IMAGEM ────────────────────────
+     Três, e não duas. "Tem endereço" não é o mesmo que "tem imagem": enquanto a
+     pessoa digita `h`, `ht`, `htt`… o campo tem endereço e a imagem não existe
+     ainda, e anunciar "a imagem não carregou" seria contar um fato que não
+     aconteceu. */
+  const situacaoDaImagem =
+    quebrada && desenhavel
+      ? CAPA_QUE_NAO_CARREGOU
+      : recusaDoEnderecoVisivel
+        ? CAPA_COM_ENDERECO_RECUSADO
+        : CAPA_AUSENTE;
+
+  /* A RECUSA DO ARQUIVO É DO MODO DE ARQUIVO. Ela ficava na tela depois de a
+     pessoa trocar para "informar endereço", falando de um seletor que já não
+     estava montado — uma acusação sem controle a que se referir. */
+  const envioRecusado =
+    !deFora && situacaoDoEnvio === ENVIO_RECUSADO && Boolean(recusaDoEnvio);
+  const seletor = useRef(null);
+
+  /* O seletor é REARMADO depois de cada escolha. Sem isso, escolher o mesmo
+     arquivo duas vezes seguidas — o caminho normal de "recusou, eu conserto e
+     mando de novo" — não dispara evento nenhum, porque o valor do controle não
+     mudou, e a tela parece travada. */
+  const escolher = (evento) => {
+    const arquivo = evento.target.files?.[0] ?? null;
+    evento.target.value = "";
+    if (arquivo !== null) aoEscolherArquivo?.(campo, arquivo);
+  };
+
+  /* O QUE SE DIZ QUANDO NÃO HÁ IMAGEM. Para a Capa é a frase da Story 3.1; para
+     um campo que HERDA, é o que ele vai herdar — porque é essa a resposta à
+     pergunta que a pessoa está fazendo ao olhar para o campo vazio. Quem decide
+     o que é herdado é o domínio; esta linha só escolhe qual das duas frases
+     cabe aqui. */
+  /* A SEGUNDA FRASE NÃO DECIDE NADA, e é por isso que ela é curta. A versão
+     anterior afirmava que "o artigo aparece com o monograma da categoria" — e
+     isso é falso duas vezes: o monograma é recurso do PAINEL, e o que um Post
+     sem capa declara ao ser compartilhado é a Imagem Padrão do Site, decidida
+     pelo domínio. Uma tela que responde "o que vai acontecer" por conta própria
+     é a segunda opinião que o AD-20 proíbe — e esta aparecia justo no ramo em
+     que a tela já está avisando que falta alguma coisa. */
+  const falaDaAusencia =
+    falaDaHeranca(heranca) ?? `Sem ${String(nome).toLowerCase()}.`;
+
+  const idDoSeletor = papeis.seletor;
+
+  return (
+    <div className="flex flex-col gap-1.5" data-papel={papeis.campo}>
+      {/* ─── O RÓTULO APONTA PARA O CONTROLE QUE A PESSOA OPERA ──────────
+          Ele nomeia o controle do MODO ATIVO: o seletor de arquivo quando se
+          envia, o campo de endereço quando se informa um. A primeira versão
+          fazia o contrário, e o único controle operável da seção ficava sem
+          nome acessível nenhum. */}
+      <Rotulo para={idDe(deFora ? campo : idDoSeletor)}>{rotulo}</Rotulo>
+
+      {/* A ESCOLHA DO MODO. Grupo de rádio nativo: é o controle que diz
+          "uma destas duas" sem inventar semântica, cabe em 340px em duas
+          linhas, e cada opção ganha nome acessível pelo próprio rótulo que
+          a envolve — o vocabulário e as palavras vêm de `capa.js`. */}
+      <div
+        role="radiogroup"
+        aria-label={rotuloDoGrupoDeOrigem(nome)}
+        data-papel={papeis.origem}
+        data-origem={origem}
+        className="flex flex-wrap gap-x-4 gap-y-1"
+      >
+        {ORIGENS_DA_CAPA.map((opcao) => (
+          <label
+            key={opcao}
+            className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-secondary"
+          >
+            <input
+              type="radio"
+              name={idDe(`origem-de-${campo}`)}
+              value={opcao}
+              data-origem-da-capa={opcao}
+              checked={origem === opcao}
+              disabled={desabilitado || enviando}
+              onChange={() => trocarOrigem(opcao)}
+              className={cn(ANEL_DE_FOCO, "size-3.5 accent-brand-action")}
+            />
+            {rotuloDaOrigem(opcao)}
+          </label>
+        ))}
+      </div>
+
+      {/* O ENDEREÇO. No modo de envio ele é `readOnly` e escondido — guarda
+          o que o envio devolveu e ninguém o opera, e por isso NÃO carrega
+          `data-campo`: aquele atributo é o que a verificação lê para conferir a
+          ordem dos campos, e quem representa a imagem na ordem é o seletor de
+          arquivo.
+
+          No modo de fora ele é o campo: digitável, com rótulo apontando para
+          ele e com a recusa colada, e aí `data-campo` é dele. */}
+      {deFora ? (
+        <>
+          <input
+            type="url"
+            {...montar(campo, {
+              ajuda: true,
+              recusa: recusaDoEnderecoVisivel,
+              extra: "dado",
+            })}
+            data-valor={campo}
+            value={enderecoDigitado}
+            onChange={(evento) => {
+              /* DIGITAR DEVOLVE O BENEFÍCIO DA DÚVIDA: a recusa some
+                 enquanto a pessoa conserta, e volta quando ela termina. */
+              setEnderecoVisto(false);
+              aoMudar?.(campo, evento.target.value);
+            }}
+            onBlur={() => setEnderecoVisto(true)}
+            disabled={desabilitado || enviando}
+            /* O ERRO **E** A AJUDA, e não um ou outro. A ajuda é o que
+               explica que se cola o LINK e não o conteúdo — e colar o
+               conteúdo é a causa comum da recusa, então some exatamente
+               quando é mais útil. */
+            aria-describedby={
+              recusaDoEnderecoVisivel
+                ? `${idDoErro(campo)} ${idDaAjuda(campo)}`
+                : idDaAjuda(campo)
+            }
+            placeholder="https://exemplo.com/imagem.jpg"
+          />
+          {/* A RECUSA ANTES DO SALVAMENTO, e ela diz QUAL dos quatro
+              motivos é: teto, caractere fora do vocabulário, esquema, ou
+              site ausente. A frase vem do DOMÍNIO, que também dá o
+              veredito — a gaveta não decide o que é endereço aceitável. */}
+          <Recusa id={idDoErro(campo)} visivel={recusaDoEnderecoVisivel}>
+            {problemaNoEnderecoDaImagemDoCampo}
+          </Recusa>
+          <p id={idDaAjuda(campo)} className="text-xs text-ink-muted">
+            {ROTULO_DO_ENDERECO_DA_CAPA}: o link direto de uma imagem já
+            publicada em outro lugar. Ela não é copiada — o post passa a
+            apontar para lá.
+          </p>
+        </>
+      ) : (
+        <input
+          type="url"
+          id={idDe(campo)}
+          name={campo}
+          data-valor={campo}
+          value={endereco}
+          readOnly
+          hidden
+        />
+      )}
+
+      {/* A MINIATURA, E O QUE OCUPA O LUGAR DELA QUANDO NÃO HÁ IMAGEM.
+          Um endereço que não resolve — arquivo removido por fora, host de
+          terceiro que saiu do ar, endereço que o vocabulário recusa —
+          desenharia o ícone de imagem quebrada e mais nada.
+
+          ─── SEMPRE O MONOGRAMA DA CATEGORIA (Story 3.2) ───────────────
+          Nos DOIS ramos: sem imagem nenhuma e com imagem que não carrega. É o
+          mesmo componente que a linha da listagem desenha para o mesmo Post, e
+          ele não quebra o layout, porque ocupa exatamente o espaço que a imagem
+          ocuparia. */}
+      {desenhavel && !quebrada ? (
+        <img
+          src={endereco}
+          alt={alternativoDaMiniatura(descricao, rotulo)}
+          data-papel={papeis.miniatura}
+          /* Endereço de fora não recebe o referenciador: a miniatura do
+             Painel entregaria a um host de terceiro o endereço do Editor. */
+          referrerPolicy="no-referrer"
+          onError={() => setQuebrada(true)}
+          className="aspect-[16/9] w-full rounded-cartao border border-border-soft object-cover"
+        />
+      ) : (
+        <>
+          <MonogramaDaCapa
+            categoria={categoria}
+            papel={situacaoDaImagem === CAPA_AUSENTE ? papeis.ausente : papeis.degradada}
+            /* ELA É ANUNCIADA. Na listagem a caixa é decorativa, porque a
+               linha inteira diz título e Categoria em texto; aqui não há
+               esse texto em volta, e quem usa leitor de tela recebia
+               silêncio no lugar da imagem. */
+            rotulo={rotuloDaCapaDegradada({
+              categoria,
+              situacao: situacaoDaImagem,
+              nome,
+            })}
+            classeDoSimbolo="size-8"
+            className="aspect-[16/9] w-full rounded-cartao border border-border-soft text-4xl"
+          />
+          {/* `quebrada`, e não uma condição equivalente por acidente: a frase
+              fala de imagem que FALHOU AO CARREGAR. Endereço que o vocabulário
+              recusa já tem a recusa dele colada ao campo, e dizer as duas
+              coisas seria dois motivos para o mesmo erro. */}
+          {situacaoDaImagem === CAPA_QUE_NAO_CARREGOU ? (
+            <p
+              data-papel={papeis.quebrada}
+              role="alert"
+              className="flex items-start gap-1.5 rounded-cartao border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"
+            >
+              <AlertCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+              <span>{falaDaImagemQuebrada(nome)}</span>
+            </p>
+          ) : situacaoDaImagem === CAPA_AUSENTE ? (
+            <p
+              data-papel={papeis.ajudaDaAusencia}
+              className="text-center text-xs text-ink-muted"
+            >
+              {falaDaAusencia}
+            </p>
+          ) : null}
+        </>
+      )}
+
+      {/* POR QUE ESTA IMAGEM NÃO VAI SER USADA.
+          Não é `Recusa`: ela não impede o salvamento e o campo não é inválido —
+          o valor está lá, é gravável, e a cadeia é que não o aproveita. Vestir
+          isto de erro treinaria o Autor a ignorar o erro que importa, que é a
+          mesma razão pela qual o aviso do contador também não é `Recusa`.
+          A frase vem do DOMÍNIO, com o motivo que ele nomeou. */}
+      {recusaDaHeranca !== null ? (
+        <p
+          data-papel={papeis.recusaDaCadeia}
+          className="text-xs text-ink-secondary"
+        >
+          {recusaDaHeranca}
+        </p>
+      ) : null}
+
+      {/* A INDICAÇÃO DE PROGRESSO NÃO MENTE. Região viva, sem percentual:
+          o que se sabe é "está enviando", e é isso que ela diz. Ver o
+          cabeçalho de `capa.js` para por que não há barra medida.
+
+          ─── E ELA NÃO É MONTADA E DESMONTADA ─────────────────────────
+          A versão anterior a escondia com `hidden`, e região viva que
+          aparece e some é anunciada de forma inconsistente pelos leitores
+          de tela — alguns só leem o que MUDA dentro de uma região que já
+          estava lá. O elemento fica sempre no documento e o que muda é o
+          TEXTO. */}
+      <p
+        data-papel={papeis.envio}
+        role="status"
+        aria-live="polite"
+        data-enviando={enviando ? "true" : "false"}
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-medium text-ink-secondary",
+          enviando ? "" : "sr-only",
+        )}
+      >
+        {enviando ? (
+          <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+        ) : null}
+        <span>{falaDoEnvio(situacaoDoEnvio)}</span>
+      </p>
+
+      {/* OS CONTROLES DO MODO ATIVO. Só um seletor de arquivo é montado
+          por vez, e no modo de fora não há nenhum: dois controles
+          representando o mesmo campo ao mesmo tempo fariam a ordem dos campos
+          da gaveta ter o mesmo nome duas vezes, e a pessoa teria dois lugares
+          para dizer a mesma coisa. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {!deFora ? (
+          <>
+            <input
+              ref={seletor}
+              type="file"
+              id={idDe(idDoSeletor)}
+              data-campo={idDoSeletor}
+              /* O `accept` é DERIVADO da lista fechada do domínio. Ele é
+                 conveniência do seletor e não garantia: quem arrasta um PDF
+                 para dentro dele mesmo assim é recusado pela camada de
+                 dados, antes de qualquer rede, e depois pelo bucket. */
+              accept={ACEITO_NO_SELETOR}
+              disabled={desabilitado || enviando}
+              onChange={escolher}
+              aria-invalid={envioRecusado ? "true" : undefined}
+              /* A recusa quando ela existe, a ajuda quando não. O que o
+                 leitor de tela precisa ouvir junto do controle é o limite —
+                 antes de a pessoa escolher — e o motivo — depois de errar. */
+              aria-describedby={envioRecusado ? idDoErro(idDoSeletor) : idDaAjuda(campo)}
+              className="sr-only"
+            />
+            {/* `data-acao-da-capa`, e NÃO `data-acao`: aquele atributo é o
+                vocabulário FECHADO das ações da máquina de transições,
+                contado pela verificação para cobrar que a barra ofereça
+                exatamente o que o Estado declara. Escolher e trocar imagem
+                não são transições. */}
+            <Button
+              type="button"
+              variant="outline"
+              data-acao-da-capa="escolher"
+              data-campo-da-acao={campo}
+              disabled={desabilitado || enviando}
+              onClick={() => seletor.current?.click()}
+              className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2")}
+            >
+              <ImagePlus aria-hidden="true" className="size-4" />
+              {rotuloDoSeletor(endereco !== "")}
+            </Button>
+          </>
+        ) : null}
+        {endereco !== "" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            data-acao-da-capa="remover"
+            data-campo-da-acao={campo}
+            disabled={desabilitado || enviando}
+            onClick={() => aoRemoverImagem?.(campo)}
+            className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2 text-ink-secondary")}
+          >
+            <Trash2 aria-hidden="true" className="size-4" />
+            {ROTULO_DE_REMOVER_CAPA}
+          </Button>
+        ) : null}
+      </div>
+
+      {/* A RECUSA DO ENVIO. Sempre montada, como as outras — ela é o alvo
+          de `aria-describedby` do seletor, e alvo ausente é anunciado como
+          nada. A frase vem pronta de quem recusou; a gaveta não a monta,
+          porque quem sabe o limite é o vocabulário do domínio. */}
+      <Recusa id={idDoErro(idDoSeletor)} visivel={envioRecusado}>
+        {recusaDoEnvio}
+      </Recusa>
+
+      {/* A AJUDA DO ENVIO só existe no modo de envio — ela é o alvo de
+          `aria-describedby` do seletor, e o modo de fora tem a sua própria,
+          com o mesmo identificador. Manter as duas montadas produziria
+          `id` repetido, e um alvo de descrição ambíguo. */}
+      {!deFora ? (
+        <p id={idDaAjuda(campo)} className="text-xs text-ink-muted">
+          {ROTULOS_DE_IMAGEM.join(", ")} até{" "}
+          <span className="dado">{formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM)}</span>.
+        </p>
+      ) : null}
+    </div>
   );
 }

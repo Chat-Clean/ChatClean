@@ -112,6 +112,11 @@ const CAMINHO_TAGS_DO_DOMINIO = "src/domain/blog/tags.js";
    `domain/blog/arquivos.js` traz o vocabulário fechado de espécie e o teto; e
    `data/blog/arquivos.js` é a fronteira de rede que o dublê troca. */
 const CAMINHO_MODULO_DA_CAPA = "src/admin/blog/capa.js";
+/* Story 3.4: a seção de SEO. `admin/blog/seo.js` traz o contador e as falas da
+   herança; `domain/blog/compartilhamento.js` é quem DECIDE a herança — e a
+   asserção compara a frase desenhada com a decisão dele. */
+const CAMINHO_MODULO_DE_SEO = "src/admin/blog/seo.js";
+const CAMINHO_COMPARTILHAMENTO = "src/domain/blog/compartilhamento.js";
 const CAMINHO_ARQUIVOS_DO_DOMINIO = "src/domain/blog/arquivos.js";
 const CAMINHO_ARQUIVOS_DA_CAMADA = "src/data/blog/arquivos.js";
 /* O FILTRO DO BLOG PÚBLICO. Ele lê as Categorias do banco desde a Story 2.14, e
@@ -1918,6 +1923,17 @@ async function compilarComponentes() {
       `export * as regrasDaCapa from ${caminhoDeModulo(CAMINHO_MODULO_DA_CAPA)};\n` +
       `export * as regrasDosMetadados from ${caminhoDeModulo(CAMINHO_METADADOS)};\n` +
       `export * as arquivosDoDominio from ${caminhoDeModulo(CAMINHO_ARQUIVOS_DO_DOMINIO)};\n` +
+      /* Story 3.4: o contador e as falas da herança (`admin/blog/seo.js`), e a
+         função de herança do DOMÍNIO. Os dois entram porque as asserções os
+         EXECUTAM — "a tela mostra o que será herdado" só é regra provada
+         quando a frase desenhada é comparada com a que o domínio produziu. */
+      `export * as regrasDeSeo from ${caminhoDeModulo(CAMINHO_MODULO_DE_SEO)};\n` +
+      /* O leitor do Domínio Canônico. Ele lê `import.meta.env`, então precisa
+         passar pelo empacotador como o resto — e os dois parâmetros dele
+         existem justamente para esta ferramenta poder EXECUTAR cada combinação
+         em vez de ler o código. */
+      `export * as regrasDoDominio from ${caminhoDeModulo("src/admin/blog/dominio.js")};\n` +
+      `export * as compartilhamentoDoDominio from ${caminhoDeModulo(CAMINHO_COMPARTILHAMENTO)};\n` +
       `export * as arquivosReal from ${caminhoDeModulo(CAMINHO_ARQUIVOS_DA_CAMADA)};\n` +
       `export * as arquivosDuble from ${comoModulo(arquivoDosArquivos)};\n` +
       `export { default as BlogPublico } from ${caminhoDeModulo(CAMINHO_BLOG_PUBLICO)};\n` +
@@ -9520,6 +9536,12 @@ if (janela && schema && configuracao && compilado) {
                lista de Categorias a gaveta nunca teria uma para escolher —
                toda a metade "com Categoria" da degradação ficaria por provar. */
             const BASE_DO_PROJETO = "https://x.supabase.co";
+            /* O DOMÍNIO CANÔNICO (Story 3.4): a gaveta precisa dele para pedir
+               ao domínio o que será herdado. Ele é passado de fora, como a raiz
+               do projeto — e a gaveta montada SEM ele é exercitada adiante, na
+               seção da herança, onde o defeito de montagem tem de aparecer
+               NOMEADO em vez de virar silêncio. */
+            const DOMINIO_DO_SITE = "https://chatclean.com.br";
             const CATEGORIAS_DA_CAPA = [
               {
                 id: "cccccccc-1111-4111-8111-111111111111",
@@ -9540,6 +9562,9 @@ if (janela && schema && configuracao && compilado) {
               tags: "",
               publicado_em: "",
               tempo_leitura: "",
+              seo_titulo: "",
+              seo_descricao: "",
+              seo_imagem_url: "",
             };
             let situacao = capa.ENVIO_PARADO;
             let recusa = null;
@@ -9555,12 +9580,21 @@ if (janela && schema && configuracao && compilado) {
                    envio com o endereço escondido num campo que ninguém opera.
                    É a mesma raiz de `ENDERECO`, mais abaixo. */
                 baseDaCapaDoProjeto: BASE_DO_PROJETO,
-                situacaoDoEnvio: situacao,
-                recusaDoEnvio: recusa,
-                aoEscolherArquivo: (a) => escolhidos.push(a),
-                aoRemoverCapa: () => {
+                /* UM ENVIO POR CAMPO (Story 3.4): a gaveta tem dois controles
+                   de imagem, e uma situação compartilhada faria o giro de um
+                   aparecer sobre o outro. As asserções desta seção falam da
+                   CAPA, e é o envio dela que a montagem move. */
+                envios: { imagem_url: { situacao, recusa } },
+                dominioDoSite: DOMINIO_DO_SITE,
+                aoEscolherArquivo: (campoDaImagem, a) =>
+                  escolhidos.push({ campo: campoDaImagem, arquivo: a }),
+                aoRemoverImagem: (campoDaImagem) => {
                   removeu += 1;
-                  valores = { ...valores, imagem_url: "", imagem_alt: "" };
+                  valores = {
+                    ...valores,
+                    [campoDaImagem]: "",
+                    ...(campoDaImagem === "imagem_url" ? { imagem_alt: "" } : {}),
+                  };
                   raizReact.render(desenhar());
                 },
                 aoMudar: (campo, valor) => {
@@ -9588,7 +9622,17 @@ if (janela && schema && configuracao && compilado) {
                operável. No modo de fora o campo de endereço passa a ser o
                controle, e aí ele já se chama `imagem_url`. A tradução é
                declarada aqui, e não presumida. */
-            const CONTROLE_DO_CAMPO = { "arquivo-da-capa": "imagem_url" };
+            /* A tradução vem do MAPA DECLARADO em `capa.js` (Story 3.4), e não
+               de dois pares escritos aqui: os dois campos de imagem usam o
+               mesmo componente, e um terceiro campo de imagem entraria lá e
+               ficaria de fora daqui — a ordem passaria a ignorar em silêncio um
+               controle que existe na tela. */
+            const CONTROLE_DO_CAMPO = Object.fromEntries(
+              capa.CAMPOS_DE_IMAGEM_DA_GAVETA.map((nome) => [
+                capa.nomeDoSeletorDeArquivo(nome),
+                nome,
+              ]),
+            );
             const ordemDosCampos = () =>
               [...alvo.querySelectorAll("[data-campo]")]
                 .map((e) => e.getAttribute("data-campo"))
@@ -10048,9 +10092,14 @@ if (janela && schema && configuracao && compilado) {
                 campoDoArquivo.dispatchEvent(new janela.Event("change", { bubbles: true }));
               });
               afirmar(
-                "o arquivo escolhido é EMITIDO para quem monta a tela — a gaveta não o guarda nem o manda",
-                escolhidos.length === 1 && escolhidos[0] === arquivoFalso,
-                `emitidos: ${escolhidos.length}`,
+                "o arquivo escolhido é EMITIDO para quem monta a tela, NOMEANDO o campo — a gaveta não o guarda nem o manda",
+                escolhidos.length === 1 &&
+                  escolhidos[0].arquivo === arquivoFalso &&
+                  /* O CAMPO VIAJA JUNTO (Story 3.4). Sem ele, os dois controles
+                     de imagem emitiriam pedidos indistinguíveis e o Editor
+                     gravaria a capa no lugar da imagem de compartilhamento. */
+                  escolhidos[0].campo === "imagem_url",
+                `emitidos: ${escolhidos.length} | ${JSON.stringify(escolhidos[0]?.campo)}`,
               );
               afirmar(
                 "e o seletor é rearmado — escolher o MESMO arquivo de novo depois de uma recusa precisa disparar",
@@ -10138,7 +10187,11 @@ if (janela && schema && configuracao && compilado) {
                 raizReact.render(desenhar());
               });
               const grupo = alvo.querySelector('[data-papel="origem-da-capa"]');
-              const opcoes = [...alvo.querySelectorAll("[data-origem-da-capa]")];
+              /* AS OPÇÕES SÃO LIDAS DE DENTRO DO GRUPO, e não do documento: a
+                 gaveta tem DOIS controles de imagem desde a Story 3.4, e uma
+                 busca no documento inteiro traria as quatro — a asserção
+                 passaria a falar de um grupo que não é este. */
+              const opcoes = [...grupo.querySelectorAll("[data-origem-da-capa]")];
               afirmar(
                 "a gaveta oferece as DUAS origens num grupo nomeado, e cada opção tem nome acessível pelo rótulo que a envolve",
                 grupo !== null &&
@@ -10773,6 +10826,364 @@ if (janela && schema && configuracao && compilado) {
             };
           }
 
+/* ── O EDITOR INTEIRO, AGORA PELO CAMPO DE SEO (Story 3.4) ────────
+             Toda a coordenação de nível de Editor — enviar, esperar, concluir,
+             remover, faxinar — só era exercitada por `arquivo-da-capa`, e a
+             seção da gaveta montava com `aoEscolherArquivo: () => {}`. Duas
+             sabotagens ficavam VERDES, e as duas são destrutivas:
+
+               trocar `[campo]` por `imagem_url` em `enviarImagem` — enviar uma
+               Imagem de Compartilhamento SOBRESCREVE a capa do Post;
+
+               forçar `daCapa = true` em `removerImagem` — remover a Imagem de
+               Compartilhamento APAGA o texto alternativo da capa, e como a
+               gaveta recusa capa sem descrição, o salvamento seguinte falha por
+               um campo que o Autor nunca tocou.
+
+             O bloco é o mesmo da capa, dirigido ao outro seletor. */
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.pedidos.length = 0;
+            modulo.controle.avisos.length = 0;
+            modulo.controle.resposta = { ok: true, dados: { criado: false, post: null } };
+
+            const CAPA_DA_SESSAO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/aaaa1111-2222-4333-8444-555566667777.png";
+            const IMAGEM_DE_SEO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/bbbb2222-3333-4444-8555-666677778888.png";
+
+            const tela = await montarTela({ postId: null });
+            const arquivoFalso = { name: "imagem.png", size: 10, type: "image/png" };
+            const armar = (seletor) => {
+              Object.defineProperty(seletor, "files", {
+                configurable: true,
+                get: () => [arquivoFalso],
+              });
+              return seletor;
+            };
+            const seletorDaCapa = armar(tela.campo("arquivo-da-capa"));
+            const seletorDeSeo = armar(tela.campo("arquivo-da-imagem-de-seo"));
+
+            afirmar(
+              "o Editor monta os DOIS seletores de arquivo, com nomes distintos — sem isto nada abaixo julga o campo certo",
+              seletorDaCapa !== null &&
+                seletorDeSeo !== null &&
+                seletorDaCapa !== seletorDeSeo,
+              `${seletorDaCapa?.getAttribute("data-campo")} | ${seletorDeSeo?.getAttribute("data-campo")}`,
+            );
+
+            /* ── OS DOIS ENVIOS SÃO INDEPENDENTES ─────────────────────────
+               É a razão inteira de `envios` ter virado MAPA. Com um par de
+               estados compartilhado, o giro de um apareceria sobre o outro e a
+               recusa de um acusaria o campo errado. Os dois ficam em voo ao
+               mesmo tempo, e cada um é conferido. */
+            const emVoo = new Map();
+            modulo.controle.aoEnviar = () =>
+              new Promise((resolver) => {
+                emVoo.set(emVoo.size, resolver);
+              });
+
+            await act(async () => {
+              seletorDeSeo.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            const girandoDeSeo = () =>
+              tela.alvo
+                .querySelector('[data-papel="envio-de-imagem-de-seo-em-curso"]')
+                ?.getAttribute("data-enviando");
+            const girandoDaCapa = () =>
+              tela.alvo
+                .querySelector('[data-papel="envio-em-curso"]')
+                ?.getAttribute("data-enviando");
+            afirmar(
+              "enviar pela Imagem de Compartilhamento gira SÓ o indicador dela — a capa não é marcada como enviando",
+              girandoDeSeo() === "true" && girandoDaCapa() === "false",
+              `seo: ${girandoDeSeo()} | capa: ${girandoDaCapa()}`,
+            );
+            afirmar(
+              "e o arquivo escolhido chega à camada de dados — um pedido, e é o arquivo escolhido",
+              modulo.controle.pedidos_de_envio.length === 1 &&
+                modulo.controle.pedidos_de_envio[0] === arquivoFalso,
+              `pedidos: ${modulo.controle.pedidos_de_envio.length}`,
+            );
+
+            /* E O SALVAMENTO ESPERA POR ELE. A guarda "uma imagem ainda está
+               subindo" percorre `CAMPOS_DE_IMAGEM_DA_GAVETA`, e até aqui só
+               existia em comentário: percorrer só `imagem_url` deixaria a
+               Imagem de Compartilhamento com exatamente o defeito que a guarda
+               existe para impedir, e o silêncio seria idêntico. */
+            modulo.controle.pedidos.length = 0;
+            modulo.controle.avisos.length = 0;
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            afirmar(
+              "salvar com a IMAGEM DE COMPARTILHAMENTO ainda subindo NÃO grava, e a tela diz por quê",
+              modulo.controle.pedidos.length === 0 &&
+                modulo.controle.avisos.some(
+                  (a) => a.tom === "erro" && /ainda está subindo/i.test(a.oQueHouve),
+                ),
+              `pedidos: ${modulo.controle.pedidos.length} | avisos: ${JSON.stringify(modulo.controle.avisos.at(-1))}`,
+            );
+
+            /* O SEGUNDO ENVIO ENTRA COM O PRIMEIRO AINDA EM VOO. */
+            await act(async () => {
+              seletorDaCapa.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "com os DOIS em voo, os dois indicadores giram — o estado é de cada campo, e não um só compartilhado",
+              girandoDeSeo() === "true" && girandoDaCapa() === "true",
+              `seo: ${girandoDeSeo()} | capa: ${girandoDaCapa()}`,
+            );
+
+            /* CONCLUIR O DA CAPA NÃO CONCLUI O DE SEO. */
+            const [resolverSeo, resolverCapa] = [emVoo.get(0), emVoo.get(1)];
+            await act(async () => {
+              resolverCapa({
+                ok: true,
+                dados: {
+                  url: CAPA_DA_SESSAO,
+                  caminho: "capas/aaaa1111-2222-4333-8444-555566667777.png",
+                },
+              });
+            });
+            afirmar(
+              "concluir o envio da CAPA não conclui o da Imagem de Compartilhamento — os dois são independentes",
+              girandoDaCapa() === "false" && girandoDeSeo() === "true",
+              `seo: ${girandoDeSeo()} | capa: ${girandoDaCapa()}`,
+            );
+
+            await act(async () => {
+              resolverSeo({
+                ok: true,
+                dados: {
+                  url: IMAGEM_DE_SEO,
+                  caminho: "capas/bbbb2222-3333-4444-8555-666677778888.png",
+                },
+              });
+            });
+
+            /* ── O ENDEREÇO FOI PARAR NA COLUNA CERTA ─────────────────────
+               A sabotagem que sobrescreve a capa com a imagem de
+               compartilhamento morre AQUI, e o que a mata é o VALOR de cada
+               miniatura — uma contagem de miniaturas daria dois nos dois
+               casos. */
+            const srcDe = (papel) =>
+              tela.alvo.querySelector(`[data-papel="${papel}"]`)?.getAttribute("src") ?? null;
+            afirmar(
+              "cada endereço vai para a SUA coluna: a miniatura da capa mostra a capa, e a de compartilhamento mostra a dela",
+              srcDe("miniatura-da-capa") === CAPA_DA_SESSAO &&
+                srcDe("miniatura-da-imagem-de-seo") === IMAGEM_DE_SEO,
+              `capa: ${srcDe("miniatura-da-capa")} | seo: ${srcDe("miniatura-da-imagem-de-seo")}`,
+            );
+            /* E A MINIATURA DA IMAGEM DE SEO TEM NOME ACESSÍVEL. Ela não tem
+               campo de descrição — a coluna de texto alternativo é da capa —,
+               então o `alt` cai no padrão nomeado, e ele precisa dizer de QUAL
+               imagem se trata. */
+            const altDeSeo = tela.alvo
+              .querySelector('[data-papel="miniatura-da-imagem-de-seo"]')
+              ?.getAttribute("alt");
+            afirmar(
+              "a miniatura da Imagem de Compartilhamento tem `alt`, e ele NOMEIA o campo — nunca o endereço do arquivo",
+              typeof altDeSeo === "string" &&
+                altDeSeo === capa.alternativoDaMiniatura(null, modulo.compartilhamentoDoDominio.ROTULOS_DE_SEO.seo_imagem_url) &&
+                !altDeSeo.includes("http"),
+              String(altDeSeo),
+            );
+
+            modulo.controle.aoEnviar = null;
+
+            /* ── REMOVER A IMAGEM DE SEO NÃO MEXE NA DESCRIÇÃO DA CAPA ────
+               `imagem_alt` é do par da CAPA. Limpá-la ao remover a outra
+               imagem apagaria a descrição de uma capa que continua lá — e,
+               como o banco recusa capa sem descrição, o salvamento seguinte
+               falharia por um campo que ninguém tocou. */
+            await tela.digitar(tela.campo("imagem_alt"), "Uma sala de reunião");
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(
+              tela.alvo.querySelector(
+                '[data-acao-da-capa="remover"][data-campo-da-acao="seo_imagem_url"]',
+              ),
+            );
+            afirmar(
+              "remover a Imagem de Compartilhamento NÃO apaga a descrição da capa — ela é do par da capa",
+              tela.campo("imagem_alt")?.value === "Uma sala de reunião" &&
+                srcDe("miniatura-da-capa") === CAPA_DA_SESSAO &&
+                srcDe("miniatura-da-imagem-de-seo") === null,
+              `alt: ${JSON.stringify(tela.campo("imagem_alt")?.value)} | capa: ${srcDe("miniatura-da-capa")}`,
+            );
+            afirmar(
+              "e o arquivo dela, que era desta sessão, sai do bucket pela sessão — o servidor nunca o viu",
+              modulo.controle.pedidos_de_remocao.length === 1 &&
+                modulo.controle.pedidos_de_remocao[0] === IMAGEM_DE_SEO,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            /* E O CONTROLE POSITIVO DO OUTRO LADO: remover a CAPA continua
+               apagando a descrição dela. Sem esta, um `daCapa` sempre falso
+               passaria a asserção acima. */
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(
+              tela.alvo.querySelector(
+                '[data-acao-da-capa="remover"][data-campo-da-acao="imagem_url"]',
+              ),
+            );
+            afirmar(
+              "controle positivo: remover a CAPA continua apagando a descrição dela — a regra é do par, não de todo campo",
+              tela.campo("imagem_alt")?.value === "" &&
+                srcDe("miniatura-da-capa") === null,
+              `alt: ${JSON.stringify(tela.campo("imagem_alt")?.value)}`,
+            );
+
+            await tela.desmontar();
+            modulo.controle.envio = {
+              ok: true,
+              dados: {
+                url: CAPA_DA_SESSAO,
+                caminho: "capas/aaaa1111-2222-4333-8444-555566667777.png",
+              },
+            };
+          }
+
+          /* ── A FAXINA DO SALVAMENTO OLHA AS DUAS COLUNAS ──────────────────
+             `salvas` percorre `CAMPOS_DE_IMAGEM_DA_GAVETA`. Reverter para a
+             versão só-capa — a regressão exata que o comentário acima dela
+             descreve — ficava verde: a linha era salva apontando para uma
+             Imagem de Compartilhamento cujo arquivo o Editor apagava logo em
+             seguida. Prévia com endereço morto, e nada virava resíduo, porque
+             do ponto de vista do servidor a remoção deu certo. */
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.pedidos.length = 0;
+            modulo.controle.resposta = { ok: true, dados: { criado: false, post: null } };
+
+            const DE_SEO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/cccc3333-4444-4555-8666-777788889999.png";
+            modulo.controle.envio = {
+              ok: true,
+              dados: { url: DE_SEO, caminho: "capas/cccc3333-4444-4555-8666-777788889999.png" },
+            };
+
+            const tela = await montarTela({ postId: null });
+            const seletorDeSeo = tela.campo("arquivo-da-imagem-de-seo");
+            Object.defineProperty(seletorDeSeo, "files", {
+              configurable: true,
+              get: () => [{ name: "seo.png", size: 10, type: "image/png" }],
+            });
+            await act(async () => {
+              seletorDeSeo.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+
+            await tela.digitar(tela.campo("titulo"), "Post com imagem de compartilhamento");
+            await tela.digitar(tela.campo("resumo"), "O resumo");
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(tela.acaoPorChave("salvar"));
+
+            const enviado = modulo.controle.pedidos.at(-1);
+            afirmar(
+              "o corpo que sai leva o ENDEREÇO da imagem de compartilhamento — e a capa continua vazia",
+              enviado?.seo_imagem_url === DE_SEO && enviado?.imagem_url === null,
+              JSON.stringify({ seo: enviado?.seo_imagem_url, capa: enviado?.imagem_url }),
+            );
+            afirmar(
+              "e salvar NÃO apaga o arquivo que o Post acabou de passar a apontar — a faxina olha as DUAS colunas",
+              !modulo.controle.pedidos_de_remocao.includes(DE_SEO),
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            await tela.desmontar();
+          }
+
+          /* ── O MESMO ARQUIVO NAS DUAS COLUNAS, PELA TELA ──────────────────
+             Usar a mesma imagem como Capa e como Imagem de Compartilhamento é o
+             caso mais provável de todos. Sem a guarda em `descartarSeNaoSalva`,
+             trocar uma das duas apagaria do bucket o arquivo que a outra
+             continua apontando — e o Post seria salvo com um endereço morto. */
+          {
+            modulo.controle.pedidos_de_envio.length = 0;
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.resposta = { ok: true, dados: { criado: false, post: null } };
+
+            const COMPARTILHADO =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/dddd4444-5555-4666-8777-888899990000.png";
+            const NOVA_CAPA =
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/eeee5555-6666-4777-8888-999900001111.png";
+
+            const tela = await montarTela({ postId: null });
+            const armar = (seletor) => {
+              Object.defineProperty(seletor, "files", {
+                configurable: true,
+                get: () => [{ name: "img.png", size: 10, type: "image/png" }],
+              });
+              return seletor;
+            };
+            const seletorDaCapa = armar(tela.campo("arquivo-da-capa"));
+            const seletorDeSeo = armar(tela.campo("arquivo-da-imagem-de-seo"));
+
+            /* O MESMO endereço entra nos dois campos — é o que acontece quando
+               a pessoa envia o mesmo arquivo duas vezes e o dublê devolve o
+               mesmo caminho, e é também o que um Post gravado pode ter. */
+            modulo.controle.envio = {
+              ok: true,
+              dados: {
+                url: COMPARTILHADO,
+                caminho: "capas/dddd4444-5555-4666-8777-888899990000.png",
+              },
+            };
+            await act(async () => {
+              seletorDaCapa.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            await act(async () => {
+              seletorDeSeo.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            const srcDe = (papel) =>
+              tela.alvo.querySelector(`[data-papel="${papel}"]`)?.getAttribute("src") ?? null;
+            afirmar(
+              "as duas colunas podem apontar para o MESMO arquivo — e nenhuma remoção é pedida ao pôr o segundo",
+              srcDe("miniatura-da-capa") === COMPARTILHADO &&
+                srcDe("miniatura-da-imagem-de-seo") === COMPARTILHADO &&
+                modulo.controle.pedidos_de_remocao.length === 0,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            /* AGORA A CAPA TROCA. O arquivo compartilhado NÃO pode sair: a
+               Imagem de Compartilhamento continua apontando para ele. */
+            modulo.controle.pedidos_de_remocao.length = 0;
+            modulo.controle.envio = {
+              ok: true,
+              dados: {
+                url: NOVA_CAPA,
+                caminho: "capas/eeee5555-6666-4777-8888-999900001111.png",
+              },
+            };
+            await act(async () => {
+              seletorDaCapa.dispatchEvent(new janela.Event("change", { bubbles: true }));
+            });
+            afirmar(
+              "trocar a capa NÃO apaga o arquivo que a Imagem de Compartilhamento ainda usa",
+              !modulo.controle.pedidos_de_remocao.includes(COMPARTILHADO) &&
+                srcDe("miniatura-da-imagem-de-seo") === COMPARTILHADO,
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            /* CONTROLE POSITIVO: quando ninguém mais o usa, ele sai. Sem isto,
+               uma guarda larga demais faria o arquivo nunca sair e o vazamento
+               voltaria pelo outro lado. */
+            modulo.controle.pedidos_de_remocao.length = 0;
+            await tela.clicar(
+              tela.alvo.querySelector(
+                '[data-acao-da-capa="remover"][data-campo-da-acao="seo_imagem_url"]',
+              ),
+            );
+            afirmar(
+              "controle positivo: quando NENHUMA das duas o usa mais, ele sai do bucket pela sessão",
+              modulo.controle.pedidos_de_remocao.includes(COMPARTILHADO),
+              JSON.stringify(modulo.controle.pedidos_de_remocao),
+            );
+
+            await tela.desmontar();
+          }
+
+
           /* — REABRIR UM POST QUE JÁ TEM CAPA — */
           //
           // A asserção que faltava, e a falta era destrutiva. `valoresDoPost`
@@ -11102,6 +11513,829 @@ if (janela && schema && configuracao && compilado) {
               dados: { criado: false, post: null },
             };
           }
+
+        /* ─── (q) A SEÇÃO DE SEO (Story 3.4) ────────────────────────────
+           Três campos opcionais, a herança MOSTRADA, e um contador que
+           sinaliza sem bloquear e sem truncar. Tudo montado: "não bloqueia"
+           é promessa até alguém digitar e tentar salvar. */
+        {
+          secao("(q) os campos de SEO: opcionais, com a herança à vista e o contador que não bloqueia");
+
+          const seo = modulo.regrasDeSeo;
+          const compartilhamento = modulo.compartilhamentoDoDominio;
+          const DOMINIO = "https://chatclean.com.br";
+          const CAPA_GRAVADA =
+            "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/0a1b2c3d-4e5f-6789-abcd-ef0123456789.png";
+          const TITULO_DO_POST = "Como limpar a base de contatos";
+          const RESUMO_DO_POST = "Um roteiro de quatro passos para tirar o número morto.";
+
+          /* ── OS PAPÉIS DOS DOIS CAMPOS DE IMAGEM, CONFERIDOS ─────────────
+             O JSDoc de `PAPEIS_DO_CAMPO_DE_IMAGEM` promete que "a verificação
+             cobra que ele cubra os dois campos com nomes que não se repetem", e
+             essa asserção não existia. Repetir `miniatura-da-capa` nas duas
+             entradas deixaria tudo verde apontando para o controle errado — que
+             é exatamente o modo de falha que o mapa foi criado para impedir. */
+          {
+            const mapa = capa.PAPEIS_DO_CAMPO_DE_IMAGEM;
+            const campos = Object.keys(mapa);
+            afirmar(
+              "o mapa de papéis cobre EXATAMENTE os dois campos de imagem da gaveta",
+              campos.length === 2 &&
+                campos.join(",") === capa.CAMPOS_DE_IMAGEM_DA_GAVETA.join(",") &&
+                campos.join(",") === `imagem_url,${compartilhamento.CAMPO_DE_IMAGEM_DE_SEO}`,
+              campos.join(","),
+            );
+            const papeisDaCapa = mapa.imagem_url;
+            const papeisDeSeo = mapa[compartilhamento.CAMPO_DE_IMAGEM_DE_SEO];
+            const chaves = Object.keys(papeisDaCapa);
+            afirmar(
+              "as duas entradas declaram as MESMAS chaves — uma chave a menos deixaria um seletor sem nome",
+              chaves.length > 0 && chaves.join(",") === Object.keys(papeisDeSeo).join(","),
+              `${chaves.join(",")} × ${Object.keys(papeisDeSeo).join(",")}`,
+            );
+            const repetidos = chaves.filter((chave) => papeisDaCapa[chave] === papeisDeSeo[chave]);
+            afirmar(
+              "e NENHUM nome se repete entre os dois campos — nome repetido faria a varredura julgar o controle errado",
+              repetidos.length === 0 &&
+                new Set([...Object.values(papeisDaCapa), ...Object.values(papeisDeSeo)]).size ===
+                  chaves.length * 2,
+              `repetidos: ${repetidos.join(", ") || "nenhum"}`,
+            );
+            /* E O CONTRATO DE TELA DA STORY 3.1 continua o que era: dez
+               asserções leem `miniatura-da-capa` pelo nome, e renomeá-lo para
+               ganhar simetria de string seria trocar o que importa pelo que é
+               bonito — está escrito no próprio mapa. */
+            afirmar(
+              "e os nomes da CAPA continuam sendo os da Story 3.1 — o contrato de tela não foi renomeado por simetria",
+              papeisDaCapa.miniatura === "miniatura-da-capa" &&
+                papeisDaCapa.ausente === "capa-ausente" &&
+                papeisDaCapa.seletor === "arquivo-da-capa",
+              JSON.stringify(papeisDaCapa),
+            );
+          }
+
+          /* ── O NOME DA CAPA TEM UMA GRAFIA SÓ ────────────────────────────
+             Ele existia em quatro escritas independentes — a constante do
+             módulo da capa, o padrão de `alternativoDaMiniatura`, o literal do
+             rótulo na gaveta e a mensagem do servidor —, enquanto o lado do SEO
+             tirava tudo de `ROTULOS_DE_SEO`. Agora todas derivam de
+             `ROTULO_DA_CAPA`, do domínio. */
+          {
+            const doDominio = doArquivo.ROTULO_DA_CAPA;
+            afirmar(
+              "as falas da capa DERIVAM de uma grafia só — nome, rótulo do grupo e `alt` padrão saem todos dela",
+              capa.NOME_DA_CAPA === doDominio.toLowerCase() &&
+                capa.ROTULO_DA_ORIGEM_DA_CAPA === capa.rotuloDoGrupoDeOrigem(doDominio) &&
+                capa.alternativoDaMiniatura("").startsWith(doDominio) &&
+                capa.FALA_DA_CAPA_QUEBRADA.includes(doDominio.toLowerCase()),
+              `${doDominio} | ${capa.NOME_DA_CAPA} | ${capa.alternativoDaMiniatura("")}`,
+            );
+          }
+
+          /* ── A FALA DA HERANÇA LÊ `origem`, E SÓ ELA ─────────────────────
+             O JSDoc dela falava de `{valor, origem, herdado}` e a gaveta passa
+             a parte da IMAGEM, que tem `endereco` e não `valor`. Ela caía na
+             frase sem valor POR ACIDENTE: renomear `endereco` para `valor` no
+             domínio faria a tela imprimir a URL crua dentro das aspas. Agora
+             quem decide se o valor aparece é a tabela, por origem. */
+          {
+            const comoAImagemVem = compartilhamento.metadadosDoPost(
+              { titulo: "T", imagem_url: CAPA_GRAVADA, imagem_alt: "A capa" },
+              { dominio: DOMINIO },
+            ).imagem;
+            afirmar(
+              "a parte da imagem NÃO tem `valor` — é `endereco`, e a fala não pode depender dessa ausência",
+              !Object.hasOwn(comoAImagemVem, "valor") &&
+                typeof comoAImagemVem.endereco === "string",
+              Object.keys(comoAImagemVem).join(","),
+            );
+            /* A PROVA: um objeto com a MESMA origem e um `valor` de mentira
+               continua produzindo a frase SEM valor. Antes, este caso imprimia
+               a string dentro das aspas. */
+            afirmar(
+              "e com um `valor` presente a fala da imagem continua SEM valor — a decisão é da origem, não da forma",
+              seo.falaDaHeranca({ origem: "capa", valor: "https://x.co/a.png" }) ===
+                seo.falaDaHeranca({ origem: "capa" }) &&
+                !seo.falaDaHeranca({ origem: "capa", valor: "https://x.co/a.png" }).includes(
+                  "https://x.co/a.png",
+                ),
+              seo.falaDaHeranca({ origem: "capa", valor: "https://x.co/a.png" }),
+            );
+            afirmar(
+              "e as origens de TEXTO continuam mostrando o valor — é ele que o Autor reconhece",
+              seo.falaDaHeranca({ origem: "titulo", valor: "O título" }).includes("O título") &&
+                seo.falaDaHeranca({ origem: "resumo", valor: "O resumo" }).includes("O resumo"),
+              seo.falaDaHeranca({ origem: "titulo", valor: "O título" }),
+            );
+          }
+
+          /* ── A HERANÇA DO FORMULÁRIO NÃO ENGOLE DEFEITO ALHEIO ───────────
+             Ela devolvia QUALQUER exceção como se fosse o defeito de montagem:
+             um `TypeError` de bug real virava uma caixa vermelha
+             indistinguível de "faltou a variável de ambiente", e quem lesse a
+             tela procuraria o defeito no lugar errado. */
+          {
+            const semDominio = seo.herancaDoFormulario({ titulo: "T" }, { dominio: "" });
+            afirmar(
+              "sem Domínio Canônico ela devolve o DEFEITO NOMEADO, com a frase do domínio",
+              semDominio.ok === false &&
+                semDominio.defeito === compartilhamento.DEFEITO_DE_DOMINIO_AUSENTE,
+              JSON.stringify(semDominio),
+            );
+            /* E O RESTO SOBE. `valores` que lança ao ser lido produz um erro
+               que não é o esperado — e ele tem de chegar ao limite de erro do
+               Painel, não virar a mesma caixa vermelha. */
+            const valoresQueExplodem = new Proxy(
+              {},
+              {
+                get() {
+                  throw new TypeError("defeito de verdade, e não de montagem");
+                },
+              },
+            );
+            let subiu = null;
+            try {
+              seo.herancaDoFormulario(valoresQueExplodem, { dominio: DOMINIO });
+            } catch (erro) {
+              subiu = erro;
+            }
+            afirmar(
+              "e uma exceção QUALQUER sobe em vez de ser pintada como defeito de montagem",
+              subiu instanceof TypeError &&
+                String(subiu.message) !== compartilhamento.DEFEITO_DE_DOMINIO_AUSENTE,
+              String(subiu?.message ?? "não lançou"),
+            );
+          }
+
+          /* ── O DOMÍNIO CANÔNICO VEM DA VARIÁVEL, E NÃO DA ORIGEM ─────────
+             A versão anterior lia `window.location.origin` e mais nada. Em
+             implantação de PRÉVIA a origem é o host efêmero, e a herança
+             mostrada apontaria para um endereço que produção nunca emite — no
+             ambiente feito justamente para conferir antes de publicar. E num
+             host `http` de terceiro `raizDoSite` recusa, e a seção inteira
+             virava caixa vermelha mandando procurar uma variável que não
+             existia. */
+          {
+            const dominio = modulo.regrasDoDominio;
+            const DE_PRODUCAO = "https://chatclean.com.br";
+            const DE_PREVIA = "https://painel-abc123.vercel.app";
+            afirmar(
+              "a VARIÁVEL ganha da origem — inclusive numa prévia, que é onde a origem mentiria",
+              dominio.dominioDoSite({ declarado: DE_PRODUCAO, origem: DE_PREVIA }) ===
+                DE_PRODUCAO,
+              dominio.dominioDoSite({ declarado: DE_PRODUCAO, origem: DE_PREVIA }),
+            );
+            afirmar(
+              "sem a variável, a origem entra — é o que mantém `localhost` funcionando sem configurar nada",
+              dominio.dominioDoSite({ declarado: "", origem: "http://localhost:5173" }) ===
+                "http://localhost:5173" &&
+                dominio.dominioDoSite({ declarado: "", origem: DE_PRODUCAO }) === DE_PRODUCAO,
+              dominio.dominioDoSite({ declarado: "", origem: "http://localhost:5173" }),
+            );
+            afirmar(
+              "e origem que NÃO serve como domínio canônico vira ausência, e não um endereço torto",
+              dominio.dominioDoSite({ declarado: "", origem: "http://exemplo.com.br" }) === "" &&
+                dominio.dominioDoSite({ declarado: "", origem: "" }) === "" &&
+                dominio.dominioDoSite({ declarado: "", origem: "https://x.co/painel" }) === "",
+              JSON.stringify([
+                dominio.dominioDoSite({ declarado: "", origem: "http://exemplo.com.br" }),
+                dominio.dominioDoSite({ declarado: "", origem: "https://x.co/painel" }),
+              ]),
+            );
+            afirmar(
+              "e variável TORTA não ganha da origem boa — quem julga é `raizDoSite`, do domínio",
+              dominio.dominioDoSite({ declarado: "nao-e-endereco", origem: DE_PRODUCAO }) ===
+                DE_PRODUCAO,
+              dominio.dominioDoSite({ declarado: "nao-e-endereco", origem: DE_PRODUCAO }),
+            );
+            afirmar(
+              "e o nome da variável é declarado no módulo — é ele que a frase de defeito cita",
+              dominio.VARIAVEL_DO_DOMINIO === "VITE_DOMINIO_DO_SITE" &&
+                compartilhamento.DEFEITO_DE_DOMINIO_AUSENTE.includes(dominio.VARIAVEL_DO_DOMINIO),
+              `${dominio.VARIAVEL_DO_DOMINIO} | ${compartilhamento.DEFEITO_DE_DOMINIO_AUSENTE}`,
+            );
+          }
+
+          /* ── OS CAMPOS DA GAVETA SÃO OS DO DOMÍNIO ──────────────────────
+             `CAMPOS_DA_GAVETA` é a declaração única da ordem, e os três de SEO
+             entram nela espalhados de `CAMPOS_DE_SEO`. A igualdade de conjunto
+             é o que impede um quarto nome inventado de chegar ao pedido. */
+          afirmar(
+            "os campos de SEO da gaveta são EXATAMENTE os do domínio — nem um a menos, nem um inventado",
+            regrasDosMetadados.CAMPOS_DA_GAVETA.filter((c) => c.startsWith("seo_")).join(",") ===
+              compartilhamento.CAMPOS_DE_SEO.join(","),
+            regrasDosMetadados.CAMPOS_DA_GAVETA.filter((c) => c.startsWith("seo_")).join(","),
+          );
+
+          /* ── O RESÍDUO DOBRADO CONTINUA DIZÍVEL ─────────────────────────
+             `removerImagensAnteriores` junta os dois caminhos num resíduo só
+             quando as DUAS colunas deixam arquivo para trás. Quem lê isso é
+             esta fala, e um resíduo que a tela não sabe dizer é um resíduo
+             silencioso com outro nome. */
+          afirmar(
+            "a fala do resíduo nomeia os DOIS arquivos quando os dois sobram — nenhum fica escondido atrás do outro",
+            (capa.falaDoResiduo({ arquivo: "capas/a.png e capas/b.png" })?.oQueFazer ?? "")
+              .includes("capas/a.png") &&
+              (capa.falaDoResiduo({ arquivo: "capas/a.png e capas/b.png" })?.oQueFazer ?? "")
+                .includes("capas/b.png"),
+            JSON.stringify(capa.falaDoResiduo({ arquivo: "capas/a.png e capas/b.png" })),
+          );
+
+          /* — AS REGRAS PURAS, EXECUTADAS — */
+          //
+          // "O contador sinaliza e não bloqueia" e "a tela mostra o que será
+          // herdado" são regras de FUNÇÃO antes de serem regras de JSX, e é
+          // assim que elas se provam sem depender de uma consulta ao DOM.
+          afirmar(
+            "o contador é os DOIS números, e ele julga o comprimento APARADO — espaço nas pontas não conta como caractere escrito",
+            seo.textoDoContador("seo_titulo", "abc") === "3 / 60" &&
+              seo.textoDoContador("seo_titulo", "  abc  ") === "3 / 60" &&
+              seo.textoDoContador("seo_descricao", "") === "0 / 155" &&
+              seo.textoDoContador("inventado", "abc") === "",
+            `${seo.textoDoContador("seo_titulo", "  abc  ")} | ${seo.textoDoContador("seo_descricao", "")}`,
+          );
+          afirmar(
+            "o aviso de comprimento DIZ QUE DÁ PARA SALVAR — conselho vestido de erro treina a pessoa a ignorar o erro que importa",
+            seo.avisoDeComprimento("seo_titulo", "a".repeat(60)) === null &&
+              (seo.avisoDeComprimento("seo_titulo", "a".repeat(61)) ?? "").includes("60") &&
+              (seo.avisoDeComprimento("seo_titulo", "a".repeat(61)) ?? "").includes(
+                "Dá para salvar",
+              ),
+            JSON.stringify(seo.avisoDeComprimento("seo_titulo", "a".repeat(61))),
+          );
+          /* A FALA DA HERANÇA CARREGA O VALOR, e não só a fonte: "herda o
+             título do post" sem dizer QUAL título é uma promessa que a pessoa
+             ainda tem de publicar para conferir. */
+          afirmar(
+            "a fala da herança nomeia a FONTE e mostra o VALOR — e some quando o campo tem valor próprio",
+            seo.falaDaHeranca({ valor: "Um título", origem: "titulo", herdado: true }) ===
+              "Herda o título do post: “Um título”" &&
+              seo.falaDaHeranca({ valor: "x", origem: "compartilhamento", herdado: false }) ===
+                null &&
+              seo.falaDaHeranca({ valor: null, origem: null, herdado: true }).includes(
+                "ausente",
+              ),
+            JSON.stringify(
+              seo.falaDaHeranca({ valor: "Um título", origem: "titulo", herdado: true }),
+            ),
+          );
+
+          /* — A GAVETA MONTADA, COM UM POST QUE TEM O QUE HERDAR — */
+          {
+            const alvo = janela.document.createElement("div");
+            janela.document.body.appendChild(alvo);
+            const raizReact = createRoot(alvo);
+            let valores = {
+              ...regrasDosMetadados.valoresVazios(),
+              titulo: TITULO_DO_POST,
+              resumo: RESUMO_DO_POST,
+              imagem_url: CAPA_GRAVADA,
+              imagem_alt: "Tela do ChatClean",
+            };
+            let dominio = DOMINIO;
+            const desenhar = () =>
+              React.createElement(modulo.GavetaDeMetadados, {
+                valores,
+                categorias: [],
+                baseDaCapaDoProjeto: "https://x.supabase.co",
+                dominioDoSite: dominio,
+                envios: {},
+                aoEscolherArquivo: () => {},
+                aoRemoverImagem: () => {},
+                aoMudar: (campoMudado, valor) => {
+                  valores = { ...valores, [campoMudado]: valor };
+                  raizReact.render(desenhar());
+                },
+              });
+            await act(async () => {
+              raizReact.render(desenhar());
+            });
+
+            const secaoDeSeo = alvo.querySelector('[data-papel="secao-de-seo"]');
+            const doCampo = (nome) => alvo.querySelector(`[data-campo="${nome}"]`);
+
+            /* OS TRÊS EXISTEM, NUMA SEÇÃO PRÓPRIA, E TODOS SÃO OPCIONAIS.
+               "Opcional que parece obrigatório é o mesmo defeito de um campo
+               obrigatório escondido": o que se mede é a ausência da marca de
+               obrigatoriedade que a gaveta desenha por extenso, e a ausência de
+               `required` — não a de um asterisco, que este projeto não usa. */
+            {
+              const rotulosDaSecao = [...secaoDeSeo.querySelectorAll("label")];
+              const comObrigatorio = rotulosDaSecao.filter((r) =>
+                (r.textContent ?? "").includes("obrigatório"),
+              );
+              const comRequired = [...secaoDeSeo.querySelectorAll("input, textarea")].filter(
+                (c) => c.required === true,
+              );
+              /* O CONTROLE DE UM CAMPO DE IMAGEM É O SELETOR DE ARQUIVO no
+                 modo de envio — é ele que a pessoa opera, e é para ele que o
+                 rótulo aponta. A tradução vem do mapa declarado em `capa.js`,
+                 a mesma que a asserção de ordem usa. */
+              const controleDe = (nome) =>
+                doCampo(
+                  capa.CAMPOS_DE_IMAGEM_DA_GAVETA.includes(nome)
+                    ? capa.nomeDoSeletorDeArquivo(nome)
+                    : nome,
+                );
+              afirmar(
+                "a seção de SEO existe e traz os TRÊS campos, com rótulo associado a cada um",
+                secaoDeSeo !== null &&
+                  compartilhamento.CAMPOS_DE_SEO.every((nome) => {
+                    const controle = controleDe(nome);
+                    if (controle === null) return false;
+                    const rotulo = rotulosDaSecao.find((r) => r.getAttribute("for") === controle.id);
+                    return (
+                      rotulo !== undefined &&
+                      (rotulo.textContent ?? "")
+                        .trim()
+                        .startsWith(compartilhamento.ROTULOS_DE_SEO[nome])
+                    );
+                  }),
+                compartilhamento.CAMPOS_DE_SEO.map((n) => `${n}: ${controleDe(n) !== null}`).join(
+                  ", ",
+                ),
+              );
+              afirmar(
+                "e os três são OPCIONAIS: nenhum rótulo da seção diz “obrigatório”, e nenhum controle é `required`",
+                comObrigatorio.length === 0 && comRequired.length === 0,
+                `${comObrigatorio.map((r) => r.textContent).join(" | ")} | required: ${comRequired.length}`,
+              );
+            }
+
+            /* O QUE SERÁ HERDADO APARECE — E O QUE SE COBRA É O VALOR.
+               Uma asserção que só perguntasse "há uma frase embaixo do campo"
+               passaria com a frase certa embaixo do campo errado, ou com a
+               herança lendo a fonte errada. O que se compara é o TEXTO DO
+               POST, capturado de dentro do bloco daquele campo. */
+            {
+              const blocoDe = (nome) =>
+                alvo.querySelector(`[data-papel="campo-de-seo-${nome}"]`);
+              const textoDoBloco = (nome) => blocoDe(nome)?.textContent ?? "";
+              afirmar(
+                "com o Título SEO vazio, a tela mostra QUE valor será herdado — o título do post, por extenso",
+                textoDoBloco("seo_titulo").includes(TITULO_DO_POST) &&
+                  !textoDoBloco("seo_titulo").includes(RESUMO_DO_POST),
+                textoDoBloco("seo_titulo"),
+              );
+              afirmar(
+                "e com a Meta Descrição vazia, o RESUMO — e não o título, que é a troca de fonte que uma contagem não pegaria",
+                textoDoBloco("seo_descricao").includes(RESUMO_DO_POST) &&
+                  !textoDoBloco("seo_descricao").includes(TITULO_DO_POST),
+                textoDoBloco("seo_descricao"),
+              );
+              /* E A FRASE ESTÁ NO `aria-describedby` DO CAMPO: quem usa leitor
+                 de tela precisa ouvir a herança JUNTO do campo, e não descobrir
+                 depois de publicar. */
+              const descrito = janela.document.getElementById(
+                (doCampo("seo_titulo").getAttribute("aria-describedby") ?? "")
+                  .split(" ")
+                  .at(-1),
+              );
+              afirmar(
+                "e ela é ANUNCIADA junto do campo, pelo `aria-describedby` — não é só tinta na tela",
+                (descrito?.textContent ?? "").includes(TITULO_DO_POST),
+                descrito?.textContent ?? "sem descritor",
+              );
+              /* A IMAGEM DE COMPARTILHAMENTO VAZIA DIZ QUE HERDA A CAPA. */
+              afirmar(
+                "e a Imagem de Compartilhamento vazia diz que HERDA A CAPA, no lugar da imagem",
+                (alvo.querySelector('[data-papel="ajuda-da-imagem-de-seo-ausente"]')
+                  ?.textContent ?? "").includes("imagem de capa"),
+                alvo.querySelector('[data-papel="ajuda-da-imagem-de-seo-ausente"]')?.textContent ??
+                  "ausente",
+              );
+              /* E QUEM DECIDE É O DOMÍNIO: a frase da tela é a MESMA que
+                 `metadadosDoPost` produz para o mesmo formulário. Sem esta
+                 comparação, a gaveta poderia montar a herança por conta
+                 própria e continuar verde. */
+              const doDominio = compartilhamento.metadadosDoPost(
+                seo.postDosValores(valores),
+                { dominio: DOMINIO },
+              );
+              afirmar(
+                "e a frase desenhada é a que o DOMÍNIO decidiu — a gaveta não monta herança por conta própria",
+                textoDoBloco("seo_titulo").includes(seo.falaDaHeranca(doDominio.titulo)) &&
+                  textoDoBloco("seo_descricao").includes(seo.falaDaHeranca(doDominio.descricao)),
+                `${seo.falaDaHeranca(doDominio.titulo)}`,
+              );
+
+              /* ── A RECUSA DA CADEIA, DESENHADA (Story 3.4) ──────────────
+                 `metadadosDoPost` devolve `recusadas`, e até aqui o único
+                 consumidor calculava a lista e a jogava fora. O caso que isso
+                 escondia é real e silencioso: uma Imagem de Compartilhamento
+                 cujo endereço o vocabulário de esquema ACEITA — então nenhuma
+                 recusa de formulário aparece — mas cuja espécie está fora da
+                 prévia (`.gif`, `.svg`, WebP) mostrava a miniatura, caía para a
+                 capa, e nada dizia por quê. */
+              {
+                const GIF = "https://cdn.exemplo.com/animacao.gif";
+                await act(async () => {
+                  valores = { ...valores, seo_imagem_url: GIF };
+                  raizReact.render(desenhar());
+                });
+                const decidido = compartilhamento.metadadosDoPost(
+                  seo.postDosValores(valores),
+                  { dominio: DOMINIO },
+                );
+                const motivo = seo.recusaDaCadeia(
+                  decidido,
+                  compartilhamento.CAMPO_DE_IMAGEM_DE_SEO,
+                );
+                afirmar(
+                  "espécie fora da prévia é RECUSADA pela cadeia, e o endereço continua dentro do vocabulário de esquema — é o silêncio que este caso escondia",
+                  typeof motivo === "string" &&
+                    motivo.length > 0 &&
+                    doArquivo.enderecoDeImagemPermitido(GIF) === true &&
+                    doArquivo.problemaNoEnderecoDaImagem(GIF) === null &&
+                    decidido.imagem.origem === "capa",
+                  `motivo: ${motivo} | origem resolvida: ${decidido.imagem.origem}`,
+                );
+                const desenhada = alvo.querySelector(
+                  '[data-papel="recusa-da-cadeia-da-imagem-de-seo"]',
+                );
+                afirmar(
+                  "e a tela DESENHA essa recusa, com a MESMA frase que o domínio nomeou — não uma segunda explicação",
+                  desenhada !== null && desenhada.textContent === motivo,
+                  `${desenhada?.textContent ?? "não desenhada"} × ${motivo}`,
+                );
+                /* E ELA NÃO É UMA RECUSA DE SALVAMENTO. O valor é gravável, e
+                   vestir isto de erro treinaria o Autor a ignorar o erro que
+                   importa — a mesma razão pela qual o aviso do contador também
+                   não usa `Recusa`. */
+                const pedidoComGif = regrasDosMetadados.corpoDoPedido({
+                  valores: { ...valores, titulo: "Um post", resumo: "Resumo" },
+                  documento: { type: "doc", content: [] },
+                });
+                afirmar(
+                  "e ela NÃO bloqueia o salvamento nem marca o campo como inválido — o valor é gravável, a cadeia é que não o aproveita",
+                  desenhada.getAttribute("role") === null &&
+                    desenhada.getAttribute("aria-invalid") === null &&
+                    pedidoComGif.ok === true &&
+                    pedidoComGif.corpo.seo_imagem_url === GIF,
+                  `${desenhada.getAttribute("role")} | pedido: ${JSON.stringify(pedidoComGif.ok)}`,
+                );
+
+                /* CONTROLE POSITIVO: sem recusa, o parágrafo não existe. Sem
+                   ele, um bloco desenhado sempre passaria a asserção acima. */
+                await act(async () => {
+                  valores = { ...valores, seo_imagem_url: "" };
+                  raizReact.render(desenhar());
+                });
+                afirmar(
+                  "controle positivo: sem recusa na cadeia, o bloco não é desenhado — ele não é decoração permanente",
+                  alvo.querySelector('[data-papel="recusa-da-cadeia-da-imagem-de-seo"]') === null,
+                  "o bloco continuou na tela sem motivo",
+                );
+              }
+
+              /* ── A AUSÊNCIA NÃO INVENTA O QUE VAI ACONTECER ─────────────
+                 A frase de reserva afirmava que "o artigo aparece com o
+                 monograma da categoria" — falso duas vezes: o monograma é
+                 recurso do PAINEL, e o que um Post sem capa declara ao ser
+                 compartilhado é decidido pelo domínio. Uma tela que responde
+                 "o que vai acontecer" por conta própria é a segunda opinião que
+                 o AD-20 proíbe, e ela aparecia justo no ramo em que a tela já
+                 está avisando que falta alguma coisa. */
+              {
+                /* SEM CAPA, que é o ramo em que a frase aparece. */
+                await act(async () => {
+                  valores = { ...valores, imagem_url: "", imagem_alt: "" };
+                  raizReact.render(desenhar());
+                });
+                const daCapa = alvo.querySelector('[data-papel="ajuda-da-capa-ausente"]');
+                afirmar(
+                  "a frase de capa ausente NÃO afirma o que o artigo vai mostrar — ela diz só que falta a imagem",
+                  daCapa !== null &&
+                    daCapa.textContent === `Sem ${capa.NOME_DA_CAPA}.` &&
+                    !/monograma/i.test(daCapa.textContent),
+                  daCapa?.textContent ?? "ausente",
+                );
+                /* E O CAMPO QUE HERDA continua contando a herança, que é o
+                   fato que ele PODE afirmar — porque quem o decidiu foi o
+                   domínio. */
+                const deSeo = alvo.querySelector(
+                  '[data-papel="ajuda-da-imagem-de-seo-ausente"]',
+                );
+                afirmar(
+                  "e a da Imagem de Compartilhamento continua contando a herança — esse fato o domínio decidiu, e a tela pode dizê-lo",
+                  deSeo !== null &&
+                    deSeo.textContent ===
+                      seo.falaDaHeranca(
+                        compartilhamento.metadadosDoPost(seo.postDosValores(valores), {
+                          dominio: DOMINIO,
+                        }).imagem,
+                      ),
+                  deSeo?.textContent ?? "ausente",
+                );
+              }
+            }
+
+            /* ─── O CONTADOR: SINALIZA, NÃO BLOQUEIA, NÃO TRUNCA ────────── */
+            {
+              const usual = compartilhamento.COMPRIMENTO_USUAL_DE_SEO.seo_titulo;
+              const noLimite = "t".repeat(usual);
+              const acima = "t".repeat(usual + 25);
+
+              await act(async () => {
+                valores = { ...valores, seo_titulo: noLimite };
+                raizReact.render(desenhar());
+              });
+              const contador = () =>
+                alvo.querySelector('[data-papel="contador-de-seo_titulo"]');
+              afirmar(
+                "no comprimento usual o contador NÃO sinaliza, e o número que ele mostra é o do texto",
+                contador()?.getAttribute("data-acima") === "false" &&
+                  (contador()?.textContent ?? "") === `${usual} / ${usual}` &&
+                  alvo.querySelector('[data-papel="aviso-de-comprimento-seo_titulo"]') === null,
+                `${contador()?.getAttribute("data-acima")}: ${contador()?.textContent}`,
+              );
+
+              await act(async () => {
+                valores = { ...valores, seo_titulo: acima };
+                raizReact.render(desenhar());
+              });
+              const aviso = alvo.querySelector(
+                '[data-papel="aviso-de-comprimento-seo_titulo"]',
+              );
+              afirmar(
+                "acima do usual o contador SINALIZA, com o número do texto e o aviso ao lado",
+                contador()?.getAttribute("data-acima") === "true" &&
+                  (contador()?.textContent ?? "") === `${usual + 25} / ${usual}` &&
+                  aviso !== null &&
+                  (aviso.textContent ?? "") === seo.avisoDeComprimento("seo_titulo", acima),
+                `${contador()?.textContent} | ${aviso?.textContent ?? "sem aviso"}`,
+              );
+              /* E SINALIZAR NÃO É RECUSAR. O aviso não é `role="alert"`, o
+                 campo não fica `aria-invalid`, e a tinta não é a destrutiva:
+                 um conselho vestido de erro é a falha que não é falha. */
+              afirmar(
+                "e sinalizar NÃO é recusar: sem `role=\"alert\"`, sem `aria-invalid` e sem a tinta de recusa",
+                aviso?.getAttribute("role") === null &&
+                  doCampo("seo_titulo")?.getAttribute("aria-invalid") === null &&
+                  !(aviso?.getAttribute("class") ?? "").includes("destructive"),
+                `${aviso?.getAttribute("role")} | ${doCampo("seo_titulo")?.getAttribute("aria-invalid")}`,
+              );
+              /* E NÃO TRUNCA. `maxLength` faria o texto colado sumir sem
+                 aviso — é a decisão que a Story 3.1 tomou para a descrição da
+                 imagem, e ela vale aqui pelo mesmo motivo. */
+              afirmar(
+                "e não TRUNCA: o texto continua inteiro no campo, e nenhum controle da seção tem `maxlength`",
+                doCampo("seo_titulo")?.value === acima &&
+                  [...secaoDeSeo.querySelectorAll("input, textarea")].every(
+                    (c) => c.getAttribute("maxlength") === null,
+                  ),
+                `${doCampo("seo_titulo")?.value?.length} caracteres`,
+              );
+              /* E NÃO BLOQUEIA O SALVAMENTO. É aqui que "não bloqueia" deixa
+                 de ser promessa: o corpo do pedido sai, com o texto INTEIRO. */
+              const pedido = regrasDosMetadados.corpoDoPedido({
+                valores,
+                documento: { type: "doc", content: [] },
+              });
+              afirmar(
+                "e NÃO BLOQUEIA: o pedido sai, e leva o texto inteiro — o número usual é conselho, não regra do produto",
+                pedido.ok === true && pedido.corpo.seo_titulo === acima,
+                `${pedido.ok} | ${pedido.corpo?.seo_titulo?.length}`,
+              );
+            }
+
+            /* ─── O TETO DE HIGIENE, ESSE SIM, RECUSA ──────────────────── */
+            {
+              const teto = compartilhamento.TETO_DE_HIGIENE_DE_SEO.seo_titulo;
+              const enorme = "t".repeat(teto + 1);
+              await act(async () => {
+                valores = { ...valores, seo_titulo: enorme };
+                raizReact.render(desenhar());
+              });
+              const marcado = doCampo("seo_titulo");
+              const recusa = janela.document.getElementById(
+                (marcado.getAttribute("aria-describedby") ?? "").split(" ")[0],
+              );
+              const pedido = regrasDosMetadados.corpoDoPedido({
+                valores,
+                documento: { type: "doc", content: [] },
+              });
+              afirmar(
+                `o teto de HIGIENE (${teto}) recusa: o campo é marcado, a frase diz o teto, e o pedido NÃO sai`,
+                marcado?.getAttribute("aria-invalid") === "true" &&
+                  (recusa?.textContent ?? "").includes(String(teto)) &&
+                  pedido.ok === false &&
+                  pedido.campo === "seo_titulo",
+                `${marcado?.getAttribute("aria-invalid")} | ${recusa?.textContent} | ${pedido.ok}`,
+              );
+              /* E OS DOIS NÚMEROS FAZEM TRABALHOS DIFERENTES SOBRE O MESMO
+                 TEXTO: o que passa do usual é aceito e o que passa do teto não.
+                 Um número só faria uma das duas asserções acima impossível. */
+              afirmar(
+                "e os dois números são mesmo dois: o texto acima do usual passou, e este, acima do teto, não",
+                compartilhamento.TETO_DE_HIGIENE_DE_SEO.seo_titulo >
+                  compartilhamento.COMPRIMENTO_USUAL_DE_SEO.seo_titulo *
+                    compartilhamento.DISTANCIA_MINIMA_ENTRE_OS_DOIS - 1,
+                `${compartilhamento.COMPRIMENTO_USUAL_DE_SEO.seo_titulo} vs ${teto}`,
+              );
+              await act(async () => {
+                valores = { ...valores, seo_titulo: "" };
+                raizReact.render(desenhar());
+              });
+            }
+
+            /* ─── A IMAGEM DE COMPARTILHAMENTO É O MESMO CONTROLE ───────── */
+            //
+            // "Duas formas de dizer a mesma coisa na mesma gaveta é sinônimo."
+            // O que se cobra é a IDENTIDADE do controle: as mesmas duas
+            // origens, o mesmo `accept` do vocabulário do domínio, a mesma
+            // degradação — e nomes acessíveis distintos, senão quem navega por
+            // leitor de tela ouve o mesmo rótulo duas vezes.
+            {
+              const grupoDaCapa = alvo.querySelector('[data-papel="origem-da-capa"]');
+              const grupoDeSeo = alvo.querySelector('[data-papel="origem-da-imagem-de-seo"]');
+              const opcoesDe = (grupo) =>
+                [...grupo.querySelectorAll("[data-origem-da-capa]")].map((o) =>
+                  o.getAttribute("data-origem-da-capa"),
+                );
+              afirmar(
+                "a Imagem de Compartilhamento oferece AS MESMAS duas origens da capa — não um campo de texto cru",
+                grupoDeSeo !== null &&
+                  grupoDeSeo.getAttribute("role") === "radiogroup" &&
+                  opcoesDe(grupoDeSeo).join(",") === capa.ORIGENS_DA_CAPA.join(",") &&
+                  opcoesDe(grupoDeSeo).join(",") === opcoesDe(grupoDaCapa).join(","),
+                `${opcoesDe(grupoDeSeo).join(",")} vs ${opcoesDe(grupoDaCapa).join(",")}`,
+              );
+              afirmar(
+                "e os dois grupos têm nomes acessíveis DISTINTOS — o mesmo rótulo duas vezes deixaria quem navega sem saber qual está operando",
+                grupoDeSeo.getAttribute("aria-label") !==
+                  grupoDaCapa.getAttribute("aria-label") &&
+                  grupoDeSeo
+                    .getAttribute("aria-label")
+                    .toLowerCase()
+                    .includes("compartilhamento"),
+                `${grupoDaCapa.getAttribute("aria-label")} | ${grupoDeSeo.getAttribute("aria-label")}`,
+              );
+              const seletorDeSeo = doCampo(capa.nomeDoSeletorDeArquivo("seo_imagem_url"));
+              const seletorDaCapa = doCampo(capa.nomeDoSeletorDeArquivo("imagem_url"));
+              afirmar(
+                "e ela ENVIA ARQUIVO como a capa, com o mesmo `accept` do vocabulário do domínio",
+                seletorDeSeo !== null &&
+                  seletorDeSeo.type === "file" &&
+                  seletorDeSeo.getAttribute("accept") === doArquivo.TIPOS_DE_IMAGEM.join(",") &&
+                  seletorDeSeo.getAttribute("accept") === seletorDaCapa.getAttribute("accept"),
+                `${seletorDeSeo?.getAttribute("accept")}`,
+              );
+              /* A DEGRADAÇÃO É A MESMA: o monograma no lugar da imagem, com o
+                 nome acessível dizendo QUAL campo falhou. */
+              afirmar(
+                "e ela degrada para o MESMO monograma, com o nome acessível dizendo que o campo é o de compartilhamento",
+                alvo.querySelector('[data-papel="imagem-de-seo-ausente"]') !== null &&
+                  (alvo
+                    .querySelector('[data-papel="imagem-de-seo-ausente"]')
+                    ?.getAttribute("aria-label") ?? "")
+                    .toLowerCase()
+                    .includes("compartilhamento"),
+                alvo
+                  .querySelector('[data-papel="imagem-de-seo-ausente"]')
+                  ?.getAttribute("aria-label") ?? "ausente",
+              );
+              /* E O ENDEREÇO DELA É RECUSADO ANTES DO SALVAMENTO, pelo MESMO
+                 vocabulário de esquema — a mesma frase da capa, e não uma
+                 segunda opinião sobre endereço aceitável. */
+              await act(async () => {
+                valores = { ...valores, seo_imagem_url: "data:image/png;base64,iVBOR" };
+                raizReact.render(desenhar());
+              });
+              const campoDeEndereco = doCampo("seo_imagem_url");
+              await act(async () => {
+                /* `focusout`, e não `blur`: é o evento que borbulha, e é o que o React
+                     escuta para disparar `onBlur`. */
+                campoDeEndereco.dispatchEvent(new janela.FocusEvent("focusout", { bubbles: true }));
+              });
+              const recusaVisivel = janela.document.getElementById(
+                (doCampo("seo_imagem_url").getAttribute("aria-describedby") ?? "").split(" ")[0],
+              );
+              const pedidoComEnderecoRuim = regrasDosMetadados.corpoDoPedido({
+                valores,
+                documento: { type: "doc", content: [] },
+              });
+              afirmar(
+                "e o endereço fora do vocabulário é recusado ANTES do salvamento, com a MESMA frase da capa",
+                (recusaVisivel?.textContent ?? "") ===
+                  doArquivo.problemaNoEnderecoDaImagem("data:image/png;base64,iVBOR") &&
+                  pedidoComEnderecoRuim.ok === false &&
+                  pedidoComEnderecoRuim.campo === "seo_imagem_url",
+                `${recusaVisivel?.textContent} | ${pedidoComEnderecoRuim.ok}`,
+              );
+              await act(async () => {
+                valores = { ...valores, seo_imagem_url: "" };
+                raizReact.render(desenhar());
+              });
+            }
+
+            /* ─── SALVAR COM OS TRÊS VAZIOS FUNCIONA ────────────────────── */
+            //
+            // É o critério de aceite, e é a diferença entre "opcional" escrito
+            // no rótulo e opcional de verdade. Os três viajam como `null`, que
+            // é o pedido explícito de HERDAR — omiti-los faria o servidor
+            // preservar o que estava gravado, e apagar um Título SEO na tela
+            // não teria efeito nenhum.
+            {
+              const pedido = regrasDosMetadados.corpoDoPedido({
+                valores: { ...regrasDosMetadados.valoresVazios(), titulo: "T", resumo: "R" },
+                documento: { type: "doc", content: [] },
+              });
+              afirmar(
+                "salvar com os três campos de SEO vazios FUNCIONA, e os três viajam como `null` — vazio é o pedido de herdar",
+                pedido.ok === true &&
+                  compartilhamento.CAMPOS_DE_SEO.every(
+                    (nome) =>
+                      Object.hasOwn(pedido.corpo, nome) && pedido.corpo[nome] === null,
+                  ),
+                JSON.stringify(
+                  compartilhamento.CAMPOS_DE_SEO.map((n) => [n, pedido.corpo?.[n]]),
+                ),
+              );
+              /* E SÓ ESPAÇOS TAMBÉM É VAZIO no caminho do pedido: a tela apara
+                 antes de mandar, senão o banco guardaria três espaços e a
+                 etiqueta sairia em branco. */
+              const soEspacos = regrasDosMetadados.corpoDoPedido({
+                valores: {
+                  ...regrasDosMetadados.valoresVazios(),
+                  titulo: "T",
+                  resumo: "R",
+                  seo_titulo: "   ",
+                  seo_descricao: "\t\n ",
+                },
+                documento: { type: "doc", content: [] },
+              });
+              afirmar(
+                "e campo com só espaços vira `null` no pedido — não uma etiqueta em branco gravada na coluna",
+                soEspacos.ok === true &&
+                  soEspacos.corpo.seo_titulo === null &&
+                  soEspacos.corpo.seo_descricao === null,
+                JSON.stringify([soEspacos.corpo?.seo_titulo, soEspacos.corpo?.seo_descricao]),
+              );
+            }
+
+            /* ─── E SEM O DOMÍNIO CANÔNICO, O DEFEITO APARECE NOMEADO ───── */
+            //
+            // A herança da imagem precisa do Domínio Canônico, e sem ele
+            // `metadadosDoPost` LANÇA. Propagar a exceção derrubaria a gaveta
+            // inteira — com o Título, o Resumo e o conteúdo do Post junto; e
+            // engoli-la mostraria uma seção em branco, que é o silêncio que
+            // este projeto proíbe. O que a tela faz é DESENHAR o defeito.
+            {
+              await act(async () => {
+                dominio = "";
+                raizReact.render(desenhar());
+              });
+              const dito = alvo.querySelector('[data-papel="heranca-indisponivel"]');
+              afirmar(
+                "sem Domínio Canônico a seção mostra o DEFEITO DE MONTAGEM nomeado — e a gaveta continua de pé",
+                dito !== null &&
+                  (dito.textContent ?? "") === compartilhamento.DEFEITO_DE_DOMINIO_AUSENTE &&
+                  dito.getAttribute("role") === "alert" &&
+                  /* A GAVETA CONTINUA INTEIRA: sem esta cláusula, uma exceção
+                     propagada que apagasse a gaveta passaria pela primeira. */
+                  doCampo("titulo") !== null &&
+                  doCampo("seo_titulo") !== null,
+                dito?.textContent ?? "nada foi dito",
+              );
+              await act(async () => {
+                dominio = DOMINIO;
+                raizReact.render(desenhar());
+              });
+            }
+
+            await act(async () => raizReact.unmount());
+            alvo.remove();
+          }
+
+          /* ─── E O EDITOR MANDA OS TRÊS PELO CAMINHO ÚNICO ───────────── */
+          //
+          // A gaveta é controlada e não grava. Quem monta o pedido e o entrega
+          // à porta única é o Editor — e sem esta montagem "existe caminho de
+          // escrita" continuaria sendo uma afirmação sobre `CAMPOS_ACEITOS`,
+          // e não sobre o que a tela faz.
+          {
+            const tela = await montarTela({ postId: null });
+            await tela.digitar(tela.campo("titulo"), "Um post com SEO");
+            await tela.digitar(tela.campo("resumo"), "O resumo do post");
+            await tela.digitar(tela.campo("seo_titulo"), "Título de busca");
+            await tela.digitar(tela.campo("seo_descricao"), "Descrição de busca");
+            await tela.clicar(tela.acaoPorChave("salvar"));
+            const enviado = modulo.controle.pedidos.at(-1);
+            afirmar(
+              "o Editor manda os campos de SEO pelo caminho único, com o texto que foi digitado",
+              enviado?.seo_titulo === "Título de busca" &&
+                enviado?.seo_descricao === "Descrição de busca" &&
+                enviado?.seo_imagem_url === null,
+              JSON.stringify([
+                enviado?.seo_titulo,
+                enviado?.seo_descricao,
+                enviado?.seo_imagem_url,
+              ]),
+            );
+            await tela.desmontar();
+          }
+        }
         }
       }
     }

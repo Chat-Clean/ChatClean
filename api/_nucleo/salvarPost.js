@@ -26,10 +26,11 @@
  *
  * ─── O que este módulo NÃO faz, de propósito ────────────────────────────────
  *
- * A capa e o SEO continuam de fora, dos Épicos 3 e 4. A lista de campos aceitos
- * é FECHADA, e o que vem fora dela é ignorado e relatado — nunca gravado. O
- * Autor continua sendo resolvido aqui, e `autor_id`/`autor_nome` do cliente
- * continuam ignorados.
+ * A lista de campos aceitos é FECHADA, e o que vem fora dela é ignorado e
+ * relatado — nunca gravado. O Autor continua sendo resolvido aqui, e
+ * `autor_id`/`autor_nome` do cliente continuam ignorados. A capa entrou na
+ * Story 3.1 e os três campos de SEO na 3.4; o que continua de fora é o
+ * metadado SERVIDO, que é o Épico 4 e não passa por esta porta.
  *
  * ─── O que a Story 2.8 acrescentou: a TRANSIÇÃO ─────────────────────────────
  *
@@ -133,9 +134,23 @@ import {
   TAMANHO_MAXIMO_DO_ALTERNATIVO,
   TAMANHO_MAXIMO_DO_ENDERECO,
   baseDoEnderecoPublico,
+  ROTULO_DA_CAPA,
   caminhoDaCapaNoEndereco,
   enderecoDeImagemPermitido,
 } from "../../src/domain/blog/arquivos.js";
+/* Os DOIS NÚMEROS de cada campo de SEO vêm do DOMÍNIO (Story 3.4), e é o teto
+   de HIGIENE que esta porta cobra — o comprimento usual sinaliza na tela e não
+   chega aqui. Escrever o número à mão neste arquivo faria a porta e a restrição
+   `posts_seo_titulo_com_teto` divergirem, e a divergência apareceria como
+   "violates check constraint" cru na cara do Autor. */
+import {
+  CAMPOS_DE_SEO,
+  CAMPOS_DE_TEXTO_DE_SEO,
+  ROTULOS_DE_SEO,
+  TETO_DE_HIGIENE_DE_SEO,
+  caracteresDe,
+  problemaNoTextoDeSeo,
+} from "../../src/domain/blog/compartilhamento.js";
 import { derivarHtml } from "../../src/render/blog/paraHtml.js";
 
 /* ─── O vocabulário de erro ──────────────────────────────────────────────── */
@@ -280,6 +295,20 @@ export const CAMPOS_ACEITOS = Object.freeze([
      seria abrir um caminho cuja única saída é a recusa do banco. */
   "imagem_url",
   "imagem_alt",
+  /* Story 3.4: OS TRÊS CAMPOS DE SEO. Mesma história da capa, um épico depois —
+     as colunas existiam desde a Story 2.1 e nenhuma porta as escrevia, então
+     `seo_titulo` chegava como campo ignorado e voltava relatado com nome. É por
+     isso que a cadeia de herança de `domain/blog/compartilhamento.js` tinha um
+     elo que nunca podia ter valor.
+
+     Os três são OPCIONAIS, e opcional aqui tem o sentido forte: vazio não é
+     falta, vazio HERDA — o título do Post, o Resumo, a Imagem de Capa. Nenhum
+     deles entra em `faltando`, e nenhum deles impede o salvamento.
+
+     A lista vem do DOMÍNIO, espalhada: ela é a mesma que a gaveta desenha, que
+     `colunasDeMetadado` grava e que a leitura seleciona. Escrevê-la aqui à mão
+     seria a quarta cópia, e o quarto campo entraria em três delas. */
+  ...CAMPOS_DE_SEO,
   /* Story 2.8. `estado` é aceito, e "aceito" aqui significa VALIDADO contra a
      máquina de transições — não gravado como veio. É a única coisa do corpo
      cujo valor é conferido contra o que já está no banco. */
@@ -321,7 +350,7 @@ export const CAMPOS_IGNORADOS = Object.freeze([
   "destaque",
 ]);
 
-const TAMANHO_MAXIMO_DO_TITULO = 300;
+export const TAMANHO_MAXIMO_DO_TITULO = 300;
 
 /**
  * Tetos que o banco NÃO impõe, e que por isso precisam existir aqui.
@@ -342,9 +371,38 @@ const TAMANHO_MAXIMO_DO_TITULO = 300;
  *              de descartes do schema já tinha teto e este não tinha: dez mil
  *              chaves inventadas no corpo voltavam como dez mil strings.
  */
-const TAMANHO_MAXIMO_DO_RESUMO = 600;
+export const TAMANHO_MAXIMO_DO_RESUMO = 600;
 export const TAMANHO_MAXIMO_DO_CONTEUDO = 1_000_000;
 export const LIMITE_DE_IGNORADOS = 40;
+
+/* ─── O ELO HERDADO CABE NO TETO DE QUEM O HERDA (Story 3.4) ──────────────
+ *
+ * `herdarTexto`, no domínio, NÃO confere o teto de higiene no elo herdado, e a
+ * razão escrita lá é que `titulo` e `resumo` já têm teto próprio na gravação —
+ * os dois NÃO ACIMA do teto do campo de SEO que os herda. Enquanto isso foi só
+ * um comentário, era uma coincidência entre quatro números em dois arquivos:
+ * subir `TAMANHO_MAXIMO_DO_RESUMO` para 2000 faria a Meta Descrição herdada
+ * passar do teto que a escrita à mão recusa, e nada acusaria.
+ *
+ * Agora é guarda de carregamento, e ela LANÇA — a mesma disciplina de
+ * `DISTANCIA_MINIMA_ENTRE_OS_DOIS`, e no único módulo onde os quatro números
+ * são visíveis ao mesmo tempo. `verificar:escrita` a exercita.
+ */
+export const TETO_DA_FONTE_HERDADA = Object.freeze({
+  seo_titulo: TAMANHO_MAXIMO_DO_TITULO,
+  seo_descricao: TAMANHO_MAXIMO_DO_RESUMO,
+});
+
+for (const [campo, tetoDaFonte] of Object.entries(TETO_DA_FONTE_HERDADA)) {
+  const tetoDeSeo = TETO_DE_HIGIENE_DE_SEO[campo];
+  if (tetoDaFonte > tetoDeSeo) {
+    throw new Error(
+      `O teto da fonte de \`${campo}\` (${tetoDaFonte}) passou do teto de higiene do campo que a ` +
+        `herda (${tetoDeSeo}): o elo herdado não é conferido contra o teto, e a razão para isso é ` +
+        "exatamente que ele nunca pode ser maior.",
+    );
+  }
+}
 
 /**
  * Tetos dos metadados da Story 2.6, pela mesma razão dos de cima: o banco não
@@ -810,6 +868,92 @@ export function lerCorpo(corpo, { criando }) {
     }
   }
 
+  /* ── OS TRÊS CAMPOS DE SEO (Story 3.4) ──────────────────────────────────
+     Mesma convenção dos outros metadados: ausente PRESERVA, `null` (ou vazio,
+     ou só espaços) LIMPA, valor fora de forma é problema NOMEADO.
+
+     **Vazio limpa, e limpar é herdar.** Não há par a cobrar como no da capa e
+     da descrição: os três são independentes entre si, e cada um vazio herda o
+     seu — `metadadosDoPost` é quem decide isso, e é a mesma função que a tela
+     consulta para mostrar o que será herdado.
+
+     Só espaços é vazio, pelo mesmo motivo escrito em `imagem_alt`: `"   "`
+     gravado na coluna produziria um `og:title` em branco, que é pior que o
+     herdado porque nada acusaria. */
+  for (const campo of CAMPOS_DE_TEXTO_DE_SEO) {
+    if (corpo[campo] === undefined) continue;
+    const valor = corpo[campo] === null ? "" : texto(corpo[campo]);
+    if (valor === null) {
+      problemas.push(`${ROTULOS_DE_SEO[campo]}: o valor precisa ser texto.`);
+      detalhes.push(`${campo} veio ${descreverValor(corpo[campo])}`);
+      continue;
+    }
+    if (valor === "") {
+      campos[campo] = null;
+      continue;
+    }
+    /* O TETO DE HIGIENE, e só ele. A regra é a do DOMÍNIO, importada — a mesma
+       que a restrição do banco espelha, e a mesma que a tela usa. O
+       comprimento USUAL não é conferido aqui de propósito: ele sinaliza na
+       tela e nunca bloqueia, e trazê-lo para cá o transformaria numa recusa. */
+    const problema = problemaNoTextoDeSeo(campo, valor);
+    if (problema !== null) {
+      problemas.push(problema);
+      detalhes.push(
+        `${campo} com ${caracteresDe(valor)} caracteres (teto ${TETO_DE_HIGIENE_DE_SEO[campo]})`,
+      );
+      continue;
+    }
+    campos[campo] = valor;
+  }
+
+  /* A IMAGEM DE COMPARTILHAMENTO usa o MESMO vocabulário de esquema da capa —
+     `enderecoDeImagemPermitido`, o espelho em JS de
+     `posts_seo_imagem_url_e_endereco`. Não há segundo julgamento sobre o que é
+     endereço aceitável: um aqui e outro na capa divergiriam na primeira
+     mudança, e a divergência apareceria como imagem que a tela aceita e o
+     banco recusa. */
+  if (corpo.seo_imagem_url !== undefined) {
+    if (corpo.seo_imagem_url === null || corpo.seo_imagem_url === "") {
+      campos.seo_imagem_url = null;
+    } else if (typeof corpo.seo_imagem_url !== "string") {
+      /* FORA DE FORMA É PROBLEMA NOMEADO, e nunca "limpar o campo".
+         `texto()` devolve `null` tanto para `"   "` quanto para `42`, `true`,
+         `{}` e `["https://x.co/a.png"]` — e colapsar os dois casos em
+         `campos.seo_imagem_url = null` fazia um cliente torto APAGAR a coluna
+         com `ok: true` e `ignorados: []`. Pior: `removerImagensAnteriores` lê
+         isso como remoção deliberada e apaga o arquivo do bucket. Os dois
+         irmãos de texto e a capa sempre recusaram com nome; este não. */
+      problemas.push(`${ROTULOS_DE_SEO.seo_imagem_url}: o valor precisa ser texto.`);
+      detalhes.push(`seo_imagem_url veio ${descreverValor(corpo.seo_imagem_url)}`);
+    } else {
+      const endereco = texto(corpo.seo_imagem_url);
+      if (endereco === null || endereco === "") {
+        /* Só espaços é vazio, como nos dois campos de texto — e aqui `texto()`
+           só pode devolver `null` por isso, porque o tipo já foi conferido. */
+        campos.seo_imagem_url = null;
+      } else if (!enderecoDeImagemPermitido(endereco)) {
+        problemas.push(
+          "O endereço da imagem de compartilhamento precisa ser um endereço https absoluto. " +
+            "Envie a imagem pelo campo em vez de colar o conteúdo dela.",
+        );
+        detalhes.push(
+          `seo_imagem_url fora da lista de permissão (${String(corpo.seo_imagem_url).length} caracteres): ` +
+            JSON.stringify(String(corpo.seo_imagem_url).slice(0, 80)),
+        );
+      } else if (endereco.length > TAMANHO_MAXIMO_DO_ENDERECO) {
+        // Inalcançável hoje — `enderecoDeImagemPermitido` corta no mesmo
+        // número —, e mantido pela mesma razão da capa: o teto é o que o banco
+        // cobra, e as duas conferências precisam continuar dizendo a mesma
+        // coisa se uma delas mudar.
+        problemas.push("O endereço da imagem de compartilhamento é longo demais.");
+        detalhes.push(`seo_imagem_url com ${endereco.length} caracteres`);
+      } else {
+        campos.seo_imagem_url = endereco;
+      }
+    }
+  }
+
   if (corpo.tempo_leitura !== undefined) {
     if (corpo.tempo_leitura === null || corpo.tempo_leitura === "") {
       campos.tempo_leitura = 0;
@@ -1063,10 +1207,19 @@ async function gravar({ token, corpo, acesso }) {
      não fala de capa nenhuma.
 
      E ela NÃO julga origem: a única pergunta é se este acesso sabe responder. */
-  if (typeof lido.campos.imagem_url === "string" && typeof acesso.baseDoProjeto !== "function") {
+  /* E O DETALHE NOMEIA A COLUNA QUE DE FATO VEIO. A versão anterior dizia
+     sempre "o arquivo da capa", então um Post que trouxesse só
+     `seo_imagem_url` produzia um detalhe de log apontando para o campo errado
+     — e quem fosse investigar procuraria na capa um defeito que não estava
+     lá. */
+  const colunasComImagem = COLUNAS_DE_IMAGEM.filter(
+    (coluna) => typeof lido.campos[coluna] === "string",
+  );
+  if (colunasComImagem.length > 0 && typeof acesso.baseDoProjeto !== "function") {
     return falha(ERRO_INESPERADO, {
       detalhe:
-        "o acesso não sabe dizer a URL do projeto, então não há como cuidar do arquivo da capa",
+        "o acesso não sabe dizer a URL do projeto, então não há como cuidar do arquivo de " +
+        colunasComImagem.map((coluna) => ROTULOS_DE_COLUNA_DE_IMAGEM[coluna]).join(" e "),
     });
   }
 
@@ -1251,10 +1404,10 @@ async function gravar({ token, corpo, acesso }) {
      E ela roda só quando o endereço MUDOU. Salvar um Post sem tocar na capa
      manda `imagem_url` com o mesmo valor, e apagar o arquivo aí seria apagar a
      capa que acabou de ser gravada. */
-  const residuo = await removerCapaAnterior({
+  const residuo = await removerImagensAnteriores({
     acesso,
-    anterior: existente.dados.imagem_url ?? null,
-    atual: escrita.dados.imagem_url ?? null,
+    anterior: existente.dados,
+    atual: escrita.dados,
   });
 
   /* AS TAGS VÊM DEPOIS DA REMOÇÃO, e a ordem importa.
@@ -1276,6 +1429,109 @@ async function gravar({ token, corpo, acesso }) {
     residuo,
   });
 }
+
+/**
+ * As colunas do Post que guardam ENDEREÇO DE IMAGEM, declaradas uma vez.
+ *
+ * As duas podem apontar para um arquivo do nosso bucket, então as duas têm o
+ * mesmo ciclo de vida: trocar o endereço deixa o arquivo anterior para trás, e
+ * excluir o Post deixa os dois. A Story 3.4 abriu a segunda — e abrir uma porta
+ * de escrita para um arquivo sem abrir junto o caminho que o remove é criar um
+ * vazamento com data marcada.
+ */
+export const COLUNAS_DE_IMAGEM = Object.freeze(["imagem_url", "seo_imagem_url"]);
+
+/**
+ * O nome de cada coluna de imagem em palavras de gente.
+ *
+ * O da Imagem de Compartilhamento vem de `ROTULOS_DE_SEO`, do domínio — não há
+ * segunda grafia. O da Capa nasce aqui porque não existe vocabulário de rótulo
+ * para ela em lugar nenhum do domínio, e inventar um módulo para uma linha
+ * seria pior; o que não se pode é escrevê-lo de novo em cada mensagem.
+ */
+export const ROTULOS_DE_COLUNA_DE_IMAGEM = Object.freeze({
+  imagem_url: ROTULO_DA_CAPA,
+  seo_imagem_url: ROTULOS_DE_SEO.seo_imagem_url,
+});
+
+/**
+ * Remove os arquivos que as DUAS colunas de imagem deixaram para trás.
+ *
+ * Recebe a linha ANTERIOR e a linha ATUAL (ou `null`, na exclusão), e devolve
+ * `null` ou UM resíduo `{ arquivo, motivo }` — juntando os nomes quando os dois
+ * arquivos sobraram. A forma continua sendo uma só porque quem a lê é uma frase
+ * de tela (`falaDoResiduo`), e "avise quem cuida do projeto para remover A e B"
+ * é a mesma instrução com dois nomes; devolver só o primeiro esconderia o
+ * segundo, que é o silêncio que esta família de funções existe para não ter.
+ */
+export async function removerImagensAnteriores({ acesso, anterior, atual }) {
+  /* ── O MESMO ARQUIVO NAS DUAS COLUNAS ───────────────────────────────────
+     Usar a mesma imagem como Capa e como Imagem de Compartilhamento é o caso
+     mais provável de todos, e sem esta linha ele DESTRÓI: trocar a capa faria
+     `removerCapaAnterior` ver "o endereço mudou" e apagar do bucket o arquivo
+     que a outra coluna continua apontando. O Post ficaria com uma prévia de
+     endereço morto, e nada viraria resíduo — do ponto de vista do servidor a
+     remoção deu certo.
+
+     A pergunta é sobre a linha ATUAL inteira, e não sobre a coluna: um
+     endereço que QUALQUER coluna ainda usa não é lixo. Na exclusão (`atual`
+     nulo) o conjunto é vazio, e as duas saem — que é o certo. */
+  const aindaEmUso = new Set(
+    COLUNAS_DE_IMAGEM.map((coluna) => atual?.[coluna] ?? null).filter(
+      (endereco) => typeof endereco === "string" && endereco !== "",
+    ),
+  );
+
+  /* AS DUAS EM PARALELO. Elas são independentes — endereços diferentes, e o
+     transporte não guarda estado entre chamadas —, e este pedido tem prazo
+     TOTAL: encadeá-las gastaria duas viagens de rede em série por um ganho
+     nenhum. É o mesmo argumento que `lerPost` escreve para ter economizado uma
+     chamada. `allSettled` não é preciso: `removerCapaAnterior` não rejeita, ela
+     devolve resíduo. */
+  /* O QUE SOBROU, SEM REPETIÇÃO. As duas colunas podem apontar para o MESMO
+     arquivo, e quando ele deixa de ser usado pelas duas, ele é lixo UMA vez: o
+     segundo pedido de remoção voltaria "não existe" e viraria um resíduo
+     inventado — a tela mandaria alguém procurar um arquivo que acabou de ser
+     removido com sucesso. */
+  const paraRemover = [];
+  for (const coluna of COLUNAS_DE_IMAGEM) {
+    const anteriorDaColuna = anterior?.[coluna] ?? null;
+    if (typeof anteriorDaColuna !== "string" || anteriorDaColuna === "") continue;
+    if (aindaEmUso.has(anteriorDaColuna)) continue;
+    if (paraRemover.includes(anteriorDaColuna)) continue;
+    paraRemover.push(anteriorDaColuna);
+  }
+
+  /* `atual: null` porque a decisão de "mudou" já foi tomada acima, sobre a
+     LINHA inteira. O que `removerCapaAnterior` ainda faz — e é o que importa —
+     é a lista de PERMISSÃO `ehCaminhoDeCapa`, que impede endereço de fora de
+     virar tentativa de remoção. */
+  const sobras = await Promise.all(
+    paraRemover.map((endereco) =>
+      removerCapaAnterior({ acesso, anterior: endereco, atual: null }),
+    ),
+  );
+
+  const residuos = sobras.filter((sobrou) => sobrou !== null);
+  if (residuos.length === 0) return null;
+  if (residuos.length === 1) return residuos[0];
+  /* DOIS RESÍDUOS, UMA FORMA SÓ. `arquivo` deixa de ser um caminho e passa a
+     ser uma ENUMERAÇÃO de caminhos, e isso é declarado porque quem o lê é uma
+     frase de tela (`falaDoResiduo`): "avise quem cuida do projeto para remover
+     A e B" é a mesma instrução com dois nomes. Devolver só o primeiro
+     esconderia o segundo, que é o silêncio que esta família existe para não
+     ter. `motivo` junta os dois pelo mesmo motivo, e o separador é o que
+     distingue "dois motivos" de "um motivo comprido". */
+  return Object.freeze({
+    arquivo: residuos.map((r) => r.arquivo).join(SEPARADOR_DE_ARQUIVOS_NO_RESIDUO),
+    motivo: residuos.map((r) => r.motivo).join(SEPARADOR_DE_MOTIVOS_NO_RESIDUO),
+  });
+}
+
+/** Como dois caminhos de arquivo aparecem juntos num resíduo só. */
+export const SEPARADOR_DE_ARQUIVOS_NO_RESIDUO = " e ";
+/** E como dois motivos aparecem — separador diferente, porque são fatos. */
+export const SEPARADOR_DE_MOTIVOS_NO_RESIDUO = " | ";
 
 /**
  * Remove o arquivo da capa anterior — e NUNCA desfaz nada por falhar.
@@ -1591,6 +1847,11 @@ function colunasDeMetadado(campos) {
     "tempo_leitura",
     "imagem_url",
     "imagem_alt",
+    /* Story 3.4: sem estes três nomes a validação existiria e a gravação não —
+       os campos passariam pela lista de permissão, seriam conferidos, e o
+       comando sairia sem eles. É a metade silenciosa do caminho de escrita, e
+       `verificar:escrita` a exercita sem rede. */
+    ...CAMPOS_DE_SEO,
   ]) {
     if (campos[nome] !== undefined) saida[nome] = campos[nome];
   }

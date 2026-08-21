@@ -81,6 +81,13 @@ import { totalEmbutido } from "../src/data/blog/taxonomia.js";
 import {
   CAMPOS_ACEITOS,
   CAMPOS_IGNORADOS,
+  COLUNAS_DE_IMAGEM,
+  ROTULOS_DE_COLUNA_DE_IMAGEM,
+  SEPARADOR_DE_ARQUIVOS_NO_RESIDUO,
+  SEPARADOR_DE_MOTIVOS_NO_RESIDUO,
+  TETO_DA_FONTE_HERDADA,
+  TAMANHO_MAXIMO_DO_RESUMO,
+  TAMANHO_MAXIMO_DO_TITULO,
   classificar,
   ERRO_CONFLITO,
   ERRO_DADOS_INVALIDOS,
@@ -89,6 +96,7 @@ import {
   MARGEM_DE_RELOGIO_MS,
   PADRAO_UUID,
   removerCapaAnterior,
+  removerImagensAnteriores,
   salvarPost,
   TAMANHO_MAXIMO_DO_CONTEUDO,
   TIPOS_DE_ERRO,
@@ -144,6 +152,28 @@ import {
   ICONE_PADRAO,
 } from "../src/domain/blog/categorias.js";
 import { chaveDaTag, separarTags } from "../src/domain/blog/tags.js";
+/* Os módulos de `src/admin/` NÃO são importáveis aqui: eles usam o alias `@/`,
+   que só existe sob o empacotador. Quem os executa é `verificar:editor`, que
+   compila antes de montar — e é lá que moram a fala do resíduo dobrado e a
+   conferência da lista de campos da gaveta. */
+
+/** A outra coluna de imagem — para a asserção poder afirmar quem NÃO foi acusado. */
+const outraColuna = (coluna) => COLUNAS_DE_IMAGEM.find((c) => c !== coluna);
+/* Os DOIS NÚMEROS de cada campo de SEO (Story 3.4). O teto de HIGIENE é o que
+   o banco cobra e o que esta ferramenta mede contra ele — escrever `300` à mão
+   aqui compararia o banco com um literal, e não com a decisão do domínio. O
+   comprimento USUAL entra para provar que os dois são MESMO dois: o texto
+   entre eles atravessa a porta inteiro. */
+import {
+  CAMPOS_DE_SEO,
+  CAMPOS_DE_TEXTO_DE_SEO,
+  CAMPO_DE_IMAGEM_DE_SEO,
+  COMPRIMENTO_USUAL_DE_SEO,
+  ROTULOS_DE_SEO,
+  TETO_DE_HIGIENE_DE_SEO,
+  caracteresDe,
+  problemaNoTextoDeSeo,
+} from "../src/domain/blog/compartilhamento.js";
 /* O cliente da porta única. Ele importa em Node — a configuração do Supabase é
    lida com guarda e a falta dela vira erro TIPADO, não exceção —, e é isso que
    permite executar as recusas dele aqui em vez de lê-las. */
@@ -1781,6 +1811,71 @@ secao("(c) o núcleo: lista fechada, Autor no servidor, resposta sem detalhe");
     "o núcleo não pode ter conhecimento próprio do vocabulário",
   );
 
+/* ── A LISTA DOS CAMPOS DE SEO É UMA SÓ (Story 3.4) ──────────────────────
+     Ela estava copiada à mão em pelo menos cinco lugares — o Editor,
+     `metadados.js` em três, a porta em dois, o transporte —, e só a varredura
+     de `verificar:interface` a conferia contra o domínio. `CAMPOS_DE_SEO`
+     existe justamente para ser escrita "uma vez, e não em quatro lugares", e a
+     quinta cópia é onde o campo novo não entra.
+
+     O que se afirma é a IGUALDADE de conjunto em cada consumidor, e não um
+     "contém": uma lista que trouxesse um quarto nome inventado passaria por
+     contenção e chegaria à gravação. */
+  {
+    const CONSUMIDORES_DA_LISTA = [
+      ["os campos aceitos pela porta", CAMPOS_ACEITOS],
+      ["as colunas que a leitura seleciona", COLUNAS_DO_POST],
+    ];
+    for (const [onde, lista] of CONSUMIDORES_DA_LISTA) {
+      const daLista = lista.filter((campo) => campo.startsWith("seo_"));
+      afirmar(
+        `${onde} traz EXATAMENTE os campos de SEO do domínio — nem um a menos, nem um inventado`,
+        mesmoConjunto(daLista, CAMPOS_DE_SEO),
+        `${daLista.join(", ") || "nenhum"} × ${CAMPOS_DE_SEO.join(", ")}`,
+      );
+    }
+
+    /* E A PARTIÇÃO em texto e imagem é a do domínio, e não uma quarta divisão:
+       é ela que a porta percorre para cobrar o teto e que a gaveta percorre
+       para desenhar o contador. */
+    afirmar(
+      "os campos de TEXTO mais o de IMAGEM são exatamente os campos de SEO",
+      mesmoConjunto([...CAMPOS_DE_TEXTO_DE_SEO, CAMPO_DE_IMAGEM_DE_SEO], CAMPOS_DE_SEO) &&
+        !CAMPOS_DE_TEXTO_DE_SEO.includes(CAMPO_DE_IMAGEM_DE_SEO),
+      `${CAMPOS_DE_TEXTO_DE_SEO.join(", ")} + ${CAMPO_DE_IMAGEM_DE_SEO}`,
+    );
+  }
+
+  /* ── O ELO HERDADO CABE NO TETO DE QUEM O HERDA ─────────────────────────
+     `herdarTexto`, no domínio, NÃO confere o teto no elo herdado, e a razão
+     escrita lá é que `titulo` e `resumo` já têm teto próprio na gravação. Isso
+     era coincidência entre quatro números em dois arquivos: subir
+     `TAMANHO_MAXIMO_DO_RESUMO` para 2000 faria a Meta Descrição HERDADA passar
+     do teto que a escrita à mão recusa, e nada acusaria. Agora é guarda de
+     carregamento, e ela LANÇA. */
+  {
+    afirmar(
+      "o teto de cada fonte herdada NÃO passa do teto de higiene do campo que a herda",
+      TETO_DA_FONTE_HERDADA.seo_titulo === TAMANHO_MAXIMO_DO_TITULO &&
+        TETO_DA_FONTE_HERDADA.seo_descricao === TAMANHO_MAXIMO_DO_RESUMO &&
+        Object.entries(TETO_DA_FONTE_HERDADA).every(
+          ([campo, teto]) => teto <= TETO_DE_HIGIENE_DE_SEO[campo],
+        ),
+      JSON.stringify(TETO_DA_FONTE_HERDADA),
+    );
+    /* E A DISTÂNCIA É REAL: uma fonte com teto MAIOR produziria um valor
+       herdado que a porta recusaria se tivesse sido digitado — o mesmo texto,
+       aceito por um caminho e recusado pelo outro. */
+    const fontesMaiores = Object.entries(TETO_DA_FONTE_HERDADA).filter(
+      ([campo, teto]) => teto > TETO_DE_HIGIENE_DE_SEO[campo],
+    );
+    afirmar(
+      "e nenhuma fonte é maior que o campo que a herda — o mesmo texto não pode ser aceito por um caminho e recusado pelo outro",
+      fontesMaiores.length === 0,
+      fontesMaiores.map(([c, t]) => `${c}: fonte ${t} > teto ${TETO_DE_HIGIENE_DE_SEO[c]}`).join(" | "),
+    );
+  }
+
   afirmar(
     "a lista de campos aceitos é fechada e não inclui conteudo_html",
     !CAMPOS_ACEITOS.includes("conteudo_html"),
@@ -2458,6 +2553,148 @@ secao("(c3) a leitura do corpo: todos os problemas de uma vez, e os tetos");
       r.ok ? `lista ${r.ignorados.length} | total ${r.totalIgnorado}` : "recusou",
     );
   }
+
+  /* ── OS TRÊS CAMPOS DE SEO, SEM REDE (Story 3.4) ─────────────────────────
+     A metade servidor de "o teto recusa" e de "os três chegam à coluna" só era
+     observada pelas asserções que falam com o projeto real. Tirar a chamada de
+     `problemaNoTextoDeSeo` da porta, ou as três colunas da gravação, deixava
+     TODA a verificação offline verde — e a Story 3.1 já viveu isto: o
+     comentário dela registra uma asserção offline de `lerCorpo` acrescentada
+     exatamente por esse motivo. */
+  {
+    for (const campo of CAMPOS_DE_TEXTO_DE_SEO) {
+      const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+
+      const noTeto = lerCorpo(
+        { ...corpoValido(), [campo]: "t".repeat(teto) },
+        { criando: true },
+      );
+      afirmar(
+        `\`${campo}\` no teto de higiene (${teto}) ATRAVESSA a leitura do corpo, com o valor inteiro`,
+        noTeto.ok === true && noTeto.campos[campo] === "t".repeat(teto),
+        noTeto.ok ? `${String(noTeto.campos[campo]).length} caracteres` : noTeto.mensagem,
+      );
+
+      const acima = lerCorpo(
+        { ...corpoValido(), [campo]: "t".repeat(teto + 1) },
+        { criando: true },
+      );
+      afirmar(
+        `e no teto mais um a leitura RECUSA, dizendo o número e o nome do campo — sem rede`,
+        acima.ok === false &&
+          acima.mensagem.includes(String(teto)) &&
+          acima.mensagem.includes(ROTULOS_DE_SEO[campo]) &&
+          !Object.hasOwn(acima, "campos"),
+        acima.ok ? "PASSOU" : acima.mensagem,
+      );
+
+      /* E O COMPRIMENTO USUAL NÃO É RECUSA, no mesmo lugar: os dois números
+         precisam continuar sendo dois mesmo sem o projeto por perto. */
+      const entreOsDois = lerCorpo(
+        { ...corpoValido(), [campo]: "u".repeat(COMPRIMENTO_USUAL_DE_SEO[campo] + 20) },
+        { criando: true },
+      );
+      afirmar(
+        `e o texto acima do comprimento usual de \`${campo}\` atravessa inteiro — o conselho não vira regra`,
+        entreOsDois.ok === true &&
+          entreOsDois.campos[campo] ===
+            "u".repeat(COMPRIMENTO_USUAL_DE_SEO[campo] + 20),
+        entreOsDois.ok ? "" : entreOsDois.mensagem,
+      );
+    }
+
+    /* ── CARACTERES, E NÃO UNIDADES UTF-16 ─────────────────────────────
+       Toda asserção de teto deste projeto usava `repeat('a', …)`, e com isso a
+       divergência entre `.length` e `char_length` nunca podia aparecer: um
+       emoji fora do BMP é UM caractere para a restrição do banco e DOIS para
+       `.length`. Uma Meta Descrição de 160 emojis seria recusada pela porta e
+       aceita pelo banco — e a recusa diria um número que a pessoa não consegue
+       contar em lugar nenhum. */
+    {
+      const campo = "seo_descricao";
+      const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+      const EMOJI = "😀";
+      afirmar(
+        "o corpus de fronteira usa mesmo um caractere FORA do BMP — senão a divergência não apareceria",
+        [...EMOJI].length === 1 && EMOJI.length === 2,
+        `${[...EMOJI].length} ponto(s) de código em ${EMOJI.length} unidade(s) UTF-16`,
+      );
+      const noTeto = lerCorpo(
+        { ...corpoValido(), [campo]: EMOJI.repeat(teto) },
+        { criando: true },
+      );
+      afirmar(
+        `\`${campo}\` com ${teto} emojis ATRAVESSA — a porta conta caractere, como \`char_length\``,
+        noTeto.ok === true && noTeto.campos[campo] === EMOJI.repeat(teto),
+        noTeto.ok ? "" : noTeto.mensagem,
+      );
+      const acima = lerCorpo(
+        { ...corpoValido(), [campo]: EMOJI.repeat(teto + 1) },
+        { criando: true },
+      );
+      afirmar(
+        `e com ${teto + 1} emojis ela recusa — a fronteira é a mesma, medida em caracteres`,
+        acima.ok === false && acima.mensagem.includes(String(teto)),
+        acima.ok ? "PASSOU" : acima.mensagem,
+      );
+    }
+
+    /* ── FORA DE FORMA É PROBLEMA NOMEADO, E NUNCA "LIMPAR" ────────────
+       `texto()` devolve `null` para `"   "` e para `42` — e colapsar os dois em
+       `campos.seo_imagem_url = null` fazia um cliente torto APAGAR a coluna com
+       `ok: true` e nenhum campo descartado. Pior: `removerImagensAnteriores` lê
+       isso como remoção deliberada e apaga o arquivo do bucket. */
+    const FORA_DE_FORMA = [
+      ["um número", 42],
+      ["um booleano", true],
+      ["um objeto", {}],
+      ["uma lista com o endereço dentro", ["https://x.co/a.png"]],
+      ["o número zero", 0],
+    ];
+    for (const [comoSeChama, valor] of FORA_DE_FORMA) {
+      const r = lerCorpo(
+        { ...corpoValido(), [CAMPO_DE_IMAGEM_DE_SEO]: valor },
+        { criando: true },
+      );
+      afirmar(
+        `\`seo_imagem_url\` como ${comoSeChama} é RECUSADO com nome — nunca "limpar o campo"`,
+        r.ok === false &&
+          r.mensagem.includes(ROTULOS_DE_SEO.seo_imagem_url) &&
+          !Object.hasOwn(r, "campos"),
+        r.ok ? `PASSOU, campos.seo_imagem_url = ${JSON.stringify(r.campos.seo_imagem_url)}` : r.mensagem,
+      );
+    }
+
+    /* E OS DOIS JEITOS LEGÍTIMOS DE LIMPAR continuam limpando — sem isto, uma
+       recusa larga demais faria as cinco acima passarem sem que "vazio herda"
+       continuasse valendo. */
+    for (const [nome, valor] of [
+      ["null", null],
+      ["vazio", ""],
+      ["só espaços", "   "],
+    ]) {
+      const r = lerCorpo(
+        { ...corpoValido(), [CAMPO_DE_IMAGEM_DE_SEO]: valor },
+        { criando: true },
+      );
+      afirmar(
+        `controle positivo: \`seo_imagem_url\` como ${nome} LIMPA a coluna — vazio é o pedido de herdar`,
+        r.ok === true && r.campos.seo_imagem_url === null,
+        r.ok ? JSON.stringify(r.campos.seo_imagem_url) : r.mensagem,
+      );
+    }
+
+    /* Os dois campos de TEXTO já recusavam fora de forma; a asserção existe
+       para que os três continuem dizendo a MESMA coisa. */
+    for (const campo of CAMPOS_DE_TEXTO_DE_SEO) {
+      const r = lerCorpo({ ...corpoValido(), [campo]: 42 }, { criando: true });
+      afirmar(
+        `\`${campo}\` como número é recusado com nome, igual ao irmão de imagem`,
+        r.ok === false && r.mensagem.includes(ROTULOS_DE_SEO[campo]),
+        r.ok ? "PASSOU" : r.mensagem,
+      );
+    }
+  }
 }
 
 /* ─── (c4) A máquina de transições, executada ────────────────────────────── */
@@ -2609,7 +2846,17 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          arquivo sai e QUANDO — sempre depois de a linha ser gravada ou
          apagada —, e chama o transporte. Ela nunca desfaz nada por falhar: o
          resíduo é nomeado, e é a única coisa que sobra. */
-      "api/_nucleo/salvarPost.js": ["removerCapaAnterior", "removerArquivoDaCapa"],
+      /* Story 3.4: `removerImagensAnteriores` é a QUARTA, e ela não fala com o
+         transporte — ela percorre `COLUNAS_DE_IMAGEM` e delega à anterior, uma
+         vez por coluna. Ela existe porque a story abriu a escrita de
+         `seo_imagem_url`: abrir uma porta de escrita para um arquivo sem abrir
+         junto o caminho que o remove é criar um vazamento com data marcada.
+         Ela entra NESTA lista, e não passa despercebida, que é o ponto. */
+      "api/_nucleo/salvarPost.js": [
+        "removerImagensAnteriores",
+        "removerCapaAnterior",
+        "removerArquivoDaCapa",
+      ],
     });
 
     /** Os nomes de função de remoção que um arquivo declara ou chama. */
@@ -3755,6 +4002,76 @@ secao("(c6) o invólucro executado: o despacho, o que a resposta revela, o que v
             !daSalvar.some((r) => r.metodo === "DELETE"),
           `HTTP ${salvou.status} | comandos: ${daSalvar.map((r) => r.metodo).join(", ")}`,
         );
+
+        /* — SALVAR COM OS TRÊS CAMPOS DE SEO, e o corpo do comando conferido —
+           `colunasDeMetadado` é a metade SILENCIOSA do caminho de escrita: os
+           campos passam pela lista de permissão, são validados, e o comando sai
+           sem eles. Tirar as três linhas de lá deixava toda a verificação
+           offline verde. O que se afirma aqui é o VALOR de cada coluna no corpo
+           que chegou ao banco — uma contagem de chaves passaria com os três
+           trocados entre si. */
+        {
+          recebidos.length = 0;
+          const COM_SEO = {
+            seo_titulo: "Título de busca próprio",
+            seo_descricao: "Descrição de busca própria",
+            seo_imagem_url:
+              "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+          };
+          const salvouComSeo = await dirigir({
+            corpo: {
+              operacao: OPERACAO_SALVAR,
+              slug: "um-post-com-seo",
+              titulo: "Um post com SEO",
+              resumo: "Resumo",
+              conteudo: DOCUMENTO_COMPLETO,
+              ...COM_SEO,
+            },
+            cabecalhos: COMO_SESSAO,
+            ambiente: AMBIENTE_LOCAL,
+          });
+          const insercao = naTabela().find((r) => r.metodo === "POST");
+          const divergentes = CAMPOS_DE_SEO.filter(
+            (campo) => insercao?.corpo?.[campo] !== COM_SEO[campo],
+          );
+          afirmar(
+            "os TRÊS campos de SEO chegam ao comando de gravação, com o valor de cada um — sem rede externa",
+            salvouComSeo.status === 201 && insercao !== undefined && divergentes.length === 0,
+            `HTTP ${salvouComSeo.status} | divergentes: ${divergentes.join(", ") || "nenhum"} | ${JSON.stringify(
+              Object.fromEntries(CAMPOS_DE_SEO.map((c) => [c, insercao?.corpo?.[c]])),
+            ).slice(0, 220)}`,
+          );
+
+          /* E VAZIO CHEGA COMO `null`, e não como ausência: a coluna precisa
+             ser LIMPA, e um campo que some do corpo preserva o que estava lá. */
+          recebidos.length = 0;
+          await dirigir({
+            corpo: {
+              operacao: OPERACAO_SALVAR,
+              slug: "um-post-sem-seo",
+              titulo: "Um post sem SEO",
+              resumo: "Resumo",
+              conteudo: DOCUMENTO_COMPLETO,
+              seo_titulo: "",
+              seo_descricao: "   ",
+              seo_imagem_url: null,
+            },
+            cabecalhos: COMO_SESSAO,
+            ambiente: AMBIENTE_LOCAL,
+          });
+          const semSeo = naTabela().find((r) => r.metodo === "POST");
+          afirmar(
+            "e vazio chega ao comando como `null` nas três — ausência preservaria o que estava gravado",
+            semSeo !== undefined &&
+              CAMPOS_DE_SEO.every(
+                (campo) =>
+                  Object.hasOwn(semSeo.corpo ?? {}, campo) && semSeo.corpo[campo] === null,
+              ),
+            JSON.stringify(
+              Object.fromEntries(CAMPOS_DE_SEO.map((c) => [c, semSeo?.corpo?.[c]])),
+            ),
+          );
+        }
 
         /* — DESTACAR — */
         recebidos.length = 0;
@@ -5206,6 +5523,247 @@ secao("(c8) o envio da capa: recusa antes da rede, e endereço na volta");
         semAnterior === null && deFora === null && mesmoEndereco === null,
         JSON.stringify({ semAnterior, deFora, mesmoEndereco }),
       );
+    }
+
+    /* ── AS DUAS COLUNAS DE IMAGEM, E NÃO SÓ A CAPA (Story 3.4) ──────────
+       A story abriu a escrita de `seo_imagem_url`, e a Imagem de
+       Compartilhamento pode ser um arquivo do NOSSO bucket, enviado pelo mesmo
+       controle da capa. Cuidar só da primeira coluna deixaria a segunda órfã
+       em toda troca e em toda exclusão — um vazamento com data marcada, e sem
+       nem virar resíduo, porque não haveria quem o nomeasse.
+
+       O que se afirma é O QUE FOI PEDIDO ao transporte, e não uma contagem de
+       chamadas: um laço que percorresse a mesma coluna duas vezes daria a
+       mesma contagem e removeria o arquivo errado. */
+    {
+      const SEO_ANTIGA =
+        "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/seoantiga.png";
+      const SEO_NOVA =
+        "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/seonova1.png";
+
+      const pedidos = [];
+      const acessoQueRemove = {
+        baseDoProjeto: () => "https://x.supabase.co",
+        removerArquivoDaCapa: async (caminho) => {
+          pedidos.push(caminho);
+          return { ok: true };
+        },
+      };
+
+      afirmar(
+        "as colunas de imagem declaradas são as DUAS que guardam endereço de arquivo",
+        Array.isArray(COLUNAS_DE_IMAGEM) &&
+          COLUNAS_DE_IMAGEM.length === 2 &&
+          COLUNAS_DE_IMAGEM[0] === "imagem_url" &&
+          COLUNAS_DE_IMAGEM[1] === "seo_imagem_url",
+        JSON.stringify(COLUNAS_DE_IMAGEM),
+      );
+
+      const semResiduo = await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: SEO_ANTIGA },
+        atual: { imagem_url: CAPA, seo_imagem_url: SEO_NOVA },
+      });
+      afirmar(
+        "trocar as DUAS imagens remove os DOIS arquivos anteriores — e são exatamente esses dois caminhos",
+        semResiduo === null &&
+          pedidos.length === 2 &&
+          pedidos[0] === "capas/hgfedcba.png" &&
+          pedidos[1] === "capas/seoantiga.png",
+        JSON.stringify(pedidos),
+      );
+
+      /* SÓ A IMAGEM DE COMPARTILHAMENTO TROCA: a capa não é tocada. Sem esta,
+         um laço que ignorasse `atual` apagaria a capa que ficou no ar. */
+      pedidos.length = 0;
+      await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: CAPA, seo_imagem_url: SEO_ANTIGA },
+        atual: { imagem_url: CAPA, seo_imagem_url: SEO_NOVA },
+      });
+      afirmar(
+        "e trocar só a Imagem de Compartilhamento não pede a remoção da capa que ficou no ar",
+        pedidos.length === 1 && pedidos[0] === "capas/seoantiga.png",
+        JSON.stringify(pedidos),
+      );
+
+      /* A EXCLUSÃO leva as duas, e `atual: null` é a forma que ela usa. */
+      pedidos.length = 0;
+      await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: SEO_ANTIGA },
+        atual: null,
+      });
+      afirmar(
+        "excluir o Post leva os arquivos das DUAS colunas",
+        pedidos.length === 2 &&
+          pedidos[0] === "capas/hgfedcba.png" &&
+          pedidos[1] === "capas/seoantiga.png",
+        JSON.stringify(pedidos),
+      );
+
+      /* E OS DOIS RESÍDUOS VIAJAM JUNTOS, nomeando os dois arquivos. Devolver
+         só o primeiro esconderia o segundo — o silêncio que esta família de
+         funções existe para não ter. */
+      const dobrado = await removerImagensAnteriores({
+        acesso: { baseDoProjeto: () => "https://x.supabase.co" },
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: SEO_ANTIGA },
+        atual: null,
+      });
+      afirmar(
+        "e quando os DOIS sobram, o resíduo nomeia os dois arquivos — nenhum fica escondido atrás do outro",
+        dobrado !== null &&
+          dobrado.arquivo.includes("capas/hgfedcba.png") &&
+          dobrado.arquivo.includes("capas/seoantiga.png"),
+        JSON.stringify(dobrado),
+      );
+
+      /* ── O MESMO ARQUIVO NAS DUAS COLUNAS ─────────────────────────────
+         Usar a capa também como Imagem de Compartilhamento é o caso mais
+         provável de todos, e ele DESTRUÍA: trocar uma das duas fazia
+         `removerCapaAnterior` ver "o endereço mudou" e apagar do bucket o
+         arquivo que a outra coluna continua apontando. A linha ficava salva com
+         uma prévia de endereço morto, e nada virava resíduo — do ponto de vista
+         do servidor a remoção deu certo. */
+      pedidos.length = 0;
+      const compartilhado = await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: ANTIGA },
+        atual: { imagem_url: CAPA, seo_imagem_url: ANTIGA },
+      });
+      afirmar(
+        "o arquivo que a OUTRA coluna ainda usa NÃO é removido — a capa e a imagem de compartilhamento podem ser a mesma",
+        compartilhado === null && pedidos.length === 0,
+        `pedidos: ${JSON.stringify(pedidos)} | resíduo: ${JSON.stringify(compartilhado)}`,
+      );
+
+      /* E QUANDO ELE DEIXA DE SER USADO PELAS DUAS, sai — uma vez só. Sem esta,
+         uma guarda larga demais faria o arquivo compartilhado nunca sair, e o
+         vazamento voltaria pelo outro lado. */
+      pedidos.length = 0;
+      await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: ANTIGA },
+        atual: { imagem_url: CAPA, seo_imagem_url: SEO_NOVA },
+      });
+      afirmar(
+        "e quando NENHUMA das duas o usa mais, ele sai — uma vez só, e é o caminho dele",
+        pedidos.length === 1 && pedidos[0] === "capas/hgfedcba.png",
+        JSON.stringify(pedidos),
+      );
+
+      /* E A EXCLUSÃO leva o arquivo compartilhado: com `atual` nulo não há
+         coluna nenhuma o usando. */
+      pedidos.length = 0;
+      await removerImagensAnteriores({
+        acesso: acessoQueRemove,
+        anterior: { imagem_url: ANTIGA, seo_imagem_url: ANTIGA },
+        atual: null,
+      });
+      afirmar(
+        "excluir o Post leva o arquivo compartilhado — e não pede a mesma remoção duas vezes",
+        pedidos.length === 1 && pedidos[0] === "capas/hgfedcba.png",
+        JSON.stringify(pedidos),
+      );
+
+      /* ── AS DUAS REMOÇÕES SAEM EM PARALELO ────────────────────────────
+         O pedido tem prazo TOTAL, e o vizinho `lerPost` se justifica por
+         escrito por ter economizado UMA chamada. Encadear duas viagens de rede
+         que não dependem uma da outra gastaria o dobro do prazo por ganho
+         nenhum.
+
+         A medição não é de tempo — tempo é frágil e mede a máquina. O dublê
+         SEGURA a primeira remoção até a segunda ter sido pedida: se as chamadas
+         forem sequenciais, a primeira nunca é liberada e a promessa não resolve.
+         O relógio existe só para a asserção falhar em vez de pendurar. */
+      {
+        const pedidasAqui = [];
+        let liberar = null;
+        const segurar = new Promise((resolve) => {
+          liberar = resolve;
+        });
+        const acessoQueSegura = {
+          baseDoProjeto: () => "https://x.supabase.co",
+          removerArquivoDaCapa: async (caminho) => {
+            pedidasAqui.push(caminho);
+            /* A SEGUNDA libera a PRIMEIRA. Em série, a segunda só seria
+               chamada depois de a primeira voltar — e ninguém libera. */
+            if (pedidasAqui.length === 2) liberar();
+            await segurar;
+            return { ok: true };
+          },
+        };
+        const emParalelo = await Promise.race([
+          removerImagensAnteriores({
+            acesso: acessoQueSegura,
+            anterior: { imagem_url: ANTIGA, seo_imagem_url: SEO_ANTIGA },
+            atual: null,
+          }).then(() => "concluiu"),
+          new Promise((resolve) => {
+            setTimeout(() => resolve("pendurou"), 1500);
+          }),
+        ]);
+        afirmar(
+          "as duas remoções são pedidas EM PARALELO — em série a primeira nunca é liberada e a chamada pendura",
+          emParalelo === "concluiu" && pedidasAqui.length === 2,
+          `${emParalelo} | pedidas: ${JSON.stringify(pedidasAqui)}`,
+        );
+        liberar();
+      }
+
+      /* ── A FORMA DO RESÍDUO DOBRADO, DECLARADA ────────────────────────
+         Quando os dois sobram, `arquivo` deixa de ser um caminho e passa a ser
+         uma ENUMERAÇÃO de caminhos, e `motivo` junta os dois. Isso estava
+         escrito no código e afirmado em lugar nenhum: quem consome o resíduo
+         (`falaDoResiduo`, na tela) precisa que a forma seja um contrato, e não
+         um detalhe de implementação que a próxima refatoração troca. */
+      {
+        const dobrado = await removerImagensAnteriores({
+          acesso: { baseDoProjeto: () => "https://x.supabase.co" },
+          anterior: { imagem_url: ANTIGA, seo_imagem_url: SEO_ANTIGA },
+          atual: null,
+        });
+        afirmar(
+          "o resíduo dobrado enumera os DOIS caminhos com o separador declarado, e junta os dois motivos",
+          dobrado !== null &&
+            dobrado.arquivo ===
+              ["capas/hgfedcba.png", "capas/seoantiga.png"].join(
+                SEPARADOR_DE_ARQUIVOS_NO_RESIDUO,
+              ) &&
+            dobrado.motivo.split(SEPARADOR_DE_MOTIVOS_NO_RESIDUO).length === 2 &&
+            Object.isFrozen(dobrado),
+          JSON.stringify(dobrado),
+        );
+
+      }
+
+      /* ── A GUARDA DE MONTAGEM NOMEIA A COLUNA QUE VEIO ────────────────
+         Um Post com só `seo_imagem_url` produzia um detalhe dizendo "o arquivo
+         da capa": quem fosse investigar procuraria na capa um defeito que está
+         na outra coluna. */
+      {
+        const acessoSemBase = { ...acessoDeTeste() };
+        delete acessoSemBase.baseDoProjeto;
+        for (const coluna of COLUNAS_DE_IMAGEM) {
+          const r = await salvarPost({
+            token: "jwt",
+            corpo: corpoValido({
+              slug: "um-post-de-teste",
+              [coluna]:
+                "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/abcdefgh.png",
+              ...(coluna === "imagem_url" ? { imagem_alt: "Uma descrição" } : {}),
+            }),
+            acesso: acessoSemBase,
+          });
+          afirmar(
+            `acesso sem \`baseDoProjeto\` com \`${coluna}\` acusa ESSA coluna pelo nome — e não sempre a capa`,
+            r.ok === false &&
+              r.erro.detalhe.includes(ROTULOS_DE_COLUNA_DE_IMAGEM[coluna]) &&
+              !r.erro.detalhe.includes(ROTULOS_DE_COLUNA_DE_IMAGEM[outraColuna(coluna)]),
+            r.ok ? "PASSOU" : r.erro.detalhe,
+          );
+        }
+      }
     }
   }
   /* ── A GUARDA DO TRANSPORTE, EXERCITADA ─────────────────────────────────
@@ -9326,6 +9884,423 @@ if (!temToken) {
         inventario.ok && forasteiros.length === 0,
         `slugs presentes: ${presentes.join(", ") || "nenhum"}`,
       );
+
+      /* ── (e4) OS TRÊS CAMPOS DE SEO: a porta, e o teto que o BANCO cobra ── */
+
+      secao("(e4) os três campos de SEO: o caminho de escrita, e o teto no banco (Story 3.4)");
+
+      /*
+       * A LACUNA QUE ESTA SEÇÃO FECHA.
+       *
+       * `seo_titulo`, `seo_descricao` e `seo_imagem_url` existem na coluna
+       * desde a Story 2.1 e, até esta story, NÃO estavam em `CAMPOS_ACEITOS`:
+       * quem os mandasse os via voltar na lista de descartados, com nome. Não
+       * havia caminho de escrita — e é por isso que o elo de maior precedência
+       * da cadeia de herança nunca podia ter valor.
+       *
+       * Aqui a porta é exercida contra o projeto de verdade, e o que se afirma
+       * é o que ficou NA COLUNA, relido por fora da função. A resposta da
+       * própria função é o que ela diz que fez.
+       */
+      {
+        const RECADO_SEM_SESSAO = [
+          "os três campos de SEO atravessam a porta única e ficam na coluna",
+          "e nenhum dos três volta como campo descartado — eles são ACEITOS, e não ignorados",
+          "vazio LIMPA os três, e limpar é o pedido de herdar",
+          "o teto de higiene é recusado pela PORTA, com a frase dizendo o número",
+          "e o comprimento usual NÃO é recusa: o texto entre os dois números atravessa inteiro",
+        ];
+        /* As duas da RLS ficam à parte porque elas têm um SEGUNDO jeito de não
+           rodar — a linha não ter sido semeada —, e adiar uma asserção sem
+           nomeá-la é o mesmo que ela não existir. */
+        const RECADO_DA_RLS = [
+          "controle positivo: a sessão do Painel ENXERGA a linha cujos campos de SEO ela tentará mudar",
+          "escrever os campos de SEO direto no PostgREST com sessão do Painel é RECUSADO — e a coluna não mudou",
+        ];
+
+        const IMAGEM_DE_SEO =
+          "https://x.supabase.co/storage/v1/object/public/imagens-do-blog/capas/seoabcde.png";
+        const slugDoSeo = slug("seo");
+
+        /* ── O QUE A SEÇÃO PROMETE ADIAR É O QUE ELA AFIRMA ───────────────
+           As duas listas acima existem para que nenhuma asserção SUMA quando a
+           sessão não abre — "adiada" aparece no veredito, "não rodou" não
+           apareceria. Mas lista escrita à mão ao lado das chamadas é lista que
+           envelhece: a asserção nova nasce dentro do ramo da sessão, ninguém a
+           acrescenta aqui, e no dia do 429 ela desaparece sem rastro. Foi
+           exatamente o que a revisão da Story 3.1 pegou na prova das políticas
+           do Storage.
+
+           A guarda é de IGUALDADE DE CONJUNTO, e não de piso: piso não reage
+           ao que é ACRESCENTADO, que é justamente o caso que se quer pegar. */
+        const nomesNoRamoDaSessao = [];
+        const afirmarComSessao = (descricao, condicao, detalhe = "") => {
+          nomesNoRamoDaSessao.push(descricao);
+          return afirmar(descricao, condicao, detalhe);
+        };
+
+        /** O que o BANCO tem nas três colunas, lido por fora da função. */
+        const colunasDeSeo = async () => {
+          const r = await executarSql(
+            token,
+            `select seo_titulo, seo_descricao, seo_imagem_url
+               from public.posts where slug = ${literal(slugDoSeo)}`,
+          );
+          return r.ok ? (r.dados?.[0] ?? null) : null;
+        };
+
+        if (contas[0].jwt) {
+          const TITULO_DE_SEO = "Um título de busca escolhido a dedo";
+          const DESCRICAO_DE_SEO = "Uma meta descrição escrita pelo Autor, e não herdada.";
+
+          const nascimento = await salvarPost({
+            token: contas[0].jwt,
+            corpo: corpoValido({
+              slug: slugDoSeo,
+              titulo: "Post com os três campos de SEO",
+              resumo: "O resumo, que os campos de SEO vazios herdariam",
+              seo_titulo: TITULO_DE_SEO,
+              seo_descricao: DESCRICAO_DE_SEO,
+              seo_imagem_url: IMAGEM_DE_SEO,
+            }),
+            acesso: acessoReal(),
+          });
+          const idDoSeo = nascimento.ok ? (nascimento.dados.post?.id ?? null) : null;
+          const gravado = await colunasDeSeo();
+
+          /* O VALOR, e não uma contagem de colunas não nulas: uma gravação que
+             pusesse o título no campo da descrição passaria por qualquer conta
+             de nulos, e é exatamente o erro que uma lista de campos declarada
+             em quatro lugares produz. */
+          afirmarComSessao(
+            "os três campos de SEO atravessam a porta única e ficam na coluna",
+            nascimento.ok === true &&
+              gravado?.seo_titulo === TITULO_DE_SEO &&
+              gravado?.seo_descricao === DESCRICAO_DE_SEO &&
+              gravado?.seo_imagem_url === IMAGEM_DE_SEO,
+            nascimento.ok
+              ? `no banco: ${JSON.stringify(gravado)}`
+              : `${nascimento.erro.tipo}: ${nascimento.erro.mensagem}`,
+          );
+
+          /* E ELES NÃO SÃO DESCARTADOS. Antes desta story era isto que
+             acontecia — e uma implementação que gravasse os três mas deixasse
+             os nomes na lista de descartes faria o Autor ver um aviso de perda
+             sobre o que acabou de ser salvo. */
+          const descartados = nascimento.ok ? [...(nascimento.dados.ignorados ?? [])] : [];
+          afirmarComSessao(
+            "e nenhum dos três volta como campo descartado — eles são ACEITOS, e não ignorados",
+            nascimento.ok === true &&
+              CAMPOS_DE_SEO.every((campo) => !descartados.includes(campo)) &&
+              CAMPOS_DE_SEO.every((campo) => CAMPOS_ACEITOS.includes(campo)),
+            `descartados: ${descartados.join(", ") || "nenhum"}`,
+          );
+
+          /* VAZIO LIMPA, E LIMPAR É HERDAR. A coluna volta a `null`, e não a
+             uma string em branco: `""` gravado viraria uma etiqueta declarada e
+             vazia, que é pior que a herdada porque nada acusaria. */
+          if (idDoSeo) {
+            const limpeza = await salvarPost({
+              token: contas[0].jwt,
+              /* Título e conteúdo viajam porque a porta os exige em TODO
+                 salvamento, e não só no nascimento — omiti-los faria a recusa
+                 ser "falta preencher", que não é o que esta asserção julga. */
+              corpo: {
+                id: idDoSeo,
+                titulo: "Post com os três campos de SEO",
+                conteudo: DOCUMENTO_COMPLETO,
+                seo_titulo: "   ",
+                seo_descricao: "",
+                seo_imagem_url: null,
+              },
+              acesso: acessoReal(),
+            });
+            const depois = await colunasDeSeo();
+            afirmarComSessao(
+              "vazio LIMPA os três, e limpar é o pedido de herdar",
+              limpeza.ok === true &&
+                depois?.seo_titulo === null &&
+                depois?.seo_descricao === null &&
+                depois?.seo_imagem_url === null,
+              limpeza.ok
+                ? `no banco: ${JSON.stringify(depois)}`
+                : `${limpeza.erro.tipo}: ${limpeza.erro.mensagem}`,
+            );
+          } else {
+            adiar("vazio LIMPA os três, e limpar é o pedido de herdar", "o Post não pôde nascer");
+          }
+
+          /* O TETO DE HIGIENE, PELA PORTA. O número vem do domínio, e a frase
+             de recusa precisa DIZÊ-LO: recusa que não diz o limite deixa o
+             Autor apagando texto às cegas. */
+          const acimaDoTeto = await salvarPost({
+            token: contas[0].jwt,
+            corpo: corpoValido({
+              slug: slug("seo-longo"),
+              titulo: "Post com título de SEO longo demais",
+              seo_titulo: "t".repeat(TETO_DE_HIGIENE_DE_SEO.seo_titulo + 1),
+            }),
+            acesso: acessoReal(),
+          });
+          const naoNasceu = await executarSql(
+            token,
+            `select count(*)::int as n from public.posts where slug = ${literal(slug("seo-longo"))}`,
+          );
+          afirmarComSessao(
+            "o teto de higiene é recusado pela PORTA, com a frase dizendo o número",
+            acimaDoTeto.ok === false &&
+              acimaDoTeto.erro.tipo === ERRO_DADOS_INVALIDOS &&
+              acimaDoTeto.erro.mensagem.includes(String(TETO_DE_HIGIENE_DE_SEO.seo_titulo)) &&
+              acimaDoTeto.erro.mensagem.includes(ROTULOS_DE_SEO.seo_titulo) &&
+              naoNasceu.dados?.[0]?.n === 0,
+            acimaDoTeto.ok
+              ? "a gravação PASSOU"
+              : `${acimaDoTeto.erro.mensagem} | linhas: ${naoNasceu.dados?.[0]?.n}`,
+          );
+
+          /* E OS DOIS NÚMEROS SÃO MESMO DOIS. O texto acima do comprimento
+             USUAL — o que o contador sinaliza na tela — atravessa esta porta
+             INTEIRO: nem recusado, nem aparado. Sem esta asserção, um teto
+             encostado no usual passaria despercebido, e o conselho de exibição
+             viraria regra do produto. */
+          const entreOsDois = "u".repeat(COMPRIMENTO_USUAL_DE_SEO.seo_titulo + 30);
+          const slugEntre = slug("seo-entre");
+          const passou = await salvarPost({
+            token: contas[0].jwt,
+            corpo: corpoValido({
+              slug: slugEntre,
+              titulo: "Post com título de SEO acima do usual",
+              seo_titulo: entreOsDois,
+            }),
+            acesso: acessoReal(),
+          });
+          const inteiro = await executarSql(
+            token,
+            `select seo_titulo from public.posts where slug = ${literal(slugEntre)}`,
+          );
+          afirmarComSessao(
+            "e o comprimento usual NÃO é recusa: o texto entre os dois números atravessa inteiro",
+            passou.ok === true &&
+              entreOsDois.length > COMPRIMENTO_USUAL_DE_SEO.seo_titulo &&
+              entreOsDois.length < TETO_DE_HIGIENE_DE_SEO.seo_titulo &&
+              inteiro.dados?.[0]?.seo_titulo === entreOsDois,
+            passou.ok
+              ? `gravado com ${String(inteiro.dados?.[0]?.seo_titulo ?? "").length} de ${entreOsDois.length} caracteres`
+              : `${passou.erro.tipo}: ${passou.erro.mensagem}`,
+          );
+
+          /* ── E A RLS CONTINUA NEGANDO AS COLUNAS NOVAS ────────────────
+             Abrir um caminho de escrita é o momento em que a defesa vizinha
+             costuma afrouxar junto: se `authenticated` pudesse escrever estas
+             três colunas direto no PostgREST, a porta única seria um caminho
+             entre dois. O alvo é uma linha que EXISTE — contra identificador
+             inventado o PostgREST responderia 2xx com lista vazia mesmo sem
+             política, e a recusa passaria por vacuidade. */
+          if (idDoSeo) {
+            const pelaSessao = async (corpo, metodo = "PATCH") => {
+              try {
+                const r = await fetch(
+                  `${URL_PROJETO}/rest/v1/posts?id=eq.${encodeURIComponent(idDoSeo)}`,
+                  {
+                    method: metodo,
+                    signal: AbortSignal.timeout(TIMEOUT_MS),
+                    headers: {
+                      apikey: chaves.publicavel,
+                      Authorization: `Bearer ${contas[0].jwt}`,
+                      "Content-Type": "application/json",
+                      Prefer: "return=representation",
+                    },
+                    ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+                  },
+                );
+                return { status: r.status, corpo: sanitizar(await r.text()) };
+              } catch (erro) {
+                return { status: 0, corpo: String(erro?.message ?? erro) };
+              }
+            };
+
+            /* CONTROLE POSITIVO, e ele não é cortesia: o PostgREST responde
+               `200 []` quando a política ESCONDE a linha da escrita, e esse é
+               um dos ramos que o veredito aceita como recusa. Contra um
+               identificador que não existe, a resposta seria a MESMA — e a
+               asserção passaria por vacuidade, verde num projeto sem política
+               nenhuma. É a leitura com a MESMA credencial que separa as duas
+               coisas: a linha está lá, e esta sessão a enxerga. */
+            const leitura = await pelaSessao(undefined, "GET");
+            const enxerga = leitura.status === 200 && leitura.corpo.includes(idDoSeo);
+            afirmarComSessao(
+              "controle positivo: a sessão do Painel ENXERGA a linha cujos campos de SEO ela tentará mudar",
+              enxerga,
+              `HTTP ${leitura.status} ${leitura.corpo.slice(0, 140)}`,
+            );
+
+            const INVASAO = "Título de SEO gravado por fora";
+            /* O QUE A COLUNA TINHA ANTES. O veredito é "não mudou", e comparar
+               com um valor esperado à mão amarraria esta asserção ao que a
+               asserção anterior deixou na linha — e ela falharia por tabela,
+               acusando a RLS por um defeito que não é dela. */
+            const antes = await colunasDeSeo();
+            const tentativa = await pelaSessao({
+              seo_titulo: INVASAO,
+              seo_descricao: "Descrição gravada por fora",
+              seo_imagem_url: IMAGEM_DE_SEO,
+            });
+            const agora = await colunasDeSeo();
+            const recusou =
+              tentativa.status === 401 ||
+              tentativa.status === 403 ||
+              (tentativa.status >= 400 &&
+                tentativa.status < 500 &&
+                /42501|permission denied|row-level security/i.test(tentativa.corpo)) ||
+              /* "Nada alterado" só vale como recusa porque o controle positivo
+                 acima provou que há o que alterar e que esta credencial o vê. */
+              (enxerga &&
+                tentativa.status >= 200 &&
+                tentativa.status < 300 &&
+                /^\s*\[\s*\]\s*$/.test(tentativa.corpo));
+            /* O VEREDITO É A COLUNA, e não só o código HTTP: o que a story
+               promete é que o valor não entrou. */
+            afirmarComSessao(
+              "escrever os campos de SEO direto no PostgREST com sessão do Painel é RECUSADO — e a coluna não mudou",
+              enxerga &&
+                antes !== null &&
+                recusou &&
+                agora?.seo_titulo !== INVASAO &&
+                JSON.stringify(agora) === JSON.stringify(antes),
+              `HTTP ${tentativa.status} ${tentativa.corpo.slice(0, 140)} | antes: ${JSON.stringify(antes)} | agora: ${JSON.stringify(agora)}`,
+            );
+          } else {
+            for (const descricao of RECADO_DA_RLS) {
+              adiar(
+                descricao,
+                "o Post da seção não pôde ser semeado — sem linha existente, a recusa passaria por vacuidade",
+              );
+            }
+          }
+        } else {
+          for (const descricao of [...RECADO_SEM_SESSAO, ...RECADO_DA_RLS]) {
+            adiar(descricao, MOTIVO_SEM_SESSAO);
+          }
+        }
+
+        /* A GUARDA DAS DUAS LISTAS, exercida só quando houve sessão: sem ela
+           não há nomes a comparar, e é o ramo de adiamento que roda. */
+        if (contas[0].jwt) {
+          const prometidas = [...RECADO_SEM_SESSAO, ...RECADO_DA_RLS];
+          afirmar(
+            `as ${prometidas.length} asserções que esta seção promete adiar são EXATAMENTE as que ela faz com sessão`,
+            mesmoConjunto(nomesNoRamoDaSessao, prometidas),
+            `feitas: ${nomesNoRamoDaSessao.length} | prometidas: ${prometidas.length} | só numa das listas: ${[
+              ...nomesNoRamoDaSessao.filter((n) => !prometidas.includes(n)),
+              ...prometidas.filter((n) => !nomesNoRamoDaSessao.includes(n)),
+            ].join(" | ") || "nenhuma"}`,
+          );
+        }
+
+        /* ── E O BANCO COBRA O MESMO TETO, PELO CONSOLE ────────────────
+           A recusa acima é da aplicação. Esta é da RESTRIÇÃO: sem o `check`
+           na coluna, a porta poderia estar perfeita e um `insert` pelo console
+           do projeto — caminho que função nenhuma cobre — gravaria um
+           `og:description` de dez mil caracteres do mesmo jeito.
+
+           A fronteira é DERIVADA do número do domínio, e não escrita à mão:
+           `repeat` no teto exato PASSA, `repeat` no teto mais um é recusado. É
+           assim que "os dois lados dizem a mesma coisa" deixa de ser promessa
+           e vira medida. */
+        for (const campo of ["seo_titulo", "seo_descricao"]) {
+          const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+          const restricao = `posts_${campo}_com_teto`;
+          /* O slug do banco não aceita sublinhado (`posts_slug_formato`), e o
+             nome da coluna tem um — trocá-lo por hífen é o que faz o `insert`
+             chegar à restrição que esta asserção julga, em vez de morrer na
+             anterior. */
+          const emSlug = campo.replaceAll("_", "-");
+          const noTeto = slug(`${emSlug}-no-teto`);
+          const acima = slug(`${emSlug}-acima`);
+          const cabe = await executarSql(
+            token,
+            `insert into public.posts (slug, titulo, ${campo})
+             values (${literal(noTeto)}, 'Pelo console', repeat('a', ${teto}))`,
+          );
+          const naoCabe = await executarSql(
+            token,
+            `insert into public.posts (slug, titulo, ${campo})
+             values (${literal(acima)}, 'Pelo console', repeat('a', ${teto + 1}))`,
+          );
+          afirmar(
+            `o banco corta \`${campo}\` EXATAMENTE em ${teto} caracteres, por ${restricao} — o número do domínio, medido`,
+            cabe.ok && !naoCabe.ok && new RegExp(restricao).test(naoCabe.erro ?? ""),
+            cabe.ok
+              ? (naoCabe.erro ?? "o insert acima do teto PASSOU")
+              : (cabe.erro ?? ""),
+          );
+          await executarSql(
+            token,
+            `delete from public.posts where slug in (${literal(noTeto)}, ${literal(acima)})`,
+          );
+
+          /* E A FRONTEIRA COM CARACTERE FORA DO BMP.
+             `repeat('a', …)` nunca alcança a divergência entre `.length` e
+             `char_length`: um emoji é UM caractere para a restrição e DOIS para
+             `String.prototype.length`. Enquanto todo caso do corpus fosse ASCII,
+             "os dois lados dizem a mesma coisa" era uma frase sobre um alfabeto
+             só. O texto é montado NO BANCO por `repeat`, e a contagem do lado de
+             cá é conferida contra a do lado de lá. */
+          const emojiNoTeto = slug(`${emSlug}-emoji-no-teto`);
+          const emojiAcima = slug(`${emSlug}-emoji-acima`);
+          const cabeEmoji = await executarSql(
+            token,
+            `insert into public.posts (slug, titulo, ${campo})
+             values (${literal(emojiNoTeto)}, 'Pelo console', repeat(chr(128512), ${teto}))`,
+          );
+          const naoCabeEmoji = await executarSql(
+            token,
+            `insert into public.posts (slug, titulo, ${campo})
+             values (${literal(emojiAcima)}, 'Pelo console', repeat(chr(128512), ${teto + 1}))`,
+          );
+          afirmar(
+            `e a fronteira de \`${campo}\` é a MESMA com caractere fora do BMP — o banco conta caractere, e o domínio também`,
+            cabeEmoji.ok &&
+              !naoCabeEmoji.ok &&
+              new RegExp(restricao).test(naoCabeEmoji.erro ?? "") &&
+              caracteresDe("😀".repeat(teto)) === teto &&
+              problemaNoTextoDeSeo(campo, "😀".repeat(teto)) === null &&
+              problemaNoTextoDeSeo(campo, "😀".repeat(teto + 1)) !== null,
+            cabeEmoji.ok
+              ? (naoCabeEmoji.erro ?? "o insert de emoji acima do teto PASSOU")
+              : (cabeEmoji.erro ?? ""),
+          );
+          await executarSql(
+            token,
+            `delete from public.posts where slug in (${literal(emojiNoTeto)}, ${literal(emojiAcima)})`,
+          );
+        }
+
+        /* E AS DUAS RESTRIÇÕES NOVAS ESTÃO VALIDADAS. Elas nasceram
+           `not valid` para não poderem abortar o arquivo inteiro num banco com
+           linha fora do formato — e `not valid` sem o `validate constraint`
+           depois vale só para linha nova: um `UPDATE` pelo console sobre uma
+           linha antiga escaparia. */
+        {
+          const nomes = ["seo_titulo", "seo_descricao"].map((c) => `posts_${c}_com_teto`);
+          const validadas = await executarSql(
+            token,
+            `select coalesce(string_agg(conname || '=' || convalidated::text, ',' order by conname), '') as v
+               from pg_constraint
+              where conrelid = 'public.posts'::regclass
+                and conname in (${nomes.map((n) => literal(n)).join(", ")})`,
+          );
+          const texto = String(validadas.dados?.[0]?.v ?? "");
+          afirmar(
+            "as duas restrições de teto de SEO existem e estão VALIDADAS — `not valid` sem validar é meia restrição",
+            validadas.ok &&
+              texto.split(",").filter(Boolean).length === nomes.length &&
+              !texto.includes("=false"),
+            validadas.erro ?? `encontrado: ${texto || "nenhuma"}`,
+          );
+        }
+      }
+
 
       /* — As listas do SQL são as MESMAS listas do schema — */
 

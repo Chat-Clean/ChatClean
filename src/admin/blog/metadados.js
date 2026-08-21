@@ -29,9 +29,19 @@ import {
   problemaNoEnderecoDaImagem,
   problemaNoTextoAlternativo,
 } from "@/domain/blog/arquivos";
+/* O teto de HIGIENE dos campos de SEO vem do DOMÍNIO (Story 3.4), pela mesma
+   razão: é o mesmo número que o servidor cobra e que a restrição do banco
+   impõe, e o comprimento USUAL — o que o contador sinaliza — não entra aqui,
+   porque ele nunca bloqueia. */
+import {
+  CAMPOS_DE_SEO,
+  CAMPOS_DE_TEXTO_DE_SEO,
+  CAMPO_DE_IMAGEM_DE_SEO,
+  problemaNoTextoDeSeo,
+} from "@/domain/blog/compartilhamento";
 
 /**
- * Os NOVE campos da gaveta, na ordem em que ela os oferece.
+ * Os DOZE campos da gaveta, na ordem em que ela os oferece.
  *
  * A ordem é significativa e está declarada uma vez: Título e Slug primeiro
  * porque um gera o outro; Resumo em seguida porque é o segundo obrigatório; e a
@@ -42,6 +52,12 @@ import {
  * colada nela, e não num bloco de acessibilidade lá embaixo — o banco recusa
  * capa sem descrição, e oferecer as duas separadas produziria a recusa tardia
  * que a story existe para não ter.
+ *
+ * OS TRÊS CAMPOS DE SEO (Story 3.4) vêm por ÚLTIMO, numa seção própria, e a
+ * posição é a decisão: eles não descrevem o Post, descrevem como ele APARECE
+ * fora do site — e todos os três são opcionais, porque vazio não é falta,
+ * vazio herda. Pô-los no meio dos obrigatórios faria a pessoa que desce a
+ * gaveta preenchendo tudo achar que parou de preencher algo necessário.
  */
 export const CAMPOS_DA_GAVETA = Object.freeze([
   "titulo",
@@ -53,6 +69,9 @@ export const CAMPOS_DA_GAVETA = Object.freeze([
   "tags",
   "publicado_em",
   "tempo_leitura",
+  /* Espalhados do DOMÍNIO: a ordem entre eles é a de lá, e a lista não é
+     escrita de novo em cada camada. */
+  ...CAMPOS_DE_SEO,
 ]);
 
 /**
@@ -108,6 +127,11 @@ export function valoresVazios() {
     tags: "",
     publicado_em: "",
     tempo_leitura: "",
+    /* OS TRÊS DE SEO (Story 3.4), todos opcionais. Vazio aqui não é campo por
+       preencher: é o pedido explícito de HERDAR o título do Post, o Resumo e a
+       Imagem de Capa — e a gaveta mostra o que será herdado ao lado de cada um,
+       para que a herança se confira antes de publicar em vez de depois. */
+    ...Object.fromEntries(CAMPOS_DE_SEO.map((campo) => [campo, ""])),
   };
 }
 
@@ -140,6 +164,16 @@ export function valoresDoPost(post, tags = []) {
       Number.isFinite(Number(post.tempo_leitura)) && Number(post.tempo_leitura) > 0
         ? String(post.tempo_leitura)
         : "",
+    /* Story 3.4. Sem estas três linhas, reabrir um Post que TEM campos de SEO
+       gravados abriria com os três em branco — e o primeiro salvamento os
+       apagaria, porque `corpoDoPedido` manda `null` para campo vazio. É o
+       mesmo defeito destrutivo que a revisão da Story 3.1 pegou na capa. */
+    ...Object.fromEntries(
+      CAMPOS_DE_SEO.map((campo) => [
+        campo,
+        typeof post[campo] === "string" ? post[campo] : "",
+      ]),
+    ),
   };
 }
 
@@ -238,6 +272,30 @@ export function corpoDoPedido({
     return { ok: false, campo: "imagem_alt", motivo: problemaNaCapa };
   }
 
+  /* ── OS TRÊS CAMPOS DE SEO, RECUSADOS ANTES DO SALVAMENTO (Story 3.4) ──
+     O que se cobra aqui é o TETO DE HIGIENE, e só ele. O comprimento usual —
+     os ~60 e ~155 que o contador sinaliza — não aparece nesta função de
+     propósito: ele nunca bloqueia o salvamento, e cobrá-lo aqui o
+     transformaria numa recusa, que é o oposto do critério.
+
+     A regra é a do DOMÍNIO, importada: a mesma que o servidor cobra e que
+     `posts_seo_titulo_com_teto` e `posts_seo_descricao_com_teto` espelham em
+     SQL. A do endereço é a MESMA da capa — não há segundo julgamento sobre o
+     que é endereço aceitável. */
+  const seo = {};
+  for (const campo of CAMPOS_DE_TEXTO_DE_SEO) {
+    const valor = String(v[campo] ?? "").trim();
+    const problema = problemaNoTextoDeSeo(campo, valor);
+    if (problema !== null) return { ok: false, campo, motivo: problema };
+    seo[campo] = valor === "" ? null : valor;
+  }
+  const seoImagem = String(v[CAMPO_DE_IMAGEM_DE_SEO] ?? "").trim();
+  const problemaNaImagemDeSeo = problemaNoEnderecoDaImagem(seoImagem);
+  if (problemaNaImagemDeSeo !== null) {
+    return { ok: false, campo: CAMPO_DE_IMAGEM_DE_SEO, motivo: problemaNaImagemDeSeo };
+  }
+  seo[CAMPO_DE_IMAGEM_DE_SEO] = seoImagem === "" ? null : seoImagem;
+
   const corpo = {
     titulo: String(v.titulo ?? "").trim(),
     slug: String(v.slug ?? "").trim(),
@@ -249,6 +307,11 @@ export function corpoDoPedido({
        endereço permitido. A descrição acompanha, pelo mesmo motivo. */
     imagem_url: imagem_url === "" ? null : imagem_url,
     imagem_alt: imagem_alt === "" ? null : imagem_alt,
+    /* `null` LIMPA, e limpar é HERDAR: os três campos de SEO vazios pedem ao
+       Post que use o título, o Resumo e a Capa. Omiti-los faria o servidor
+       PRESERVAR o que estava gravado, e aí apagar um Título SEO na tela não
+       teria efeito nenhum — o campo voltaria preenchido na próxima abertura. */
+    ...seo,
     publicado_em,
     tempo_leitura: minutos === "" ? 0 : Number(minutos),
   };

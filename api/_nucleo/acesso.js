@@ -35,6 +35,9 @@ import {
   BUCKET_DAS_IMAGENS,
   ehCaminhoDeCapa,
 } from "../../src/domain/blog/arquivos.js";
+/* E os campos de SEO vêm do MESMO lugar de onde a porta os aceita — a lista é
+   uma, e não uma por camada. */
+import { CAMPOS_DE_SEO } from "../../src/domain/blog/compartilhamento.js";
 
 /**
  * As variáveis que a função exige, e de onde ela as aceita.
@@ -134,6 +137,15 @@ export const COLUNAS_DO_POST = Object.freeze([
      lista, o arquivo de todo Post excluído ficaria órfão e nada acusaria. */
   "imagem_url",
   "imagem_alt",
+  /* Story 3.4: os TRÊS campos de SEO. Eles saem na resposta pela mesma razão
+     que a capa — a tela passa a mostrar o que o servidor GRAVOU, e não o que
+     ela mandou, e a exclusão precisa de `seo_imagem_url` para saber qual
+     arquivo sai do bucket. Sem esta última, o arquivo da imagem de
+     compartilhamento de todo Post excluído ficaria órfão e nada acusaria.
+
+     A lista vem do DOMÍNIO, e não escrita de novo: ela é a mesma que a porta
+     aceita e que a gaveta desenha. */
+  ...CAMPOS_DE_SEO,
   "criado_em",
   "atualizado_em",
 ]);
@@ -460,11 +472,17 @@ export function criarAcesso({
      * endereço ANTERIOR da capa, e é ele que diz qual arquivo sai do bucket
      * quando a capa é trocada. Lê-lo da linha que já vem para a transição é
      * uma chamada a menos num pedido que tem prazo total.
+     *
+     * `seo_imagem_url` entra na Story 3.4 pela MESMA natureza, e a ausência
+     * dela seria um vazamento silencioso: a story abriu o caminho de escrita
+     * da imagem de compartilhamento, e trocar um arquivo enviado sem este
+     * campo aqui deixaria o anterior no bucket para sempre — sem virar nem
+     * resíduo, porque não haveria quem o nomeasse.
      */
     async lerPost(id) {
       return primeira(
         await pedir(
-          `/rest/v1/posts?select=id,slug,estado,publicado_em,autor_id,autor_nome,imagem_url&id=eq.${encodeURIComponent(id)}&limit=1`,
+          `/rest/v1/posts?select=id,slug,estado,publicado_em,autor_id,autor_nome,imagem_url,seo_imagem_url&id=eq.${encodeURIComponent(id)}&limit=1`,
           { cabecalhos: comServico() },
         ),
       );

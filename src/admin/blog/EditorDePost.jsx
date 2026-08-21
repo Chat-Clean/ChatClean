@@ -146,6 +146,7 @@ import {
   removerImagemDeCapa,
 } from "@/data/blog/arquivos";
 import {
+  CAMPOS_DE_IMAGEM_DA_GAVETA,
   ENVIO_EM_CURSO,
   ENVIO_PARADO,
   ENVIO_RECUSADO,
@@ -153,6 +154,8 @@ import {
 } from "@/admin/blog/capa";
 import { lerPostDoPainelPorId } from "@/data/blog/posts";
 import { listarCategorias, listarTagsDoPainel, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
+import { dominioDoSite } from "@/admin/blog/dominio";
+import { CAMPOS_DE_SEO } from "@/domain/blog/compartilhamento";
 import { paraCampoDeInstante } from "@/domain/blog/formato";
 import { documentoVazio } from "@/domain/blog/schema";
 import { gerarSlug, problemaNoSlug } from "@/domain/blog/slug";
@@ -211,8 +214,20 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      deve anunciar. A frase vem pronta de quem recusou — o vocabulário do
      domínio, quando é tamanho ou espécie; o erro tipado da camada, quando é
      rede ou permissão. Esta tela não escreve nenhuma das duas. */
-  const [situacaoDoEnvio, setSituacaoDoEnvio] = useState(ENVIO_PARADO);
-  const [recusaDoEnvio, setRecusaDoEnvio] = useState(null);
+  /* ─── UM ENVIO POR CAMPO, DESDE A STORY 3.4 ────────────────────────────
+     A gaveta ganhou um SEGUNDO controle de imagem — a Imagem de
+     Compartilhamento —, e os dois podem estar em situações diferentes ao mesmo
+     tempo. Um par de estados compartilhado faria o giro do envio de um aparecer
+     sobre o outro, e a recusa de um acusar o campo errado. O mapa é vazio no
+     começo, e campo ausente é "parado". */
+  const [envios, setEnvios] = useState({});
+  const situacaoDe = useCallback(
+    (campo) => envios[campo]?.situacao ?? ENVIO_PARADO,
+    [envios],
+  );
+  const anotarEnvio = useCallback((campo, situacao, recusa = null) => {
+    setEnvios((atuais) => ({ ...atuais, [campo]: { situacao, recusa } }));
+  }, []);
 
   /* AS CAPAS QUE SUBIRAM E O SERVIDOR NUNCA VIU.
      Trocar a capa duas vezes antes de salvar deixava a primeira no bucket para
@@ -224,10 +239,26 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      renderização a mais por envio não paga nada. */
   const capasNaoSalvas = useRef(new Set());
 
-  /** Descarta do Storage um endereço que só existe nesta sessão. */
-  const descartarSeNaoSalva = useCallback(async (endereco) => {
+  /**
+   * Descarta do Storage um endereço que só existe nesta sessão.
+   *
+   * ─── E NUNCA UM QUE O OUTRO CAMPO AINDA USA (Story 3.4) ─────────────────
+   *
+   * Os dois campos de imagem podem apontar para o MESMO arquivo — usar a capa
+   * também como imagem de compartilhamento é o caso mais provável de todos. Sem
+   * a conferência, trocar a capa apagaria do bucket o arquivo que a Imagem de
+   * Compartilhamento continua apontando, e o Post seria salvo com uma prévia de
+   * endereço morto. A guarda irmã, do lado do servidor, está em
+   * `removerImagensAnteriores`.
+   */
+  const descartarSeNaoSalva = useCallback(async (endereco, exceto = null) => {
     const alvo = String(endereco ?? "").trim();
     if (alvo === "" || !capasNaoSalvas.current.has(alvo)) return;
+    const emUsoPeloOutro = CAMPOS_DE_IMAGEM_DA_GAVETA.some(
+      (coluna) =>
+        coluna !== exceto && String(valoresAgora.current[coluna] ?? "").trim() === alvo,
+    );
+    if (emUsoPeloOutro) return;
     capasNaoSalvas.current.delete(alvo);
     /* Falha aqui NÃO vira aviso: o Autor não pediu esta remoção, ela é faxina
        de uma decisão que ele já desfez, e um erro sobre um arquivo que ele nem
@@ -476,16 +507,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
    * capa que está no ar continua sendo a antiga, e apagá-la agora deixaria o
    * Post publicado apontando para um arquivo que não existe mais.
    */
-  const enviarCapa = useCallback(async (arquivo) => {
-    setSituacaoDoEnvio(ENVIO_EM_CURSO);
-    setRecusaDoEnvio(null);
-
+  const enviarImagem = useCallback(async (campo, arquivo) => {
+    anotarEnvio(campo, ENVIO_EM_CURSO, null);
 
     const resultado = await enviarImagemDeCapa(arquivo);
 
     if (!resultado.ok) {
-      setSituacaoDoEnvio(ENVIO_RECUSADO);
-      setRecusaDoEnvio(resultado.erro.mensagem);
+      anotarEnvio(campo, ENVIO_RECUSADO, resultado.erro.mensagem);
       /* A NOTIFICAÇÃO E A MARCA NO CAMPO, as duas. A marca fica onde a pessoa
          vai olhar de novo; a notificação é o que ela ouve agora. Nada do
          formulário é descartado: repetir o envio é escolher outro arquivo, e o
@@ -494,18 +522,20 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       return;
     }
 
-    setSituacaoDoEnvio(ENVIO_PARADO);
+    anotarEnvio(campo, ENVIO_PARADO, null);
     /* A ANTERIOR SAI, se ela também era desta sessão. A que veio do banco NÃO
-       sai daqui: ela ainda é a capa que está no ar até o salvamento. */
-    await descartarSeNaoSalva(valoresAgora.current.imagem_url);
+       sai daqui: ela ainda é a imagem que está no ar até o salvamento. E o
+       `exceto` é ESTE campo: o endereço que está saindo dele não conta como
+       "ainda em uso" por ele mesmo. */
+    await descartarSeNaoSalva(valoresAgora.current[campo], campo);
     capasNaoSalvas.current.add(resultado.dados.url);
-    setValores((atuais) => ({ ...atuais, imagem_url: resultado.dados.url }));
+    setValores((atuais) => ({ ...atuais, [campo]: resultado.dados.url }));
     /* A MARCA DE "FALTA A DESCRIÇÃO" NÃO SOME AQUI, e a ausência é a decisão:
        trocar a imagem não descreve a nova. A versão anterior filtrava
        `"imagem_url"` de `faltando` — um campo que nunca entra nessa lista —,
        então o filtro era um no-op e o comentário ao lado falava de outro
        campo. Quem tira a marca é `mudarCampo`, quando a descrição é digitada. */
-  }, [descartarSeNaoSalva]);
+  }, [descartarSeNaoSalva, anotarEnvio]);
 
   /**
    * Tirar a capa é limpar o ENDEREÇO, e nada mais.
@@ -518,16 +548,24 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
    * A descrição vai junto: descrição órfã de uma imagem que não existe mais
    * reapareceria como texto alternativo da próxima capa.
    */
-  const removerCapa = useCallback(async () => {
-    setSituacaoDoEnvio(ENVIO_PARADO);
-    setRecusaDoEnvio(null);
-    /* Se a capa era desta sessão, ela sai do bucket agora: o servidor nunca a
+  const removerImagem = useCallback(async (campo) => {
+    anotarEnvio(campo, ENVIO_PARADO, null);
+    /* Se a imagem era desta sessão, ela sai do bucket agora: o servidor nunca a
        viu, então ninguém mais viria removê-la. Se ela veio do banco, fica —
        quem a remove é o servidor, depois de a linha ser gravada sem ela. */
-    await descartarSeNaoSalva(valoresAgora.current.imagem_url);
-    setValores((atuais) => ({ ...atuais, imagem_url: "", imagem_alt: "" }));
-    setFaltando((atuais) => atuais.filter((c) => c !== "imagem_alt"));
-  }, [descartarSeNaoSalva]);
+    await descartarSeNaoSalva(valoresAgora.current[campo], campo);
+    /* A DESCRIÇÃO SAI JUNTO — mas só do campo que TEM uma. `imagem_alt` é do
+       par da capa; a Imagem de Compartilhamento não tem coluna de texto
+       alternativo, e limpá-la aqui apagaria a descrição da capa por causa de
+       uma remoção que não foi dela. */
+    const daCapa = campo === "imagem_url";
+    setValores((atuais) => ({
+      ...atuais,
+      [campo]: "",
+      ...(daCapa ? { imagem_alt: "" } : {}),
+    }));
+    if (daCapa) setFaltando((atuais) => atuais.filter((c) => c !== "imagem_alt"));
+  }, [descartarSeNaoSalva, anotarEnvio]);
 
   const mudarDocumento = useCallback((doc) => {
     setDocumento(doc);
@@ -556,15 +594,23 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
   const salvar = useCallback(async (acao) => {
     if (salvando) return;
 
-    /* SALVAR COM A IMAGEM AINDA SUBINDO GRAVARIA O POST SEM A CAPA.
+    /* SALVAR COM UMA IMAGEM AINDA SUBINDO GRAVARIA O POST SEM ELA.
        O endereço só existe depois que o envio conclui; salvar antes mandaria
-       `imagem_url: null` e o Autor veria a miniatura aparecer sobre um Post que
+       `null` na coluna e o Autor veria a miniatura aparecer sobre um Post que
        já foi gravado sem ela — e descobriria no site. Esperar é o certo, e
-       dizer que se está esperando é o que separa esperar de travar. */
-    if (situacaoDoEnvio === ENVIO_EM_CURSO) {
+       dizer que se está esperando é o que separa esperar de travar.
+
+       A guarda vale para os DOIS campos de imagem desde a Story 3.4, e a lista
+       vem de `capa.js`: percorrer só `imagem_url` deixaria a Imagem de
+       Compartilhamento com exatamente o defeito que esta guarda existe para
+       impedir, e o silêncio seria idêntico. */
+    const subindo = CAMPOS_DE_IMAGEM_DA_GAVETA.filter(
+      (campoDeImagem) => situacaoDe(campoDeImagem) === ENVIO_EM_CURSO,
+    );
+    if (subindo.length > 0) {
       notificarErro(
-        "A imagem de capa ainda está subindo",
-        "Espere o envio terminar e salve de novo — assim o post já nasce com a capa.",
+        "Uma imagem ainda está subindo",
+        "Espere o envio terminar e salve de novo — assim o post já nasce com ela.",
       );
       return;
     }
@@ -710,6 +756,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       ...(gravado && Object.hasOwn(gravado, "imagem_alt")
         ? { imagem_alt: gravado.imagem_alt ?? "" }
         : {}),
+      /* OS TRÊS CAMPOS DE SEO GRAVADOS (Story 3.4), pela mesma razão da capa:
+         o servidor pode ter recusado um endereço ou aparado um texto, e o que
+         a tela mostra passa a ser o que ficou na linha. */
+      ...Object.fromEntries(
+        CAMPOS_DE_SEO.filter((coluna) => gravado && Object.hasOwn(gravado, coluna)).map(
+          (coluna) => [coluna, gravado[coluna] ?? ""],
+        ),
+      ),
     };
     /* ── AS CAPAS DESTA SESSÃO QUE O SALVAMENTO DEIXOU PARA TRÁS ──────────
        O QUE FOI SALVO PASSA A SER DO SERVIDOR: a partir daqui quem remove esse
@@ -726,8 +780,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
        Ele NÃO sai na troca de modo, e isso é a outra metade da regra: alternar
        precisa poder ser desfeito sem reenviar o arquivo. Ele sai quando o
        salvamento decide qual endereço o Post tem de verdade — que é aqui. */
-    const capaSalva = String(valoresGravados.imagem_url ?? "").trim();
-    const abandonadas = [...capasNaoSalvas.current].filter((url) => url !== capaSalva);
+    /* AS SALVAS SÃO AS DOS DOIS CAMPOS. Filtrar só pela capa faria o arquivo
+       que acabou de virar Imagem de Compartilhamento ser apagado do bucket
+       logo depois de o Post apontar para ele — a linha gravada ficaria com um
+       endereço morto, que é o defeito pior que o órfão. */
+    const salvas = CAMPOS_DE_IMAGEM_DA_GAVETA.map((coluna) =>
+      String(valoresGravados[coluna] ?? "").trim(),
+    ).filter((url) => url !== "");
+    const abandonadas = [...capasNaoSalvas.current].filter((url) => !salvas.includes(url));
     capasNaoSalvas.current.clear();
     for (const url of abandonadas) {
       /* Falha aqui NÃO vira aviso, pela mesma razão de `descartarSeNaoSalva`:
@@ -758,7 +818,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     }
 
     aoSalvar?.(gravado);
-  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis, situacaoDoEnvio]);
+  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis, situacaoDe]);
 
   useEffect(() => {
     salvarDeNovo.current = salvar;
@@ -1003,8 +1063,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
             categorias={categorias}
             tags={tags}
             problemaNoEndereco={problemaNoEndereco}
-            situacaoDoEnvio={situacaoDoEnvio}
-            recusaDoEnvio={recusaDoEnvio}
+            envios={envios}
+            /* O DOMÍNIO CANÔNICO da seção de SEO (Story 3.4): variável de
+               ambiente, como o épico decidiu, com a origem do navegador só
+               como último recurso. A versão anterior lia a origem e mais nada,
+               e mentia em implantação de prévia — que é justamente o ambiente
+               feito para conferir antes de publicar. Ver `admin/blog/dominio.js`. */
+            dominioDoSite={dominioDoSite()}
             /* A RAIZ DO PROJETO, para a gaveta saber se a capa gravada é NOSSA
                e abrir no modo certo. Ela vem da camada de dados, e não de uma
                leitura do próprio endereço: a capa de outro projeto Supabase tem
@@ -1012,8 +1077,8 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                num campo `readOnly` justamente o endereço que a pessoa foi
                editar. */
             baseDaCapaDoProjeto={baseDaCapaDoProjeto}
-            aoEscolherArquivo={enviarCapa}
-            aoRemoverCapa={removerCapa}
+            aoEscolherArquivo={enviarImagem}
+            aoRemoverImagem={removerImagem}
             desabilitado={salvando}
             aberta={gavetaAberta}
             aoAlternar={alternarGaveta}

@@ -63,19 +63,58 @@ import { sqlDeCriacaoDeConta, sqlDeRemocaoDeConta } from "./criar-conta.mjs";
    porque é a dona da cadeia de dados que representa um Post — e porque ela não
    precisa de rede nenhuma para se provar. */
 import {
+  CAMPOS_DE_SEO,
+  COMPRIMENTO_USUAL_DE_SEO,
   DEFEITO_DE_DOMINIO_AUSENTE,
+  DISTANCIA_MINIMA_ENTRE_OS_DOIS,
   ESPECIES_FORA_DA_PREVIA,
   IMAGEM_PADRAO_DO_SITE,
   LOGOTIPO_DA_MARCA,
+  CAMPOS_DE_TEXTO_DE_SEO,
+  ORIGENS_DA_DESCRICAO,
   ORIGENS_DA_IMAGEM,
+  ORIGENS_DO_TITULO,
   RECUSA_DE_ENDERECO_INALCANCAVEL,
+  ROTULOS_DE_SEO,
+  TETO_DE_HIGIENE_DE_SEO,
   TIPOS_NA_PREVIA,
   TIPO_POR_EXTENSAO,
+  caracteresDe,
   enderecoDaImagemPadrao,
   enderecoDoLogotipo,
-  imagemDoPost,
+  metadadosDoPost,
+  problemaNoTextoDeSeo,
   tipoDaImagem,
 } from "../src/domain/blog/compartilhamento.js";
+/* O módulo INTEIRO, para a asserção que cobra que não exista uma segunda porta
+   de entrada para a mesma cadeia de herança. Nomear só o que se importa não
+   permitiria perguntar o que MAIS ele exporta. */
+import * as moduloDeCompartilhamento from "../src/domain/blog/compartilhamento.js";
+
+/**
+ * A parte da IMAGEM do que um Post declara, com as recusas ao lado.
+ *
+ * Atalho de LEITURA desta ferramenta, e não uma segunda cadeia: ele chama
+ * `metadadosDoPost` — a função única — e recorta. As asserções da Story 3.3
+ * foram escritas quando a função só respondia pela imagem, e mantê-las lendo o
+ * mesmo formato preserva o que elas provam; o que a 3.4 acrescentou é afirmado
+ * sobre o resultado INTEIRO, logo adiante.
+ */
+/*
+ * O ATALHO DA STORY 3.3 — e por que ele é CONGELADO.
+ *
+ * As asserções da 3.3 falam da imagem sozinha, e várias delas perguntam pelo
+ * congelamento. Enquanto este atalho devolvia um objeto novo e mutável, essas
+ * asserções mediam a CÓPIA: o domínio podia parar de congelar e elas
+ * continuariam verdes. Congelar aqui restabelece o que elas pensavam estar
+ * medindo, e o congelamento do valor REAL é afirmado em (h), sobre o resultado
+ * de `metadadosDoPost` — mais a asserção de FIDELIDADE logo abaixo dela, que
+ * prende o atalho ao original campo a campo.
+ */
+const imagemDoPost = (post, opcoes) => {
+  const metadados = metadadosDoPost(post, opcoes);
+  return Object.freeze({ ...metadados.imagem, recusadas: metadados.recusadas });
+};
 import {
   TIPOS_DE_IMAGEM,
   enderecoDeImagemPermitido,
@@ -3695,6 +3734,445 @@ secao("(g) a imagem que representa um Post: uma função pura, quatro combinaç�
       alcancadas.size === ORIGENS_DA_IMAGEM.length &&
         ORIGENS_DA_IMAGEM.every((o) => alcancadas.has(o)),
       `${[...alcancadas].join(", ")} vs ${ORIGENS_DA_IMAGEM.join(", ")}`,
+    );
+  }
+}
+
+/* ─── (h) A herança dos TRÊS campos, EXECUTADA (Story 3.4) ───────────────── */
+
+secao("(h) a herança de título, descrição e imagem: uma função, uma chamada");
+
+/*
+ * ─── POR QUE ISTO É EXECUTADO, E NÃO LIDO ─────────────────────────────────
+ *
+ * "Vazio herda" é a promessa central da story, e ela só é verdade se alguém a
+ * calcular. A Story 3.3 provou a cadeia da IMAGEM; esta prova as três, e prova
+ * que elas saem de UMA chamada — porque o dia em que houver duas funções, a
+ * Prévia da Story 3.5 e o emissor do Épico 4 vão chamar cada uma a sua.
+ *
+ * Toda asserção daqui compara o VALOR capturado, e não uma contagem: uma
+ * contagem de campos preenchidos não reage a um campo herdando da fonte errada,
+ * que é o defeito realista — trocar `resumo` por `titulo` numa linha da cadeia.
+ */
+{
+  const DOMINIO = "https://chatclean.com.br";
+  const PADRAO = `${DOMINIO}${IMAGEM_PADRAO_DO_SITE.caminho}`;
+  const CAPA =
+    "https://chatclean.com.br/storage/v1/object/public/imagens-do-blog/capas/abcdefgh12.png";
+  const COMPARTILHAMENTO = "https://cdn.exemplo.com/previa-do-post.jpg";
+
+  /** Um Post completo do lado do conteúdo, e vazio do lado do SEO. */
+  const POST = Object.freeze({
+    titulo: "Como limpar a base de contatos",
+    resumo: "Um roteiro de quatro passos para tirar o número morto da sua lista.",
+    imagem_url: CAPA,
+    imagem_alt: "Tela do ChatClean com a lista de contatos",
+    seo_titulo: null,
+    seo_descricao: null,
+    seo_imagem_url: null,
+  });
+
+  /* ── OS TRÊS VAZIOS: O CONJUNTO FICA COMPLETO ──────────────────────── */
+  {
+    const m = metadadosDoPost(POST, { dominio: DOMINIO });
+    afirmar(
+      "com os três campos de SEO vazios, o título herda o TÍTULO DO POST — e o valor é ele, não uma contagem",
+      m.titulo.valor === POST.titulo && m.titulo.origem === "titulo" && m.titulo.herdado === true,
+      `${m.titulo.origem}: ${JSON.stringify(m.titulo.valor)}`,
+    );
+    afirmar(
+      "a descrição herda o RESUMO — e não o título, que é a troca de fonte que uma contagem não pegaria",
+      m.descricao.valor === POST.resumo &&
+        m.descricao.valor !== POST.titulo &&
+        m.descricao.origem === "resumo" &&
+        m.descricao.herdado === true,
+      `${m.descricao.origem}: ${JSON.stringify(m.descricao.valor)}`,
+    );
+    afirmar(
+      "a imagem herda a CAPA, e o conjunto fica COMPLETO: nenhum dos três é nulo, e nada foi recusado",
+      m.imagem.endereco === CAPA &&
+        m.imagem.origem === "capa" &&
+        m.imagem.herdado === true &&
+        m.titulo.valor !== null &&
+        m.descricao.valor !== null &&
+        m.recusadas.length === 0,
+      `${m.imagem.origem}: ${m.imagem.endereco} | recusadas: ${m.recusadas.length}`,
+    );
+    afirmar(
+      "e o resultado é CONGELADO nas quatro partes — quem consome não altera a decisão de quem vem depois",
+      Object.isFrozen(m) &&
+        Object.isFrozen(m.titulo) &&
+        Object.isFrozen(m.descricao) &&
+        Object.isFrozen(m.imagem) &&
+        Object.isFrozen(m.recusadas),
+      `${Object.isFrozen(m)} ${Object.isFrozen(m.titulo)} ${Object.isFrozen(m.descricao)} ${Object.isFrozen(m.imagem)}`,
+    );
+  }
+
+  /* ── CADA UM PREENCHIDO SOZINHO: O PRÓPRIO GANHA, OS OUTROS HERDAM ── */
+  {
+    const soTitulo = metadadosDoPost(
+      { ...POST, seo_titulo: "Base de contatos limpa em 4 passos" },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "só o Título SEO preenchido: ele é o PRÓPRIO, e a descrição e a imagem continuam herdando",
+      soTitulo.titulo.valor === "Base de contatos limpa em 4 passos" &&
+        soTitulo.titulo.origem === "compartilhamento" &&
+        soTitulo.titulo.herdado === false &&
+        soTitulo.descricao.valor === POST.resumo &&
+        soTitulo.imagem.endereco === CAPA,
+      `${soTitulo.titulo.origem} | ${soTitulo.descricao.origem} | ${soTitulo.imagem.origem}`,
+    );
+
+    const soDescricao = metadadosDoPost(
+      { ...POST, seo_descricao: "Quatro passos, do diagnóstico ao arquivamento." },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "só a Meta Descrição preenchida: ela é a PRÓPRIA, e o título e a imagem continuam herdando",
+      soDescricao.descricao.valor === "Quatro passos, do diagnóstico ao arquivamento." &&
+        soDescricao.descricao.origem === "compartilhamento" &&
+        soDescricao.titulo.valor === POST.titulo &&
+        soDescricao.imagem.endereco === CAPA,
+      `${soDescricao.titulo.origem} | ${soDescricao.descricao.origem} | ${soDescricao.imagem.origem}`,
+    );
+
+    const soImagem = metadadosDoPost(
+      { ...POST, seo_imagem_url: COMPARTILHAMENTO },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "só a Imagem de Compartilhamento preenchida: ela VENCE a capa, e os dois textos continuam herdando",
+      soImagem.imagem.endereco === COMPARTILHAMENTO &&
+        soImagem.imagem.origem === "compartilhamento" &&
+        soImagem.imagem.herdado === false &&
+        soImagem.titulo.valor === POST.titulo &&
+        soImagem.descricao.valor === POST.resumo,
+      `${soImagem.imagem.origem}: ${soImagem.imagem.endereco}`,
+    );
+  }
+
+  /* ── SÓ ESPAÇOS É VAZIO, E VAZIO HERDA ─────────────────────────────── */
+  //
+  // O caso é da matriz, e não é acadêmico: um campo com espaços gravado na
+  // coluna produziria um `og:title` EM BRANCO — pior que o herdado, porque
+  // nada acusaria. A asserção compara o valor herdado, e não "é diferente de
+  // vazio": um título que caísse para a string vazia passaria por um teste de
+  // desigualdade contra o valor próprio.
+  {
+    const ESPACOS = ["   ", "\t", "\n  \n", "   "];
+    const erraram = ESPACOS.filter((branco) => {
+      const m = metadadosDoPost(
+        { ...POST, seo_titulo: branco, seo_descricao: branco, seo_imagem_url: branco },
+        { dominio: DOMINIO },
+      );
+      return (
+        m.titulo.valor !== POST.titulo ||
+        m.titulo.origem !== "titulo" ||
+        m.descricao.valor !== POST.resumo ||
+        m.imagem.endereco !== CAPA ||
+        m.recusadas.length !== 0
+      );
+    });
+    afirmar(
+      `os ${ESPACOS.length} campos com só espaço em branco são tratados como VAZIOS e herdam — sem virar recusa`,
+      erraram.length === 0,
+      erraram.map((e) => JSON.stringify(e)).join(", "),
+    );
+  }
+
+  /* ── RESUMO AUSENTE: A DESCRIÇÃO FICA AUSENTE, NÃO VAZIA ───────────── */
+  //
+  // "Sem inventar texto" é o critério. `null` é a instrução de OMITIR a
+  // etiqueta; `""` seria uma etiqueta declarada e em branco, que é o mesmo
+  // defeito do `og:image` que existe e não aparece.
+  {
+    const semResumo = metadadosDoPost(
+      { titulo: POST.titulo, resumo: "   ", seo_descricao: "  " },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "Post sem Resumo e sem Meta Descrição: a descrição fica AUSENTE (`null`), e nunca uma string vazia",
+      semResumo.descricao.valor === null &&
+        semResumo.descricao.origem === null &&
+        semResumo.descricao.herdado === true,
+      `${JSON.stringify(semResumo.descricao)}`,
+    );
+    afirmar(
+      "e um Post sem título nenhum também: o título fica ausente, e a imagem cai para o padrão do site",
+      metadadosDoPost({}, { dominio: DOMINIO }).titulo.valor === null &&
+        metadadosDoPost({}, { dominio: DOMINIO }).titulo.origem === null &&
+        metadadosDoPost({}, { dominio: DOMINIO }).imagem.endereco === PADRAO,
+      JSON.stringify(metadadosDoPost({}, { dominio: DOMINIO }).titulo),
+    );
+  }
+
+  /* ── O TETO DE HIGIENE RECUSA, E A RECUSA CAI PARA O ELO SEGUINTE ─── */
+  //
+  // A mesma forma da imagem: `{ campo, origem, motivo }`. Sem isso, um texto
+  // recusado sumiria e o Autor veria o título do Post no lugar do que escreveu,
+  // sem nada dizendo por quê.
+  for (const campo of ["seo_titulo", "seo_descricao"]) {
+    const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+    const longo = "a".repeat(teto + 1);
+    const m = metadadosDoPost({ ...POST, [campo]: longo }, { dominio: DOMINIO });
+    const parte = campo === "seo_titulo" ? m.titulo : m.descricao;
+    const herdadoEsperado = campo === "seo_titulo" ? POST.titulo : POST.resumo;
+    afirmar(
+      `\`${campo}\` acima do teto de higiene (${teto}) é RECUSADO e cai para o elo herdado — com campo, origem e motivo`,
+      parte.valor === herdadoEsperado &&
+        parte.herdado === true &&
+        m.recusadas.length === 1 &&
+        m.recusadas[0].campo === campo &&
+        m.recusadas[0].origem === "compartilhamento" &&
+        m.recusadas[0].motivo === problemaNoTextoDeSeo(campo, longo) &&
+        m.recusadas[0].motivo.includes(String(teto)),
+      `${JSON.stringify(m.recusadas)} | valor: ${JSON.stringify(parte.valor)}`,
+    );
+    /* E NO TETO EXATO ELE PASSA. Sem este caso, uma comparação trocada por
+       `>=` recusaria o texto de tamanho exato e as duas asserções acima
+       continuariam verdes — a recusa apareceria como "não consigo salvar" num
+       texto que o próprio limite declara aceitável. */
+    const noLimite = "a".repeat(teto);
+    const exato = metadadosDoPost({ ...POST, [campo]: noLimite }, { dominio: DOMINIO });
+    const parteExata = campo === "seo_titulo" ? exato.titulo : exato.descricao;
+    afirmar(
+      `e no teto exato (${teto}) ele PASSA — a fronteira é inclusiva, dos dois lados da mesma regra`,
+      parteExata.valor === noLimite &&
+        parteExata.origem === "compartilhamento" &&
+        exato.recusadas.length === 0 &&
+        problemaNoTextoDeSeo(campo, noLimite) === null,
+      `${parteExata.origem} | recusadas: ${exato.recusadas.length}`,
+    );
+  }
+
+  /* ── OS DOIS NÚMEROS, E A DISTÂNCIA ENTRE ELES ─────────────────────── */
+  //
+  // O comprimento USUAL sinaliza e NÃO recusa. Se ele encostasse no teto de
+  // higiene, o teto passaria a disciplinar o Autor — que é exatamente o que o
+  // critério proíbe. A asserção mede a distância em vez de a supor, e exercita
+  // o texto que fica ENTRE os dois números: ele tem de ser aceito.
+  {
+    const encostados = Object.keys(COMPRIMENTO_USUAL_DE_SEO).filter(
+      (campo) =>
+        TETO_DE_HIGIENE_DE_SEO[campo] <
+        COMPRIMENTO_USUAL_DE_SEO[campo] * DISTANCIA_MINIMA_ENTRE_OS_DOIS,
+    );
+    afirmar(
+      `os dois números de cada campo são declarados e ficam a pelo menos ${DISTANCIA_MINIMA_ENTRE_OS_DOIS}x de distância`,
+      encostados.length === 0 &&
+        Object.keys(COMPRIMENTO_USUAL_DE_SEO).length === 2 &&
+        COMPRIMENTO_USUAL_DE_SEO.seo_titulo === 60 &&
+        COMPRIMENTO_USUAL_DE_SEO.seo_descricao === 155,
+      `usual: ${JSON.stringify(COMPRIMENTO_USUAL_DE_SEO)} | teto: ${JSON.stringify(TETO_DE_HIGIENE_DE_SEO)}`,
+    );
+
+    const bloquearam = [];
+    for (const campo of Object.keys(COMPRIMENTO_USUAL_DE_SEO)) {
+      const usual = COMPRIMENTO_USUAL_DE_SEO[campo];
+      const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+      /* Três pontos ENTRE os dois números, incluindo o primeiro caractere
+         acima do usual: é ali que um teto disfarçado de conselho apareceria. */
+      for (const tamanho of [usual + 1, Math.round((usual + teto) / 2), teto]) {
+        const texto = "a".repeat(tamanho);
+        if (problemaNoTextoDeSeo(campo, texto) !== null) {
+          bloquearam.push(`${campo} com ${tamanho}`);
+          continue;
+        }
+        const m = metadadosDoPost({ ...POST, [campo]: texto }, { dominio: DOMINIO });
+        const parte = campo === "seo_titulo" ? m.titulo : m.descricao;
+        if (parte.valor !== texto || m.recusadas.length !== 0) {
+          bloquearam.push(`${campo} com ${tamanho} não virou o valor próprio`);
+        }
+      }
+    }
+    afirmar(
+      "passar do comprimento usual NÃO recusa e NÃO trunca: o texto entre os dois números atravessa inteiro",
+      bloquearam.length === 0,
+      bloquearam.join(" | "),
+    );
+  }
+
+  /* ── O VOCABULÁRIO DAS ORIGENS É FECHADO, E TODO ELO É ALCANÇÁVEL ─── */
+  //
+  // Sem isto, apagar a linha do elo herdado de um dos textos deixaria as
+  // asserções de "campo próprio" verdes: elas nunca chegam ao segundo elo.
+  {
+    const doTitulo = new Set([
+      metadadosDoPost({ ...POST, seo_titulo: "Próprio" }, { dominio: DOMINIO }).titulo.origem,
+      metadadosDoPost(POST, { dominio: DOMINIO }).titulo.origem,
+    ]);
+    const daDescricao = new Set([
+      metadadosDoPost({ ...POST, seo_descricao: "Própria" }, { dominio: DOMINIO }).descricao
+        .origem,
+      metadadosDoPost(POST, { dominio: DOMINIO }).descricao.origem,
+    ]);
+    afirmar(
+      "as duas origens de cada texto são alcançáveis, e nenhuma outra aparece",
+      ORIGENS_DO_TITULO.every((o) => doTitulo.has(o)) &&
+        doTitulo.size === ORIGENS_DO_TITULO.length &&
+        ORIGENS_DA_DESCRICAO.every((o) => daDescricao.has(o)) &&
+        daDescricao.size === ORIGENS_DA_DESCRICAO.length,
+      `título: ${[...doTitulo].join(", ")} | descrição: ${[...daDescricao].join(", ")}`,
+    );
+    afirmar(
+      "e os três campos de SEO estão declarados num lugar só, com rótulo em palavras de gente",
+      CAMPOS_DE_SEO.length === 3 &&
+        CAMPOS_DE_SEO.join(",") === "seo_titulo,seo_descricao,seo_imagem_url" &&
+        CAMPOS_DE_SEO.every(
+          (campo) => typeof ROTULOS_DE_SEO[campo] === "string" && ROTULOS_DE_SEO[campo] !== "",
+        ),
+      `${CAMPOS_DE_SEO.join(", ")} → ${CAMPOS_DE_SEO.map((c) => ROTULOS_DE_SEO[c]).join(", ")}`,
+    );
+  }
+
+  /* ── UMA FUNÇÃO SÓ: NÃO HÁ SEGUNDA PORTA PARA A MESMA CADEIA ──────── */
+  //
+  // O módulo exportava `imagemDoPost` até a Story 3.3. Se ele voltasse a
+  // exportar uma segunda entrada para a cadeia, um consumidor chamaria a
+  // parcial e outro a inteira — e as duas divergiriam no primeiro campo novo.
+  {
+    const exportados = Object.keys(moduloDeCompartilhamento);
+    const segundasPortas = exportados.filter(
+      (nome) => /^(imagemDoPost|tituloDoPost|descricaoDoPost|seoDoPost)$/.test(nome),
+    );
+  /* ── O ATALHO DESTA FERRAMENTA É FIEL AO ORIGINAL ────────────────────────
+     `imagemDoPost` é uma conveniência montada no topo deste arquivo para as
+     asserções da Story 3.3 continuarem lendo a imagem sozinha. Se ele derivar
+     do original — uma chave a menos, um valor recalculado —, todas elas passam
+     a medir uma coisa que o domínio não entrega. */
+  {
+    const post = {
+      titulo: "O título",
+      resumo: "O resumo",
+      imagem_url: CAPA,
+      imagem_alt: "A capa",
+    };
+    const original = metadadosDoPost(post, { dominio: DOMINIO }).imagem;
+    const atalho = imagemDoPost(post, { dominio: DOMINIO });
+    const divergentes = Object.keys(original).filter(
+      (chave) => atalho[chave] !== original[chave],
+    );
+    afirmar(
+      "o atalho desta ferramenta traz TODAS as chaves da imagem com o MESMO valor, e é congelado como o original",
+      divergentes.length === 0 &&
+        Object.keys(original).every((chave) => Object.hasOwn(atalho, chave)) &&
+        Object.isFrozen(atalho) &&
+        Array.isArray(atalho.recusadas),
+      `divergentes: ${divergentes.join(", ") || "nenhuma"} | congelado: ${Object.isFrozen(atalho)}`,
+    );
+  }
+
+  /* ── A ETIQUETA É DE UMA LINHA SÓ (Story 3.4) ────────────────────────────
+     `seo_titulo` é digitado num `<textarea>`, que aceita Enter, e nada tirava
+     quebra de linha nem caractere de controle: o valor atravessava tela, porta
+     e restrição e virava um `<title>` partido ao meio. A matriz cobria "só
+     espaços"; espaço em branco INTERNO não estava em lugar nenhum.
+
+     A normalização mora no domínio, e não na gravação: a coluna guarda o que a
+     pessoa escreveu — este projeto não corta texto do Autor —, e o que muda é o
+     valor EMITIDO. É por isso que a tela mostra exatamente a etiqueta que o
+     rastreador vai receber. */
+  {
+    /* Os três espaços em branco, por CÓDIGO DE CARACTERE. Digitá-los dentro
+       de um literal deste arquivo os tornaria invisíveis para quem revisa — e
+       um `\r` perdido numa asserção é exatamente o tipo de coisa que ninguém
+       enxerga em revisão. */
+    const NOVA_LINHA = String.fromCharCode(10);
+    const TABULACAO = String.fromCharCode(9);
+    const RETORNO = String.fromCharCode(13);
+    const comQuebra = metadadosDoPost(
+      {
+        titulo: "T",
+        resumo: "R",
+        /* Montado por código de caractere, e não digitado: uma quebra de linha
+           literal dentro do arquivo de verificação seria invisível na revisão. */
+        seo_titulo: ["Um título", NOVA_LINHA, "com quebra", TABULACAO, "e", RETORNO, "controle no meio"].join(""),
+        seo_descricao: "Uma descrição\n\ncom parágrafo",
+      },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "quebra de linha, tabulação e caractere de controle saem do TÍTULO emitido — e o texto continua inteiro",
+      comQuebra.titulo.valor === "Um título com quebra e controle no meio" &&
+        !/[\n\r\t]/.test(comQuebra.titulo.valor),
+      JSON.stringify(comQuebra.titulo.valor),
+    );
+    afirmar(
+      "e da DESCRIÇÃO também — uma etiqueta de metadado não tem parágrafo",
+      comQuebra.descricao.valor === "Uma descrição com parágrafo",
+      JSON.stringify(comQuebra.descricao.valor),
+    );
+
+    /* E NADA DE CONTEÚDO SE PERDE: a normalização não é truncagem. */
+    const preservado = "Título com acento, çedilha, emoji 😀 e “aspas”";
+    const intacto = metadadosDoPost(
+      { titulo: "T", seo_titulo: preservado },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "e nenhum caractere de conteúdo se perde — acento, cedilha, emoji e aspas atravessam intactos",
+      intacto.titulo.valor === preservado,
+      JSON.stringify(intacto.titulo.valor),
+    );
+
+    /* O ELO HERDADO passa pela MESMA normalização: um Título de Post com
+       quebra de linha herdado sem tratamento produziria o mesmo `<title>`
+       partido por outro caminho. */
+    const herdadoComQuebra = metadadosDoPost(
+      { titulo: "Título do\nPost", resumo: "Resumo\tdo Post" },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "e o elo HERDADO passa pela mesma normalização — o defeito não pode voltar pelo outro caminho",
+      herdadoComQuebra.titulo.valor === "Título do Post" &&
+        herdadoComQuebra.descricao.valor === "Resumo do Post",
+      `${JSON.stringify(herdadoComQuebra.titulo.valor)} | ${JSON.stringify(herdadoComQuebra.descricao.valor)}`,
+    );
+
+    /* E UM CAMPO QUE SÓ TEM CONTROLE E QUEBRA é vazio, e HERDA — como "só
+       espaços", que a matriz já cobria. */
+    const soControle = metadadosDoPost(
+      { titulo: "Título do Post", seo_titulo: `${NOVA_LINHA}${TABULACAO}${RETORNO}  ` },
+      { dominio: DOMINIO },
+    );
+    afirmar(
+      "campo com só quebra, tabulação e controle é VAZIO e herda — como já valia para o espaço",
+      soControle.titulo.valor === "Título do Post" &&
+        soControle.titulo.origem === ORIGENS_DO_TITULO[1],
+      JSON.stringify({ valor: soControle.titulo.valor, origem: soControle.titulo.origem }),
+    );
+  }
+
+  /* ── A CONTAGEM É POR CARACTERE, E NÃO POR UNIDADE UTF-16 ────────────────
+     `char_length` no Postgres conta caracteres; `.length` conta unidades, e
+     todo ponto de código fora do BMP ocupa duas. Toda asserção de teto deste
+     projeto usava `repeat('a', …)`, e o alfabeto escolhido era exatamente o
+     único em que os dois números coincidem. */
+  {
+    const EMOJI = "😀";
+    afirmar(
+      "`caracteresDe` conta PONTO DE CÓDIGO — e o corpus tem mesmo um caractere fora do BMP",
+      caracteresDe(EMOJI) === 1 && EMOJI.length === 2 && caracteresDe(EMOJI.repeat(7)) === 7,
+      `${caracteresDe(EMOJI)} caractere(s) em ${EMOJI.length} unidade(s)`,
+    );
+    for (const campo of CAMPOS_DE_TEXTO_DE_SEO) {
+      const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+      afirmar(
+        `\`${campo}\` com ${teto} emojis PASSA, e com ${teto + 1} é recusado — a fronteira é a mesma do banco`,
+        problemaNoTextoDeSeo(campo, EMOJI.repeat(teto)) === null &&
+          problemaNoTextoDeSeo(campo, EMOJI.repeat(teto + 1)) !== null,
+        `${caracteresDe(EMOJI.repeat(teto))} caracteres em ${EMOJI.repeat(teto).length} unidades`,
+      );
+    }
+  }
+
+  afirmar(
+      "o módulo exporta `metadadosDoPost` e NENHUMA segunda porta para a mesma cadeia",
+      typeof moduloDeCompartilhamento.metadadosDoPost === "function" &&
+        segundasPortas.length === 0,
+      `exportações suspeitas: ${segundasPortas.join(", ") || "nenhuma"}`,
     );
   }
 }

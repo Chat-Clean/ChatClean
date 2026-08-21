@@ -147,6 +147,21 @@ export const TAMANHO_MAXIMO_DA_IMAGEM = 1024 * 1024;
 export const TAMANHO_MAXIMO_DO_ALTERNATIVO = 300;
 
 /**
+ * O nome da Capa em palavras de gente — UMA grafia, e não quatro.
+ *
+ * Ele mora aqui, e não em `admin/blog/capa.js`, porque quem precisa dele não é
+ * só a tela: a recusa da porta de escrita nomeia a coluna, e `api/` não pode
+ * importar de `admin/`. Este módulo já é o vocabulário de imagem compartilhado
+ * por tela, servidor e banco, então é a casa certa.
+ *
+ * Antes desta declaração o mesmo nome existia em quatro escritas independentes
+ * — a constante do módulo da capa, o padrão codificado em
+ * `alternativoDaMiniatura`, o literal do rótulo na gaveta e a mensagem do
+ * servidor —, e o lado do SEO, que nasceu depois, já tirava tudo de um mapa só.
+ */
+export const ROTULO_DA_CAPA = "Imagem de capa";
+
+/**
  * Por quanto tempo a capa pode ficar em cache, em segundos.
  *
  * Um ano. O arquivo é IMUTÁVEL por construção — cada envio nasce com nome

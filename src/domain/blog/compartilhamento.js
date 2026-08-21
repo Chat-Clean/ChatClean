@@ -1,6 +1,6 @@
 /**
- * Os ativos de prévia do site, e a regra de QUAL imagem representa um Post
- * quando um link dele é compartilhado.
+ * Os ativos de prévia do site, e a regra de O QUE UM POST DECLARA quando um
+ * link dele é compartilhado: título, descrição e imagem.
  *
  * Puro: sem React, sem rede, sem `fetch`, sem cliente, sem `fs`. É a função
  * que a Prévia do Editor (Story 3.5) e a Função de Borda que emite metadado no
@@ -9,14 +9,21 @@
  * esta função existe para não ter, e duas implementações da mesma cadeia
  * divergiriam na primeira mudança.
  *
- * ─── POR QUE A CADEIA NASCE INTEIRA, SEM O CAMPO QUE FALTA ─────────────────
+ * ─── UMA CHAMADA, TRÊS CAMPOS (Story 3.4) ─────────────────────────────────
  *
- * `seo_imagem_url` existe na coluna desde a Story 2.1 e **não tem caminho de
- * escrita**: ela não está em `CAMPOS_ACEITOS` (`api/_nucleo/salvarPost.js`), e
- * ligá-la é a Story 3.4. Mesmo assim a função responde pelos três elos hoje.
- * Partir a cadeia em duas entregas produziria duas funções respondendo à mesma
- * pergunta — e a segunda nasceria discordando da primeira no dia em que a
- * primeira mudasse.
+ * `metadadosDoPost` responde pelos três de uma vez. Ela nasceu como
+ * `imagemDoPost`, respondendo só pela imagem, e CRESCEU em vez de ganhar duas
+ * irmãs: duas funções respondendo "o que este Post declara" divergiriam no dia
+ * em que um campo novo aparecesse — ele entraria só numa delas, e ninguém
+ * saberia qual das duas o consumidor de amanhã chamou.
+ *
+ * ─── POR QUE A CADEIA NASCEU INTEIRA, SEM O CAMPO QUE FALTAVA ─────────────
+ *
+ * `seo_imagem_url` existe na coluna desde a Story 2.1 e, até a Story 3.4, não
+ * tinha caminho de escrita: ela não estava em `CAMPOS_ACEITOS`
+ * (`api/_nucleo/salvarPost.js`). A Story 3.3 fez a função responder pelos três
+ * elos mesmo assim, e a 3.4 só ligou o campo — que é o proveito de a cadeia ter
+ * nascido inteira.
  *
  * ─── A ORDEM, E POR QUE ELA É ESTA ────────────────────────────────────────
  *
@@ -208,7 +215,7 @@ export function tipoDaImagem(endereco) {
  */
 export const DEFEITO_DE_DOMINIO_AUSENTE =
   "A imagem de compartilhamento não pôde ser resolvida: o Domínio Canônico não chegou. " +
-  "É defeito de montagem — a variável de ambiente do domínio do site não foi lida.";
+  "É defeito de montagem — a variável de ambiente VITE_DOMINIO_DO_SITE não foi lida.";
 
 /**
  * A raiz absoluta do site, sem barra no fim — ou lança.
@@ -250,6 +257,211 @@ export function enderecoDoLogotipo(dominio) {
   return enderecoDoAtivo(dominio, LOGOTIPO_DA_MARCA);
 }
 
+/* ─── OS DOIS NÚMEROS DE CADA CAMPO DE TEXTO (Story 3.4) ──────────────────── */
+
+/**
+ * Os três campos de SEO do Post, na ordem em que a tela os oferece.
+ *
+ * Lista FECHADA e declarada uma vez: ela é lida pela gaveta, pela função de
+ * servidor e pela verificação. Um quarto campo entra aqui, e não em quatro
+ * lugares.
+ */
+export const CAMPOS_DE_SEO = Object.freeze([
+  "seo_titulo",
+  "seo_descricao",
+  "seo_imagem_url",
+]);
+
+/**
+ * Os dois de TEXTO, e o de IMAGEM — a partição de `CAMPOS_DE_SEO`.
+ *
+ * Eles existem porque os consumidores tratam os dois grupos de forma
+ * diferente, e todos escreviam a divisão à mão: a porta percorre os de texto
+ * para cobrar o teto de higiene e trata o de imagem pelo vocabulário de
+ * esquema; a gaveta desenha os dois primeiros com contador e o terceiro com o
+ * controle de duas origens. Cada cópia dessa divisão é um lugar a mais para o
+ * quarto campo não entrar.
+ */
+export const CAMPOS_DE_TEXTO_DE_SEO = Object.freeze(["seo_titulo", "seo_descricao"]);
+export const CAMPO_DE_IMAGEM_DE_SEO = "seo_imagem_url";
+
+/* A PARTIÇÃO É CONFERIDA NO CARREGAMENTO, e LANÇA. Um quarto campo em
+   `CAMPOS_DE_SEO` que ninguém classificasse ficaria invisível para a porta e
+   para a tela ao mesmo tempo — presente na lista, tratado por ninguém. */
+{
+  const classificados = [...CAMPOS_DE_TEXTO_DE_SEO, CAMPO_DE_IMAGEM_DE_SEO];
+  const faltando = CAMPOS_DE_SEO.filter((campo) => !classificados.includes(campo));
+  const sobrando = classificados.filter((campo) => !CAMPOS_DE_SEO.includes(campo));
+  if (faltando.length > 0 || sobrando.length > 0 || classificados.length !== CAMPOS_DE_SEO.length) {
+    throw new Error(
+      "Os campos de SEO precisam ser exatamente os de texto mais o de imagem: " +
+        `sem classificação [${faltando.join(", ")}], fora da lista [${sobrando.join(", ")}].`,
+    );
+  }
+}
+
+/**
+ * O nome de cada um, em palavras de gente. Declarado UMA vez: a recusa do
+ * servidor e o rótulo da gaveta falam do mesmo campo, e duas grafias fariam o
+ * Autor procurar na tela um campo que a mensagem chama de outro nome.
+ */
+export const ROTULOS_DE_SEO = Object.freeze({
+  seo_titulo: "Título SEO",
+  seo_descricao: "Meta Descrição",
+  seo_imagem_url: "Imagem de Compartilhamento",
+});
+
+/**
+ * O comprimento USUAL de cada campo — o número que o contador **sinaliza**.
+ *
+ * É conselho de quem EXIBE o resultado de busca, não regra de quem escreve:
+ * passar dele é escolha legítima, o mecanismo corta na exibição e ninguém é
+ * penalizado. Por isso ele nunca bloqueia, nunca trunca e nunca chega ao banco
+ * — ele só aparece na tela, ao lado do que está escrito.
+ *
+ * Os dois números vêm do épico: ~60 para o título, ~155 para a descrição.
+ */
+export const COMPRIMENTO_USUAL_DE_SEO = Object.freeze({
+  seo_titulo: 60,
+  seo_descricao: 155,
+});
+
+/**
+ * O teto de HIGIENE de cada campo — o número que **recusa**.
+ *
+ * Trabalho completamente diferente do de cima: uma coluna de texto sem limite
+ * nenhum é problema de armazenamento e de saída (uma etiqueta de metadado com
+ * dez mil caracteres viaja em toda resposta), e a defesa que sobrevive a um
+ * esquecimento da aplicação mora no banco — `posts_seo_titulo_com_teto` e
+ * `posts_seo_descricao_com_teto` cobram estes MESMOS números.
+ *
+ * Ele não existe para disciplinar o Autor, e é por isso que está LONGE do
+ * usual: ver `DISTANCIA_MINIMA_ENTRE_OS_DOIS`.
+ */
+export const TETO_DE_HIGIENE_DE_SEO = Object.freeze({
+  seo_titulo: 300,
+  seo_descricao: 1000,
+});
+
+/**
+ * Quantas vezes o teto de higiene precisa ser maior que o comprimento usual.
+ *
+ * ─── POR QUE A DISTÂNCIA É DECLARADA, E NÃO APENAS OBSERVADA ──────────────
+ *
+ * Se os dois números ficarem perto, o teto de higiene passa a disciplinar o
+ * Autor — que é exatamente o que o critério proíbe ao dizer que o comprimento
+ * usual sinaliza e não bloqueia. Um teto de 70 para um usual de 60 recusaria o
+ * título de 65 caracteres que o critério manda **aceitar**, e o defeito
+ * apareceria como "não consigo salvar", sem ninguém ligar uma coisa à outra.
+ *
+ * O fator é conferido no carregamento do módulo, e LANÇA: um número editado
+ * para perto do outro não pode virar comportamento novo em silêncio. É a mesma
+ * disciplina do alias de `TIPO_POR_EXTENSAO`, logo acima.
+ */
+export const DISTANCIA_MINIMA_ENTRE_OS_DOIS = 4;
+
+for (const campo of Object.keys(COMPRIMENTO_USUAL_DE_SEO)) {
+  const usual = COMPRIMENTO_USUAL_DE_SEO[campo];
+  const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+  if (!Number.isInteger(usual) || !Number.isInteger(teto)) {
+    throw new Error(
+      `Os dois números de \`${campo}\` precisam ser inteiros: usual=${usual}, teto=${teto}.`,
+    );
+  }
+  if (teto < usual * DISTANCIA_MINIMA_ENTRE_OS_DOIS) {
+    throw new Error(
+      `O teto de higiene de \`${campo}\` (${teto}) encostou no comprimento usual (${usual}): ` +
+        `a distância mínima é ${DISTANCIA_MINIMA_ENTRE_OS_DOIS}x, e sem ela o teto passa a ` +
+        "disciplinar o Autor em vez de proteger o armazenamento.",
+    );
+  }
+}
+
+/**
+ * Quantos CARACTERES este texto tem — pontos de código, não unidades UTF-16.
+ *
+ * ─── POR QUE `.length` NÃO SERVE ──────────────────────────────────────────
+ *
+ * `char_length` no Postgres conta CARACTERES; `String.prototype.length` conta
+ * unidades UTF-16, e todo ponto de código fora do BMP ocupa duas. Uma Meta
+ * Descrição de 160 emojis é 160 para a restrição do banco e 320 para um
+ * `.length` — a porta recusaria um texto que o banco aceita, e a recusa diria
+ * um número que não corresponde a nada que a pessoa consegue contar.
+ *
+ * O projeto afirma em dois lugares que "os dois lados dizem a mesma coisa", e
+ * enquanto toda asserção usasse `repeat('a', …)` a divergência nunca apareceria.
+ * Este é o mesmo motivo pelo qual o monograma extrai por ponto de código.
+ */
+export function caracteresDe(valor) {
+  return [...String(valor ?? "")].length;
+}
+
+/* ─── O TEXTO COMO ELE VAI SER EMITIDO ────────────────────────────────────
+ *
+ * Um título de busca é uma etiqueta de UMA LINHA. `seo_titulo` é digitado num
+ * `<textarea>` — que aceita Enter — e nada impedia uma quebra de linha, uma
+ * tabulação ou um caractere de controle de atravessar a tela, a porta e a
+ * restrição e virar um `<title>` partido ao meio.
+ *
+ * A normalização mora AQUI, e não na gravação, e a escolha é deliberada: o que
+ * a pessoa escreveu continua inteiro na coluna — o projeto não corta o texto do
+ * Autor —, e o que muda é o valor EMITIDO, decidido no único lugar que decide o
+ * que um Post declara. Assim a tela mostra exatamente a etiqueta que o
+ * rastreador vai receber, que é a promessa da Prévia.
+ *
+ * Não é truncagem: nenhum caractere de conteúdo é perdido. Espaço em branco de
+ * qualquer espécie vira UM espaço, e o que sai são os controles C0/C1, que não
+ * são representáveis numa etiqueta de metadado.
+ */
+/* O lint proíbe caractere de controle em expressão regular, e a proibição é
+   boa: quase sempre ele chegou lá por engano de escrita. Aqui ele é o ALVO —
+   a lista é justamente a dos controles C0/C1 que não podem sair numa etiqueta
+   de metadado —, e a exceção é nomeada em vez de a regra ser desligada. */
+// eslint-disable-next-line no-control-regex
+const CONTROLES = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
+
+/** O texto como ele vai para a etiqueta: sem controle, e numa linha só. */
+export function textoDeMetadado(valor) {
+  if (typeof valor !== "string") return "";
+  return valor.replace(CONTROLES, "").replace(/\s+/gu, " ").trim();
+}
+
+/** A recusa do teto de higiene — e ela DIZ o teto, como toda recusa daqui. */
+export function recusaDeTextoDeSeo(campo) {
+  const teto = TETO_DE_HIGIENE_DE_SEO[campo];
+  if (teto === undefined) return null;
+  return (
+    `${ROTULOS_DE_SEO[campo]}: o texto passa de ${teto} caracteres, que é o limite de ` +
+    "armazenamento do campo. Encurte antes de salvar."
+  );
+}
+
+/**
+ * O problema deste texto de SEO, ou `null` quando não há nenhum.
+ *
+ * **Só o teto de higiene recusa.** Passar do comprimento usual não aparece
+ * aqui de propósito: quem sinaliza isso é o contador da tela, e trazer a
+ * sinalização para cá a transformaria numa recusa — o defeito que a distância
+ * entre os dois números existe para impedir.
+ *
+ * Vazio e só-espaços devolvem `null`: campo de SEO em branco não é falta, é
+ * herança.
+ */
+export function problemaNoTextoDeSeo(campo, valor) {
+  if (TETO_DE_HIGIENE_DE_SEO[campo] === undefined) return null;
+  if (valor === null || valor === undefined) return null;
+  if (typeof valor !== "string") {
+    return `${ROTULOS_DE_SEO[campo]}: o valor precisa ser texto.`;
+  }
+  const texto = valor.trim();
+  if (texto === "") return null;
+  /* CARACTERES, e não unidades UTF-16 — o mesmo que `char_length` conta na
+     restrição do banco. Ver `caracteresDe`. */
+  return caracteresDe(texto) > TETO_DE_HIGIENE_DE_SEO[campo]
+    ? recusaDeTextoDeSeo(campo)
+    : null;
+}
+
 /* ─── A regra de resolução ────────────────────────────────────────────────── */
 
 /**
@@ -260,6 +472,40 @@ export const ORIGENS_DA_IMAGEM = Object.freeze([
   "compartilhamento",
   "capa",
   "padrao",
+]);
+
+/**
+ * As origens do TÍTULO e da DESCRIÇÃO, nas mesmas ordens de precedência.
+ *
+ * `compartilhamento` é o primeiro elo dos TRÊS, e a palavra é a mesma de
+ * propósito: ela nomeia "o campo de SEO deste Post", que é a mesma ideia nos
+ * três casos. Os elos seguintes nomeiam o campo herdado — o título do Post, o
+ * Resumo, a Capa —, e `null` é a quarta resposta possível dos dois campos de
+ * texto: **ausente**, que não é o mesmo que vazio (ver `metadadosDoPost`).
+ */
+export const ORIGENS_DO_TITULO = Object.freeze(["compartilhamento", "titulo"]);
+export const ORIGENS_DA_DESCRICAO = Object.freeze(["compartilhamento", "resumo"]);
+
+/**
+ * A cadeia de cada campo de texto: o campo próprio, e o campo herdado.
+ *
+ * Declarada como DADO, e não como dois blocos de `if`, pela mesma razão de
+ * `CAMPOS_NA_ORDEM`: é isto que um consumidor lê para saber de onde cada valor
+ * pode vir, sem precisar reler o corpo da função.
+ */
+const CADEIAS_DE_TEXTO = Object.freeze([
+  Object.freeze({
+    nome: "titulo",
+    campo: "seo_titulo",
+    herdaDe: "titulo",
+    origens: ORIGENS_DO_TITULO,
+  }),
+  Object.freeze({
+    nome: "descricao",
+    campo: "seo_descricao",
+    herdaDe: "resumo",
+    origens: ORIGENS_DA_DESCRICAO,
+  }),
 ]);
 
 /**
@@ -287,8 +533,11 @@ export const RECUSA_DE_ENDERECO_INALCANCAVEL =
 /**
  * A imagem que representa este Post, com as medidas, o tipo e a descrição.
  *
- * Devolve `{ endereco, largura, altura, tipo, alternativo, origem, recusadas }`.
- * O endereço é sempre absoluto.
+ * Devolve `{ endereco, largura, altura, tipo, alternativo, origem, herdado }`.
+ * O endereço é sempre absoluto. **Não é exportada**: quem responde por um Post
+ * é `metadadosDoPost`, e uma segunda porta de entrada para a mesma cadeia seria
+ * a segunda opinião que este módulo existe para não ter. As recusas vão para a
+ * lista compartilhada, que é a mesma dos três campos.
  *
  * ─── POR QUE `largura` E `altura` SÃO `null` FORA DO PADRÃO ───────────────
  *
@@ -318,11 +567,9 @@ export const RECUSA_DE_ENDERECO_INALCANCAVEL =
  * como saber por que o endereço que ele digitou sumiu — que é o mesmo defeito
  * que `problemaNoEnderecoDaImagem` foi escrito para não ter no formulário.
  */
-export function imagemDoPost(post, opcoes) {
-  const { dominio } = opcoes ?? {};
+function resolverImagem(post, dominio, recusadas) {
   const raiz = raizDoSite(dominio);
   const siteSeguro = /^https:\/\//i.test(raiz);
-  const recusadas = [];
 
   for (const { campo, origem } of CAMPOS_NA_ORDEM) {
     const bruto = post === null || post === undefined ? undefined : post[campo];
@@ -358,7 +605,7 @@ export function imagemDoPost(post, opcoes) {
       tipo,
       alternativo: descricao,
       origem,
-      recusadas: Object.freeze(recusadas),
+      herdado: origem !== "compartilhamento",
     });
   }
 
@@ -369,6 +616,100 @@ export function imagemDoPost(post, opcoes) {
     tipo: IMAGEM_PADRAO_DO_SITE.tipo,
     alternativo: IMAGEM_PADRAO_DO_SITE.alternativo,
     origem: "padrao",
+    herdado: true,
+  });
+}
+
+/**
+ * A herança de UM campo de texto: o próprio, depois o herdado, depois ausente.
+ *
+ * ─── VAZIO HERDA; SÓ ESPAÇOS TAMBÉM ──────────────────────────────────────
+ *
+ * O valor é APARADO antes de ser julgado, nos dois elos. Um campo com três
+ * espaços é um campo que a pessoa não preencheu — gravá-lo como título de
+ * busca produziria uma etiqueta em branco, que é pior que a herdada, porque
+ * nada acusaria.
+ *
+ * ─── E O TETO DE HIGIENE RECUSA, CAINDO PARA O ELO SEGUINTE ───────────────
+ *
+ * A mesma forma da imagem: o elo que não serve entra em `recusadas` com campo,
+ * origem e motivo, e a cadeia continua. Sem isso, um valor recusado sumiria e o
+ * Autor veria o título do Post no lugar do que ele escreveu, sem explicação.
+ *
+ * O elo HERDADO não é conferido contra o teto, e a ausência é medida, não
+ * esquecimento: `titulo` e `resumo` têm teto próprio na gravação (300 e 600),
+ * os dois NÃO ACIMA do teto de higiene do campo de SEO que os herda. Isso
+ * deixou de ser coincidência entre quatro números em dois arquivos e virou
+ * guarda de carregamento — `TETO_DA_FONTE_HERDADA`, em `api/_nucleo/salvarPost.js`,
+ * que LANÇA se alguém subir um dos dois. É lá porque é o único módulo onde os
+ * quatro números são visíveis ao mesmo tempo, e o domínio não importa de `api/`.
+ */
+function herdarTexto({ post, cadeia, recusadas }) {
+  const { campo, herdaDe, origens } = cadeia;
+  const [origemPropria, origemHerdada] = origens;
+
+  /* O valor sai NORMALIZADO — ver `textoDeMetadado`: uma etiqueta de metadado é
+     de uma linha só, e o `<textarea>` do Título SEO aceita Enter. O teto é
+     conferido sobre o texto NORMALIZADO porque é ele que representa o campo:
+     conferir o bruto recusaria por causa de espaço em branco que não vai para
+     etiqueta nenhuma. */
+  const bruto = post === null || post === undefined ? undefined : post[campo];
+  const proprio = textoDeMetadado(bruto);
+  if (proprio !== "") {
+    const problema = problemaNoTextoDeSeo(campo, proprio);
+    if (problema === null) {
+      return Object.freeze({ valor: proprio, origem: origemPropria, herdado: false });
+    }
+    recusadas.push({ campo, origem: origemPropria, motivo: problema });
+  }
+
+  const doPost = post === null || post === undefined ? undefined : post[herdaDe];
+  const herdado = textoDeMetadado(doPost);
+  if (herdado !== "") {
+    return Object.freeze({ valor: herdado, origem: origemHerdada, herdado: true });
+  }
+
+  /* AUSENTE, e não vazio. `""` viraria uma etiqueta declarada e em branco —
+     o critério manda a descrição ficar ausente quando não há Resumo, "sem
+     inventar texto". `null` é a instrução de OMITIR. */
+  return Object.freeze({ valor: null, origem: null, herdado: true });
+}
+
+/**
+ * O que este Post declara ao ser compartilhado: título, descrição e imagem.
+ *
+ * Devolve `{ titulo, descricao, imagem, recusadas }`, congelado.
+ *
+ *   `titulo` e `descricao` — `{ valor, origem, herdado }`. `valor` é `null`
+ *     quando nem o campo de SEO nem o campo herdado têm texto: ausente, e não
+ *     vazio.
+ *   `imagem` — `{ endereco, largura, altura, tipo, alternativo, origem,
+ *     herdado }`, com o endereço sempre ABSOLUTO.
+ *   `recusadas` — `{ campo, origem, motivo }` de cada elo que não serviu, dos
+ *     TRÊS campos, na ordem em que foram consultados.
+ *
+ * ─── É ESTA A FUNÇÃO QUE TODO CONSUMIDOR CHAMA ────────────────────────────
+ *
+ * A gaveta do Editor a chama para mostrar o que será herdado; a Prévia (Story
+ * 3.5) e o emissor de metadado (Épico 4) a chamarão para desenhar e para
+ * servir. Nenhum deles decide por conta própria: um `seo_titulo || titulo`
+ * escrito numa tela é a segunda opinião que diverge no primeiro campo novo, e
+ * `verificar:interface` varre o projeto atrás exatamente disso.
+ */
+export function metadadosDoPost(post, opcoes) {
+  const { dominio } = opcoes ?? {};
+  const recusadas = [];
+
+  const textos = {};
+  for (const cadeia of CADEIAS_DE_TEXTO) {
+    textos[cadeia.nome] = herdarTexto({ post, cadeia, recusadas });
+  }
+  const imagem = resolverImagem(post, dominio, recusadas);
+
+  return Object.freeze({
+    titulo: textos.titulo,
+    descricao: textos.descricao,
+    imagem,
     recusadas: Object.freeze(recusadas),
   });
 }
