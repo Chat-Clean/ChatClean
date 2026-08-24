@@ -1450,6 +1450,72 @@ secao("(g) os ativos de prévia chegam ao pacote compilado");
   );
 }
 
+
+/* ─── (h) o shell do build, embutido nas funções ──────────────────────────── */
+secao("(h) o shell servido é o do build, e os ativos dele existem");
+
+{
+  /* O ENGANO QUE ESTA SEÇÃO EXISTE PARA PEGAR ────────────────────────────────
+     O `index.html` do repositório termina em `<script src="/src/main.jsx">` — o
+     caminho do CÓDIGO-FONTE. Uma função que o servisse responderia com sucesso e
+     entregaria uma página que não carrega: o navegador pede um caminho que não
+     existe em produção, recebe o apanha-tudo de volta, e o visitante fica com uma
+     tela em branco. Nada nos registros diria por quê.
+
+     O shell certo é o do `dist/`, e os hashes dos ativos MUDAM a cada build —
+     então o que se afirma não é "existe um shell", e sim "o shell embutido é
+     IDÊNTICO ao que este build produziu, e os ativos que ele promete estão no
+     pacote". É essa igualdade que faz um deploy novo continuar servindo o
+     JavaScript certo. */
+
+  const doBuild = lerOuFalhar("dist/index.html legível", () => ler(path.join(raiz, "dist", "index.html")));
+  const embutido = lerOuFalhar(
+    "o shell embutido existe — `npm run build` encadeia `scripts/gerar-shell.mjs`",
+    () => ler(path.join(raiz, "api", "_nucleo", "shell.gerado.js")),
+  );
+
+  if (doBuild !== null && embutido !== null) {
+    const casa = /export const SHELL = (".*?");\n/s.exec(embutido);
+    const html = casa === null ? null : JSON.parse(casa[1]);
+
+    afirmar(
+      "o shell embutido é IDÊNTICO ao que este build produziu — é o que faz um deploy novo servir o JavaScript certo",
+      html === doBuild,
+      html === null ? "não deu para ler o shell embutido" : `${html.length} × ${doBuild.length} caracteres`,
+    );
+
+    afirmar(
+      "e ele NÃO é o do repositório — o do repositório aponta para o caminho do código-fonte",
+      html !== null && !html.includes("/src/main.jsx") && ler(path.join(raiz, "index.html")).includes("/src/main.jsx"),
+      String(html ?? "").includes("/src/main.jsx") ? "aponta para /src/main.jsx" : "aponta para o build",
+    );
+
+    /* OS ATIVOS PROMETIDOS EXISTEM. Comparar só os dois textos provaria que são
+       iguais, e não que o que eles prometem está no pacote — um build que
+       gerasse o HTML e não os arquivos passaria pela igualdade. */
+    const ativos = [...String(html ?? "").matchAll(/(?:src|href)\s*=\s*"(\/assets\/[^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    const faltando = ativos.filter((a) => !existsSync(path.join(raiz, "dist", a.slice(1))));
+    afirmar(
+      "e cada ativo que o shell promete EXISTE no pacote — igualdade de texto não prova entrega de arquivo",
+      ativos.length >= 2 && faltando.length === 0,
+      faltando.length > 0 ? `faltando: ${faltando.join(", ")}` : `${ativos.length} ativo(s)`,
+    );
+
+    /* E O EMBUTIDO NÃO É VERSIONADO. Uma cópia no repositório nasceria velha no
+       build seguinte, porque os hashes mudam — e serviria uma página apontando
+       para ativo que já não existe, que é a regressão do critério. */
+    const ignorado = lerOuFalhar(".gitignore legível", () => ler(path.join(raiz, ".gitignore"))) ?? "";
+    afirmar(
+      "o shell embutido é IGNORADO pelo versionamento — cópia guardada nasce velha no build seguinte",
+      /^api\/_nucleo\/shell\.gerado\.js\s*$/m.test(ignorado),
+      ignorado.split(/\r?\n/).filter((l) => l.includes("shell")).join(" | "),
+    );
+  }
+}
+
+
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");

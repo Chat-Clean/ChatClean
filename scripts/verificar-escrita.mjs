@@ -43,6 +43,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   executarScript,
@@ -1294,18 +1295,36 @@ if (pacote) {
   const CHAVES_PERMITIDAS = ["headers", "rewrites"];
   const chaves = Object.keys(vercel ?? {}).sort();
   afirmar(
-    "vercel.json declara exatamente as chaves permitidas — nenhum roteamento entrou (isso é da Story 4.1)",
+    "vercel.json declara exatamente as chaves permitidas — camada nova cai nesta linha",
     vercel !== null &&
       JSON.stringify(chaves) === JSON.stringify([...CHAVES_PERMITIDAS].sort()),
     `chaves: ${chaves.join(", ") || "nenhuma"} | permitidas: ${CHAVES_PERMITIDAS.join(", ")}`,
   );
+  /* ── E ESTA REABRIU NA STORY 4.1, COMO ELA MESMA PREVIA ────────────────
+     A linha acima dizia, por escrito, que roteamento era da Story 4.1. Ele
+     chegou: as rotas do blog são servidas por função, e vêm ANTES do
+     apanha-tudo. O que esta ferramenta continua garantindo é o que é dela —
+     que todo destino de reescrita é do PRÓPRIO projeto, e que o apanha-tudo
+     segue servindo o documento da aplicação. A ORDEM e a lista nomeada das
+     rotas têm dono próprio, em `verificar:acesso`, junto do que alcança
+     `/admin` — duas ferramentas julgando a mesma coisa divergiriam. */
+  const reescritas = Array.isArray(vercel?.rewrites) ? vercel.rewrites : [];
+  const apanhaTudo = reescritas.filter((r) => r?.source === "/(.*)");
   afirmar(
-    "e a reescrita continua sendo a apanha-tudo que serve o documento da aplicação, sozinha",
-    Array.isArray(vercel?.rewrites) &&
-      vercel.rewrites.length === 1 &&
-      vercel.rewrites[0]?.source === "/(.*)" &&
-      vercel.rewrites[0]?.destination === "/index.html",
-    JSON.stringify(vercel?.rewrites),
+    "o apanha-tudo continua servindo o documento da aplicação, e é único",
+    apanhaTudo.length === 1 && apanhaTudo[0]?.destination === "/index.html",
+    JSON.stringify(reescritas),
+  );
+  /* NENHUM DESTINO SAI DO PROJETO. Uma reescrita para host de fora poria um
+     terceiro na frente de rota do site, e é o tipo de linha que ninguém lê
+     de novo depois de aprovada. */
+  const foraDoProjeto = reescritas.filter(
+    (r) => typeof r?.destination !== "string" || !r.destination.startsWith("/"),
+  );
+  afirmar(
+    "e todo destino de reescrita é do PRÓPRIO projeto — nenhum aponta para fora",
+    foraDoProjeto.length === 0,
+    foraDoProjeto.map((r) => `${r?.source} -> ${r?.destination}`).join(" | ") || "todos internos",
   );
   /* `headers` entrou na Story 2.13 e ANOTA a resposta em vez de interceptá-la.
      O conteúdo dele tem dono próprio: `verificar:acesso` prova o conjunto do
@@ -10756,6 +10775,195 @@ if (!temToken) {
       linha
         ? `posts: ${linha.posts} | tags: ${linha.tags} | categorias: ${linha.categorias} | contas: ${linha.contas}`
         : (sobrou.erro ?? ""),
+    );
+  }
+}
+
+
+/* ─── (f) as rotas servidas: o shell do build, e a falha que não se disfarça ── */
+secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça");
+
+{
+  /* AS TRÊS ROTAS SÃO DIRIGIDAS DE VERDADE, com requisição e resposta
+     dubladas — o mesmo molde do Supabase de mentira da Story 2.12. O que se
+     grava é o que a função DECIDIU: código, tipo do documento e corpo. Ler o
+     fonte e supor provaria que alguém escreveu a palavra certa no arquivo, e
+     não que a rota entrega o que promete. */
+  const resposta = () => {
+    const r = { cabecalhos: {}, codigo: null, corpo: null };
+    r.setHeader = (k, v) => {
+      r.cabecalhos[String(k).toLowerCase()] = v;
+    };
+    r.status = (c) => {
+      r.codigo = c;
+      return r;
+    };
+    r.send = (c) => {
+      r.corpo = c;
+    };
+    r.json = (o) => {
+      r.corpo = JSON.stringify(o);
+    };
+    return r;
+  };
+  const dirigir = async (arquivo, req) => {
+    const r = resposta();
+    const { default: servir } = await import(
+      pathToFileURL(path.join(raiz, "api", arquivo)).href
+    );
+    await servir(req, r);
+    return r;
+  };
+  const comDominio = async (valor, acao) => {
+    const guardado = process.env.VITE_DOMINIO_DO_SITE;
+    if (valor === null) delete process.env.VITE_DOMINIO_DO_SITE;
+    else process.env.VITE_DOMINIO_DO_SITE = valor;
+    try {
+      return await acao();
+    } finally {
+      if (guardado === undefined) delete process.env.VITE_DOMINIO_DO_SITE;
+      else process.env.VITE_DOMINIO_DO_SITE = guardado;
+    }
+  };
+  const DOMINIO = "https://chatclean.com.br";
+
+  /* ── A PÁGINA SERVE O SHELL DO BUILD ─────────────────────────────────── */
+  {
+    const r = await dirigir("blog.js", { method: "GET", url: "/api/blog?slug=um-post" });
+    const doBuild = ler("dist/index.html");
+    afirmar(
+      "a rota de página serve o shell do BUILD, byte a byte — e não o do repositório",
+      r.codigo === 200 && r.corpo === doBuild,
+      `${r.codigo} | ${String(r.corpo ?? "").length} × ${doBuild.length}`,
+    );
+    afirmar(
+      "e o que ela serve NÃO aponta para o caminho do código-fonte — servir isso seria uma página que responde e não carrega",
+      !String(r.corpo ?? "").includes("/src/main.jsx") &&
+        /\/assets\/[^"]+\.js/.test(String(r.corpo ?? "")),
+      String(r.corpo ?? "").includes("/src/main.jsx") ? "aponta para o fonte" : "aponta para o build",
+    );
+    afirmar(
+      "e o tipo do documento é o que o endereço promete",
+      String(r.cabecalhos["content-type"] ?? "").startsWith("text/html"),
+      String(r.cabecalhos["content-type"] ?? ""),
+    );
+  }
+
+  /* ── SEM O SHELL, ELA FALHA ALTO ─────────────────────────────────────── */
+  {
+    const modulo = await import(pathToFileURL(path.join(raiz, "api", "_nucleo", "shell.js")).href);
+    /* A AUSÊNCIA É INJETADA, e não encenada apagando o arquivo. Esta
+       ferramenta tem uma asserção — com razão — de que não grava nada, e
+       apagar para restaurar depois é gravar. A costura é a mesma ideia de
+       `buscar` e `obterToken` na camada de dados: o caminho de falha se
+       exercita sem tocar no disco. */
+    const semShell = await modulo.lerShell({
+      importar: () => Promise.reject(new Error("ENOENT: shell.gerado.js")),
+    });
+    const vazio = await modulo.lerShell({
+      importar: () => Promise.resolve({ SHELL: "" }),
+    });
+    afirmar(
+      "sem o shell embutido a leitura devolve DEFEITO NOMEADO — nunca o `index.html` do repositório",
+      semShell.ok === false && semShell.defeito === modulo.DEFEITO_SEM_SHELL,
+      JSON.stringify(semShell).slice(0, 120),
+    );
+    /* E SHELL VAZIO CONTA COMO AUSENTE. Um módulo que existe e não traz nada
+       serviria uma página em branco com sucesso — pior que a ausência, porque
+       não deixa rastro. */
+    afirmar(
+      "e um shell VAZIO conta como ausente — módulo presente e sem conteúdo serviria página em branco com sucesso",
+      vazio.ok === false && vazio.defeito === modulo.DEFEITO_SEM_SHELL,
+      JSON.stringify(vazio).slice(0, 120),
+    );
+    afirmar(
+      "e a frase do defeito é a DECLARADA, não uma montada na hora",
+      typeof modulo.DEFEITO_SEM_SHELL === "string" &&
+        modulo.DEFEITO_SEM_SHELL.includes("gerar-shell"),
+      modulo.DEFEITO_SEM_SHELL,
+    );
+    /* O RECURSO NÃO EXISTE, e não é só evitado: o módulo não lê disco nenhum.
+       O nome do arquivo do repositório APARECE nele — dentro da frase do
+       defeito, que diz por que servi-lo seria errado —, então procurar o nome
+       acusaria a explicação em vez do comportamento. O que se mede é a
+       ausência de leitura de arquivo. */
+    const codigoDoShell = mascararComentariosJs(ler("api/_nucleo/shell.js"));
+    afirmar(
+      "o módulo do shell não LÊ arquivo nenhum — o recurso ao `index.html` do repositório não existe, e não é só evitado",
+      !/readFileSync|readFile|createReadStream|node:fs/.test(codigoDoShell),
+      (codigoDoShell.match(/readFileSync|node:fs/g) ?? []).join(" ") || "nao le disco",
+    );
+    /* AUTOTESTE do detector: ele precisa acusar uma leitura de verdade. */
+    afirmar(
+      "autoteste: o detector de leitura de disco ACUSA uma leitura plantada",
+      /readFileSync|readFile|createReadStream|node:fs/.test(codigoDoShell + '\nreadFileSync("x")'),
+      "acusou",
+    );
+  }
+
+  /* ── O QUE O ARQUIVO REMOVIDO LISTAVA CONTINUA SERVIDO ───────────────── */
+  {
+    const ANTES = Object.freeze([
+      "/",
+      "/api-oficial-whatsapp",
+      "/sobre",
+      "/blog",
+      "/carreiras",
+    ]);
+    const r = await comDominio(DOMINIO, () =>
+      dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
+    );
+    const servidos = [...String(r.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    const perdidos = ANTES.filter((c) => !servidos.includes(`${DOMINIO}${c === "/" ? "/" : c}`));
+    afirmar(
+      "os cinco endereços que o mapa estático listava continuam TODOS servidos — a remoção não levou nada junto",
+      perdidos.length === 0 && servidos.length === ANTES.length,
+      perdidos.length > 0 ? `perdidos: ${perdidos.join(", ")}` : servidos.join(" "),
+    );
+    afirmar(
+      "e todos são endereços ABSOLUTOS no Domínio Canônico — mapa com endereço relativo é mapa que ninguém segue",
+      servidos.length > 0 && servidos.every((u) => u.startsWith(`${DOMINIO}/`)),
+      servidos.find((u) => !u.startsWith(`${DOMINIO}/`)) ?? "todos absolutos",
+    );
+  }
+
+  /* ── O TIPO DO DOCUMENTO É O QUE O ENDEREÇO PROMETE ──────────────────── */
+  {
+    const mapa = await comDominio(DOMINIO, () =>
+      dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
+    );
+    const indice = await comDominio(DOMINIO, () =>
+      dirigir("llms.js", { method: "GET", url: "/api/llms" }),
+    );
+    afirmar(
+      "o mapa sai como XML e o índice como texto — HTML num endereço que promete outra coisa é silêncio com outra roupa",
+      String(mapa.cabecalhos["content-type"] ?? "").startsWith("application/xml") &&
+        String(indice.cabecalhos["content-type"] ?? "").startsWith("text/plain") &&
+        String(mapa.corpo ?? "").startsWith("<?xml") &&
+        !String(indice.corpo ?? "").includes("<html"),
+      `${mapa.cabecalhos["content-type"]} | ${indice.cabecalhos["content-type"]}`,
+    );
+  }
+
+  /* ── MÉTODO FORA DO VOCABULÁRIO É RECUSADO, DIZENDO QUAIS EXISTEM ────── */
+  {
+    const r = await dirigir("blog.js", { method: "POST", url: "/api/blog" });
+    afirmar(
+      "método fora do vocabulário é recusado, e a recusa DIZ quais existem",
+      r.codigo === 405 && String(r.cabecalhos.allow ?? "").includes("GET"),
+      `${r.codigo} | ${r.cabecalhos.allow}`,
+    );
+  }
+
+  /* ── AS ROTAS DE LEITURA NÃO TOCAM A CHAVE DE SERVIÇO ────────────────── */
+  {
+    const dasRotas = ["blog.js", "sitemap.js", "llms.js"].map((a) =>
+      mascararComentariosJs(ler(`api/${a}`)),
+    );
+    afirmar(
+      "nenhuma rota de leitura menciona a chave de serviço nem instancia acesso ao banco — esta story é roteamento e shell",
+      dasRotas.every((f) => !/CHAVE_DE_SERVICO|acessoDoAmbiente|createClient/.test(f)),
+      "tres rotas conferidas",
     );
   }
 }

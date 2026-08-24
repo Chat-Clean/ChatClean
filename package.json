@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/gerar-shell.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "supabase:migrar": "node scripts/aplicar-migracoes.mjs",

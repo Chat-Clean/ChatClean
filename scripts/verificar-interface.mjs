@@ -4091,9 +4091,22 @@ secao("(l) os ativos de prévia: medidos nos bytes, e nenhuma referência aponta
     /* A VARREDURA DE CÓDIGO VAI ATÉ `api/`, que é onde o Épico 4 vai emitir o
        metadado por Post. Deixar a função de servidor de fora seria deixar
        aberta justamente a porta que a próxima story usa. */
+    /* ── O QUE É GERADO NÃO É FONTE ────────────────────────────────────
+       A Story 4.1 embute o shell do build num módulo dentro de `api/`: o
+       `dist/index.html` inteiro, como texto. Ele traz as MESMAS referências
+       que `index.html` declara — que já são julgadas acima —, e as traz
+       escapadas, o que faz o detector ler pedaço de string como endereço.
+       Varrer o gerado é julgar duas vezes a mesma decisão, e julgar mal na
+       segunda. A lista é NOMEADA: um gerado novo precisa ser posto aqui de
+       propósito, e não entra por acaso. */
+    const GERADOS_FORA_DA_VARREDURA = Object.freeze([
+      "api/_nucleo/shell.gerado.js",
+    ]);
     const fontesDeCodigo = [
       ...fontesSrc,
-      ...arquivosDe(path.join(raiz, "api"), [".js", ".mjs"]),
+      ...arquivosDe(path.join(raiz, "api"), [".js", ".mjs"]).filter(
+        (a) => !GERADOS_FORA_DA_VARREDURA.includes(rel(a)),
+      ),
     ];
     const doCodigo = [];
     for (const arquivo of fontesDeCodigo) {

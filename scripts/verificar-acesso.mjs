@@ -138,6 +138,32 @@ function arquivosDe(dir, extensoes) {
   return achados;
 }
 
+/**
+ * Uma resposta dublada, para DIRIGIR uma funcao de rota sem rede.
+ *
+ * O molde e o do Supabase de mentira da Story 2.12: gravar o que a funcao
+ * DECIDIU — codigo, cabecalho e corpo — em vez de ler o fonte dela e supor. E
+ * a diferenca entre provar que a rota serve o que promete e provar que alguem
+ * escreveu a palavra certa no arquivo.
+ */
+function respostaDublada() {
+  const r = { cabecalhos: {}, codigo: null, corpo: null };
+  r.setHeader = (chave, valor) => {
+    r.cabecalhos[String(chave).toLowerCase()] = valor;
+  };
+  r.status = (codigo) => {
+    r.codigo = codigo;
+    return r;
+  };
+  r.send = (corpo) => {
+    r.corpo = corpo;
+  };
+  r.json = (objeto) => {
+    r.corpo = JSON.stringify(objeto);
+  };
+  return r;
+}
+
 const rel = (p) => path.relative(raiz, p).split(path.sep).join("/");
 
 /** Linhas que casam com um padrão, no formato `arquivo:linha`. */
@@ -1890,10 +1916,16 @@ const SUPERFICIES_DA_ENTREGA = Object.freeze([
     caminhos: ["public/robots.txt"],
     esperada: "presente",
   },
+  /* E ESTA INVERTEU, NA STORY 4.1, DE PROPÓSITO. O mapa do site deixou de
+     ser arquivo e passou a ser ROTA — e o sistema de arquivos é consultado
+     ANTES das reescritas, então um arquivo com esse caminho venceria a rota
+     em silêncio: ela existiria na configuração e nunca rodaria. A guarda
+     geral disso é a de sombra, mais abaixo; esta entrada continua aqui para
+     que a inversão seja decisão nomeada, e não um sumiço. */
   {
     nome: "mapa do site (sitemap.xml)",
     caminhos: ["public/sitemap.xml"],
-    esperada: "presente",
+    esperada: "ausente",
   },
 ]);
 
@@ -1948,10 +1980,51 @@ function divergenciasDeSuperficie(existe) {
     path.join(raiz, "public", "robots.txt"),
     "public/robots.txt existe",
   );
-  const sitemap = lerOuFalhar(
-    path.join(raiz, "public", "sitemap.xml"),
-    "public/sitemap.xml existe",
+  /* O MAPA AGORA É O QUE A FUNÇÃO SERVE, e não o que um arquivo diz.
+     Antes da Story 4.1 ele era estático, e ler o arquivo era ler a verdade;
+     agora a verdade é a RESPOSTA, e afirmar sobre o arquivo seria afirmar
+     sobre coisa que já não é servida. As duas garantias abaixo continuam as
+     mesmas — mudou onde elas medem, e o lugar novo é o que o visitante vê. */
+  const DOMINIO_DE_PROVA = "https://chatclean.com.br";
+  const servirMapa = async (ambiente) => {
+    const guardado = process.env.VITE_DOMINIO_DO_SITE;
+    if (ambiente === null) delete process.env.VITE_DOMINIO_DO_SITE;
+    else process.env.VITE_DOMINIO_DO_SITE = ambiente;
+    try {
+      const r = respostaDublada();
+      const { default: servir } = await import(
+        pathToFileURL(path.join(raiz, "api", "sitemap.js")).href
+      );
+      await servir({ method: "GET", url: "/api/sitemap" }, r);
+      return r;
+    } finally {
+      if (guardado === undefined) delete process.env.VITE_DOMINIO_DO_SITE;
+      else process.env.VITE_DOMINIO_DO_SITE = guardado;
+    }
+  };
+  const respostaDoMapa = await servirMapa(DOMINIO_DE_PROVA);
+  const sitemap = typeof respostaDoMapa.corpo === "string" ? respostaDoMapa.corpo : "";
+
+  /* O DOMÍNIO É DADO AQUI, de propósito. O que estas duas asserções medem é o
+     CONTEÚDO do mapa, e ele só existe quando há um domínio para montar endereço
+     absoluto. A ausência do domínio é caso próprio, afirmado logo abaixo — e
+     misturar os dois faria o mapa vazio passar por 'não lista /admin'. */
+  afirmar(
+    "o mapa servido sai como XML, e não como página",
+    respostaDoMapa.codigo === 200 &&
+      String(respostaDoMapa.cabecalhos["content-type"] ?? "").startsWith("application/xml"),
+    `${respostaDoMapa.codigo} | ${respostaDoMapa.cabecalhos["content-type"]}`,
   );
+  {
+    const semDominio = await servirMapa(null);
+    afirmar(
+      "e sem o Domínio Canônico ele FALHA ALTO, dizendo o que houve — nunca um mapa com endereço relativo",
+      semDominio.codigo === 500 &&
+        String(semDominio.corpo ?? "").includes("VITE_DOMINIO_DO_SITE") &&
+        !String(semDominio.corpo ?? "").includes("<loc>"),
+      `${semDominio.codigo} | ${String(semDominio.corpo ?? "").slice(0, 60)}`,
+    );
+  }
 
   /** As linhas VIVAS de robots.txt — comentário não é diretiva. */
   const diretivas = (robots ?? "")
@@ -1975,14 +2048,14 @@ function divergenciasDeSuperficie(existe) {
     diretivas.filter((l) => /^disallow/i.test(l)).join(" | "),
   );
   afirmar(
-    "e o mapa do site não lista `/admin` nem filha nenhuma dele",
+    "e o mapa do site SERVIDO não lista `/admin` nem filha nenhuma dele",
     sitemap !== null && !/\/admin/i.test(sitemap),
     (/(<loc>[^<]*\/admin[^<]*<\/loc>)/i.exec(sitemap ?? "") ?? [])[0] ?? "",
   );
   /* CONTROLE POSITIVO: o mapa precisa listar ALGUMA coisa, senão a linha acima
      passaria por um arquivo vazio. */
   afirmar(
-    "o mapa do site lista as páginas públicas — um arquivo vazio faria a linha acima passar por vácuo",
+    "o mapa SERVIDO lista as páginas públicas — resposta vazia faria a linha acima passar por vácuo",
     ((sitemap ?? "").match(/<loc>/g) ?? []).length >= 3,
     `entradas: ${((sitemap ?? "").match(/<loc>/g) ?? []).length}`,
   );
@@ -2042,13 +2115,75 @@ if (configuracaoDaEntrega !== null) {
   );
 
   const reescritas = configuracaoDaEntrega.rewrites ?? [];
+
+  /* ── A ORDEM É O CRITÉRIO, E A LISTA É NOMEADA ────────────────────────
+     Até a Story 4.1 havia uma reescrita só. Agora as rotas do blog vêm
+     ANTES do apanha-tudo — e antes é o que importa: declarada depois dele,
+     a regra existiria e nunca seria alcançada, porque o apanha-tudo casa
+     tudo. A lista é NOMEADA e não contada: rota nova precisa ser julgada
+     aqui, e piso de contagem não reage ao que é ACRESCENTADO. */
+  const ROTAS_SERVIDAS = Object.freeze([
+    { source: "/blog", destination: "/api/blog" },
+    { source: "/blog/:slug", destination: "/api/blog?slug=:slug" },
+    { source: "/sitemap.xml", destination: "/api/sitemap" },
+    { source: "/llms.txt", destination: "/api/llms" },
+  ]);
+  const APANHA_TUDO = Object.freeze({ source: "/(.*)", destination: "/index.html" });
+
+  const posicaoDoApanhaTudo = reescritas.findIndex((r) => r.source === APANHA_TUDO.source);
   afirmar(
-    "a única reescrita é o apanha-tudo que serve o documento da aplicação",
-    reescritas.length === 1 &&
-      reescritas[0].source === "/(.*)" &&
-      reescritas[0].destination === "/index.html",
-    JSON.stringify(reescritas),
+    "o apanha-tudo existe, é ÚNICO e é o ÚLTIMO — declarado antes, ele engoliria as rotas seguintes",
+    posicaoDoApanhaTudo !== -1 &&
+      reescritas.filter((r) => r.source === APANHA_TUDO.source).length === 1 &&
+      posicaoDoApanhaTudo === reescritas.length - 1 &&
+      reescritas[posicaoDoApanhaTudo].destination === APANHA_TUDO.destination,
+    JSON.stringify(reescritas.map((r) => r.source)),
   );
+  const foraDaOrdem = ROTAS_SERVIDAS.filter((rota) => {
+    const i = reescritas.findIndex(
+      (r) => r.source === rota.source && r.destination === rota.destination,
+    );
+    return i === -1 || i > posicaoDoApanhaTudo;
+  });
+  afirmar(
+    `as ${ROTAS_SERVIDAS.length} rotas servidas estão declaradas ANTES do apanha-tudo — medido por posição`,
+    foraDaOrdem.length === 0,
+    foraDaOrdem.map((r) => r.source).join(" | ") || "nenhuma fora de ordem",
+  );
+  afirmar(
+    "e não há reescrita FORA da lista nomeada — rota nova é julgada aqui, não contada",
+    reescritas.length === ROTAS_SERVIDAS.length + 1,
+    JSON.stringify(reescritas.map((r) => r.source)),
+  );
+
+  /* ── NENHUM ARQUIVO SERVIDO SOMBREIA UMA ROTA DECLARADA ───────────────
+     É o engano que o critério da Story 4.1 nomeia, e ele é GERAL: o próximo
+     arquivo com esse problema não vai se chamar mapa do site. */
+  {
+    const dirPublico = path.join(raiz, "public");
+    const servidosEstaticamente = arquivosDe(dirPublico, [""]).map(
+      (a) => "/" + path.relative(dirPublico, a).split(path.sep).join("/"),
+    );
+    const caminhoDaRota = (source) => source.split("/:")[0];
+    const sombras = ROTAS_SERVIDAS.filter((rota) =>
+      servidosEstaticamente.includes(caminhoDaRota(rota.source)),
+    );
+    afirmar(
+      "nenhum arquivo servido estaticamente tem o caminho de uma rota declarada — o disco vence a reescrita, e vence calado",
+      sombras.length === 0,
+      sombras.map((r) => r.source).join(" | ") || "nenhuma sombra",
+    );
+    /* AUTOTESTE: a guarda precisa ACUSAR a sombra que ela existe para pegar. */
+    const comSombra = [...servidosEstaticamente, "/sitemap.xml"];
+    const acusadas = ROTAS_SERVIDAS.filter((rota) =>
+      comSombra.includes(caminhoDaRota(rota.source)),
+    );
+    afirmar(
+      "autoteste: a guarda de sombra ACUSA um arquivo com o caminho de uma rota",
+      acusadas.length === 1 && acusadas[0].source === "/sitemap.xml",
+      acusadas.map((r) => r.source).join(" | ") || "nao acusou",
+    );
+  }
 
   /* NENHUMA REGRA É CONDICIONAL. `has`, `missing` e `methods` fazem a Vercel
      aplicar a regra só em algumas requisições — e uma regra condicional não
