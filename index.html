@@ -232,6 +232,16 @@
       <img height="1" width="1" style="display:none"
       src="https://www.facebook.com/tr?id=1773986837313693&ev=PageView&noscript=1"
     /></noscript>
+    <!-- CORPO-DO-ARTIGO:INICIO
+         A regiao do corpo servido (Story 4.4). Vazia aqui, e vazia em toda
+         rota que nao passa pela funcao de servidor: quem serve artigo e ela.
+
+         ELA VEM ANTES DO CONTEINER, e nao e enfeite de ordem. O corpo servido
+         existe para quem NAO executa JavaScript, e vive dentro de <noscript>:
+         com JavaScript ligado o navegador nem o coloca no layout. Duplicacao,
+         piscada e deslocamento nao sao evitados com cuidado — eles nao podem
+         acontecer. -->
+    <!-- CORPO-DO-ARTIGO:FIM -->
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -54,7 +54,11 @@ export const DEFEITO_SEM_MARCADORES =
   "e é justamente o defeito que a Story 4.3 conserta.";
 
 /**
- * Troca a região de metadados do shell, inteira.
+ * Troca UMA região marcada do shell, inteira.
+ *
+ * Ela serve duas: a de metadados (Story 4.3) e a do corpo do artigo (4.4). Os
+ * marcadores chegam por parâmetro desde o início — o que mudou na 4.4 foi o
+ * NOME, que dizia `trocarMetadados` e passaria a mentir sobre a segunda.
  *
  * ─── SUBSTITUIÇÃO TOTAL, E NÃO REMENDO ────────────────────────────────────
  *
@@ -69,7 +73,7 @@ export const DEFEITO_SEM_MARCADORES =
  * sucesso e sem rastro — o pior tipo de falha, e o projeto já tem nome para
  * ele: resposta que responde bem e entrega errado.
  */
-export function trocarMetadados(html, regiao, { inicio, fim }) {
+export function trocarRegiao(html, regiao, { inicio, fim }) {
   if (typeof html !== "string") {
     return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
   }

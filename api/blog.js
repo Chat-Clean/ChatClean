@@ -31,8 +31,13 @@ import {
   responderDocumento,
 } from "./_nucleo/entrega.js";
 import { situacaoDoEndereco } from "./_nucleo/leitura.js";
+import {
+  MARCA_CORPO_FIM,
+  MARCA_CORPO_INICIO,
+  corpoDoArtigo,
+} from "./_nucleo/artigo.js";
 import { MARCA_FIM, MARCA_INICIO, metadadosDaPagina, regiaoDeMetadados } from "./_nucleo/metadados.js";
-import { lerShell, trocarMetadados } from "./_nucleo/shell.js";
+import { lerShell, trocarRegiao } from "./_nucleo/shell.js";
 
 /** O tipo do documento que esta rota promete. */
 export const TIPO_DA_PAGINA = "text/html; charset=utf-8";
@@ -94,14 +99,33 @@ export default async function handler(req, res) {
     raiz: dominio.raiz,
   });
 
-  const trocado = trocarMetadados(shell.html, regiaoDeMetadados(pagina), {
+  const comMetadados = trocarRegiao(shell.html, regiaoDeMetadados(pagina), {
     inicio: MARCA_INICIO,
     fim: MARCA_FIM,
   });
-  if (!trocado.ok) {
-    responderDefeito(res, trocado.defeito);
+  if (!comMetadados.ok) {
+    responderDefeito(res, comMetadados.defeito);
     return;
   }
 
-  responderDocumento(res, { tipo: TIPO_DA_PAGINA, corpo: trocado.html });
+  /* ─── O CORPO DO ARTIGO (Story 4.4) ─────────────────────────────────────
+     Conteúdo que não passa na conferência do vocabulário NÃO derruba a rota:
+     um Post torto é defeito de um registro, e responder 500 tiraria todos os
+     artigos do ar. O corpo é omitido, a página continua funcionando no
+     navegador — onde a aplicação renderiza normalmente — e fica o rastro. */
+  const corpo = corpoDoArtigo({ situacao, post, canonica: pagina.canonica });
+  if (corpo.defeito !== null) {
+    console.error(`[entrega] ${corpo.defeito}`);
+  }
+
+  const comCorpo = trocarRegiao(comMetadados.html, corpo.html, {
+    inicio: MARCA_CORPO_INICIO,
+    fim: MARCA_CORPO_FIM,
+  });
+  if (!comCorpo.ok) {
+    responderDefeito(res, comCorpo.defeito);
+    return;
+  }
+
+  responderDocumento(res, { tipo: TIPO_DA_PAGINA, corpo: comCorpo.html });
 }

@@ -10844,12 +10844,29 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     const nucleo = await import(
       pathToFileURL(path.join(raiz, "api", "_nucleo", "metadados.js")).href
     );
+    /* AS DUAS REGIÕES SÃO RECORTADAS, e não só a de metadados. A Story 4.4
+       acrescentou a do corpo do artigo, e deixar a assercão olhando só para uma
+       delas a faria falhar por uma troca que é justamente o que se quer. O que
+       ela mede continua sendo o mesmo: o shell é o do BUILD, e o que a rota
+       governa são as regiões — nada além delas. */
+    const corpoMod = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "artigo.js")).href
+    );
+    const REGIOES_GOVERNADAS = [
+      [nucleo.MARCA_INICIO, nucleo.MARCA_FIM],
+      [corpoMod.MARCA_CORPO_INICIO, corpoMod.MARCA_CORPO_FIM],
+    ];
     const foraDaRegiao = (html) => {
-      const i = String(html ?? "").indexOf(nucleo.MARCA_INICIO);
-      const j = String(html ?? "").indexOf(nucleo.MARCA_FIM);
-      if (i === -1 || j === -1) return null;
-      const fecha = String(html).indexOf("-->", j);
-      return String(html).slice(0, i) + String(html).slice(fecha + 3);
+      let texto = String(html ?? "");
+      for (const [inicio, fim] of REGIOES_GOVERNADAS) {
+        const i = texto.indexOf(inicio);
+        const j = texto.indexOf(fim, i === -1 ? 0 : i);
+        if (i === -1 || j === -1) return null;
+        const fecha = texto.indexOf("-->", j);
+        if (fecha === -1) return null;
+        texto = texto.slice(0, i) + texto.slice(fecha + 3);
+      }
+      return texto;
     };
 
     const r = await comDominio(DOMINIO, () =>
@@ -11528,7 +11545,7 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     ],
   ];
   for (const [nome, html] of casos) {
-    const r = shellMod.trocarMetadados(html, regiaoA, {
+    const r = shellMod.trocarRegiao(html, regiaoA, {
       inicio: meta.MARCA_INICIO,
       fim: meta.MARCA_FIM,
     });
@@ -11540,7 +11557,7 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
   }
   /* CONTROLE POSITIVO: o shell de verdade atravessa. Sem ele, uma troca que
      recusasse TUDO passaria nos quatro casos acima com a rota morta. */
-  const bom = shellMod.trocarMetadados(distHtml, regiaoA, {
+  const bom = shellMod.trocarRegiao(distHtml, regiaoA, {
     inicio: meta.MARCA_INICIO,
     fim: meta.MARCA_FIM,
   });
@@ -11572,6 +11589,311 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
   // Esta é da ROTA, e não do emissor: é ela que lê o ambiente. A alternativa
   // seria emitir canônica relativa, que rastreador nenhum resolve para o lugar
   // certo — e o sintoma seria um artigo que nunca indexa, sem nada acusando.
+
+  /* ══ STORY 4.4: O CORPO DO ARTIGO, LEGÍVEL SEM JAVASCRIPT ══════════════ */
+  //
+  // A 4.3 fez o artigo se ANUNCIAR. Esta faz ele ser LIDO: um rastreador de
+  // motor generativo que quer citar o artigo precisa do texto no HTML, e até
+  // aqui recebia um contêiner vazio e ia embora.
+
+  const artigo = await import(
+    pathToFileURL(path.join(raiz, "api", "_nucleo", "artigo.js")).href
+  );
+  const renderizador = await import(
+    pathToFileURL(path.join(raiz, "src", "render", "blog", "paraHtml.js")).href
+  );
+
+  /* ── O VOCABULÁRIO É O DO RENDERIZADOR, E NÃO UMA CÓPIA ─────────────── */
+  //
+  // Uma terceira cópia da lista compararia duas versões do mesmo engano: o dia
+  // em que o vocabulário encolhesse, a cópia continuaria aceitando o que saiu
+  // dele. A comparação é de IDENTIDADE — é a mesma lista, e não uma igual.
+
+  afirmar(
+    "a conferência usa AS MESMAS listas do renderizador — identidade, e não cópia com o mesmo conteúdo",
+    artigo.ETIQUETAS_ACEITAS === renderizador.ETIQUETAS_EMITIDAS &&
+      artigo.ATRIBUTOS_ACEITOS === renderizador.ATRIBUTOS_EMITIDOS,
+    `${artigo.ETIQUETAS_ACEITAS === renderizador.ETIQUETAS_EMITIDAS} | ${artigo.ATRIBUTOS_ACEITOS === renderizador.ATRIBUTOS_EMITIDOS}`,
+  );
+
+  /* ── CADA ETIQUETA DO VOCABULÁRIO PASSA, UMA A UMA ──────────────────── */
+  //
+  // Sem esta metade, uma conferência que recusasse TUDO passaria em todas as
+  // recusas abaixo — e o blog inteiro ficaria sem corpo servido, verde.
+
+  const etiquetasRecusadas = renderizador.ETIQUETAS_EMITIDAS.filter((e) => {
+    const html = ["hr", "br"].includes(e) ? `<${e} />` : `<${e}>texto</${e}>`;
+    return !artigo.conferirConteudo(html).ok;
+  });
+  afirmar(
+    `controle positivo: as ${renderizador.ETIQUETAS_EMITIDAS.length} etiquetas do vocabulário ATRAVESSAM a conferência, uma a uma`,
+    etiquetasRecusadas.length === 0,
+    `recusadas: ${etiquetasRecusadas.join(", ") || "nenhuma"}`,
+  );
+  const atributosRecusados = renderizador.ATRIBUTOS_EMITIDOS.filter(
+    (a) => !artigo.conferirConteudo(`<a ${a}="v">x</a>`).ok,
+  );
+  afirmar(
+    `controle positivo: os ${renderizador.ATRIBUTOS_EMITIDOS.length} atributos do vocabulário atravessam, um a um`,
+    atributosRecusados.length === 0,
+    `recusados: ${atributosRecusados.join(", ") || "nenhum"}`,
+  );
+
+  /* ── E AS FORASTEIRAS SÃO RECUSADAS, NOMEANDO O QUE ────────────────── */
+  //
+  // A lista de casos é NOMEADA e inclui a que já passou de verdade: a Story
+  // 2.5 registrou `<a/onclick=`, porque barra é separador de atributo válido em
+  // HTML e a defesa de então era lista de proibição.
+
+  const FORASTEIRAS = [
+    ["script", "<script>alerta()</script>"],
+    ["iframe", "<IFRAME src=x></IFRAME>"],
+    ["noscript — fecharia o contêiner e derramaria o documento", "<p>a</p><noscript>x</noscript>"],
+    ["fechamento de noscript solto", "<p>a</p></noscript><p>b</p>"],
+    ["h1 — o do artigo é o título, e a 4.6 cobra um por página", "<h1>Título</h1>"],
+    ["style — passava quando a defesa era proibição de padrões", `<p style="position:fixed;inset:0">x</p>`],
+    ["onclick com aspas", `<a onclick="x()">l</a>`],
+    ["a barra que passou na Story 2.5", "<a/onclick=x>l</a>"],
+    ["maiúsculas", "<ScRiPt>x</ScRiPt>"],
+    ["comentário HTML", "<!-- escondido -->"],
+    ["`<` solto — HTML gravado sem escape", "<p>5 < 6</p>"],
+  ];
+  const passaram = FORASTEIRAS.filter(([, html]) => artigo.conferirConteudo(html).ok);
+  afirmar(
+    `as ${FORASTEIRAS.length} formas forasteiras são RECUSADAS pela lista de permissão — inclusive a que passou na Story 2.5`,
+    passaram.length === 0,
+    `passaram: ${passaram.map(([n]) => n).join(" | ") || "nenhuma"}`,
+  );
+  /* E A RECUSA DIZ O QUE FOI. Uma recusa muda faz a próxima pessoa desconfiar
+     do Post errado — e o Conteúdo torto continuaria no banco. */
+  const semNome = FORASTEIRAS.filter(
+    ([, html]) => typeof artigo.conferirConteudo(html).defeito !== "string",
+  );
+  afirmar(
+    "e cada recusa vem com defeito NOMEADO — recusa muda faz desconfiar do Post errado",
+    semNome.length === 0,
+    `sem nome: ${semNome.map(([n]) => n).join(" | ") || "nenhuma"}`,
+  );
+
+  /* ── O CORPO VIVE EM `<noscript>`, ANTES DO CONTÊINER ───────────────── */
+  //
+  // Isto é o critério de CLS, e ele é resolvido por CONSTRUÇÃO: com JavaScript
+  // ligado o navegador não renderiza o conteúdo de `<noscript>` — ele nem entra
+  // no layout. Duplicação, piscada e deslocamento não são evitados com cuidado;
+  // não podem acontecer. A posição é MEDIDA no documento servido.
+
+  const CONTEUDO = "<h2>Um subtítulo</h2><p>Texto do artigo com <strong>ênfase</strong>.</p>";
+  const postComCorpo = {
+    titulo: "O artigo que precisa ser lido",
+    resumo: "Um resumo.",
+    conteudo_html: CONTEUDO,
+    autor_nome: null,
+    publicado_em: null,
+    atualizado_em: null,
+    imagem_url: null,
+    imagem_alt: null,
+    seo_titulo: null,
+    seo_descricao: null,
+    seo_imagem_url: null,
+  };
+  const corpoNoAr = artigo.corpoDoArtigo({
+    situacao: "no-ar",
+    post: postComCorpo,
+    canonica: "https://chatclean.com.br/blog/o-artigo",
+  });
+  afirmar(
+    "o Conteúdo do Post aparece no corpo servido, com a estrutura que foi gravada",
+    corpoNoAr.defeito === null && corpoNoAr.html.includes(CONTEUDO),
+    corpoNoAr.defeito ?? `${corpoNoAr.html.length} caracteres`,
+  );
+  afirmar(
+    "e ele vem envolvido na classe `.artigo` — a mesma aparência do editor e do site",
+    /<article class="artigo">/.test(corpoNoAr.html),
+    corpoNoAr.html.slice(0, 80),
+  );
+  afirmar(
+    "e DENTRO de `<noscript>` — com JavaScript ligado o navegador nem o coloca no layout",
+    corpoNoAr.html.indexOf("<noscript>") !== -1 &&
+      corpoNoAr.html.indexOf("<noscript>") < corpoNoAr.html.indexOf(CONTEUDO) &&
+      corpoNoAr.html.indexOf(CONTEUDO) < corpoNoAr.html.indexOf("</noscript>"),
+    `noscript em ${corpoNoAr.html.indexOf("<noscript>")}, conteúdo em ${corpoNoAr.html.indexOf(CONTEUDO)}`,
+  );
+
+  /* ── O JSON-LD CARREGA O MESMO TEXTO ────────────────────────────────── */
+  //
+  // `articleBody` deriva do MESMO HTML, e não de uma segunda coluna: duas
+  // fontes do mesmo texto divergiriam na primeira edição, e o dado estruturado
+  // passaria a citar uma versão que a página não mostra. A comparação é de
+  // CONTEÚDO — conferir presença deixaria um `articleBody` vazio passar.
+
+  const blocoLd = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(
+    corpoNoAr.html,
+  )?.[1];
+  let dados = null;
+  try {
+    dados = JSON.parse(String(blocoLd ?? "").replace(/<\\\//g, "</"));
+  } catch {
+    dados = null;
+  }
+  afirmar(
+    "o corpo servido traz um JSON-LD de artigo, e ele é JSON VÁLIDO",
+    dados !== null && dados["@type"] === "Article",
+    dados === null ? String(blocoLd ?? "").slice(0, 120) : dados["@type"],
+  );
+  afirmar(
+    "e `articleBody` é O MESMO TEXTO do corpo — derivado do mesmo HTML, não de uma segunda coluna",
+    dados?.articleBody === artigo.textoDoConteudo(CONTEUDO) &&
+      String(dados?.articleBody ?? "").includes("Texto do artigo com ênfase."),
+    JSON.stringify(dados?.articleBody ?? "").slice(0, 140),
+  );
+  /* E O TEXTO NÃO EMENDA PALAVRAS. `…subtítulo</h2><p>Texto…` viraria
+     `subtítuloTexto` se o fim de bloco não virasse separador — e o rastreador
+     citaria uma palavra que não existe. */
+  afirmar(
+    "e o texto puro não EMENDA o fim de um bloco no começo do seguinte",
+    !String(dados?.articleBody ?? "").includes("subtítuloTexto"),
+    JSON.stringify(dados?.articleBody ?? "").slice(0, 100),
+  );
+  /* E `</script>` NÃO FECHA O BLOCO. Um Conteúdo com essa sequência quebraria
+     o JSON-LD e derramaria o resto na página. */
+  afirmar(
+    "e a serialização não deixa `</` fechar o bloco — a sequência sai escapada",
+    !/<\/script>/.test(String(blocoLd ?? "")),
+    "não fecha",
+  );
+
+  /* ── SEM CONTEÚDO, NÃO SE DECLARA ARTIGO ───────────────────────────── */
+  //
+  // Um `articleBody` vazio afirmaria que o artigo existe e não tem texto, que é
+  // diferente de não afirmar. E o corpo vazio é resposta LEGÍTIMA, não defeito.
+
+  for (const [nome, valor] of [
+    ["coluna nula", null],
+    ["coluna vazia", ""],
+    ["só espaços", "   "],
+  ]) {
+    const r = artigo.corpoDoArtigo({
+      situacao: "no-ar",
+      post: { ...postComCorpo, conteudo_html: valor },
+      canonica: "https://chatclean.com.br/blog/x",
+    });
+    afirmar(
+      `Post sem Conteúdo (${nome}): região VAZIA e sem defeito — e nenhum JSON-LD de artigo`,
+      r.html === "" && r.defeito === null,
+      `${JSON.stringify(r.html).slice(0, 60)} | ${r.defeito ?? "sem defeito"}`,
+    );
+  }
+
+  /* ── CONTEÚDO TORTO OMITE O CORPO E DEIXA RASTRO ───────────────────── */
+  //
+  // Derrubar a rota por um registro torto tiraria TODOS os artigos do ar;
+  // servir HTML desconhecido é pior que os dois. Omitir deixa a página
+  // funcionando no navegador e registra o defeito para quem for consertar.
+
+  const torto = artigo.corpoDoArtigo({
+    situacao: "no-ar",
+    post: { ...postComCorpo, conteudo_html: "<p>ok</p><script>mau()</script>" },
+    canonica: "https://chatclean.com.br/blog/x",
+  });
+  afirmar(
+    "Conteúdo fora do vocabulário: o corpo é OMITIDO e o defeito é NOMEADO — nem serve, nem cala",
+    torto.html === "" &&
+      typeof torto.defeito === "string" &&
+      torto.defeito.includes("script"),
+    `${JSON.stringify(torto.html)} | ${torto.defeito ?? "sem defeito"}`,
+  );
+
+  /* ── NADA FORA DO AR TEM CORPO ─────────────────────────────────────── */
+  //
+  // Mesma regra da 4.3, e o Post é passado MESMO ASSIM — é o caso perigoso.
+
+  for (const situacao of dominioDaEntrega.SITUACOES_SEM_CONTEUDO) {
+    const r = artigo.corpoDoArtigo({
+      situacao,
+      post: postComCorpo,
+      canonica: "https://chatclean.com.br/blog/x",
+    });
+    afirmar(
+      `situação ${situacao}: NENHUM Conteúdo aparece no corpo servido`,
+      r.html === "" && !r.html.includes("Texto do artigo"),
+      JSON.stringify(r.html).slice(0, 80),
+    );
+  }
+
+  /* ── OS MARCADORES DO CORPO, NO SHELL QUE É SERVIDO ─────────────────── */
+
+  for (const [nome, marca] of [
+    ["INICIO", artigo.MARCA_CORPO_INICIO],
+    ["FIM", artigo.MARCA_CORPO_FIM],
+  ]) {
+    const quantos = distHtml.split(marca).length - 1;
+    afirmar(
+      `o marcador de corpo ${nome} existe no \`dist/index.html\` — e UMA vez só`,
+      quantos === 1,
+      `${quantos} ocorrência(s)`,
+    );
+  }
+  /* ★ E A REGIÃO DO CORPO VEM ANTES DO CONTÊINER ★
+     Depois dele, o corpo servido entraria no documento abaixo da aplicação — e
+     um rastreador que corta a leitura poderia não chegar nele. */
+  afirmar(
+    "e a região do corpo vem ANTES do contêiner da aplicação, no documento servido",
+    distHtml.indexOf(artigo.MARCA_CORPO_INICIO) !== -1 &&
+      distHtml.indexOf(artigo.MARCA_CORPO_INICIO) < distHtml.indexOf('id="root"'),
+    `corpo em ${distHtml.indexOf(artigo.MARCA_CORPO_INICIO)}, contêiner em ${distHtml.indexOf('id="root"')}`,
+  );
+
+  /* ── O `robots.txt` CONTINUA AUTORIZANDO OS CINCO ──────────────────── */
+  //
+  // O critério da story. Eles já estavam lá; o que faltava era a asserção — e
+  // sem ela, uma limpeza de arquivo os removeria sem nada acusar.
+
+  const robots = ler("public/robots.txt");
+  const RASTREADORES_DE_IA = [
+    "GPTBot",
+    "ChatGPT-User",
+    "Google-Extended",
+    "PerplexityBot",
+    "ClaudeBot",
+  ];
+  /* O detector exige `User-agent: X` seguido de `Allow`. Procurar só o NOME
+     passaria com ele sob um `Disallow: /` — que é o oposto do critério. */
+  const autorizado = (texto, nome) =>
+    new RegExp(
+      `User-agent:\\s*${nome}\\s*\\n\\s*Allow:\\s*/`,
+      "i",
+    ).test(texto);
+  for (const nome of RASTREADORES_DE_IA) {
+    afirmar(
+      `\`robots.txt\` continua autorizando ${nome} — é ele que cita o artigo`,
+      autorizado(robots, nome),
+      autorizado(robots, nome) ? "Allow" : "NÃO autorizado",
+    );
+  }
+  /* AUTOTESTE: o detector precisa ACUSAR um `Disallow`. Sem isto, um padrão
+     que só procurasse o nome deixaria os cinco verdes sob bloqueio. */
+  afirmar(
+    "autoteste: o detector ACUSA um rastreador sob `Disallow` — procurar só o nome passaria sob bloqueio",
+    autorizado("User-agent: GPTBot\nAllow: /", "GPTBot") === true &&
+      autorizado("User-agent: GPTBot\nDisallow: /", "GPTBot") === false,
+    "acusou",
+  );
+
+  /* ── E A ROTA INTEIRA, DIRIGIDA ─────────────────────────────────────── */
+  //
+  // O que veio acima julga o emissor. Esta julga o DOCUMENTO: a região do corpo
+  // existe nele, está vazia para a listagem, e o contêiner sobreviveu.
+
+  const daListagem = await comDominio(DOMINIO, () =>
+    dirigir("blog.js", { method: "GET", url: "/api/blog" }),
+  );
+  afirmar(
+    "a listagem `/blog` não traz corpo de artigo nenhum — e o contêiner da aplicação continua lá",
+    daListagem.codigo === 200 &&
+      !String(daListagem.corpo ?? "").includes('<article class="artigo">') &&
+      /id="root"/.test(String(daListagem.corpo ?? "")),
+    `${daListagem.codigo} | ${String(daListagem.corpo ?? "").length} caracteres`,
+  );
 
   const semDominio = await comDominio(null, () =>
     dirigir("blog.js", { method: "GET", url: "/api/blog?slug=qualquer" }),
