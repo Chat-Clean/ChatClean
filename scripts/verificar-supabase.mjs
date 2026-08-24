@@ -89,6 +89,22 @@ import {
   TIPOS_DE_IMAGEM,
   ehCaminhoDeCapa,
 } from "../src/domain/blog/arquivos.js";
+/* E o vocabulário da ENTREGA (Story 4.2) vem do domínio pela mesma razão. A
+   migração não declara enum de propósito — o vocabulário vive em um lugar só,
+   e é esta ferramenta que confere que o banco não inventou uma quinta situação
+   nem parou de devolver uma das quatro. */
+import {
+  ARQUIVADO,
+  CAMPOS_DE_CONTEUDO,
+  INEXISTENTE,
+  NO_AR,
+  REDIRECIONADO,
+  SITUACOES_DA_ENTREGA,
+} from "../src/domain/blog/entrega.js";
+/* E a LISTA DE PERMISSÃO de nomes que o servidor pode chamar vem do próprio
+   módulo de leitura: é ela que a asserção compara com o que existe no banco.
+   Uma terceira cópia escrita aqui não pegaria divergência nenhuma. */
+import { FUNCOES_DA_ENTREGA } from "../api/_nucleo/leitura.js";
 
 /**
  * Os ENDEREÇOS das seis Categorias que a Story 2.14 semeou.
@@ -1565,6 +1581,102 @@ if (!temToken) {
     `anon: ${porNome.get("normalizar_busca")?.anon ?? "—"} | authenticated: ${porNome.get("normalizar_busca")?.auth ?? "—"}`,
   );
 
+  /* — As funções da ENTREGA: `definer` de propósito, e concedidas UMA A UMA (Story 4.2) — */
+  //
+  // A busca acima é `invoker` e a asserção cobra isso. Estas são o oposto, e
+  // a diferença é deliberada: distinguir Post arquivado de endereço que nunca
+  // existiu exige ver um bit que a política de leitura anônima esconde. Duas
+  // famílias com regras opostas no mesmo arquivo pedem que cada uma seja
+  // afirmada pelo que ELA é — senão a próxima pessoa copia a regra errada.
+  //
+  // `security definer` roda com os privilégios de quem criou a função, então
+  // CONCEDER EXECUÇÃO É A DECISÃO INTEIRA. Por isso o que se mede é o
+  // privilégio no REMOTO, e não o `grant` escrito no arquivo: o arquivo diz o
+  // que alguém quis, o catálogo diz o que vale.
+
+  const FUNCOES_DA_ENTREGA_NO_BANCO = [
+    "situacao_do_endereco",
+    "posts_no_ar",
+    "proxima_publicacao",
+  ];
+  const entregaNoBanco = await uma(
+    `select p.proname as nome,
+            p.prosecdef as definer,
+            p.provolatile as volatilidade,
+            coalesce(array_to_string(p.proconfig, ','), '') as cfg,
+            has_function_privilege('anon', p.oid, 'execute') as anon,
+            has_function_privilege('authenticated', p.oid, 'execute') as auth,
+            p.proacl is null as acl_padrao,
+            exists (select 1 from aclexplode(p.proacl) a
+                     where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+            coalesce(obj_description(p.oid, 'pg_proc'), '') as comentario
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in (${FUNCOES_DA_ENTREGA_NO_BANCO.map(literal).join(", ")})`,
+    "as funções da entrega",
+  );
+  const porFuncao = new Map(
+    (entregaNoBanco.linhas ?? []).map((f) => [f.nome, f]),
+  );
+  afirmar(
+    `as ${FUNCOES_DA_ENTREGA_NO_BANCO.length} funções da entrega existem em public`,
+    !entregaNoBanco.falhou &&
+      FUNCOES_DA_ENTREGA_NO_BANCO.every((n) => porFuncao.has(n)),
+    `encontradas: ${[...porFuncao.keys()].join(", ") || "nenhuma"}`,
+  );
+  /* A LISTA DO BANCO É A DO CÓDIGO. `api/_nucleo/leitura.js` tem uma lista de
+     permissão de nomes chamáveis; se as duas divergirem, ou o servidor chama
+     o que não existe, ou existe função da família que ninguém está julgando
+     aqui. Comparar nos dois sentidos é o que pega o segundo caso. */
+  afirmar(
+    "a lista de funções chamáveis do servidor é IGUAL à que existe no banco, nos dois sentidos",
+    FUNCOES_DA_ENTREGA.length === FUNCOES_DA_ENTREGA_NO_BANCO.length &&
+      FUNCOES_DA_ENTREGA.every((n) => FUNCOES_DA_ENTREGA_NO_BANCO.includes(n)) &&
+      FUNCOES_DA_ENTREGA_NO_BANCO.every((n) => FUNCOES_DA_ENTREGA.includes(n)),
+    `servidor: ${FUNCOES_DA_ENTREGA.join(", ")} | banco: ${FUNCOES_DA_ENTREGA_NO_BANCO.join(", ")}`,
+  );
+  for (const n of FUNCOES_DA_ENTREGA_NO_BANCO) {
+    const f = porFuncao.get(n);
+    afirmar(
+      `${n} é \`security definer\` — é o que lhe permite ver o bit que a política esconde, e está declarado`,
+      f?.definer === true,
+      `definer: ${f?.definer ?? "—"}`,
+    );
+    afirmar(
+      `${n} fixa search_path — sem isso \`definer\` executa contra o schema que o chamador escolher`,
+      /search_path=/.test(f?.cfg ?? ""),
+      `proconfig: ${f?.cfg || "vazio"}`,
+    );
+    /* `s` é STABLE. Uma função da entrega marcada VOLATILE perde otimização e,
+       pior, sinaliza que ela escreve — numa família cujo ponto é só ler. */
+    afirmar(
+      `${n} é STABLE — a entrega só lê, e a marca é o que diz isso ao planejador`,
+      f?.volatilidade === "s",
+      `volatilidade: ${f?.volatilidade ?? "—"}`,
+    );
+    afirmar(
+      `${n} é executável por anon E por authenticated — a entrega serve os dois pelo mesmo caminho`,
+      f?.anon === true && f?.auth === true,
+      `anon: ${f?.anon ?? "—"} | authenticated: ${f?.auth ?? "—"}`,
+    );
+    /* ★ A REVOGAÇÃO DE `public` ★ — e `proacl` nulo conta como concedida.
+       Uma função nasce com EXECUTE para PUBLIC e `proacl` NULO; só o primeiro
+       `grant` ou `revoke` materializa a lista. Conferir apenas a lista
+       materializada passaria justamente no caso em que ninguém revogou nada. */
+    afirmar(
+      `${n} NÃO é executável por \`public\` — concessão a public daria execução a qualquer papel futuro sem ninguém decidir`,
+      f?.acl_padrao === false && f?.publico === false,
+      f?.acl_padrao === true ? "proacl nulo: EXECUTE para PUBLIC pelo padrão, ninguém revogou" : `public: ${f?.publico ?? "—"}`,
+    );
+    /* O comentário é o único lugar onde o PORQUÊ de `definer` sobrevive a um
+       `\\df+` no console do banco, longe do repositório. */
+    afirmar(
+      `${n} traz comentário no banco explicando o que devolve`,
+      (f?.comentario ?? "").length > 80,
+      `${(f?.comentario ?? "").length} caractere(s)`,
+    );
+  }
+
   /* — Nenhuma política de escrita no remoto, nas cinco tabelas — */
 
   const politicasConteudo = await uma(
@@ -1783,6 +1895,18 @@ async function storage(caminho, opcoes = {}) {
  * está declarado. Sem essa comparação, a lista viraria documentação
  * desatualizada e o ramo do 429 voltaria a esconder o que não conhece.
  */
+/**
+ * As asserções da entrega que dependem da MESMA sessão real (Story 4.2).
+ *
+ * Existem pela mesma razão que `ASSERCOES_DO_STORAGE`: numa execução com 429
+ * elas não seriam impressas, e o relatório não distinguiria isso de "todas
+ * passaram". Asserção que some não conta como nada.
+ */
+const ASSERCOES_DA_ENTREGA_COM_SESSAO = Object.freeze([
+  "com SESSÃO real, as funções da entrega respondem EXATAMENTE o mesmo que para o anônimo — `definer` não abre nada a mais para quem entrou",
+  "e continuam sem trazer conteúdo para quem tem sessão — a linha do arquivado é a mesma, campo a campo",
+]);
+
 const ASSERCOES_DO_STORAGE = Object.freeze([
   "o bucket das imagens existe e é de leitura pública",
   "o teto de tamanho GRAVADO no bucket é o mesmo do vocabulário do domínio",
@@ -2375,6 +2499,232 @@ if (temToken && temChave) {
           slugsAntigos.join(", ") || "nenhum",
         );
 
+        /* ── As três funções da ENTREGA, dirigidas de verdade (Story 4.2) ── */
+        //
+        // Ler o texto da migração provaria que alguém escreveu o cadeado, não
+        // que ele fecha. O que segue CHAMA as três funções pelo papel anônimo,
+        // com a janela aberta, contra a matriz que já está semeada — a mesma
+        // que a política acabou de julgar. É de propósito que as duas leituras
+        // vejam o mesmo estado do banco: a função enxerga UM BIT a mais que a
+        // política, e é esse bit, e nada além dele, que precisa aparecer.
+
+        /** Chama uma função da entrega pelo papel anônimo. */
+        const entrega = async (nome, argumentos = {}, cabecalhos = {}) =>
+          await rest(`rpc/${nome}`, {
+            method: "POST",
+            headers: cabecalhos,
+            body: JSON.stringify(argumentos),
+          });
+
+        /** A primeira linha de `situacao_do_endereco`, ou `null`. */
+        const situacaoDe = async (endereco, cabecalhos = {}) => {
+          const r = await entrega("situacao_do_endereco", { p_slug: endereco }, cabecalhos);
+          const linhas = comoLista(r);
+          return { r, linha: Array.isArray(linhas) ? (linhas[0] ?? null) : null };
+        };
+
+        const noAr = await situacaoDe(slug("publicado"));
+        afirmar(
+          "`situacao_do_endereco` é executável pelo papel ANÔNIMO",
+          noAr.r.status === 200,
+          `HTTP ${noAr.r.status} ${noAr.r.corpo.slice(0, 250)}`,
+        );
+        afirmar(
+          "endereço de Post visível responde `no-ar` — COM conteúdo, que é a única situação que pode",
+          noAr.linha?.situacao === NO_AR &&
+            noAr.linha?.titulo === "Publicado" &&
+            typeof noAr.linha?.post_id === "string" &&
+            noAr.linha?.slug_atual === slug("publicado"),
+          JSON.stringify(noAr.linha).slice(0, 300),
+        );
+
+        /* — Rascunho e agendado por vir: indistinguíveis de nunca ter existido — */
+        //
+        // É a garantia da Story 2.13, e ela não se afrouxa por a função ser
+        // `security definer`. Nem o ENDEREÇO volta: devolvê-lo já confirmaria
+        // que ele está tomado, e quem sonda descobre a pauta editorial pelo
+        // que dá erro de endereço ocupado.
+
+        const doRascunho = await situacaoDe(slug("rascunho"));
+        afirmar(
+          "rascunho responde `inexistente` — e o endereço NÃO volta, senão confirmaria que está tomado",
+          doRascunho.linha?.situacao === INEXISTENTE &&
+            doRascunho.linha?.slug_atual === null,
+          JSON.stringify(doRascunho.linha).slice(0, 300),
+        );
+
+        const doFuturo = await situacaoDe(slug("agendado-futuro"));
+        afirmar(
+          "agendado cuja hora não chegou responde `inexistente`, como o rascunho",
+          doFuturo.linha?.situacao === INEXISTENTE &&
+            doFuturo.linha?.slug_atual === null,
+          JSON.stringify(doFuturo.linha).slice(0, 300),
+        );
+
+        /* — Arquivado: a situação, o endereço, e NADA MAIS — */
+
+        const doArquivado = await situacaoDe(slug("arquivado"));
+        afirmar(
+          "Post arquivado responde `arquivado` — o bit a mais que justifica `security definer`",
+          doArquivado.linha?.situacao === ARQUIVADO &&
+            doArquivado.linha?.slug_atual === slug("arquivado"),
+          JSON.stringify(doArquivado.linha).slice(0, 300),
+        );
+
+        /* — Aposentado vivo redireciona; aposentado morto, não — */
+        //
+        // Mandar o rastreador para um endereço que responde `inexistente` gasta
+        // duas viagens para dar a mesma resposta, e ensina que o endereço antigo
+        // é válido. A camada de dados já decidiu isso na Story 2.15; aqui é o
+        // BANCO que precisa decidir igual.
+
+        const doAposentado = await situacaoDe(slug("antigo-do-visivel"));
+        afirmar(
+          "endereço aposentado de Post VISÍVEL responde `redirecionado`, apontando o endereço de hoje",
+          doAposentado.linha?.situacao === REDIRECIONADO &&
+            doAposentado.linha?.slug_atual === slug("publicado"),
+          JSON.stringify(doAposentado.linha).slice(0, 300),
+        );
+
+        const doAposentadoMorto = await situacaoDe(slug("antigo-do-rascunho"));
+        afirmar(
+          "endereço aposentado cujo alvo NÃO está visível responde `inexistente` — não redireciona para o nada",
+          doAposentadoMorto.linha?.situacao === INEXISTENTE &&
+            doAposentadoMorto.linha?.slug_atual === null,
+          JSON.stringify(doAposentadoMorto.linha).slice(0, 300),
+        );
+
+        /* — Endereço torto não vira consulta — */
+
+        const torto = await situacaoDe("NÃO É Slug -- '; drop table posts; --");
+        afirmar(
+          "endereço fora do formato responde `inexistente` sem consultar — o que não pôde ser gravado não precisa ser procurado",
+          torto.r.status === 200 &&
+            torto.linha?.situacao === INEXISTENTE &&
+            torto.linha?.slug_atual === null,
+          `HTTP ${torto.r.status} ${JSON.stringify(torto.linha).slice(0, 200)}`,
+        );
+        const vazio = await situacaoDe(null);
+        afirmar(
+          "endereço NULO responde `inexistente` em vez de erro — a rota chama com o que chegou da URL",
+          vazio.r.status === 200 && vazio.linha?.situacao === INEXISTENTE,
+          `HTTP ${vazio.r.status} ${JSON.stringify(vazio.linha).slice(0, 200)}`,
+        );
+
+        /* — COLUNA A COLUNA: nenhuma situação fora do ar traz conteúdo — */
+        //
+        // Conferir de olho passaria no dia em que um campo novo entrasse na
+        // função e alguém esquecesse de anulá-lo num dos quatro `return query`.
+        // A lista dos campos vem do DOMÍNIO: reescrevê-la aqui compararia duas
+        // cópias do mesmo engano.
+
+        const foraDoAr = [
+          [ARQUIVADO, doArquivado.linha],
+          [REDIRECIONADO, doAposentado.linha],
+          [`${INEXISTENTE} (rascunho)`, doRascunho.linha],
+          [`${INEXISTENTE} (agendado por vir)`, doFuturo.linha],
+          [`${INEXISTENTE} (aposentado morto)`, doAposentadoMorto.linha],
+          [`${INEXISTENTE} (endereço torto)`, torto.linha],
+        ];
+        for (const [nome, linha] of foraDoAr) {
+          const vazando = CAMPOS_DE_CONTEUDO.filter(
+            (campo) => linha?.[campo] !== null && linha?.[campo] !== undefined,
+          );
+          afirmar(
+            `a situação ${nome} não traz NENHUM dos ${CAMPOS_DE_CONTEUDO.length} campos de conteúdo`,
+            linha !== null && vazando.length === 0,
+            linha === null ? "não voltou linha nenhuma" : `vazou: ${vazando.join(", ")}`,
+          );
+        }
+
+        /* AUTOTESTE da varredura: ela precisa acusar um campo plantado. Sem
+           isto, um erro de digitação no nome da coluna deixaria as seis linhas
+           acima verdes para sempre, sem julgar nada. */
+        afirmar(
+          "autoteste: a varredura coluna a coluna ACUSA um campo de conteúdo plantado",
+          CAMPOS_DE_CONTEUDO.filter(
+            (campo) => ({ ...doArquivado.linha, titulo: "vazou" })[campo] != null,
+          ).join(",") === "titulo",
+          "acusou",
+        );
+
+        /* — O vocabulário do banco é o do domínio, e os QUATRO foram exercidos — */
+        //
+        // A migração não declara enum de propósito: o vocabulário vive em
+        // `src/domain/blog/entrega.js`. Sem a segunda asserção a primeira
+        // passaria por vacuidade no dia em que uma situação parasse de ser
+        // devolvida — todas as que voltaram estariam na lista, e faltaria uma.
+
+        const situacoesVistas = [
+          noAr.linha,
+          doArquivado.linha,
+          doAposentado.linha,
+          doRascunho.linha,
+        ].map((l) => l?.situacao);
+        afirmar(
+          "toda situação devolvida pelo banco está no vocabulário fechado do domínio",
+          situacoesVistas.every((s) => SITUACOES_DA_ENTREGA.includes(s)),
+          situacoesVistas.join(", "),
+        );
+        afirmar(
+          `as ${SITUACOES_DA_ENTREGA.length} situações do vocabulário foram todas exercidas — senão a comparação acima passa por vacuidade`,
+          SITUACOES_DA_ENTREGA.every((s) => situacoesVistas.includes(s)),
+          `faltou: ${SITUACOES_DA_ENTREGA.filter((s) => !situacoesVistas.includes(s)).join(", ") || "nenhuma"}`,
+        );
+
+        /* — `posts_no_ar`: os visíveis, e SÓ o que o mapa do site precisa — */
+
+        const listaNoAr = await entrega("posts_no_ar");
+        const noArLinhas = comoLista(listaNoAr) ?? [];
+        const noArNossos = noArLinhas.filter((l) =>
+          String(l.slug ?? "").startsWith(prefixo),
+        );
+        const noArSlugs = noArNossos.map((l) => l.slug).sort();
+        afirmar(
+          "`posts_no_ar` é executável pelo papel ANÔNIMO",
+          listaNoAr.status === 200,
+          `HTTP ${listaNoAr.status} ${listaNoAr.corpo.slice(0, 250)}`,
+        );
+        afirmar(
+          "`posts_no_ar` traz EXATAMENTE os dois visíveis da matriz — nem o rascunho, nem os dois por vir, nem o arquivado",
+          noArSlugs.length === 2 &&
+            noArSlugs.includes(slug("publicado")) &&
+            noArSlugs.includes(slug("agendado-passado")),
+          noArSlugs.map((s) => s.slice(prefixo.length)).join(", ") || "nenhum",
+        );
+        const colunasNoAr = Object.keys(noArNossos[0] ?? {}).sort();
+        afirmar(
+          "`posts_no_ar` devolve só endereço, título e os dois instantes — conteúdo e imagem não passam por aqui",
+          colunasNoAr.join(",") === "atualizado_em,publicado_em,slug,titulo",
+          colunasNoAr.join(",") || "nenhuma coluna",
+        );
+
+        /* — `proxima_publicacao`: o instante, ou nulo — */
+
+        const proxima = await entrega("proxima_publicacao");
+        let instanteProximo = null;
+        try {
+          const v = JSON.parse(proxima.corpo);
+          instanteProximo = typeof v === "string" ? v : null;
+        } catch {
+          instanteProximo = null;
+        }
+        afirmar(
+          "`proxima_publicacao` é executável pelo papel ANÔNIMO",
+          proxima.status === 200,
+          `HTTP ${proxima.status} ${proxima.corpo.slice(0, 250)}`,
+        );
+        /* O agendado por vir da matriz está a sete dias. Se a função enxergasse
+           o agendado cuja hora JÁ chegou, ou parasse de enxergar o futuro, o
+           instante sairia desta janela. */
+        const daquiA = (dias) => Date.now() + dias * 24 * 60 * 60 * 1000;
+        const emMs = instanteProximo === null ? NaN : Date.parse(instanteProximo);
+        afirmar(
+          "`proxima_publicacao` devolve o instante do agendado por vir — no futuro, e não além do que a matriz agendou",
+          Number.isFinite(emMs) && emMs > Date.now() && emMs <= daquiA(8),
+          instanteProximo ?? "nulo",
+        );
+
         afirmar(
           "nenhum título de post oculto aparece nas respostas anônimas",
           !leitura.corpo.includes("Rascunho") &&
@@ -2465,6 +2815,9 @@ if (temToken && temChave) {
             for (const descricao of ASSERCOES_DO_STORAGE) {
               adiar(descricao, MOTIVO_LIMITE);
             }
+            for (const descricao of ASSERCOES_DA_ENTREGA_COM_SESSAO) {
+              adiar(descricao, MOTIVO_LIMITE);
+            }
           } else {
             afirmar(
               "a sessão do Painel foi aberta",
@@ -2506,6 +2859,80 @@ if (temToken && temChave) {
                 tamanhos[2] === 1 &&
                 tamanhos[3] === 2,
               `categorias/tags/associação/slugs_antigos: ${tamanhos.join(" / ")} (esperado 1 / 2 / 1 / 2) — status ${apoio.map((r) => r.status).join(", ")}`,
+            );
+
+            /* ─── As funções da ENTREGA, agora COM SESSÃO (Story 4.2) ──────
+               `security definer` roda com os privilégios de quem criou a
+               função, então a resposta não deveria depender de quem chama. Se
+               dependesse, o Painel e o visitante veriam blogs diferentes pelo
+               MESMO caminho de entrega — e o lado que enxerga mais seria o que
+               a rota serviria para quem estivesse logado.
+
+               A janela já fechou aqui, de propósito: o Post publicado voltou a
+               ser invisível, e a pergunta interessante é justamente se a sessão
+               o traz de volta. Não pode trazer. */
+            const enderecosDaComparacao = [
+              slug("publicado"),
+              slug("arquivado"),
+              slug("rascunho"),
+              slug("antigo-do-visivel"),
+            ];
+            const linhaDaEntrega = async (endereco, cabecalhos) => {
+              const r = await rest(`rpc/situacao_do_endereco`, {
+                method: "POST",
+                headers: cabecalhos,
+                body: JSON.stringify({ p_slug: endereco }),
+              });
+              const linhas = comoLista(r);
+              return Array.isArray(linhas) ? (linhas[0] ?? null) : null;
+            };
+            const paresDaEntrega = jwt
+              ? await Promise.all(
+                  enderecosDaComparacao.map(async (endereco) => ({
+                    endereco,
+                    anonimo: await linhaDaEntrega(endereco, {}),
+                    logado: await linhaDaEntrega(endereco, {
+                      Authorization: `Bearer ${jwt}`,
+                    }),
+                  })),
+                )
+              : [];
+            const divergiram = paresDaEntrega.filter(
+              (p) => JSON.stringify(p.anonimo) !== JSON.stringify(p.logado),
+            );
+            afirmar(
+              ASSERCOES_DA_ENTREGA_COM_SESSAO[0],
+              paresDaEntrega.length === enderecosDaComparacao.length &&
+                paresDaEntrega.every((p) => p.anonimo !== null) &&
+                divergiram.length === 0,
+              divergiram.length > 0
+                ? divergiram
+                    .map(
+                      (p) =>
+                        `${p.endereco.slice(prefixo.length)}: anônimo ${p.anonimo?.situacao} / logado ${p.logado?.situacao}`,
+                    )
+                    .join(" | ")
+                : `comparou ${paresDaEntrega.length} endereço(s)`,
+            );
+
+            /* E O CONTEÚDO CONTINUA FORA. A comparação acima ficaria verde se
+               as DUAS respostas vazassem conteúdo igual — iguais e erradas. */
+            const logadoArquivado =
+              paresDaEntrega.find((p) => p.endereco === slug("arquivado"))?.logado ??
+              null;
+            const vazouComSessao = CAMPOS_DE_CONTEUDO.filter(
+              (campo) =>
+                logadoArquivado?.[campo] !== null &&
+                logadoArquivado?.[campo] !== undefined,
+            );
+            afirmar(
+              ASSERCOES_DA_ENTREGA_COM_SESSAO[1],
+              logadoArquivado !== null &&
+                logadoArquivado.situacao === ARQUIVADO &&
+                vazouComSessao.length === 0,
+              logadoArquivado === null
+                ? "não voltou linha nenhuma"
+                : `situação ${logadoArquivado.situacao}; vazou: ${vazouComSessao.join(", ") || "nada"}`,
             );
 
             /* ─── O STORAGE, EXERCITADO (Story 3.1) ────────────────────────

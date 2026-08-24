@@ -10955,15 +10955,215 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     );
   }
 
-  /* ── AS ROTAS DE LEITURA NÃO TOCAM A CHAVE DE SERVIÇO ────────────────── */
+  /* ── O CAMINHO DE LEITURA NÃO TOCA A CHAVE DE SERVIÇO ─────────────────── */
+  //
+  // A saída fácil da Story 4.2 seria dar à leitura do servidor a chave de
+  // serviço, que enxerga tudo e dispensa política e função. Seria trocar um
+  // problema pequeno por um enorme: a chave que pode ESCREVER tudo, num
+  // caminho que só precisa ler — e num arquivo que ninguém releria depois.
+  //
+  // A lista é de PERMISSÃO e nomeada: um arquivo novo em `api/` que leia não
+  // entra sozinho, e é o autor que decide adicioná-lo aqui.
   {
-    const dasRotas = ["blog.js", "sitemap.js", "llms.js"].map((a) =>
-      mascararComentariosJs(ler(`api/${a}`)),
+    const ARQUIVOS_DE_LEITURA = [
+      "api/blog.js",
+      "api/sitemap.js",
+      "api/llms.js",
+      /* Story 4.2: o módulo que fala com o banco pelas três funções da
+         entrega. Ele é o que mais precisa desta asserção — é o único do grupo
+         que tem motivo para querer uma chave. */
+      "api/_nucleo/leitura.js",
+    ];
+    for (const arquivo of ARQUIVOS_DE_LEITURA) {
+      const codigo = mascararComentariosJs(ler(arquivo));
+      afirmar(
+        `${arquivo} não menciona a chave de serviço nem instancia acesso ao banco — o caminho de leitura lê com a chave PUBLICÁVEL`,
+        !/CHAVE_DE_SERVICO|acessoDoAmbiente|createClient|SERVICE_ROLE|sb_secret/.test(
+          codigo,
+        ),
+        (codigo.match(/CHAVE_DE_SERVICO|acessoDoAmbiente|createClient|SERVICE_ROLE|sb_secret/g) ?? []).join(" ") || "não menciona",
+      );
+    }
+    /* AUTOTESTE do detector: sem isto, um erro de digitação no padrão deixaria
+       os quatro verdes para sempre sem julgar coisa nenhuma. */
+    afirmar(
+      "autoteste: o detector de chave de serviço ACUSA uma menção plantada",
+      /CHAVE_DE_SERVICO|acessoDoAmbiente|createClient|SERVICE_ROLE|sb_secret/.test(
+        "const x = process.env.SUPABASE_CHAVE_DE_SERVICO;",
+      ),
+      "acusou",
+    );
+  }
+
+  /* ── A LISTA DE FUNÇÕES CHAMÁVEIS É FECHADA, E RECUSA ANTES DE VIAJAR ── */
+  //
+  // O nome da função entra na URL da chamada. Se ele pudesse vir de dado que
+  // chegou da rede, o caminho de leitura viraria chamada arbitrária de função
+  // — e ninguém saberia, porque o erro voltaria do banco e não daqui.
+  //
+  // A recusa é exercida DIRIGINDO o módulo, com um `buscar` que EXPLODE se for
+  // chamado: ler o `includes` no arquivo não distingue "recusa" de "recusa
+  // depois de já ter perguntado ao banco".
+  {
+    const leitura = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "leitura.js")).href
+    );
+    let buscou = 0;
+    const buscarQueExplode = () => {
+      buscou += 1;
+      throw new Error("a leitura não devia ter chegado à rede");
+    };
+    const ambienteBom = {
+      SUPABASE_URL: "https://exemplo.supabase.co",
+      SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_x",
+    };
+
+    const forasteira = await leitura.chamar(
+      "posts",
+      {},
+      { ambiente: ambienteBom, buscar: buscarQueExplode },
     );
     afirmar(
-      "nenhuma rota de leitura menciona a chave de serviço nem instancia acesso ao banco — esta story é roteamento e shell",
-      dasRotas.every((f) => !/CHAVE_DE_SERVICO|acessoDoAmbiente|createClient/.test(f)),
-      "tres rotas conferidas",
+      "nome fora da lista de permissão é recusado SEM viajar — a recusa vem antes da rede, não depois do banco",
+      forasteira.ok === false &&
+        typeof forasteira.defeito === "string" &&
+        forasteira.defeito.includes("posts") &&
+        buscou === 0,
+      `${JSON.stringify(forasteira).slice(0, 160)} | buscou ${buscou} vez(es)`,
+    );
+
+    /* CONTROLE POSITIVO. Sem ele, um módulo que recusasse TUDO passaria na
+       asserção acima — e o caminho de leitura inteiro estaria morto. */
+    buscou = 0;
+    const boa = await leitura.chamar(
+      leitura.FUNCOES_DA_ENTREGA[0],
+      {},
+      { ambiente: ambienteBom, buscar: buscarQueExplode },
+    );
+    afirmar(
+      "controle positivo: um nome DA lista atravessa a guarda e chega a buscar — a recusa não é universal",
+      buscou === 1 && boa.ok === false,
+      `buscou ${buscou} vez(es) | ${JSON.stringify(boa).slice(0, 160)}`,
+    );
+
+    /* SEM AMBIENTE, TAMBÉM NÃO VIAJA. Uma leitura que sai com a URL `undefined`
+       falha com erro de rede, e o registro diz "fetch failed" em vez de dizer
+       que ninguém configurou o projeto. */
+    buscou = 0;
+    const semAmbiente = await leitura.chamar(
+      leitura.FUNCOES_DA_ENTREGA[0],
+      {},
+      { ambiente: {}, buscar: buscarQueExplode },
+    );
+    afirmar(
+      "sem URL e chave no ambiente a leitura devolve DEFEITO NOMEADO e não sai — `fetch failed` não diria que ninguém configurou o projeto",
+      semAmbiente.ok === false &&
+        semAmbiente.defeito === leitura.DEFEITO_SEM_AMBIENTE &&
+        buscou === 0,
+      `${JSON.stringify(semAmbiente).slice(0, 160)} | buscou ${buscou} vez(es)`,
+    );
+  }
+
+  /* ── A SEGUNDA CAMADA: CONTEÚDO FORA DO AR VIRA DEFEITO, NÃO LIMPEZA ─── */
+  //
+  // O banco já não devolve conteúdo fora da situação no ar, e isso é provado
+  // contra o projeto real em `verificar:supabase`. Esta é a SEGUNDA camada, e
+  // ela existe porque este módulo é o que as Stories 4.3 em diante consomem: se
+  // a função de banco for trocada por uma versão frouxa, alguém precisa gritar.
+  //
+  // E ela grita em vez de limpar em silêncio. Limpar deixaria o produto certo e
+  // o defeito invisível — e o dia em que a limpeza tivesse um furo, ninguém
+  // teria sido avisado de que ela estava trabalhando.
+  {
+    const leitura = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "leitura.js")).href
+    );
+    const dominio = await import(
+      pathToFileURL(path.join(raiz, "src", "domain", "blog", "entrega.js")).href
+    );
+    const ambienteBom = {
+      SUPABASE_URL: "https://exemplo.supabase.co",
+      SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_x",
+    };
+    /** Um `buscar` que devolve a linha que o teste quiser. */
+    const respondendo = (linha) => async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [linha],
+    });
+    const vazio = Object.fromEntries(
+      dominio.CAMPOS_DE_CONTEUDO.map((c) => [c, null]),
+    );
+
+    for (const situacao of dominio.SITUACOES_SEM_CONTEUDO) {
+      const limpo = await leitura.situacaoDoEndereco("um-endereco", {
+        ambiente: ambienteBom,
+        buscar: respondendo({ situacao, slug_atual: "outro", ...vazio }),
+      });
+      afirmar(
+        `a situação ${situacao} sem conteúdo atravessa limpa — e o Post vem NULO, não um objeto de campos vazios`,
+        limpo.ok === true && limpo.situacao === situacao && limpo.post === null,
+        JSON.stringify(limpo).slice(0, 200),
+      );
+      const sujo = await leitura.situacaoDoEndereco("um-endereco", {
+        ambiente: ambienteBom,
+        buscar: respondendo({
+          situacao,
+          slug_atual: "outro",
+          ...vazio,
+          titulo: "vazou",
+        }),
+      });
+      afirmar(
+        `a situação ${situacao} COM conteúdo vira defeito nomeado — limpar em silêncio esconderia a função de banco trocada`,
+        sujo.ok === false &&
+          typeof sujo.defeito === "string" &&
+          sujo.defeito.includes(situacao) &&
+          sujo.defeito.includes("titulo"),
+        JSON.stringify(sujo).slice(0, 220),
+      );
+    }
+
+    /* E CADA CAMPO CONTA. A varredura acima planta `titulo` — se o filtro
+       olhasse só para ele, os outros doze passariam despercebidos. */
+    const escaparam = [];
+    for (const campo of dominio.CAMPOS_DE_CONTEUDO) {
+      const r = await leitura.situacaoDoEndereco("um-endereco", {
+        ambiente: ambienteBom,
+        buscar: respondendo({
+          situacao: dominio.ARQUIVADO,
+          slug_atual: "outro",
+          ...vazio,
+          [campo]: "vazou",
+        }),
+      });
+      if (r.ok !== false || !String(r.defeito ?? "").includes(campo)) {
+        escaparam.push(campo);
+      }
+    }
+    afirmar(
+      `os ${dominio.CAMPOS_DE_CONTEUDO.length} campos de conteúdo são conferidos UM A UM — um filtro que olhasse só o título deixaria os outros passarem`,
+      escaparam.length === 0,
+      `escaparam: ${escaparam.join(", ") || "nenhum"}`,
+    );
+
+    /* SITUAÇÃO FORA DO VOCABULÁRIO CAI NA MAIS FECHADA. O padrão silencioso
+       seria tratá-la como no ar e servir o que veio junto. */
+    const estranha = await leitura.situacaoDoEndereco("um-endereco", {
+      ambiente: ambienteBom,
+      buscar: respondendo({
+        situacao: "publicado",
+        slug_atual: "outro",
+        ...vazio,
+        titulo: "não devia aparecer",
+      }),
+    });
+    afirmar(
+      "situação fora do vocabulário fechado vira `inexistente` — e o conteúdo que veio junto não passa",
+      estranha.ok === true &&
+        estranha.situacao === dominio.INEXISTENTE &&
+        estranha.post === null,
+      JSON.stringify(estranha).slice(0, 200),
     );
   }
 }

@@ -4539,6 +4539,11 @@ secao("(m) a herança de metadado: uma função, um lugar, nenhuma segunda opini
     "src/admin/blog/seo.js",
     "src/data/blog/posts.js",
     "src/domain/blog/compartilhamento.js",
+    /* Story 4.2: o vocabulário da ENTREGA. Ele nomeia os três campos porque
+       CAMPOS_DE_CONTEUDO é a lista das colunas que a função de banco devolve —
+       é declaração de COLUNA, não segunda opinião sobre herança. A varredura de
+       quedas continua passando por ele, e é ela que julgaria uma decisão. */
+    "src/domain/blog/entrega.js",
   ]);
 
   const nomeiam = fontesDaHeranca
