@@ -44,3 +44,57 @@ export async function lerShell({ importar = () => import("./shell.gerado.js") } 
     return { ok: false, defeito: DEFEITO_SEM_SHELL };
   }
 }
+
+/* ─── A REGIÃO DE METADADOS (Story 4.3) ─────────────────────────────────── */
+
+export const DEFEITO_SEM_MARCADORES =
+  "O shell embutido não traz os marcadores da região de metadados " +
+  "(`METADADOS-DA-PAGINA:INICIO` e `:FIM`), ou os traz repetidos. Servir o " +
+  "shell intacto entregaria os metadados da HOME em todo Post, em silêncio — " +
+  "e é justamente o defeito que a Story 4.3 conserta.";
+
+/**
+ * Troca a região de metadados do shell, inteira.
+ *
+ * ─── SUBSTITUIÇÃO TOTAL, E NÃO REMENDO ────────────────────────────────────
+ *
+ * O que está entre os marcadores sai FORA e o que chega entra no lugar. Não há
+ * caminho aqui que edite etiqueta: procurar a etiqueta `og:title` para trocá-la
+ * seria lista de proibição, e sobraria a da home ao lado da do Post no dia em
+ * que o casamento não previsse uma aspa.
+ *
+ * ─── E FALTAR MARCADOR É DEFEITO, NÃO RECURSO ─────────────────────────────
+ *
+ * Devolver o shell intacto seria a página do Post anunciando a home, com
+ * sucesso e sem rastro — o pior tipo de falha, e o projeto já tem nome para
+ * ele: resposta que responde bem e entrega errado.
+ */
+export function trocarMetadados(html, regiao, { inicio, fim }) {
+  if (typeof html !== "string") {
+    return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
+  }
+
+  const i = html.indexOf(inicio);
+  if (i === -1) return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
+
+  /* UM SEGUNDO INÍCIO significa região ambígua: o corte pegaria só a primeira, e
+     a segunda sobreviveria com o valor da home. Não é hipótese — é o que
+     acontece quando alguém copia o bloco para "testar uma coisa". */
+  if (html.indexOf(inicio, i + inicio.length) !== -1) {
+    return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
+  }
+
+  /* O FIM é procurado DEPOIS do início. Buscar no documento inteiro aceitaria
+     um fim que viesse antes, e o corte sairia com comprimento negativo. */
+  const j = html.indexOf(fim, i + inicio.length);
+  if (j === -1) return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
+
+  /* Os dois marcadores são comentários, e o de fim precisa ser REPOSTO inteiro:
+     sem ele, uma troca seguinte não encontraria onde parar. */
+  const fechamento = html.indexOf("-->", j);
+  if (fechamento === -1) return { ok: false, defeito: DEFEITO_SEM_MARCADORES };
+
+  const antes = html.slice(0, i);
+  const depois = html.slice(fechamento + 3);
+  return { ok: true, html: `${antes}${inicio} -->\n${regiao}\n    ${fim} -->${depois}` };
+}

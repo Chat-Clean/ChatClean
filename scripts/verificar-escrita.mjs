@@ -10829,12 +10829,48 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
 
   /* ── A PÁGINA SERVE O SHELL DO BUILD ─────────────────────────────────── */
   {
-    const r = await dirigir("blog.js", { method: "GET", url: "/api/blog?slug=um-post" });
+    /* ★ ESTA ASSERÇÃO MUDOU NA STORY 4.3, e a mudança é o ponto ★
+
+       Ela dizia `byte a byte`, e estava certa enquanto a rota só repassava o
+       shell. Agora a rota TROCA a região de metadados — é a story inteira —,
+       e exigir igualdade byte a byte exigiria que a troca não acontecesse.
+
+       O que sobrou de garantia é o que ela sempre quis dizer: o shell é o do
+       BUILD. Isso é medido pelo que está FORA da região, que continua
+       idêntico ao do `dist/index.html` — e a região, essa, precisa ter
+       mudado, o que é afirmado logo abaixo. Trocar `===` por `includes` sem
+       essa segunda metade teria deixado a assercão passar com a rota
+       servindo qualquer coisa que contivesse o shell. */
+    const nucleo = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "metadados.js")).href
+    );
+    const foraDaRegiao = (html) => {
+      const i = String(html ?? "").indexOf(nucleo.MARCA_INICIO);
+      const j = String(html ?? "").indexOf(nucleo.MARCA_FIM);
+      if (i === -1 || j === -1) return null;
+      const fecha = String(html).indexOf("-->", j);
+      return String(html).slice(0, i) + String(html).slice(fecha + 3);
+    };
+
+    const r = await comDominio(DOMINIO, () =>
+      dirigir("blog.js", { method: "GET", url: "/api/blog" }),
+    );
     const doBuild = ler("dist/index.html");
     afirmar(
-      "a rota de página serve o shell do BUILD, byte a byte — e não o do repositório",
-      r.codigo === 200 && r.corpo === doBuild,
+      "a rota de página serve o shell do BUILD — tudo FORA da região de metadados é idêntico ao `dist/index.html`",
+      r.codigo === 200 &&
+        foraDaRegiao(r.corpo) !== null &&
+        foraDaRegiao(r.corpo) === foraDaRegiao(doBuild),
       `${r.codigo} | ${String(r.corpo ?? "").length} × ${doBuild.length}`,
+    );
+    /* E A REGIÃO MUDOU. Sem esta metade, um `foraDaRegiao` que devolvesse o
+       documento inteiro nos dois lados deixaria a de cima verde sem julgar
+       nada — e é exatamente o engano que a troca de `===` convidava. */
+    afirmar(
+      "e a REGIÃO mudou — o shell do build traz o metadado da home, e o servido não pode trazer",
+      String(r.corpo ?? "") !== doBuild &&
+        !/<title>CRM e ChatBot/.test(String(r.corpo ?? "")),
+      /<title>([^<]*)</.exec(String(r.corpo ?? ""))?.[1] ?? "sem título",
     );
     afirmar(
       "e o que ela serve NÃO aponta para o caminho do código-fonte — servir isso seria uma página que responde e não carrega",
@@ -11166,6 +11202,389 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       JSON.stringify(estranha).slice(0, 200),
     );
   }
+/* ══ STORY 4.3: OS METADADOS DA PÁGINA, SERVIDOS SEM JAVASCRIPT ═══════════ */
+//
+// Quem lê o link primeiro não é gente. É o gerador de prévia do WhatsApp, o do
+// LinkedIn e o rastreador do Google — e nenhum executa JavaScript. Sem esta
+// story, todo Post compartilhado se anuncia como a home.
+//
+// A maior parte do que segue dirige FUNÇÃO PURA, e não a rota: o emissor não
+// tem rede, e provar a herança contra o banco gastaria uma viagem por caso
+// para julgar uma decisão que é toda local. O que PRECISA da rota — o domínio
+// ausente, os marcadores no shell do build, a resposta inteira — está adiante,
+// e está dito qual é qual.
+{
+  secao("(4.3) os metadados da página, servidos sem JavaScript");
+
+  const meta = await import(
+    pathToFileURL(path.join(raiz, "api", "_nucleo", "metadados.js")).href
+  );
+  const shellMod = await import(
+    pathToFileURL(path.join(raiz, "api", "_nucleo", "shell.js")).href
+  );
+  const RAIZ_DE_TESTE = "https://chatclean.com.br";
+
+  /** Um Post de teste — só os campos que a herança consulta. */
+  const postar = (extras) => ({
+    titulo: "Um título qualquer",
+    resumo: null,
+    autor_nome: null,
+    publicado_em: null,
+    atualizado_em: null,
+    imagem_url: null,
+    imagem_alt: null,
+    seo_titulo: null,
+    seo_descricao: null,
+    seo_imagem_url: null,
+    ...extras,
+  });
+  const regiaoDe = (situacao, post, slug) =>
+    meta.regiaoDeMetadados(
+      meta.metadadosDaPagina({ situacao, post, slug, raiz: RAIZ_DE_TESTE }),
+    );
+
+  /* ── DOIS POSTS DIFERENTES DÃO METADADOS DIFERENTES ─────────────────── */
+  //
+  // É o criterio da story, e sozinho ele é fraco: um emissor que devolvesse o
+  // título cru dos dois passaria. Vem acompanhado da metade que importa —
+  // nenhum dos dois traz o da HOME.
+
+  const regiaoA = regiaoDe(
+    "no-ar",
+    postar({ titulo: "Como automatizar o atendimento", resumo: "O primeiro." }),
+    "automatizar-atendimento",
+  );
+  const regiaoB = regiaoDe(
+    "no-ar",
+    postar({ titulo: "Quanto custa a API Oficial", resumo: "O segundo." }),
+    "quanto-custa-api",
+  );
+  afirmar(
+    "dois Posts diferentes produzem metadados DIFERENTES — título, descrição e canônica",
+    regiaoA !== regiaoB &&
+      regiaoA.includes("Como automatizar o atendimento") &&
+      regiaoB.includes("Quanto custa a API Oficial") &&
+      regiaoA.includes("/blog/automatizar-atendimento") &&
+      regiaoB.includes("/blog/quanto-custa-api"),
+    `A: ${regiaoA.length} car. | B: ${regiaoB.length} car. | iguais? ${regiaoA === regiaoB}`,
+  );
+
+  /* O TEXTO DA HOME vem do `index.html`, e não de uma cópia escrita aqui: uma
+     cópia compararia contra o que eu lembrei, e não contra o que é servido. */
+  const doRepositorio = ler("index.html");
+  const tituloDaHome = /<title>([^<]+)<\/title>/.exec(doRepositorio)?.[1] ?? "";
+  afirmar(
+    "controle: o `index.html` tem um título de home para comparar — senão a asserção seguinte não julga nada",
+    tituloDaHome.length > 10 && tituloDaHome.includes("ChatClean"),
+    tituloDaHome || "sem título",
+  );
+  afirmar(
+    "e NENHUM dos dois traz o título da home — hoje todo Post compartilhado se anuncia como a página inicial",
+    !regiaoA.includes(tituloDaHome) && !regiaoB.includes(tituloDaHome),
+    tituloDaHome,
+  );
+
+  /* ── O VOCABULÁRIO DE ETIQUETAS: PRESENTE, E UMA VEZ SÓ ─────────────── */
+  //
+  // A lista vem do MÓDULO. Reescrevê-la aqui compararia duas cópias do mesmo
+  // engano, e o dia em que alguém acrescentasse uma etiqueta ao emissor sem
+  // acrescentá-la à lista, nada acusaria.
+
+  for (const etiqueta of meta.ETIQUETAS_GOVERNADAS) {
+    const quantas = regiaoA.split(etiqueta).length - 1;
+    afirmar(
+      `a região emite \`${etiqueta}\` — o vocabulário governado é emitido, e não só declarado`,
+      quantas >= 1,
+      `${quantas} ocorrência(s)`,
+    );
+  }
+  afirmar(
+    "Open Graph e Twitter Card estão presentes, com `og:type` `article` e imagem em endereço ABSOLUTO",
+    /property="og:type" content="article"/.test(regiaoA) &&
+      /name="twitter:card" content="summary_large_image"/.test(regiaoA) &&
+      /property="og:image" content="https:\/\//.test(regiaoA) &&
+      /name="twitter:image" content="https:\/\//.test(regiaoA),
+    regiaoA.slice(0, 200),
+  );
+
+  /* ── O ESCAPE, POR TABELA FECHADA ───────────────────────────────────── */
+  //
+  // Um título com `</title>` fecharia a etiqueta e o resto do documento viraria
+  // texto. Um com aspas quebraria o atributo. Não é hipótese: o Título é campo
+  // livre, e a Story 2.12 já provou que Post hostil chega ao banco.
+
+  const hostil = regiaoDe(
+    "no-ar",
+    postar({
+      titulo: `Aspas " e & e </title><script>alerta()</script> e \u0027simples\u0027`,
+      resumo: "Descrição com \u0022aspas\u0022 & sinais.",
+    }),
+    "post-hostil",
+  );
+  afirmar(
+    "título hostil sai ESCAPADO — a região tem exatamente um `<title>`, e o `</title>` do texto não o fecha",
+    hostil.split("<title>").length - 1 === 1 &&
+      hostil.split("</title>").length - 1 === 1 &&
+      !hostil.includes("<script>alerta"),
+    `<title>: ${hostil.split("<title>").length - 1} | </title>: ${hostil.split("</title>").length - 1}`,
+  );
+  afirmar(
+    "e o atributo não é quebrado por aspa — a descrição hostil vira entidade, não fim de atributo",
+    /content="[^"]*&quot;[^"]*"/.test(hostil) && /&amp;/.test(hostil),
+    (hostil.match(/&quot;|&amp;|&lt;|&gt;|&#39;/g) ?? []).slice(0, 6).join(" "),
+  );
+
+  /* AUTOTESTE do escapador, nos CINCO caracteres da tabela. Sem ele, um
+     escapador que só trocasse aspas deixaria as duas asserções acima verdes
+     — a de cima não testa `&`, e a de baixo não testa `<`. */
+  const TABELA = [
+    ["&", "&amp;"],
+    ["<", "&lt;"],
+    [">", "&gt;"],
+    ['"', "&quot;"],
+    ["\u0027", "&#39;"],
+  ];
+  const naoEscaparam = TABELA.filter(([c, esperado]) => meta.escapar(c) !== esperado);
+  afirmar(
+    `autoteste: o escapador troca os ${TABELA.length} caracteres da tabela, um a um`,
+    naoEscaparam.length === 0,
+    naoEscaparam.map(([c]) => c).join(" ") || "os cinco",
+  );
+  /* E O `&` VEM PRIMEIRO. Trocá-lo depois de `<` produziria `&amp;lt;` — o
+     texto apareceria com a entidade à mostra, e nada acusaria. */
+  afirmar(
+    "e o `&` é trocado PRIMEIRO — `&lt;` sairia como `&amp;lt;` se a ordem fosse a outra",
+    meta.escapar("<") === "&lt;" && meta.escapar("&lt;") === "&amp;lt;",
+    `${meta.escapar("<")} | ${meta.escapar("&lt;")}`,
+  );
+
+  /* ── DESCRIÇÃO AUSENTE OMITE A ETIQUETA ─────────────────────────────── */
+  //
+  // O Épico 3 manda a descrição ficar ausente quando não há Resumo, "sem
+  // inventar texto" — e uma descrição em branco é texto inventado com zero
+  // letras: o rastreador a lê como declaração de que a página não tem resumo.
+
+  const semDescricao = regiaoDe(
+    "no-ar",
+    postar({ titulo: "Post sem resumo nenhum", resumo: null, seo_descricao: null }),
+    "sem-resumo",
+  );
+  afirmar(
+    "sem Resumo e sem Descrição SEO, a etiqueta de descrição é OMITIDA — nunca emitida em branco",
+    !semDescricao.includes('name="description"') &&
+      !/og:description|twitter:description/.test(semDescricao),
+    (semDescricao.match(/description/g) ?? []).join(" ") || "omitida",
+  );
+  /* CONTROLE POSITIVO. Sem ele, um emissor que nunca emitisse descrição
+     passaria — e a página perderia a descrição em todo Post. */
+  afirmar(
+    "controle positivo: COM Resumo a descrição é emitida — a omissão acima não é o emissor calado",
+    regiaoA.includes('name="description"') &&
+      /og:description/.test(regiaoA) &&
+      /twitter:description/.test(regiaoA),
+    (regiaoA.match(/description/g) ?? []).length + " ocorrência(s)",
+  );
+
+  /* ── NADA FORA DO AR VAZA ───────────────────────────────────────────── */
+  //
+  // É a regra do épico: nada que não está publicado tem metadado exposto por
+  // nenhum caminho servido. A varredura passa pelas TRÊS situações que a Story
+  // 4.2 declara fora do ar, e a lista vem do domínio — acrescentar uma quarta
+  // situação sem decidir de que lado ela fica não passa despercebido.
+
+  const dominioDaEntrega = await import(
+    pathToFileURL(path.join(raiz, "src", "domain", "blog", "entrega.js")).href
+  );
+  const TITULO_SECRETO = "Rascunho que nao pode vazar de jeito nenhum";
+  for (const situacao of dominioDaEntrega.SITUACOES_SEM_CONTEUDO) {
+    /* O Post é passado MESMO ASSIM — é o caso perigoso. A leitura da 4.2 já
+       devolve `post: null` fora do ar; se um dia devolvesse a linha, o emissor
+       não pode ser a segunda porta por onde ela sai. */
+    const regiao = regiaoDe(
+      situacao,
+      postar({ titulo: TITULO_SECRETO, resumo: TITULO_SECRETO }),
+      "endereco-qualquer",
+    );
+    afirmar(
+      `situação ${situacao}: NENHUM metadado do Post aparece — nem título, nem descrição`,
+      !regiao.includes(TITULO_SECRETO),
+      regiao.includes(TITULO_SECRETO) ? "VAZOU" : "não vazou",
+    );
+    afirmar(
+      `situação ${situacao}: \`og:type\` volta a \`website\` — declarar \`article\` afirmaria que há artigo ali`,
+      /property="og:type" content="website"/.test(regiao),
+      /og:type" content="([^"]*)"/.exec(regiao)?.[1] ?? "ausente",
+  );
+  }
+
+  /* ── A CANÔNICA NÃO SAI DA REQUISIÇÃO ───────────────────────────────── */
+  //
+  // Numa rota reescrita o caminho que chega é o da FUNÇÃO. Derivar a canônica
+  // dali produziria `/api/blog` — um endereço que o visitante nunca vê e que o
+  // rastreador passaria a considerar o oficial.
+
+  const canonicaDe = (regiao) => /rel="canonical" href="([^"]*)"/.exec(regiao)?.[1] ?? "";
+  const todasAsRegioes = [regiaoA, regiaoB, hostil, semDescricao];
+  afirmar(
+    "nenhuma canônica aponta para o caminho da FUNÇÃO — `/api/blog` é o endereço que o visitante nunca vê",
+    todasAsRegioes.every((r) => !r.includes("/api/")),
+    todasAsRegioes.map(canonicaDe).join(" | "),
+  );
+  /* AUTOTESTE do detector: a MESMA condição, sobre uma região com `/api/`
+     plantado, precisa dar falso. Sem isto, um `every` sobre lista vazia — ou
+     um detector que procurasse a palavra errada — ficaria verde para sempre. */
+  const comApiPlantado = [
+    `${regiaoA}\n    <link rel="canonical" href="https://chatclean.com.br/api/blog" />`,
+  ];
+  afirmar(
+    "autoteste: o detector de canônica de função ACUSA um `/api/` plantado",
+    comApiPlantado.every((r) => !r.includes("/api/")) === false,
+    "acusou",
+  );
+
+  /* ★ E O SLUG VEM DO BANCO, E NÃO DA URL ★
+     `?slug=` traz o que o visitante digitou, que pode ser um APOSENTADO. A
+     canônica de um aposentado é o endereço de HOJE — é para isso que a leitura
+     da 4.2 devolve `slug_atual`. Usar o da URL faria dois endereços se
+     declararem canônicos um do outro, e o rastreador escolheria. */
+  const doAposentado = meta.metadadosDaPagina({
+    situacao: "no-ar",
+    post: postar({ titulo: "O artigo mudou de endereço", resumo: "Sim." }),
+    slug: "endereco-de-hoje",
+    raiz: RAIZ_DE_TESTE,
+  });
+  afirmar(
+    "a canônica é montada com o slug que o BANCO devolveu — o endereço aposentado da URL não vira canônica",
+    doAposentado.canonica === `${RAIZ_DE_TESTE}/blog/endereco-de-hoje`,
+    doAposentado.canonica,
+  );
+
+  /* ── OS MARCADORES, NO SHELL QUE É SERVIDO ──────────────────────────── */
+  //
+  // No `dist/index.html`, e não no do repositório: é o `dist` que a função
+  // embute e serve. Um marcador que o build comesse deixaria a troca falhar em
+  // produção com a asserção verde.
+
+  const distHtml = ler("dist/index.html");
+  for (const [nome, marca] of [
+    ["INICIO", meta.MARCA_INICIO],
+    ["FIM", meta.MARCA_FIM],
+  ]) {
+    const quantos = distHtml.split(marca).length - 1;
+    afirmar(
+      `o marcador de ${nome} existe no \`dist/index.html\` — e UMA vez só, senão a região é ambígua`,
+      quantos === 1,
+      `${quantos} ocorrência(s)`,
+    );
+  }
+  afirmar(
+    "e o INÍCIO vem antes do FIM — invertidos, o corte sairia com comprimento negativo",
+    distHtml.indexOf(meta.MARCA_INICIO) < distHtml.indexOf(meta.MARCA_FIM),
+    `${distHtml.indexOf(meta.MARCA_INICIO)} < ${distHtml.indexOf(meta.MARCA_FIM)}`,
+  );
+
+  /* ★ NADA GOVERNADO FICOU DE FORA DA REGIÃO ★
+     É a assercão que sustenta a decisão de projeto inteira. Uma `og:title`
+     esquecida ABAIXO do marcador de fim sobreviveria à troca, e o rastreador
+     leria duas: a do Post e a da home. O emissor não teria como saber. */
+  const iIni = distHtml.indexOf(meta.MARCA_INICIO);
+  const iFim = distHtml.indexOf("-->", distHtml.indexOf(meta.MARCA_FIM));
+  const foraDaRegiaoDoDist =
+    distHtml.slice(0, iIni) + distHtml.slice(iFim + 3);
+  const escaparam = meta.ETIQUETAS_GOVERNADAS.filter((e) =>
+    foraDaRegiaoDoDist.includes(e),
+  );
+  afirmar(
+    `nenhuma das ${meta.ETIQUETAS_GOVERNADAS.length} etiquetas governadas vive FORA da região — sobreviveria à troca, ao lado da do Post`,
+    escaparam.length === 0,
+    `escaparam: ${escaparam.join(", ") || "nenhuma"}`,
+  );
+  /* AUTOTESTE: a varredura precisa acusar uma etiqueta plantada do lado de
+     fora. Sem isto, um recorte errado da região deixaria tudo verde. */
+  afirmar(
+    "autoteste: a varredura ACUSA uma etiqueta governada plantada fora da região",
+    meta.ETIQUETAS_GOVERNADAS.filter((e) =>
+      (foraDaRegiaoDoDist + '<meta property="og:title" content="x" />').includes(e),
+    ).length === 1,
+    "acusou",
+  );
+
+  /* ── MARCADOR AUSENTE É DEFEITO, NÃO RECURSO ────────────────────────── */
+  //
+  // Devolver o shell intacto seria a página do Post anunciando a home, com
+  // sucesso e sem rastro. A ausência é INJETADA — esta ferramenta tem asserção
+  // de que não grava arquivo, e a Story 4.1 já pagou esse preço.
+
+  const casos = [
+    ["shell sem marcador nenhum", "<html><head></head></html>"],
+    ["shell só com o INÍCIO", `<html>${meta.MARCA_INICIO} --></html>`],
+    [
+      "shell com o INÍCIO repetido — região ambígua",
+      `${meta.MARCA_INICIO} -->a${meta.MARCA_INICIO} -->b${meta.MARCA_FIM} -->`,
+    ],
+    [
+      "shell com o FIM antes do INÍCIO",
+      `${meta.MARCA_FIM} -->x${meta.MARCA_INICIO} -->`,
+    ],
+  ];
+  for (const [nome, html] of casos) {
+    const r = shellMod.trocarMetadados(html, regiaoA, {
+      inicio: meta.MARCA_INICIO,
+      fim: meta.MARCA_FIM,
+    });
+    afirmar(
+      `${nome}: a troca devolve DEFEITO NOMEADO — servir o shell intacto entregaria a home em todo Post`,
+      r.ok === false && r.defeito === shellMod.DEFEITO_SEM_MARCADORES,
+      JSON.stringify(r).slice(0, 120),
+    );
+  }
+  /* CONTROLE POSITIVO: o shell de verdade atravessa. Sem ele, uma troca que
+     recusasse TUDO passaria nos quatro casos acima com a rota morta. */
+  const bom = shellMod.trocarMetadados(distHtml, regiaoA, {
+    inicio: meta.MARCA_INICIO,
+    fim: meta.MARCA_FIM,
+  });
+  afirmar(
+    "controle positivo: o `dist/index.html` de verdade atravessa a troca — a recusa não é universal",
+    bom.ok === true && bom.html.includes("Como automatizar o atendimento"),
+    bom.ok ? `${bom.html.length} caracteres` : bom.defeito,
+  );
+  /* E O SHELL NÃO É DANIFICADO: os ativos com hash do build continuam lá, um a
+     um, e o contêiner da aplicação também. Trocar o miolo do `<head>` não pode
+     custar o `<script>` — a página carregaria em branco. */
+  const shellLido = await shellMod.lerShell();
+  const ativosPerdidos = (shellLido.ativos ?? []).filter(
+    (a) => !bom.ok || !bom.html.includes(a),
+  );
+  afirmar(
+    `depois da troca, os ${(shellLido.ativos ?? []).length} ativo(s) com hash do build continuam presentes, um a um`,
+    (shellLido.ativos ?? []).length > 0 && ativosPerdidos.length === 0,
+    `perdidos: ${ativosPerdidos.join(", ") || "nenhum"}`,
+  );
+  afirmar(
+    "e o contêiner da aplicação sobreviveu — sem ele a página responde 200 e fica em branco",
+    bom.ok === true && /id="root"/.test(bom.html),
+    bom.ok && /id="root"/.test(bom.html) ? "presente" : "AUSENTE",
+  );
+
+  /* ── SEM DOMÍNIO CANÔNICO, A ROTA FALHA ALTO ────────────────────────── */
+  //
+  // Esta é da ROTA, e não do emissor: é ela que lê o ambiente. A alternativa
+  // seria emitir canônica relativa, que rastreador nenhum resolve para o lugar
+  // certo — e o sintoma seria um artigo que nunca indexa, sem nada acusando.
+
+  const semDominio = await comDominio(null, () =>
+    dirigir("blog.js", { method: "GET", url: "/api/blog?slug=qualquer" }),
+  );
+  afirmar(
+    "sem Domínio Canônico a rota de página falha ALTO e NOMEADO — nunca serve com canônica relativa",
+    semDominio.codigo === 500 &&
+      String(semDominio.corpo ?? "").includes("VITE_DOMINIO_DO_SITE") &&
+      !String(semDominio.corpo ?? "").includes("<html"),
+    `${semDominio.codigo} | ${String(semDominio.corpo ?? "").slice(0, 90)}`,
+  );
+}
+
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */

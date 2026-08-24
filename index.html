@@ -10,13 +10,35 @@
     <link rel="apple-touch-icon" href="/Logo CC.svg" />
     <meta name="theme-color" content="#007a2a" />
 
-    <!-- SEO core -->
-    <title>CRM e ChatBot para WhatsApp com API Oficial | ChatClean</title>
-    <meta name="description" content="ChatClean é a plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centralize WhatsApp, Instagram, Facebook e Telegram, automatize atendimento com IA e venda mais. Agende uma demonstração gratuita." />
+    <!-- Política do site, IGUAL em toda página: não é identidade de página. -->
     <meta name="keywords" content="CRM para WhatsApp, API oficial WhatsApp, chatbot WhatsApp, multiatendimento WhatsApp, CRM omnichannel, CRM Brasil, atendimento WhatsApp empresas, plataforma CRM WhatsApp Instagram" />
     <meta name="author" content="ChatClean" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="googlebot" content="index, follow" />
+
+    <!-- METADADOS-DA-PAGINA:INICIO
+         TUDO o que está entre este marcador e o de FIM é substituído, inteiro,
+         pela função de servidor quando ela serve um Post (Story 4.3). O que
+         está aqui é o que a HOME declara, e é o que qualquer rota não servida
+         continua recebendo.
+
+         ─── POR QUE UMA REGIÃO, E NÃO SUBSTITUIÇÃO ETIQUETA A ETIQUETA ───
+
+         A alternativa é o emissor procurar a etiqueta `og:title` e trocá-la.
+         É lista de PROIBIÇÃO disfarçada: o casamento teria de prever ordem de
+         atributo, tipo de aspa, espaço a mais, maiúscula, atributo extra — e no
+         dia em que não previsse, sobraria a etiqueta da home ao lado da do
+         Post, e o rastreador escolheria uma das duas.
+
+         A região inverte a pergunta: o que está DENTRO é governado, o que está
+         fora não é. E há asserção de que nenhuma etiqueta do vocabulário
+         governado ficou do lado de fora.
+
+         NÃO acrescente aqui etiqueta que valha para o site inteiro: ela sumiria
+         na página do Post. Política do site fica ACIMA deste marcador. -->
+
+    <title>CRM e ChatBot para WhatsApp com API Oficial | ChatClean</title>
+    <meta name="description" content="ChatClean é a plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centralize WhatsApp, Instagram, Facebook e Telegram, automatize atendimento com IA e venda mais. Agende uma demonstração gratuita." />
     <link rel="canonical" href="https://chatclean.com.br/" />
     <link rel="alternate" hreflang="pt-BR" href="https://chatclean.com.br/" />
     <link rel="alternate" hreflang="x-default" href="https://chatclean.com.br/" />
@@ -43,6 +65,77 @@
     <meta name="twitter:description" content="Centralize WhatsApp, Instagram e seus canais de atendimento em um único CRM com API Oficial. Automatize com IA e venda mais." />
     <meta name="twitter:image" content="https://chatclean.com.br/imagem-padrao-do-site.png" />
     <meta name="twitter:image:alt" content="Logo da ChatClean — Plataforma de CRM e ChatBot para WhatsApp" />
+
+
+    <!-- O FAQPage mora DENTRO da região de propósito (Story 4.3): ele é
+         identidade de PÁGINA — declara que ESTA página responde estas
+         perguntas —, e sobreviver na página de um Post faria o artigo
+         reivindicar as perguntas da home. Organization e SoftwareApplication
+         ficam FORA porque são identidade do SITE, e valem em toda página.
+
+         O dado estruturado do ARTIGO é a Story 4.6; até lá, a página de um
+         Post simplesmente não traz FAQPage — que é a resposta correta. -->
+    <!-- Schema.org: FAQPage (perguntas SEO da home) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "O que e um CRM para WhatsApp?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Um CRM para WhatsApp e uma plataforma que conecta o WhatsApp Business ao seu processo comercial: registra cada conversa, organiza leads em um funil de vendas (Kanban), permite que varios atendentes usem o mesmo numero e automatiza mensagens. Na ChatClean, o CRM e integrado a API Oficial do WhatsApp e ainda centraliza Instagram, Facebook e Telegram no mesmo painel."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "O que e a API Oficial do WhatsApp e por que ela importa?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A API Oficial do WhatsApp Business (Cloud API) e a versao homologada pela Meta para empresas. Permite ter um unico numero com varios atendentes, envio de templates aprovados, integracao com sistemas e zero risco de banimento. A ChatClean e integrada nativamente a API Oficial e cuida de toda a configuracao com voce."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Quanto custa a API Oficial do WhatsApp?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A Meta cobra por conversa iniciada, com valores que variam por categoria (utilidade, marketing, autenticacao, servico) e pelo pais do destinatario. No Brasil, conversas de utilidade custam aproximadamente R$ 0,045 e de marketing cerca de R$ 0,35 por sessao. A ChatClean inclui essa orientacao na proposta personalizada e ajuda a otimizar o uso de templates para reduzir custos."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Como ter varios atendentes em um unico numero de WhatsApp?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Com a API Oficial e a ChatClean, sua empresa tem um unico numero de WhatsApp com login individual para cada atendente, filas, departamentos, transferencia de conversa, historico centralizado e relatorios por colaborador, sem precisar de varios celulares ou chips."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Qual a diferenca entre WhatsApp Business e API Oficial?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "O WhatsApp Business comum (aplicativo) e gratuito e funciona para autonomos e microempresas, mas so permite ate 4 dispositivos no mesmo numero. A API Oficial e a solucao para empresas que precisam de multiatendimento real, automacao com chatbot, integracao com CRM e envio de campanhas em escala, sem risco de bloqueio."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Como integrar o WhatsApp ao meu CRM?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Na ChatClean, a integracao e nativa: voce nao precisa instalar plugins ou contratar fornecedores extras. Nossa equipe ativa a API Oficial do WhatsApp para o seu numero, configura templates, importa contatos e treina o time. Geralmente o onboarding e concluido em poucos dias uteis."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- METADADOS-DA-PAGINA:FIM
+         Os dados estruturados abaixo ficam FORA da região de propósito: eles
+         são da Story 4.6, e até lá o que a home declara continua valendo. -->
 
     <!-- Performance: preconnect e preload -->
     <link rel="preconnect" href="https://connect.facebook.net" />
@@ -116,64 +209,6 @@
         "bestRating": "5",
         "worstRating": "1"
       }
-    }
-    </script>
-
-    <!-- Schema.org: FAQPage (perguntas SEO da home) -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "O que e um CRM para WhatsApp?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Um CRM para WhatsApp e uma plataforma que conecta o WhatsApp Business ao seu processo comercial: registra cada conversa, organiza leads em um funil de vendas (Kanban), permite que varios atendentes usem o mesmo numero e automatiza mensagens. Na ChatClean, o CRM e integrado a API Oficial do WhatsApp e ainda centraliza Instagram, Facebook e Telegram no mesmo painel."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "O que e a API Oficial do WhatsApp e por que ela importa?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "A API Oficial do WhatsApp Business (Cloud API) e a versao homologada pela Meta para empresas. Permite ter um unico numero com varios atendentes, envio de templates aprovados, integracao com sistemas e zero risco de banimento. A ChatClean e integrada nativamente a API Oficial e cuida de toda a configuracao com voce."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Quanto custa a API Oficial do WhatsApp?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "A Meta cobra por conversa iniciada, com valores que variam por categoria (utilidade, marketing, autenticacao, servico) e pelo pais do destinatario. No Brasil, conversas de utilidade custam aproximadamente R$ 0,045 e de marketing cerca de R$ 0,35 por sessao. A ChatClean inclui essa orientacao na proposta personalizada e ajuda a otimizar o uso de templates para reduzir custos."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Como ter varios atendentes em um unico numero de WhatsApp?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Com a API Oficial e a ChatClean, sua empresa tem um unico numero de WhatsApp com login individual para cada atendente, filas, departamentos, transferencia de conversa, historico centralizado e relatorios por colaborador, sem precisar de varios celulares ou chips."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Qual a diferenca entre WhatsApp Business e API Oficial?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "O WhatsApp Business comum (aplicativo) e gratuito e funciona para autonomos e microempresas, mas so permite ate 4 dispositivos no mesmo numero. A API Oficial e a solucao para empresas que precisam de multiatendimento real, automacao com chatbot, integracao com CRM e envio de campanhas em escala, sem risco de bloqueio."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Como integrar o WhatsApp ao meu CRM?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Na ChatClean, a integracao e nativa: voce nao precisa instalar plugins ou contratar fornecedores extras. Nossa equipe ativa a API Oficial do WhatsApp para o seu numero, configura templates, importa contatos e treina o time. Geralmente o onboarding e concluido em poucos dias uteis."
-          }
-        }
-      ]
     }
     </script>
 
