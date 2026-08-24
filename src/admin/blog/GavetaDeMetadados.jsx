@@ -27,6 +27,19 @@
  * a Story 3.1 tomou e escreveu. O número que recusa é outro, muito maior, e é
  * o teto de higiene do domínio.
  *
+ * ─── E A PRÉVIA, DEPOIS DA STORY 3.5 ───────────────────────────────────────
+ *
+ * A seção abre com o **Cartão de Compartilhamento**: a imagem, o título e a
+ * descrição EFETIVOS — os próprios ou os herdados, a Imagem Padrão do Site
+ * incluída —, atualizados a cada tecla. Ele recebe o resultado que a gaveta já
+ * calculou, e não os valores do formulário: a tradução acontece UMA vez, e um
+ * segundo tradutor faria o cartão mostrar um Post que não é o que está sendo
+ * editado.
+ *
+ * Ele não se chama "pré-visualização": esse nome é da tela da Story 2.13, que
+ * mostra o TEXTO como o leitor verá. Duas coisas diferentes com o mesmo nome é
+ * o sinônimo que a convenção proíbe.
+ *
  * ─── O que esta gaveta NÃO faz ──────────────────────────────────────────────
  *
  * Ela não grava, não conhece Supabase e não decide quando o Slug acompanha o
@@ -171,6 +184,10 @@ import {
    não uma caixa parecida montada aqui. É o que faz "Editor e listagem mostram a
    mesma coisa para o mesmo Post" ser estrutura, e não coincidência. */
 import MonogramaDaCapa from "@/admin/blog/MonogramaDaCapa";
+/* A PRÉVIA (Story 3.5): o cartão como o link aparece ao ser compartilhado. Ele
+   lê SÓ o retorno da função de herança — o mesmo objeto que a seção de SEO usa
+   para contar o que será herdado —, e não decide nada por conta própria. */
+import CartaoDeCompartilhamento from "@/admin/blog/CartaoDeCompartilhamento";
 /* O vocabulário do arquivo vem do DOMÍNIO: o `accept` do seletor é DERIVADO da
    mesma lista fechada que a camada de dados usa para recusar e que o bucket
    aplica. Escrevê-lo à mão aqui faria o seletor oferecer o que o envio recusa. */
@@ -314,9 +331,13 @@ export default function GavetaDeMetadados({
      opina sobre isso. O defeito de montagem — o Domínio Canônico que não
      chegou — vira uma frase DESENHADA na seção, e não uma exceção que derruba
      a gaveta inteira nem um silêncio. */
+  /* UMA CHAMADA, DOIS CONSUMIDORES. O Cartão de Compartilhamento (Story 3.5)
+     lê ESTE mesmo resultado — não o formulário. Chamar `herancaDoFormulario`
+     de novo lá dentro ainda usaria a mesma tradução, mas abriria a porta para
+     o dia em que alguém passasse outros valores para um dos dois; com uma
+     chamada só, o cartão mostra por construção o Post que está sendo editado. */
   const heranca = herancaDoFormulario(valores, { dominio: dominioDoSite });
   const metadadosDaHeranca = heranca.ok ? heranca.metadados : null;
-  const defeitoDaHeranca = heranca.ok ? null : heranca.defeito;
 
   /* ── A Categoria escolhida, com cor e ícone ────────────────────────────
      A gaveta recebe a lista de Categorias da camada de dados, que já traz
@@ -710,19 +731,27 @@ export default function GavetaDeMetadados({
             </p>
           </div>
 
-          {/* O DEFEITO DE MONTAGEM, DESENHADO. Sem o Domínio Canônico a
-              herança não pode ser calculada — e a seção diz isso, em vez de
-              mostrar campos sem explicação nenhuma embaixo. */}
-          {defeitoDaHeranca !== null ? (
-            <p
-              data-papel="heranca-indisponivel"
-              role="alert"
-              className="flex items-start gap-1.5 rounded-cartao border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive"
-            >
-              <AlertCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-              <span>{defeitoDaHeranca}</span>
-            </p>
-          ) : null}
+          {/* ── A PRÉVIA (Story 3.5) ─────────────────────────────────────
+              O cartão como o link vai aparecer, com os TRÊS valores efetivos —
+              os próprios ou os herdados, a Imagem Padrão do Site incluída. Ele
+              vem ANTES dos campos porque é a resposta à pergunta que traz o
+              Autor até aqui; os campos abaixo são como se muda a resposta.
+
+              Ele recebe o resultado JÁ DECIDIDO, e não os valores: a tradução
+              do formulário para a forma que o domínio lê acontece uma vez, e um
+              segundo tradutor divergiria no primeiro campo novo — que é o
+              defeito que esta story existe para não ter.
+
+              O DEFEITO DE MONTAGEM — o Domínio Canônico que não chegou — é dito
+              LÁ DENTRO, e não aqui: quem não pode virar cartão em branco é o
+              cartão, e dizê-lo em dois lugares seria duas vozes para o mesmo
+              fato. O nome do elemento (`heranca-indisponivel`) é o mesmo da
+              Story 3.4, porque é contrato de tela e não simetria de string. */}
+          <CartaoDeCompartilhamento
+            heranca={heranca}
+            categoria={categoriaEscolhida?.nome ?? ""}
+            id={idDe("titulo-do-cartao")}
+          />
 
           {/* OS DOIS DE TEXTO, NA ORDEM DO DOMÍNIO. `CAMPOS_DE_TEXTO_DE_SEO` é
               a mesma lista que a porta percorre para cobrar o teto — escrever

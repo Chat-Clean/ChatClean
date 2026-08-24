@@ -4520,6 +4520,7 @@ secao("(m) a herança de metadado: uma função, um lugar, nenhuma segunda opini
   const NOMEIAM_CAMPO_DE_SEO = Object.freeze([
     "api/_nucleo/acesso.js",
     "api/_nucleo/salvarPost.js",
+    "src/admin/blog/CartaoDeCompartilhamento.jsx",
     "src/admin/blog/GavetaDeMetadados.jsx",
     "src/admin/blog/capa.js",
     "src/admin/blog/seo.js",

@@ -116,6 +116,11 @@ const CAMINHO_MODULO_DA_CAPA = "src/admin/blog/capa.js";
    herança; `domain/blog/compartilhamento.js` é quem DECIDE a herança — e a
    asserção compara a frase desenhada com a decisão dele. */
 const CAMINHO_MODULO_DE_SEO = "src/admin/blog/seo.js";
+/* Story 3.5: a Prévia de compartilhamento — o cartão como o link aparece. Ela
+   é a PRIMEIRA CONSUMIDORA DE PRODUÇÃO de `metadadosDoPost`, e o que se prova
+   aqui é que cada valor desenhado é, campo a campo, o que aquela função
+   devolveu: nada nela escolhe, completa ou formata por conta própria. */
+const CAMINHO_CARTAO = "src/admin/blog/CartaoDeCompartilhamento.jsx";
 const CAMINHO_COMPARTILHAMENTO = "src/domain/blog/compartilhamento.js";
 const CAMINHO_ARQUIVOS_DO_DOMINIO = "src/domain/blog/arquivos.js";
 const CAMINHO_ARQUIVOS_DA_CAMADA = "src/data/blog/arquivos.js";
@@ -1928,6 +1933,11 @@ async function compilarComponentes() {
          EXECUTAM — "a tela mostra o que será herdado" só é regra provada
          quando a frase desenhada é comparada com a que o domínio produziu. */
       `export * as regrasDeSeo from ${caminhoDeModulo(CAMINHO_MODULO_DE_SEO)};\n` +
+      /* Story 3.5: a Prévia. Ela entra SOZINHA além de entrar pela gaveta —
+         o ramo de "a herança não chegou" não é alcançável pela gaveta, que
+         sempre passa um resultado, e um ramo que ninguém exercita é um ramo
+         que ninguém sabe se funciona. */
+      `export { default as CartaoDeCompartilhamento } from ${caminhoDeModulo(CAMINHO_CARTAO)};\n` +
       /* O leitor do Domínio Canônico. Ele lê `import.meta.env`, então precisa
          passar pelo empacotador como o resto — e os dois parâmetros dele
          existem justamente para esta ferramenta poder EXECUTAR cada combinação
@@ -12335,6 +12345,402 @@ if (janela && schema && configuracao && compilado) {
             );
             await tela.desmontar();
           }
+
+          secao("(r) a Prévia: o cartão como o link aparece, e nada nele decide");
+
+          /* ── A PRIMEIRA CONSUMIDORA DE PRODUÇÃO ──────────────────────────
+             `metadadosDoPost` existe desde a Story 3.4 e nunca foi chamada por
+             código de produção — as duas stories que a construíram registraram
+             isso como risco. O que se prova aqui NÃO é que a herança está certa
+             (a seção (h) de `verificar:dados` já prova, executando a função):
+             é que o cartão MOSTRA o que ela devolveu, campo a campo, sem
+             escolher, completar nem formatar por conta própria. Uma segunda
+             opinião numa tela é o que faria a Prévia e o emissor do Épico 4
+             divergirem — e o critério pede justamente que produzam o mesmo. */
+          {
+            const cartaoDe = async (valores, { dominio = DOMINIO } = {}) => {
+              const alvo = janela.document.createElement("div");
+              janela.document.body.appendChild(alvo);
+              const raiz = createRoot(alvo);
+              let atuais = valores;
+              const heranca = () => seo.herancaDoFormulario(atuais, { dominio });
+              const desenhar = () =>
+                React.createElement(modulo.CartaoDeCompartilhamento, {
+                  heranca: heranca(),
+                  categoria: atuais.categoria ?? "",
+                  id: "cartao-de-prova",
+                });
+              await act(async () => {
+                raiz.render(desenhar());
+              });
+              const ler = (papel) => alvo.querySelector(`[data-papel="${papel}"]`);
+              return {
+                alvo,
+                ler,
+                texto: (papel) => ler(papel)?.textContent ?? null,
+                metadados: () => heranca().metadados ?? null,
+                digitar: async (campo, valor) => {
+                  atuais = { ...atuais, [campo]: valor };
+                  await act(async () => {
+                    raiz.render(desenhar());
+                  });
+                },
+                desmontar: async () => {
+                  await act(async () => {
+                    raiz.unmount();
+                  });
+                  alvo.remove();
+                },
+              };
+            };
+
+            const BASE = {
+              ...regrasDosMetadados.valoresVazios(),
+              titulo: TITULO_DO_POST,
+              resumo: RESUMO_DO_POST,
+            };
+            const P = seo.PAPEIS_DO_CARTAO;
+
+            /* ── OS TRÊS PRÓPRIOS, E A IGUALDADE CAMPO A CAMPO ─────────────
+               Esta é a asserção que a story existe para ter. Ela não confere
+               "aparece um texto": confere que o texto desenhado é IDÊNTICO ao
+               que `metadadosDoPost` devolveu, e que o endereço da imagem é o
+               mesmo. Qualquer formatação da tela — cortar, completar, escolher
+               outro elo — quebra a igualdade. */
+            {
+              const tela = await cartaoDe({
+                ...BASE,
+                seo_titulo:
+                  "Título próprio de busca, escrito longo o bastante para que qualquer corte o mude",
+                seo_descricao:
+                  "Descrição própria de busca, também longa o bastante para que cortar em qualquer ponto plausível altere o texto e a igualdade acuse.",
+                seo_imagem_url: CAPA_GRAVADA,
+                imagem_alt: "Tela do ChatClean",
+              });
+              const m = tela.metadados();
+              afirmar(
+                "o cartão mostra os TRÊS efetivos, e cada um é IDÊNTICO ao que o domínio devolveu",
+                tela.texto(P.valorDoTitulo) === m.titulo.valor &&
+                  tela.texto(P.valorDaDescricao) === m.descricao.valor &&
+                  tela.ler(P.imagem)?.getAttribute("src") === m.imagem.endereco,
+                JSON.stringify([
+                  tela.texto(P.valorDoTitulo),
+                  tela.texto(P.valorDaDescricao),
+                  tela.ler(P.imagem)?.getAttribute("src"),
+                ]),
+              );
+              /* E NADA É FORMATADO. Sem reticências, sem corte, e sem as
+                 classes que cortariam por CSS — o cabeçalho do cartão promete
+                 que ele não inventa ponto de corte, e promessa em comentário
+                 não falha sozinha. */
+              const doTitulo = tela.ler(P.valorDoTitulo);
+              const daDescricao = tela.ler(P.valorDaDescricao);
+              const classes = `${doTitulo?.className ?? ""} ${daDescricao?.className ?? ""}`;
+              afirmar(
+                "e o cartão NÃO corta: nem reticências no texto, nem classe que corte por CSS",
+                !tela.texto(P.valorDoTitulo).includes("…") &&
+                  !tela.texto(P.valorDaDescricao).includes("…") &&
+                  !/\btruncate\b|\bline-clamp-/.test(classes),
+                classes.trim(),
+              );
+              /* VALOR PRÓPRIO NÃO PRODUZ FRASE DE HERANÇA — não há herança a
+                 contar, e a decisão de quando a frase existe é do domínio. */
+              afirmar(
+                "com valor próprio não há frase de herança — e é `falaDaHeranca` quem decide isso",
+                tela.ler(P.origemDoTitulo) === null &&
+                  seo.falaDaHeranca(m.titulo) === null &&
+                  tela.ler(P.origemDaDescricao) === null,
+                `${m.titulo.origem} | ${m.descricao.origem}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* ── OS TRÊS HERDADOS ─────────────────────────────────────────── */
+            {
+              const tela = await cartaoDe({
+                ...BASE,
+                imagem_url: CAPA_GRAVADA,
+                imagem_alt: "Tela do ChatClean",
+              });
+              const m = tela.metadados();
+              afirmar(
+                "com os campos de SEO vazios o cartão mostra o HERDADO — título do Post, Resumo e Capa",
+                tela.texto(P.valorDoTitulo) === TITULO_DO_POST &&
+                  tela.texto(P.valorDaDescricao) === RESUMO_DO_POST &&
+                  tela.ler(P.imagem)?.getAttribute("src") === CAPA_GRAVADA &&
+                  m.titulo.herdado === true &&
+                  m.descricao.herdado === true,
+                JSON.stringify([m.titulo.origem, m.descricao.origem, m.imagem.origem]),
+              );
+              /* E O CARTÃO DIZ DE ONDE VEIO, com a MESMA frase que a seção de
+                 SEO desenha embaixo do campo — não uma segunda redação. */
+              afirmar(
+                "e diz de onde veio cada um, com a frase que `falaDaHeranca` produz",
+                tela.texto(P.origemDoTitulo) === seo.falaDaHeranca(m.titulo) &&
+                  tela.texto(P.origemDaDescricao) === seo.falaDaHeranca(m.descricao) &&
+                  tela.texto(P.origemDaImagem) === seo.falaDaHeranca(m.imagem),
+                `${tela.texto(P.origemDoTitulo)} | ${tela.texto(P.origemDaImagem)}`,
+              );
+              await tela.desmontar();
+            }
+
+            /* ── SEM IMAGEM NENHUMA: A IMAGEM PADRÃO DO SITE ───────────────
+               "que é o que realmente aparecerá" — o critério é explícito, e o
+               endereço tem de ser o do ativo, montado pelo domínio. Um cartão
+               vazio aqui esconderia do Autor que o link já tem imagem. */
+            {
+              const tela = await cartaoDe(BASE);
+              const m = tela.metadados();
+              afirmar(
+                "sem capa e sem imagem de SEO o cartão mostra a IMAGEM PADRÃO DO SITE",
+                m.imagem.origem === "padrao" &&
+                  tela.ler(P.imagem)?.getAttribute("src") ===
+                    compartilhamento.enderecoDaImagemPadrao(DOMINIO) &&
+                  tela.ler(P.imagem)?.getAttribute("src") === m.imagem.endereco,
+                tela.ler(P.imagem)?.getAttribute("src"),
+              );
+              await tela.desmontar();
+            }
+
+            /* ── A PRÉVIA ACOMPANHA O QUE ESTÁ DIGITADO AGORA ──────────────
+               Duas direções, e a segunda é a que importa: alterar o TÍTULO DO
+               POST com o Título SEO vazio muda o cartão, porque o título é
+               herdado. Uma Prévia que só ouvisse os campos de SEO passaria a
+               primeira e falharia a segunda — e é a segunda que o Autor vive. */
+            {
+              const tela = await cartaoDe(BASE);
+              await tela.digitar("seo_titulo", "Agora é próprio");
+              afirmar(
+                "digitar no campo de SEO muda o cartão — origem DIRETA",
+                tela.texto(P.valorDoTitulo) === "Agora é próprio" &&
+                  tela.texto(P.valorDoTitulo) === tela.metadados().titulo.valor,
+                tela.texto(P.valorDoTitulo),
+              );
+              await tela.digitar("seo_titulo", "");
+              await tela.digitar("titulo", "O título do Post mudou");
+              afirmar(
+                "e mudar o TÍTULO DO POST com o de SEO vazio também muda — origem INDIRETA",
+                tela.texto(P.valorDoTitulo) === "O título do Post mudou" &&
+                  tela.metadados().titulo.herdado === true,
+                tela.texto(P.valorDoTitulo),
+              );
+              await tela.desmontar();
+            }
+
+            /* ── ACIMA DO USUAL: SINALIZA, SEM INVENTAR CORTE ──────────────
+               O sinal é sobre o valor EFETIVO, não sobre o digitado: um Resumo
+               longo herdado por uma Meta Descrição vazia sai longo do mesmo
+               jeito. E o aviso não é recusa — conselho vestido de erro treina a
+               pessoa a ignorar o erro que importa. */
+            {
+              const LONGO = "N".repeat(compartilhamento.COMPRIMENTO_USUAL_DE_SEO.seo_titulo + 40);
+              const tela = await cartaoDe({ ...BASE, seo_titulo: LONGO });
+              const doTitulo = tela.ler(P.valorDoTitulo);
+              afirmar(
+                "acima do usual o cartão SINALIZA — e o texto continua inteiro, sem corte inventado",
+                doTitulo?.getAttribute("data-acima") === "true" &&
+                  tela.texto(P.valorDoTitulo) === LONGO &&
+                  tela.texto(P.avisoDoTitulo) === seo.avisoDeComprimento("seo_titulo", LONGO),
+                `${doTitulo?.getAttribute("data-acima")} | ${tela.texto(P.valorDoTitulo)?.length}`,
+              );
+              afirmar(
+                "e o aviso NÃO é recusa: sem papel de alerta e sem tinta destrutiva",
+                tela.ler(P.avisoDoTitulo)?.getAttribute("role") === null &&
+                  !/destructive/.test(tela.ler(P.avisoDoTitulo)?.className ?? ""),
+                tela.ler(P.avisoDoTitulo)?.className,
+              );
+              /* O HERDADO LONGO TAMBÉM SINALIZA — é o caso que uma leitura do
+                 campo digitado deixaria passar. */
+              const RESUMO_LONGO = "R".repeat(compartilhamento.COMPRIMENTO_USUAL_DE_SEO.seo_descricao + 40);
+              const outra = await cartaoDe({ ...BASE, resumo: RESUMO_LONGO });
+              afirmar(
+                "e o sinal é sobre o EFETIVO: Resumo longo herdado por descrição vazia também sinaliza",
+                outra.ler(P.valorDaDescricao)?.getAttribute("data-acima") === "true" &&
+                  outra.texto(P.valorDaDescricao) === RESUMO_LONGO,
+                outra.ler(P.valorDaDescricao)?.getAttribute("data-acima"),
+              );
+              await outra.desmontar();
+              await tela.desmontar();
+            }
+
+            /* ── AUSENTE É DITO, NÃO DESENHADO EM BRANCO ───────────────────
+               `valor: null` é a instrução de OMITIR a etiqueta. Uma linha vazia
+               no cartão é indistinguível de um valor que não coube. */
+            {
+              const tela = await cartaoDe({
+                ...regrasDosMetadados.valoresVazios(),
+                titulo: TITULO_DO_POST,
+              });
+              afirmar(
+                "sem Resumo e sem descrição de SEO a ausência é DITA, e o valor não é desenhado",
+                tela.metadados().descricao.valor === null &&
+                  tela.ler(P.valorDaDescricao) === null &&
+                  tela.texto(P.ausenciaDaDescricao) === seo.falaDaAusenciaNoCartao("seo_descricao"),
+                tela.texto(P.ausenciaDaDescricao),
+              );
+              await tela.desmontar();
+            }
+
+            /* ── POR QUE UM ELO NÃO FOI USADO ──────────────────────────────
+               Sem esta lista o Autor veria a imagem padrão e não teria como
+               saber por que o endereço que ele digitou sumiu. O motivo é a
+               frase que o DOMÍNIO nomeou. */
+            {
+              const tela = await cartaoDe({
+                ...BASE,
+                seo_imagem_url: "https://cdn.exemplo.com/imagem.svg",
+              });
+              const recusas = seo.recusasDoCartao(tela.metadados());
+              const desenhadas = [...tela.alvo.querySelectorAll("[data-recusa]")];
+              afirmar(
+                "a recusa da cadeia aparece no cartão, com o motivo que o domínio nomeou",
+                recusas.length >= 1 &&
+                  desenhadas.length === recusas.length &&
+                  desenhadas[0].getAttribute("data-recusa") === recusas[0].campo &&
+                  desenhadas[0].textContent.includes(recusas[0].motivo),
+                JSON.stringify(recusas.map((r) => r.campo)),
+              );
+              afirmar(
+                "e o elo seguinte foi usado — a recusa explica a queda, não a esconde",
+                tela.metadados().imagem.origem !== "compartilhamento" &&
+                  tela.ler(P.imagem) !== null,
+                tela.metadados().imagem.origem,
+              );
+              await tela.desmontar();
+            }
+
+            /* ── A IMAGEM QUE NÃO CARREGA ──────────────────────────────────
+               Mesma degradação das outras três telas: monograma no lugar, e
+               frase dizendo o que houve. Um cartão com ícone quebrado seria a
+               quarta opinião sobre a mesma pergunta. */
+            {
+              const tela = await cartaoDe({
+                ...BASE,
+                categoria: "Tecnologia",
+                seo_imagem_url: "https://cdn.exemplo.com/sumiu.png",
+              });
+              await act(async () => {
+                tela.ler(P.imagem).dispatchEvent(new janela.Event("error"));
+              });
+              afirmar(
+                "imagem que não carrega degrada para o monograma, e o cartão DIZ o que houve",
+                tela.ler(P.imagem) === null &&
+                  tela.ler(P.imagemDegradada) !== null &&
+                  tela.ler(P.imagemQuebrada) !== null,
+                tela.texto(P.imagemQuebrada),
+              );
+              /* O BENEFÍCIO DA DÚVIDA VOLTA a cada endereço: uma falha antiga
+                 não pode condenar a imagem seguinte. */
+              await tela.digitar("seo_imagem_url", "https://cdn.exemplo.com/outra.png");
+              afirmar(
+                "e trocar o endereço devolve o benefício da dúvida — a nova é tentada",
+                tela.ler(P.imagem)?.getAttribute("src") === "https://cdn.exemplo.com/outra.png" &&
+                  tela.ler(P.imagemQuebrada) === null,
+                tela.ler(P.imagem)?.getAttribute("src"),
+              );
+              await tela.desmontar();
+            }
+
+            /* ── DEFEITO DE MONTAGEM: DITO, E NUNCA CARTÃO EM BRANCO ───────
+               Duas causas distintas, duas frases distintas. Um `catch` que
+               responde por dois fatos manda procurar o defeito no lugar errado
+               — foi o que a revisão da Story 3.4 encontrou. */
+            {
+              const alvo = janela.document.createElement("div");
+              janela.document.body.appendChild(alvo);
+              const raiz = createRoot(alvo);
+              await act(async () => {
+                raiz.render(React.createElement(modulo.CartaoDeCompartilhamento, {}));
+              });
+              afirmar(
+                "sem herança nenhuma o cartão DIZ o defeito — e a moldura não é desenhada",
+                alvo.querySelector(`[data-papel="${P.defeito}"]`)?.textContent ===
+                  seo.DEFEITO_SEM_HERANCA &&
+                  alvo.querySelector(`[data-papel="${P.moldura}"]`) === null,
+                alvo.querySelector(`[data-papel="${P.defeito}"]`)?.textContent,
+              );
+              const semDominio = seo.herancaDoFormulario(BASE, { dominio: "" });
+              await act(async () => {
+                raiz.render(
+                  React.createElement(modulo.CartaoDeCompartilhamento, { heranca: semDominio }),
+                );
+              });
+              afirmar(
+                "e sem o Domínio Canônico a frase é a do DOMÍNIO, distinta da anterior",
+                semDominio.ok === false &&
+                  alvo.querySelector(`[data-papel="${P.defeito}"]`)?.textContent ===
+                    semDominio.defeito &&
+                  semDominio.defeito !== seo.DEFEITO_SEM_HERANCA &&
+                  alvo.querySelector(`[data-papel="${P.moldura}"]`) === null,
+                semDominio.defeito,
+              );
+              await act(async () => {
+                raiz.unmount();
+              });
+              alvo.remove();
+            }
+
+            /* ── O CARTÃO NÃO ESCOLHE NADA ────────────────────────────────
+               A varredura de `verificar:interface` procura queda escrita à mão
+               em `src/`; esta é a metade executada: o módulo do cartão não
+               importa o domínio da herança, então não teria como decidir mesmo
+               que quisesse. Ele recebe a decisão pronta. */
+            {
+              const fonte = ler(CAMINHO_CARTAO);
+              /* O nome da função aparece três vezes na PROSA do componente,
+                 explicando de onde vem o que ele desenha — e prosa não chama
+                 função. O que se procura é a FORMA DE CHAMADA, que a prosa não
+                 tem: ela escreve o nome entre crases, nunca seguido de parêntese.
+                 `termosPresentes` seria o detector natural, e não serve aqui:
+                 `mascararComentariosJs` dessincroniza em JSX — medido neste
+                 arquivo, onde ela mascara as duas primeiras menções e deixa a
+                 terceira passar. Está registrado como achado próprio. */
+              const chamaADecisao = /metadadosDoPost\s*\(/.test(fonte);
+              /* O que ele PODE trazer do domínio é VOCABULÁRIO — a lista fechada
+                 de quais campos de texto existem, para iterar em vez de fixar dois.
+                 O que ele NÃO pode é a função que DECIDE: importá-la seria poder
+                 tomar a decisão, e a primeira consumidora de produção é justamente
+                 onde a segunda opinião nasceria. Lista de PERMISSÃO, e não de
+                 proibição: um símbolo novo do domínio cai aqui e precisa ser
+                 julgado, em vez de entrar por não estar numa lista de proibidos. */
+              const PERMITIDO_DO_DOMINIO = ["CAMPOS_DE_TEXTO_DE_SEO"];
+              const DA_HERANCA =
+                /import\s*\{([^}]*)\}\s*from\s*["'][^"']*domain\/blog\/compartilhamento["']/;
+              const trazidosDe = (texto) => {
+                const bloco = texto.match(DA_HERANCA);
+                return bloco === null
+                  ? []
+                  : bloco[1]
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter((s) => s !== "");
+              };
+              const foraDaLista = trazidosDe(fonte).filter(
+                (s) => !PERMITIDO_DO_DOMINIO.includes(s),
+              );
+              afirmar(
+                "o cartão traz do domínio só VOCABULÁRIO, e nunca a função que decide a herança",
+                foraDaLista.length === 0 && chamaADecisao === false,
+                `trazidos: ${trazidosDe(fonte).join(", ") || "nenhum"}`,
+              );
+              /* AUTOTESTE: a lista precisa ACUSAR o símbolo que ela existe para
+                 barrar. Sem isto ela passaria verde num arquivo que não importa
+                 nada do domínio — que é a vacuidade de sempre. */
+              const plantado = fonte.replace(
+                "{ CAMPOS_DE_TEXTO_DE_SEO }",
+                "{ CAMPOS_DE_TEXTO_DE_SEO, metadadosDoPost }",
+              );
+              const acusados = trazidosDe(plantado).filter(
+                (s) => !PERMITIDO_DO_DOMINIO.includes(s),
+              );
+              afirmar(
+                "autoteste: a lista ACUSA a função de decisão trazida junto do vocabulário",
+                acusados.includes("metadadosDoPost") && plantado !== fonte,
+                acusados.join(", ") || "nao acusou",
+              );
+            }
+          }
+
         }
         }
       }

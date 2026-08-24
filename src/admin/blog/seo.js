@@ -32,12 +32,18 @@
  */
 
 import {
+  CAMPOS_DE_SEO,
+  CAMPOS_DE_TEXTO_DE_SEO,
   COMPRIMENTO_USUAL_DE_SEO,
   DEFEITO_DE_DOMINIO_AUSENTE,
   ROTULOS_DE_SEO,
   caracteresDe,
   metadadosDoPost,
 } from "@/domain/blog/compartilhamento";
+/* O nome da CAPA vem do domínio, e não é escrito de novo: a recusa de um elo
+   da cadeia pode acusar a coluna da capa, e a Prévia precisa chamá-la pelo
+   mesmo nome que a gaveta usa no rótulo do campo. */
+import { ROTULO_DA_CAPA } from "@/domain/blog/arquivos";
 
 /* ─── O contador ───────────────────────────────────────────────────────────
  *
@@ -239,6 +245,204 @@ export function recusaDaCadeia(metadados, campo) {
   if (!Array.isArray(recusadas)) return null;
   const daqui = recusadas.find((r) => r?.campo === campo);
   return typeof daqui?.motivo === "string" ? daqui.motivo : null;
+}
+
+/* ─── A PRÉVIA DE COMPARTILHAMENTO (Story 3.5) ──────────────────────────────
+ *
+ * As falas da Prévia moram AQUI, no mesmo vocabulário fechado da seção de SEO,
+ * e não num módulo novo: um segundo módulo de fala seria um segundo lugar
+ * dizendo as mesmas coisas sobre os mesmos três campos, e a primeira frase que
+ * alguém ajustasse ficaria ajustada em só um deles.
+ *
+ * ─── E ESTE MÓDULO CONTINUA SEM DECIDIR NADA ────────────────────────────────
+ *
+ * Tudo o que a Prévia mostra vem de `metadadosDoPost`, campo a campo. O que
+ * está aqui embaixo é NOME e FRASE: como o cartão se chama, como cada pedaço
+ * dele se identifica no documento, e o que se diz quando um valor está ausente
+ * ou quando um elo da cadeia foi recusado. Nenhuma destas funções escolhe entre
+ * dois valores, completa um que falta ou formata o que recebeu.
+ */
+
+/**
+ * O NOME desta Prévia — e por que ele não é "pré-visualização".
+ *
+ * O Painel já tem a pré-visualização do artigo, da Story 2.13
+ * (`PreVisualizacaoDePost.jsx`, `previa.js`, `TITULO_DA_TELA`): ela mostra o
+ * TEXTO como o leitor verá no site. Esta mostra o CARTÃO como o link aparece
+ * quando alguém o compartilha. São coisas diferentes, e dois "prévia" no mesmo
+ * Painel é exatamente o sinônimo que a convenção do projeto proíbe — quem
+ * dissesse "abre a prévia" estaria falando de uma das duas e ninguém saberia
+ * qual.
+ *
+ * `verificar:editor` compara as duas grafias e cobra que elas não compartilhem
+ * palavra nenhuma.
+ */
+export const NOME_DO_CARTAO = "Cartão de Compartilhamento";
+
+/** O que se lê acima do cartão, na gaveta. */
+export const TITULO_DO_CARTAO = "Como o link vai aparecer";
+
+/**
+ * A explicação de uma linha, abaixo do título.
+ *
+ * Ela diz as duas coisas que o Autor precisa saber para ler o cartão: que o que
+ * está ali é o EFETIVO (o próprio ou o herdado), e que a forma é aproximada —
+ * cada aplicativo desenha o seu. Prometer fidelidade de pixel seria vender uma
+ * precisão que ninguém pode entregar.
+ */
+export const EXPLICACAO_DO_CARTAO =
+  "O que já está valendo agora, com o que for herdado no lugar do que está em branco. " +
+  "Cada aplicativo desenha o cartão do seu jeito.";
+
+/**
+ * Como cada pedaço do cartão se identifica no documento.
+ *
+ * DECLARADOS, e não montados por interpolação, pela mesma razão de
+ * `PAPEIS_DO_CAMPO_DE_IMAGEM` em `capa.js`: é por estes nomes que a verificação
+ * encontra o valor exibido para compará-lo, campo a campo, com o que o domínio
+ * devolveu — e um nome montado em tempo de execução tornaria essa comparação
+ * dependente da forma da string em vez do contrato de tela.
+ *
+ * `defeito` reusa `heranca-indisponivel`, que é o nome que a seção de SEO já
+ * usava na Story 3.4: o defeito de montagem passou a ser dito DENTRO da Prévia
+ * — é ela que não pode virar cartão em branco —, e renomeá-lo teria trocado um
+ * contrato de tela por simetria de string.
+ */
+export const PAPEIS_DO_CARTAO = Object.freeze({
+  cartao: "cartao-de-compartilhamento",
+  moldura: "moldura-do-cartao",
+  imagem: "imagem-do-cartao",
+  imagemDegradada: "imagem-degradada-no-cartao",
+  imagemQuebrada: "imagem-quebrada-no-cartao",
+  origemDaImagem: "origem-da-imagem-no-cartao",
+  valorDoTitulo: "titulo-do-cartao",
+  ausenciaDoTitulo: "titulo-ausente-no-cartao",
+  origemDoTitulo: "origem-do-titulo-no-cartao",
+  avisoDoTitulo: "aviso-de-comprimento-do-titulo-no-cartao",
+  valorDaDescricao: "descricao-do-cartao",
+  ausenciaDaDescricao: "descricao-ausente-no-cartao",
+  origemDaDescricao: "origem-da-descricao-no-cartao",
+  avisoDaDescricao: "aviso-de-comprimento-da-descricao-no-cartao",
+  recusas: "recusas-do-cartao",
+  defeito: "heranca-indisponivel",
+});
+
+/**
+ * O que se diz quando um dos textos está AUSENTE.
+ *
+ * `metadadosDoPost` devolve `valor: null` quando nem o campo de SEO nem o campo
+ * herdado têm texto, e `null` é a instrução de OMITIR a etiqueta. O cartão não
+ * pode desenhar uma linha em branco no lugar — uma linha vazia é indistinguível
+ * de um valor que não coube — e não pode inventar texto, que é o que o critério
+ * proíbe. O que ele faz é DIZER a ausência.
+ *
+ * As frases são declaradas por campo, e não montadas a partir do rótulo: "Sem
+ * Título SEO" e "Sem Meta Descrição" concordariam em gênero por acaso, e a
+ * frase que interessa não é o nome do campo — é o que vai acontecer com o link.
+ */
+const AUSENCIA_NO_CARTAO = Object.freeze({
+  seo_titulo:
+    "Ausente: o post ainda não tem título nenhum, e o link vai aparecer sem um.",
+  seo_descricao:
+    "Ausente: o post não tem Resumo, e nada é inventado no lugar — o link aparece só com o título.",
+});
+
+/* A COBERTURA É CONFERIDA NO CARREGAMENTO, e LANÇA. Um terceiro campo de texto
+   de SEO sem frase aqui apareceria no cartão como uma ausência muda, que é o
+   silêncio que este bloco existe para não ter. */
+{
+  const semFrase = CAMPOS_DE_TEXTO_DE_SEO.filter(
+    (campo) => typeof AUSENCIA_NO_CARTAO[campo] !== "string",
+  );
+  const sobrando = Object.keys(AUSENCIA_NO_CARTAO).filter(
+    (campo) => !CAMPOS_DE_TEXTO_DE_SEO.includes(campo),
+  );
+  if (semFrase.length > 0 || sobrando.length > 0) {
+    throw new Error(
+      "A Prévia precisa de uma frase de ausência para cada campo de texto de SEO: " +
+        `sem frase [${semFrase.join(", ")}], fora da lista [${sobrando.join(", ")}].`,
+    );
+  }
+}
+
+/** A fala da ausência de um campo de texto, ou `""` fora do vocabulário. */
+export function falaDaAusenciaNoCartao(campo) {
+  return AUSENCIA_NO_CARTAO[campo] ?? "";
+}
+
+/**
+ * O segundo defeito de montagem que o cartão sabe dizer: a herança não chegou.
+ *
+ * `herancaDoFormulario` devolve `{ok:true, metadados}` ou `{ok:false, defeito}`,
+ * e essas são as duas respostas possíveis — então este ramo não acontece em uso
+ * normal. Ele existe porque a alternativa era pior: um cartão montado sem
+ * decisão nenhuma seria um cartão EM BRANCO, e o critério proíbe justamente
+ * isso ("nunca cartão em branco nem cartão mentiroso"). Um ramo que não sabe o
+ * que dizer é o silêncio de sempre, com outra roupa.
+ *
+ * A frase é distinta da do Domínio Canônico de propósito: as duas causas são
+ * diferentes, e um `catch` que responde por dois fatos manda procurar o defeito
+ * no lugar errado — foi o que a revisão da Story 3.4 encontrou em
+ * `herancaDoFormulario`. `verificar:editor` monta o cartão sem herança e cobra
+ * esta frase, para o ramo não ficar sem ser exercido.
+ */
+export const DEFEITO_SEM_HERANCA =
+  "O cartão não pôde ser montado: a herança não chegou à Prévia. " +
+  "É defeito de montagem — quem desenha o cartão precisa receber a decisão do domínio.";
+
+/**
+ * O nome de gente de cada campo que a cadeia pode recusar.
+ *
+ * `recusadas` traz o nome da COLUNA — e a coluna da capa não é campo de SEO,
+ * então `ROTULOS_DE_SEO` sozinho deixaria a recusa da capa aparecer no cartão
+ * como `imagem_url`. O rótulo dela vem do domínio, o mesmo que a gaveta desenha
+ * no campo.
+ */
+const ROTULO_DO_CAMPO_RECUSADO = Object.freeze({
+  ...ROTULOS_DE_SEO,
+  imagem_url: ROTULO_DA_CAPA,
+});
+
+/** Os campos que podem aparecer numa recusa da cadeia — lista fechada. */
+export const CAMPOS_COM_RECUSA = Object.freeze([...CAMPOS_DE_SEO, "imagem_url"]);
+
+/* CONFERIDA NO CARREGAMENTO, e LANÇA, como a partição do domínio. */
+{
+  const semRotulo = CAMPOS_COM_RECUSA.filter(
+    (campo) => typeof ROTULO_DO_CAMPO_RECUSADO[campo] !== "string",
+  );
+  const sobrando = Object.keys(ROTULO_DO_CAMPO_RECUSADO).filter(
+    (campo) => !CAMPOS_COM_RECUSA.includes(campo),
+  );
+  if (semRotulo.length > 0 || sobrando.length > 0) {
+    throw new Error(
+      "Todo campo recusável precisa de um rótulo em palavras de gente: " +
+        `sem rótulo [${semRotulo.join(", ")}], fora da lista [${sobrando.join(", ")}].`,
+    );
+  }
+}
+
+/**
+ * As recusas da cadeia, prontas para o cartão desenhar — `{campo, rotulo,
+ * motivo}`.
+ *
+ * Ela LÊ `metadados.recusadas` e não julga nada: o motivo é a frase que o
+ * domínio nomeou, e o rótulo sai da tabela fechada acima. Uma recusa de campo
+ * desconhecido continua aparecendo, com o nome cru — sumir com ela seria o
+ * silêncio que a lista de recusas existe para não ter.
+ */
+export function recusasDoCartao(metadados) {
+  const recusadas = metadados?.recusadas;
+  if (!Array.isArray(recusadas)) return [];
+  return recusadas
+    .filter((r) => typeof r?.motivo === "string" && r.motivo !== "")
+    .map((r) =>
+      Object.freeze({
+        campo: String(r.campo ?? ""),
+        rotulo: ROTULO_DO_CAMPO_RECUSADO[r.campo] ?? String(r.campo ?? ""),
+        motivo: r.motivo,
+      }),
+    );
 }
 
 /** O rótulo de cada campo, do DOMÍNIO — a gaveta não inventa nome de campo. */
