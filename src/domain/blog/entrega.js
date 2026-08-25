@@ -95,3 +95,62 @@ export const CAMPOS_DE_CONTEUDO = Object.freeze([
   "publicado_em",
   "atualizado_em",
 ]);
+
+/**
+ * O STATUS HTTP de cada situação (Story 4.5).
+ *
+ * ─── POR QUE UM MAPA, E NÃO UM `if` POR CASO NA ROTA ──────────────────────
+ *
+ * Desde a Story 4.1 a rota respondia 200 para tudo: um artigo arquivado dizia
+ * "aqui está, tudo certo" com uma página sem o artigo, e para o buscador isso
+ * não é página faltando — é página DUPLICADA e vazia, e ele desconta o site
+ * inteiro por isso.
+ *
+ * Um `if` por caso espalhado na rota é justamente onde a situação nova nasce
+ * respondendo 200 sem ninguém ter decidido. O mapa força a decisão, e a guarda
+ * abaixo LANÇA quando ela não foi tomada.
+ *
+ * ─── E POR QUE 410 PARA O ARQUIVADO ───────────────────────────────────────
+ *
+ * 404 diz "não sei o que é isso"; 410 diz "isto existiu e foi retirado". A
+ * diferença é prática — 410 sai do índice mais rápido e não fica sendo
+ * re-tentado por meses — e é a verdade: o Post existiu, e quem guardou o link
+ * merece uma resposta que diga isso em vez de fingir que ele inventou o
+ * endereço.
+ *
+ * ─── E 404, E NÃO 403, PARA O RASCUNHO ────────────────────────────────────
+ *
+ * 403 confirmaria que o endereço existe e está protegido — a mesma pauta
+ * editorial que a Story 2.13 fechou. Rascunho e agendado por vir já chegam aqui
+ * como `inexistente` (Story 4.2), e por isso não têm caso próprio: a
+ * indistinguibilidade é construída lá, e aqui é só não estragá-la.
+ */
+export const STATUS_DA_SITUACAO = Object.freeze({
+  [NO_AR]: 200,
+  [ARQUIVADO]: 410,
+  [REDIRECIONADO]: 301,
+  [INEXISTENTE]: 404,
+});
+
+/* A COMPLETUDE É CONFERIDA NO CARREGAMENTO, e LANÇA. Uma situação nova sem
+   código declarado responderia `undefined` — que vira 200 na maioria dos
+   servidores, que é exatamente o defeito que esta story conserta. */
+{
+  const semStatus = SITUACOES_DA_ENTREGA.filter(
+    (s) => !Number.isInteger(STATUS_DA_SITUACAO[s]),
+  );
+  const sobrando = Object.keys(STATUS_DA_SITUACAO).filter(
+    (s) => !SITUACOES_DA_ENTREGA.includes(s),
+  );
+  if (semStatus.length > 0 || sobrando.length > 0) {
+    throw new Error(
+      "O mapa de status da entrega não cobre o vocabulário: sem código " +
+        `[${semStatus.join(", ")}]; fora do vocabulário [${sobrando.join(", ")}].`,
+    );
+  }
+}
+
+/** O status de uma situação. `null` quando ela não é do vocabulário. */
+export function statusDaSituacao(situacao) {
+  return ehSituacaoDaEntrega(situacao) ? STATUS_DA_SITUACAO[situacao] : null;
+}

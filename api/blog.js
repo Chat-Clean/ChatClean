@@ -4,10 +4,16 @@
  * ─── O QUE ELA FAZ, E O QUE AINDA NÃO FAZ ─────────────────────────────────
  *
  * Ela serve o SHELL DO BUILD — o mesmo `dist/index.html` que a hospedagem
- * serviria, com os ativos com hash daquele build — com a **região de metadados
- * trocada pela do Post** (Story 4.3). O conteúdo do artigo servido é a 4.4, o
- * status HTTP por Estado é a 4.5 e os dados estruturados são a 4.6: até lá esta
- * rota responde 200 para tudo, e isso está dito para não parecer esquecimento.
+ * serviria, com os ativos com hash daquele build — com a região de metadados
+ * trocada pela do Post (Story 4.3), o corpo do artigo em `<noscript>` (4.4) e o
+ * STATUS que diz a verdade (4.5). Os dados estruturados completos e a regra de
+ * um `h1` por página são a 4.6, e é o que falta.
+ *
+ * ─── O STATUS NÃO É DECIDIDO AQUI ─────────────────────────────────────────
+ *
+ * Ele sai de `STATUS_DA_SITUACAO`, mapa fechado no domínio. Um `if` por caso
+ * nesta função é exatamente onde a situação nova nasceria respondendo 200 sem
+ * ninguém ter decidido — que é o defeito que a Story 4.5 conserta.
  *
  * ─── O DADO CHEGA POR PARÂMETRO ───────────────────────────────────────────
  *
@@ -31,6 +37,11 @@ import {
   responderDocumento,
 } from "./_nucleo/entrega.js";
 import { situacaoDoEndereco } from "./_nucleo/leitura.js";
+import {
+  REDIRECIONADO,
+  STATUS_DA_SITUACAO,
+  statusDaSituacao,
+} from "../src/domain/blog/entrega.js";
 import {
   MARCA_CORPO_FIM,
   MARCA_CORPO_INICIO,
@@ -99,6 +110,27 @@ export default async function handler(req, res) {
     raiz: dominio.raiz,
   });
 
+  /* ─── O ENDEREÇO APOSENTADO REDIRECIONA, E NÃO SERVE NADA (Story 4.5) ───
+     A tentação é servir a página junto, "para o visitante não ver nada
+     quebrado". O navegador segue o `Location` e descarta o corpo, então o
+     único efeito seria o rastreador que NÃO segue enxergar conteúdo num
+     endereço que o site acabou de declarar morto — ensinando que ele é válido.
+     É o oposto do que 301 significa. */
+  if (situacao === REDIRECIONADO) {
+    res.setHeader("Location", pagina.canonica);
+    responderDocumento(res, {
+      tipo: "text/plain; charset=utf-8",
+      status: STATUS_DA_SITUACAO[REDIRECIONADO],
+      corpo: `Este endereço mudou. O artigo está em ${pagina.canonica}\n`,
+    });
+    return;
+  }
+
+  /* O STATUS SAI DO MAPA FECHADO DO DOMÍNIO. A listagem `/blog` não resolve
+     endereço nenhum e por isso não tem situação — ela é 200 por ser uma página
+     que existe, e não por omissão. */
+  const status = situacao === null ? 200 : statusDaSituacao(situacao);
+
   const comMetadados = trocarRegiao(shell.html, regiaoDeMetadados(pagina), {
     inicio: MARCA_INICIO,
     fim: MARCA_FIM,
@@ -127,5 +159,5 @@ export default async function handler(req, res) {
     return;
   }
 
-  responderDocumento(res, { tipo: TIPO_DA_PAGINA, corpo: comCorpo.html });
+  responderDocumento(res, { tipo: TIPO_DA_PAGINA, status, corpo: comCorpo.html });
 }

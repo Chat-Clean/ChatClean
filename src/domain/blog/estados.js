@@ -97,3 +97,32 @@ export function aparenciaDoEstado(estado) {
 export function rotuloDoEstado(estado) {
   return aparenciaDoEstado(estado).rotulo;
 }
+
+/**
+ * Este Post JÁ ESTEVE NO AR?
+ *
+ * É a pergunta que decide se existe link a preservar — e ela tem DOIS
+ * consumidores, o que é a razão de morar aqui e não em `api/`:
+ *
+ *   * o caminho de escrita, que aposenta o endereço anterior ao trocar o Slug;
+ *   * o Painel, que avisa o Autor de que links compartilhados vão parar de
+ *     funcionar (Story 4.5).
+ *
+ * ─── E POR QUE UMA CÓPIA NO PAINEL SERIA UM DEFEITO COM DATA MARCADA ──────
+ *
+ * Esta regra JÁ MUDOU uma vez. Ela era `publicado_em !== null`, e deixou de
+ * servir na Story 2.6, quando a gaveta passou a preencher a data: um rascunho
+ * com data futura passava a ser tratado como Post no ar, aposentando endereços
+ * que ninguém nunca viu. Uma cópia feita antes disso teria ficado com a versão
+ * velha, e as duas telas discordariam sobre o mesmo Post.
+ *
+ * A resposta é a MESMA regra da política de leitura anônima: estado publicável
+ * e data de publicação já atingida. Rascunho é `false` sempre — rascunho é
+ * invisível por construção. Arquivado com data no passado é `true`: ele esteve
+ * no ar, e o link continua na mão de quem o guardou.
+ */
+export function jaEsteveNoAr(post) {
+  if (post?.estado === "rascunho") return false;
+  const quando = post?.publicado_em ? Date.parse(post.publicado_em) : Number.NaN;
+  return Number.isFinite(quando) && quando <= Date.now();
+}

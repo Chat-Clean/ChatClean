@@ -134,6 +134,16 @@ import {
   instantaneo,
 } from "@/admin/blog/pendencia";
 import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
+import {
+  ROTULO_PARA_MANTER_ENDERECO,
+  ROTULO_PARA_TROCAR_ENDERECO,
+  TITULO_DA_TROCA_DE_ENDERECO,
+  descricaoDaTrocaDeEndereco,
+} from "@/admin/blog/enderecos";
+/* A DECISAO vem do dominio, e e a mesma que o caminho de escrita consulta para
+   aposentar o endereco anterior. Uma regra propria aqui avisaria de uma quebra
+   que o servidor nao vai causar, ou calaria sobre uma que vai. */
+import { trocaDeEnderecoQuebraLinks } from "@/domain/blog/slug";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { ERRO_CONFLITO, salvarPost } from "@/data/blog/escrita";
@@ -193,6 +203,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      o servidor nunca viu — e "Ver no site" com ele abriria, em aba nova, uma
      página que não existe. O que está no ar é o que está gravado. */
   const [slugGravado, setSlugGravado] = useState("");
+  /* O RETRATO DO POST COMO FOI CARREGADO — e não como está na tela.
+     `trocaDeEnderecoQuebraLinks` compara o endereço de agora com o que
+     está GRAVADO; comparar `valores` consigo mesmo daria `false` sempre. E o
+     Estado e a data precisam ser os do banco pelo mesmo motivo: o Autor pode
+     ter acabado de mudar os dois na gaveta, e a pergunta é sobre o Post que
+     está no ar, não sobre o que ele quer que ele vire. */
+  const [originalDoBanco, setOriginalDoBanco] = useState(null);
   const [documento, setDocumento] = useState(documentoVazio);
   const [chaveDoEditor, setChaveDoEditor] = useState("novo");
 
@@ -313,6 +330,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     criando ? instantaneo(valoresVazios(), documentoVazio()) : null,
   );
   const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+  /* A ação que está esperando a confirmação do endereço, ou `null`. Guardar a
+     AÇÃO, e não um booleano, é o que faz o diálogo devolver o Autor ao mesmo
+     botão que ele apertou: publicar e salvar-rascunho passam por aqui, e
+     confirmar um levando ao outro seria pior que não perguntar. */
+  const [trocaDeEnderecoPendente, setTrocaDeEnderecoPendente] = useState(null);
 
   /* O ESPELHO DOS VALORES, para a faxina da capa ler o endereço de AGORA.
      `enviarCapa` e `removerCapa` não podem depender de `valores`: elas seriam
@@ -435,6 +457,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       const conteudo = post.dados.conteudo ?? documentoVazio();
       setValores(doBanco);
       setSlugGravado(typeof post.dados.slug === "string" ? post.dados.slug : "");
+      setOriginalDoBanco({
+        slug: post.dados.slug,
+        estado: post.dados.estado,
+        publicado_em: post.dados.publicado_em,
+      });
       setDocumento(conteudo);
       /* O Estado vem do banco, e a camada de dados já o conferiu contra o
          vocabulário fechado — linha com Estado desconhecido vira erro tipado lá,
@@ -591,7 +618,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      a tela tem naquele momento. */
   const salvarDeNovo = useRef(null);
 
-  const salvar = useCallback(async (acao) => {
+  const salvar = useCallback(async (acao, { enderecoConfirmado = false } = {}) => {
     if (salvando) return;
 
     /* SALVAR COM UMA IMAGEM AINDA SUBINDO GRAVARIA O POST SEM ELA.
@@ -654,6 +681,25 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         "O endereço do post não serve",
         doTitulo.ok ? problema : doTitulo.motivo,
       );
+      return;
+    }
+
+    /* ─── TROCAR O ENDEREÇO DE UM POST QUE JÁ ESTEVE NO AR (Story 4.5) ───
+
+       A guarda fica AQUI, depois de todas as recusas e antes de qualquer
+       escrita. Antes das recusas, o Autor confirmaria uma troca de endereço
+       para depois descobrir que faltava a data — e teria confirmado à toa.
+       Depois da escrita não seria confirmação; seria aviso.
+
+       O caminho de escrita já faz a coisa certa sozinho: o endereço anterior
+       é aposentado e passa a redirecionar. O que ele não pode decidir é se a
+       pessoa ACEITA o que isso custa — links já compartilhados passando a dar
+       um pulo, e o endereço antigo reservado para sempre. */
+    if (
+      !enderecoConfirmado &&
+      trocaDeEnderecoQuebraLinks({ original: originalDoBanco, slug: valores.slug })
+    ) {
+      setTrocaDeEnderecoPendente(acao);
       return;
     }
 
@@ -818,7 +864,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     }
 
     aoSalvar?.(gravado);
-  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis, situacaoDe]);
+  }, [salvando, valores, documento, criando, id, estado, aoSalvar, tagsIndisponiveis, situacaoDe, originalDoBanco]);
 
   useEffect(() => {
     salvarDeNovo.current = salvar;
@@ -1086,6 +1132,32 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
           />
         </div>
       )}
+
+      {/* A confirmação da troca de endereço. Ela nomeia os DOIS endereços: 
+          "o endereço vai mudar" obrigaria o Autor a lembrar o que digitou
+          três campos acima, e ver os dois lado a lado é o que transforma a
+          confirmação numa conferência em vez de num obstáculo. */}
+      <DialogoDeConfirmacao
+        aberto={trocaDeEnderecoPendente !== null}
+        aoMudarAbertura={(aberto) => {
+          if (!aberto) setTrocaDeEnderecoPendente(null);
+        }}
+        titulo={TITULO_DA_TROCA_DE_ENDERECO}
+        descricao={descricaoDaTrocaDeEndereco({
+          de: originalDoBanco?.slug ?? slugGravado,
+          para: valores.slug,
+        })}
+        rotuloDeConfirmacao={ROTULO_PARA_TROCAR_ENDERECO}
+        rotuloDeCancelamento={ROTULO_PARA_MANTER_ENDERECO}
+        /* NÃO é destrutivo: nada se perde, e pintar de vermelho uma ação
+           reversível gasta o vermelho que a exclusão precisa. */
+        perigo={false}
+        aoConfirmar={() => {
+          const acao = trocaDeEnderecoPendente;
+          setTrocaDeEnderecoPendente(null);
+          if (acao) salvar(acao, { enderecoConfirmado: true });
+        }}
+      />
 
       {/* A confirmação de saída. Ela só chega a abrir quando há pendência: quem
           decide é `sair`, e é essa raridade que a mantém eficaz. */}

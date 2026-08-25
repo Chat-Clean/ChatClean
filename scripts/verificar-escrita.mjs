@@ -11895,6 +11895,474 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     `${daListagem.codigo} | ${String(daListagem.corpo ?? "").length} caracteres`,
   );
 
+  /* ══ STORY 4.5: O STATUS DIZ A VERDADE ═════════════════════════════════ */
+  //
+  // Desde a 4.1 a rota respondia 200 para tudo. Um artigo arquivado dizia
+  // "aqui está, tudo certo" com uma página sem o artigo, e um endereço que
+  // nunca existiu dizia a mesma coisa. Para o buscador isso não é página
+  // faltando — é página DUPLICADA e vazia, e ele desconta o site inteiro.
+  //
+  // A rota é dirigida contra um SUPABASE DE MENTIRA, no molde da Story 2.12: é
+  // o único jeito de percorrer as quatro situações num teste, e o que se
+  // exercita é o caminho INTEIRO — leitura, emissor de metadado, corpo do
+  // artigo e status. Dublar a leitura provaria só o `switch`.
+  {
+    secao("(4.5) o status HTTP, a canônica e o endereço estável");
+
+    const entregaDominio = await import(
+      pathToFileURL(path.join(raiz, "src", "domain", "blog", "entrega.js")).href
+    );
+    const estadosDominio = await import(
+      pathToFileURL(path.join(raiz, "src", "domain", "blog", "estados.js")).href
+    );
+    const slugDominio = await import(
+      pathToFileURL(path.join(raiz, "src", "domain", "blog", "slug.js")).href
+    );
+    const enderecosDoPainel = await import(
+      pathToFileURL(path.join(raiz, "src", "admin", "blog", "enderecos.js")).href
+    );
+
+    /* ── O MAPA É FECHADO E COMPLETO ─────────────────────────────────── */
+    //
+    // Uma situação sem código responderia `undefined`, que vira 200 na maioria
+    // dos servidores — exatamente o defeito que esta story conserta.
+
+    const semCodigo = entregaDominio.SITUACOES_DA_ENTREGA.filter(
+      (s) => !Number.isInteger(entregaDominio.STATUS_DA_SITUACAO[s]),
+    );
+    afirmar(
+      `as ${entregaDominio.SITUACOES_DA_ENTREGA.length} situações do vocabulário têm status declarado — sem código viraria 200 na maioria dos servidores`,
+      semCodigo.length === 0,
+      `sem código: ${semCodigo.join(", ") || "nenhuma"}`,
+    );
+    const sobrando = Object.keys(entregaDominio.STATUS_DA_SITUACAO).filter(
+      (s) => !entregaDominio.SITUACOES_DA_ENTREGA.includes(s),
+    );
+    afirmar(
+      "e o mapa não declara status para nada FORA do vocabulário — os dois sentidos",
+      sobrando.length === 0,
+      `sobrando: ${sobrando.join(", ") || "nenhum"}`,
+    );
+    /* ★ E OS CÓDIGOS SÃO ESTES ★ — nomeados, e não só "algum inteiro". Um mapa
+       que respondesse 200 para tudo passaria nas duas asserções acima. */
+    const ESPERADO = { "no-ar": 200, arquivado: 410, redirecionado: 301, inexistente: 404 };
+    const divergentes = Object.entries(ESPERADO).filter(
+      ([situacao, codigo]) => entregaDominio.STATUS_DA_SITUACAO[situacao] !== codigo,
+    );
+    afirmar(
+      "no ar 200, arquivado 410, aposentado 301, inexistente 404 — 410 sai do índice mais rápido que 404, e é a verdade",
+      divergentes.length === 0,
+      divergentes
+        .map(([s, c]) => `${s}: ${entregaDominio.STATUS_DA_SITUACAO[s]} (esperado ${c})`)
+        .join(" | ") || "os quatro",
+    );
+    afirmar(
+      "situação fora do vocabulário não tem status — `statusDaSituacao` devolve nulo em vez de inventar",
+      entregaDominio.statusDaSituacao("inventada") === null &&
+        entregaDominio.statusDaSituacao(undefined) === null,
+      String(entregaDominio.statusDaSituacao("inventada")),
+    );
+
+    /* ── A ROTA, DIRIGIDA CONTRA UM SUPABASE DE MENTIRA ──────────────── */
+
+    const { createServer } = await import("node:http");
+    /* O que a função de banco de mentira devolve. Trocado a cada caso. */
+    let linhaDaEntrega = null;
+    const pedidos = [];
+    const servidorDaEntrega = createServer((req, res) => {
+      let bruto = "";
+      req.on("data", (p) => { bruto += p; });
+      req.on("end", () => {
+        pedidos.push({ url: req.url, corpo: bruto });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(linhaDaEntrega === null ? [] : [linhaDaEntrega]));
+      });
+    });
+    await new Promise((pronto) => servidorDaEntrega.listen(0, "127.0.0.1", pronto));
+    const porta = servidorDaEntrega.address().port;
+    const URL_DE_MENTIRA = `http://127.0.0.1:${porta}`;
+
+    /** Uma linha da função `situacao_do_endereco`, com tudo nulo por padrão. */
+    const linha = (extras) => {
+      const vazia = { situacao: null, slug_atual: null };
+      for (const campo of entregaDominio.CAMPOS_DE_CONTEUDO) vazia[campo] = null;
+      return { ...vazia, ...extras };
+    };
+
+    const comAmbiente = async (extras, acao) => {
+      const guardado = {};
+      for (const [nome, valor] of Object.entries(extras)) {
+        guardado[nome] = process.env[nome];
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+      try {
+        return await acao();
+      } finally {
+        for (const [nome, valor] of Object.entries(guardado)) {
+          if (valor === undefined) delete process.env[nome];
+          else process.env[nome] = valor;
+        }
+      }
+    };
+    const dirigirEntrega = (slug) =>
+      comAmbiente(
+        {
+          VITE_DOMINIO_DO_SITE: DOMINIO,
+          SUPABASE_URL: URL_DE_MENTIRA,
+          SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_de_mentira",
+          VITE_SUPABASE_URL: undefined,
+          VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+        },
+        () => dirigir("blog.js", { method: "GET", url: `/api/blog?slug=${slug}`, query: { slug } }),
+      );
+
+    try {
+      /* CONTROLE: o servidor de mentira está de pé e a rota chega nele. Sem
+         isto, uma rota que falhasse ANTES da leitura daria 500 em todos os
+         casos e as asserções de status abaixo acusariam a coisa errada. */
+      linhaDaEntrega = linha({ situacao: "inexistente" });
+      await dirigirEntrega("qualquer-coisa");
+      afirmar(
+        "controle: a rota alcança a função de banco — o Supabase de mentira recebeu a chamada",
+        pedidos.length > 0 &&
+          pedidos.some((p) => p.url.includes("rpc/situacao_do_endereco")),
+        pedidos.map((p) => p.url).join(" | ") || "nenhum pedido",
+      );
+
+      /* ── CADA SITUAÇÃO RESPONDE O SEU STATUS ──────────────────────── */
+
+      const CASOS = [
+        [
+          "no-ar",
+          linha({
+            situacao: "no-ar",
+            slug_atual: "artigo-vivo",
+            titulo: "O artigo que está no ar",
+            resumo: "Um resumo.",
+            conteudo_html: "<p>O texto do artigo.</p>",
+          }),
+          200,
+        ],
+        ["arquivado", linha({ situacao: "arquivado", slug_atual: "artigo-velho" }), 410],
+        ["inexistente", linha({ situacao: "inexistente" }), 404],
+        [
+          "rascunho — que chega como inexistente desde a 4.2",
+          linha({ situacao: "inexistente" }),
+          404,
+        ],
+      ];
+      const respostas = new Map();
+      for (const [nome, valor, esperado] of CASOS) {
+        linhaDaEntrega = valor;
+        const r = await dirigirEntrega("um-endereco");
+        respostas.set(nome, r);
+        afirmar(
+          `situação ${nome}: a rota responde ${esperado}`,
+          r.codigo === esperado,
+          `respondeu ${r.codigo}`,
+        );
+      }
+      /* ★ E NENHUMA DELAS RESPONDE 200, EXCETO A QUE ESTÁ NO AR ★
+         É o critério, dito no sentido em que ele é violado: o defeito não é
+         "o código está errado", é "tudo responde sucesso". */
+      const responderam200 = [...respostas.entries()].filter(
+        ([nome, r]) => r.codigo === 200 && !nome.startsWith("no-ar"),
+      );
+      afirmar(
+        "e NENHUMA situação fora do ar responde 200 — o defeito não é o código errado, é tudo responder sucesso",
+        responderam200.length === 0,
+        responderam200.map(([n]) => n).join(" | ") || "nenhuma",
+      );
+
+      /* A LISTAGEM continua 200: ela é uma página que existe, e não uma
+         situação omitida. */
+      const listagem = await comAmbiente(
+        { VITE_DOMINIO_DO_SITE: DOMINIO },
+        () => dirigir("blog.js", { method: "GET", url: "/api/blog" }),
+      );
+      afirmar(
+        "a listagem `/blog` continua 200 — ela é uma página que existe, e não uma situação esquecida",
+        listagem.codigo === 200,
+        String(listagem.codigo),
+      );
+
+      /* ── O 410 AINDA DESENHA, E NÃO TRAZ O ARTIGO ─────────────────── */
+      //
+      // O status é para a máquina; a pessoa que clicou num link velho merece
+      // uma página que carrega e explica. O que não pode vir é o conteúdo.
+
+      const doArquivado = respostas.get("arquivado");
+      afirmar(
+        "o 410 ainda serve a página — status é para a máquina, e quem clicou num link velho merece uma tela que carrega",
+        /id="root"/.test(String(doArquivado?.corpo ?? "")) &&
+          String(doArquivado?.cabecalhos["content-type"] ?? "").startsWith("text/html"),
+        `${doArquivado?.codigo} | ${String(doArquivado?.corpo ?? "").length} caracteres`,
+      );
+      afirmar(
+        "e NÃO traz o artigo — nem corpo, nem título do Post",
+        !String(doArquivado?.corpo ?? "").includes('<article class="artigo">') &&
+          !String(doArquivado?.corpo ?? "").includes("O artigo que está no ar"),
+        "sem artigo",
+      );
+
+      /* ── O 301 NÃO SERVE NADA ─────────────────────────────────────── */
+      //
+      // A tentação é servir a página junto. O navegador segue o `Location` e
+      // descarta o corpo, então o único efeito seria o rastreador que NÃO
+      // segue enxergar conteúdo num endereço que o site acabou de declarar
+      // morto — ensinando que ele é válido. É o oposto de 301.
+
+      linhaDaEntrega = linha({
+        situacao: "redirecionado",
+        slug_atual: "o-endereco-de-hoje",
+      });
+      const doRedirecionado = await dirigirEntrega("endereco-aposentado");
+      afirmar(
+        "endereço aposentado responde 301 — permanente, e não 302",
+        doRedirecionado.codigo === 301,
+        String(doRedirecionado.codigo),
+      );
+      afirmar(
+        "e o `Location` é ABSOLUTO, no Domínio Canônico, apontando para o endereço de HOJE",
+        doRedirecionado.cabecalhos.location === `${DOMINIO}/blog/o-endereco-de-hoje`,
+        String(doRedirecionado.cabecalhos.location ?? "ausente"),
+      );
+      const corpoDoRedirecionado = String(doRedirecionado.corpo ?? "");
+      afirmar(
+        "e ele NÃO serve conteúdo — nem shell, nem metadado, nem artigo: servir ensinaria que o endereço morto é válido",
+        !corpoDoRedirecionado.includes("id=\"root\"") &&
+          !corpoDoRedirecionado.includes("og:title") &&
+          !corpoDoRedirecionado.includes("<article") &&
+          corpoDoRedirecionado.length < 200,
+        `${corpoDoRedirecionado.length} caracteres: ${corpoDoRedirecionado.slice(0, 80)}`,
+      );
+
+      /* ── A CANÔNICA, POR STATUS ───────────────────────────────────── */
+
+      const doNoAr = respostas.get("no-ar");
+      const canonicaDo = (r) =>
+        /rel="canonical" href="([^"]*)"/.exec(String(r?.corpo ?? ""))?.[1] ?? "";
+      afirmar(
+        "no 200, a canônica é absoluta, no Domínio Canônico, e aponta para o PRÓPRIO Post",
+        canonicaDo(doNoAr) === `${DOMINIO}/blog/artigo-vivo`,
+        canonicaDo(doNoAr) || "ausente",
+      );
+      /* ★ E `/api/` NÃO APARECE EM RESPOSTA NENHUMA ★
+         Numa rota reescrita o caminho que chega é o da FUNÇÃO. Derivar a
+         canônica dali produziria `/api/blog` — um endereço que o visitante
+         nunca vê e que o rastreador passaria a considerar o oficial. */
+      const comApi = [...respostas.values(), doRedirecionado, listagem].filter((r) =>
+        String(r?.corpo ?? "").includes("/api/"),
+      );
+      afirmar(
+        "e `/api/` não aparece em resposta nenhuma — o caminho da função nunca vira endereço público",
+        comApi.length === 0,
+        `${comApi.length} resposta(s) com /api/`,
+      );
+      afirmar(
+        "autoteste: o detector de `/api/` ACUSA um plantado",
+        [{ corpo: `<link href="${DOMINIO}/api/blog" />` }].filter((r) =>
+          String(r?.corpo ?? "").includes("/api/"),
+        ).length === 1,
+        "acusou",
+      );
+
+      /* ── FALHA DE LEITURA NÃO VIRA 404 ───────────────────────────── */
+      //
+      // 404 afirmaria que o Post não existe. Ele pode existir e o banco estar
+      // fora do ar — e o buscador que recebe 404 tira a página do índice.
+
+      const semRede = await comAmbiente(
+        {
+          VITE_DOMINIO_DO_SITE: DOMINIO,
+          SUPABASE_URL: "http://127.0.0.1:1",
+          SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_de_mentira",
+          VITE_SUPABASE_URL: undefined,
+          VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+        },
+        () => dirigir("blog.js", { method: "GET", url: "/api/blog?slug=x", query: { slug: "x" } }),
+      );
+      afirmar(
+        "leitura que falha responde 500, e NUNCA 404 — 404 afirmaria que o Post não existe, e tiraria a página do índice",
+        semRede.codigo === 500,
+        String(semRede.codigo),
+      );
+    } finally {
+      await new Promise((pronto) => servidorDaEntrega.close(pronto));
+    }
+
+    /* ── `jaEsteveNoAr` TEM UM DONO SÓ ───────────────────────────────── */
+    //
+    // Ela era privada em `api/_nucleo/salvarPost.js`, e o Painel passou a
+    // precisar da MESMA pergunta. Esta regra JÁ MUDOU uma vez — era
+    // `publicado_em !== null`, e deixou de servir na Story 2.6 quando a gaveta
+    // passou a preencher a data. Uma cópia feita antes disso teria ficado com a
+    // versão velha, e as duas pontas discordariam sobre o mesmo Post.
+
+    /* A varredura percorre `src/` e `api/` inteiros — o mesmo molde que esta
+       ferramenta já usa para achar quem importa o renderizador. Uma lista de
+       arquivos escrita à mão não acharia a cópia que alguém pusesse num
+       arquivo novo, que é o único caso que importa. */
+    const fontesDaRegra = [];
+    const varrerFontes = (dir) => {
+      if (!existsSync(dir)) return;
+      for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+        const completo = path.join(dir, entrada.name);
+        if (entrada.isDirectory()) varrerFontes(completo);
+        else if (/\.(js|jsx|mjs)$/.test(entrada.name)) fontesDaRegra.push(completo);
+      }
+    };
+    varrerFontes(path.join(raiz, "src"));
+    varrerFontes(path.join(raiz, "api"));
+
+    const declaracoes = [];
+    for (const arquivo of fontesDaRegra) {
+      const relativo = path.relative(raiz, arquivo).split(path.sep).join("/");
+      const codigo = mascararComentariosJs(readFileSync(arquivo, "utf8"));
+      if (/function\s+jaEsteveNoAr\s*\(/.test(codigo)) declaracoes.push(relativo);
+    }
+    afirmar(
+      "`jaEsteveNoAr` é DECLARADA num arquivo só, e é o módulo do domínio — a regra já mudou uma vez, e uma cópia teria ficado com a versão velha",
+      declaracoes.length === 1 &&
+        declaracoes[0] === "src/domain/blog/estados.js",
+      declaracoes.join(", ") || "nenhuma declaração encontrada",
+    );
+    afirmar(
+      "autoteste: o detector de declaração ACUSA uma cópia plantada",
+      /function\s+jaEsteveNoAr\s*\(/.test("function jaEsteveNoAr(post) { return true; }"),
+      "acusou",
+    );
+
+    /* E O CAMINHO DE ESCRITA A IMPORTA. Sem esta metade, apagar a chamada em
+       `salvarPost.js` deixaria a asserção acima verde — e o endereço anterior
+       deixaria de ser aposentado, quebrando toda URL já publicada. */
+    const doSalvar = mascararComentariosJs(ler("api/_nucleo/salvarPost.js"));
+    afirmar(
+      "e o caminho de escrita a IMPORTA do domínio, e a USA para decidir se aposenta o endereço",
+      /import\s*\{[^}]*jaEsteveNoAr[^}]*\}\s*from\s*["'][^"']*domain\/blog\/estados/.test(
+        doSalvar,
+      ) && /jaEsteveNoAr\s*\(/.test(doSalvar),
+      doSalvar.includes("jaEsteveNoAr") ? "importa e usa" : "NÃO menciona",
+    );
+
+    /* ── A CONFIRMAÇÃO APARECE SÓ QUANDO PRECISA ─────────────────────── */
+    //
+    // Um aviso que aparece quando não precisa é um aviso que ninguém lê quando
+    // precisa. A matriz é nomeada, caso a caso.
+
+    const ONTEM = new Date(Date.now() - 86400000).toISOString();
+    const AMANHA = new Date(Date.now() + 86400000).toISOString();
+    const MATRIZ = [
+      [
+        "Post publicado com data no passado, endereço trocado",
+        { original: { slug: "antes", estado: "publicado", publicado_em: ONTEM }, slug: "depois" },
+        true,
+      ],
+      [
+        "Post arquivado que esteve no ar, endereço trocado",
+        { original: { slug: "antes", estado: "arquivado", publicado_em: ONTEM }, slug: "depois" },
+        true,
+      ],
+      [
+        "rascunho estreando endereço — ninguém viu a URL",
+        { original: { slug: "antes", estado: "rascunho", publicado_em: ONTEM }, slug: "depois" },
+        false,
+      ],
+      [
+        "agendado por vir — a URL ainda não existe",
+        { original: { slug: "antes", estado: "agendado", publicado_em: AMANHA }, slug: "depois" },
+        false,
+      ],
+      [
+        "endereço IGUAL ao gravado — não houve troca",
+        { original: { slug: "antes", estado: "publicado", publicado_em: ONTEM }, slug: "antes" },
+        false,
+      ],
+      [
+        "Post nascendo — não há original",
+        { original: null, slug: "estreia" },
+        false,
+      ],
+      [
+        "endereço vazio na tela — o salvamento vai recusar antes",
+        { original: { slug: "antes", estado: "publicado", publicado_em: ONTEM }, slug: "  " },
+        false,
+      ],
+    ];
+    const erraram = MATRIZ.filter(
+      ([, entrada, esperado]) =>
+        slugDominio.trocaDeEnderecoQuebraLinks(entrada) !== esperado,
+    );
+    afirmar(
+      `a confirmação de troca de endereço aparece só quando precisa — os ${MATRIZ.length} casos da matriz`,
+      erraram.length === 0,
+      erraram.map(([n]) => n).join(" | ") || "os sete",
+    );
+    /* CONTROLE: pelo menos um caso de cada lado. Uma matriz toda de um lado só
+       passaria com uma função que devolvesse sempre a mesma coisa. */
+    afirmar(
+      "controle: a matriz tem caso dos DOIS lados — uma função que sempre devolvesse o mesmo passaria numa matriz de um lado só",
+      MATRIZ.some(([, , e]) => e === true) && MATRIZ.some(([, , e]) => e === false),
+      `${MATRIZ.filter(([, , e]) => e).length} sim / ${MATRIZ.filter(([, , e]) => !e).length} não`,
+    );
+    /* ★ E O PAINEL DECIDE PELA MESMA FUNÇÃO ★
+       A decisão mora no domínio justamente porque tem dois consumidores com
+       finalidades opostas: o servidor decide se APOSENTA, o Painel decide se
+       PERGUNTA. Um Painel com regra própria avisaria de uma quebra que o
+       servidor não vai causar — ou calaria sobre uma que vai. */
+    const doEditor = mascararComentariosJs(ler("src/admin/blog/EditorDePost.jsx"));
+    afirmar(
+      "o Editor decide pela MESMA função do domínio — regra própria no Painel avisaria de quebra que o servidor não causa",
+      /import\s*\{[^}]*trocaDeEnderecoQuebraLinks[^}]*\}\s*from\s*["'][^"']*domain\/blog\/slug/.test(
+        doEditor,
+      ) && /trocaDeEnderecoQuebraLinks\s*\(/.test(doEditor),
+      doEditor.includes("trocaDeEnderecoQuebraLinks") ? "importa e usa" : "NÃO usa",
+    );
+    /* E ELE NÃO TEM SEGUNDA OPINIÃO. A regra velha, que a Story 2.6 corrigiu,
+       é `publicado_em !== null` — se ela reaparecer numa tela, as duas pontas
+       voltam a discordar sobre o mesmo Post. */
+    afirmar(
+      "e não reescreve a regra que a Story 2.6 já corrigiu — `publicado_em !== null` não decide nada no Painel",
+      !/publicado_em\s*!==\s*null/.test(doEditor) &&
+        !/publicado_em\s*!==\s*null/.test(mascararComentariosJs(ler("src/admin/blog/enderecos.js"))),
+      "sem segunda opinião",
+    );
+
+    /* E A DESCRIÇÃO NOMEIA OS DOIS ENDEREÇOS. "O endereço vai mudar" obrigaria
+       o Autor a lembrar o que digitou três campos acima. */
+    const frase = enderecosDoPainel.descricaoDaTrocaDeEndereco({
+      de: "endereco-antigo",
+      para: "endereco-novo",
+    });
+    afirmar(
+      "e a frase da confirmação NOMEIA os dois endereços — ver os dois lado a lado é o que a torna uma conferência",
+      frase.includes("endereco-antigo") && frase.includes("endereco-novo"),
+      frase.slice(0, 120),
+    );
+
+    /* ── E `jaEsteveNoAr` RESPONDE CERTO ─────────────────────────────── */
+    //
+    // Ela é a raiz das duas decisões, e a Story 2.6 já a corrigiu uma vez.
+
+    const CASOS_DO_AR = [
+      ["rascunho com data no passado — invisível por construção", { estado: "rascunho", publicado_em: ONTEM }, false],
+      ["publicado com data no passado", { estado: "publicado", publicado_em: ONTEM }, true],
+      ["agendado por vir — ninguém viu", { estado: "agendado", publicado_em: AMANHA }, false],
+      ["agendado cuja hora chegou", { estado: "agendado", publicado_em: ONTEM }, true],
+      ["arquivado que esteve no ar — o link continua na mão de quem guardou", { estado: "arquivado", publicado_em: ONTEM }, true],
+      ["sem data nenhuma", { estado: "publicado", publicado_em: null }, false],
+    ];
+    const erradosNoAr = CASOS_DO_AR.filter(
+      ([, post, esperado]) => estadosDominio.jaEsteveNoAr(post) !== esperado,
+    );
+    afirmar(
+      `\`jaEsteveNoAr\` responde certo nos ${CASOS_DO_AR.length} casos — inclusive o rascunho com data, que é o engano que a Story 2.6 corrigiu`,
+      erradosNoAr.length === 0,
+      erradosNoAr.map(([n]) => n).join(" | ") || "os seis",
+    );
+  }
+
   const semDominio = await comDominio(null, () =>
     dirigir("blog.js", { method: "GET", url: "/api/blog?slug=qualquer" }),
   );

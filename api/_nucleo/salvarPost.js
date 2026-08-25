@@ -113,7 +113,7 @@ import {
    segunda tabela escrita aqui divergiria da barra de ações na primeira mudança,
    e a divergência apareceria como botão que falha — ou, pior, como transição
    que a barra não oferece e o servidor aceita. */
-import { ESTADOS, ehEstado } from "../../src/domain/blog/estados.js";
+import { ESTADOS, ehEstado, jaEsteveNoAr } from "../../src/domain/blog/estados.js";
 import {
   ACAO_PUBLICAR,
   ESTADO_INICIAL,
@@ -1770,25 +1770,15 @@ function resolverTransicao({ estadoAtual, campos, dataAtual, agora = Date.now() 
   };
 }
 
-/**
- * O Post já esteve visível para quem não tem sessão?
- *
- * É a pergunta que decide se existe link a preservar, e ela é respondida pela
- * MESMA regra da política de leitura anônima: estado publicável e data de
- * publicação já atingida. Ler `publicado_em !== null` sozinho, como a 2.5 fazia,
- * deixou de servir na 2.6 — agora a gaveta preenche a data, e um rascunho com
- * data futura passaria a ser tratado como Post no ar, aposentando endereços que
- * ninguém nunca viu.
- *
- * Rascunho é `false` sempre: rascunho é invisível por construção. Arquivado com
- * data no passado é `true`: ele esteve no ar, e o link continua na mão de quem
- * o guardou.
- */
-function jaEsteveNoAr(post) {
-  if (post?.estado === "rascunho") return false;
-  const quando = post?.publicado_em ? Date.parse(post.publicado_em) : Number.NaN;
-  return Number.isFinite(quando) && quando <= Date.now();
-}
+/* jaEsteveNoAr MUDOU-SE PARA O DOMINIO na Story 4.5.
+
+   Ela era privada aqui, e o Painel passou a precisar da MESMA pergunta para
+   avisar o Autor de que trocar o endereco quebra links ja compartilhados.
+   Copia-la seria a segunda opiniao que diverge na primeira mudanca — e esta
+   regra JA mudou uma vez, na Story 2.6, por exatamente esse motivo.
+
+   Vive em `src/domain/blog/estados.js`, e as duas pontas a importam. */
+
 
 /**
  * Este endereço pode pertencer a este Post?

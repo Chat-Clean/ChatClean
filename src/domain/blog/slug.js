@@ -31,6 +31,11 @@
  * camada de dados (`data/blog/comum.js`), o núcleo da escrita e a restrição do
  * banco espelham este formato, e a verificação compara os quatro.
  */
+/* A pergunta "este Post ja esteve no ar?" vem de `estados.js`, e nao e
+   reescrita aqui: ela ja mudou uma vez, na Story 2.6, e uma copia teria ficado
+   com a versao velha. */
+import { jaEsteveNoAr } from "./estados.js";
+
 export const FORMATO_DE_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** O comprimento máximo de `posts.slug` e de `slugs_antigos.slug` no banco. */
@@ -163,4 +168,41 @@ export function problemaNoSlug(valor) {
 /** Atalho booleano de `problemaNoSlug`, para quem só precisa decidir. */
 export function ehSlug(valor) {
   return problemaNoSlug(valor) === null;
+}
+
+/**
+ * Trocar ESTE endereço quebra links já compartilhados?
+ *
+ * ─── POR QUE A PERGUNTA MORA NO DOMÍNIO ───────────────────────────────────
+ *
+ * Ela tem dois consumidores com finalidades opostas, e é isso que a tira de
+ * qualquer um dos dois: o caminho de escrita a usa para decidir se APOSENTA o
+ * endereço anterior, e o Painel a usa para decidir se PERGUNTA ao Autor antes
+ * de salvar (Story 4.5).
+ *
+ * Se as duas discordarem, o Painel avisa de uma quebra que não vai acontecer —
+ * ou, pior, cala sobre uma que vai. As duas ensinam a ignorar o aviso.
+ *
+ * `original` é o Post como está GRAVADO, e não como está na tela: comparar os
+ * valores da tela consigo mesmos daria `false` sempre, e o Estado e a data
+ * precisam ser os do banco porque a pergunta é sobre o Post que está no ar, e
+ * não sobre o que o Autor quer que ele vire.
+ *
+ * ─── TRÊS NÃOS, E CADA UM É UM CASO REAL ──────────────────────────────────
+ *
+ *   * Post nascendo — não há `original`, e não há link a quebrar.
+ *   * Endereço igual ao gravado — não houve troca. Salvar um Post publicado sem
+ *     mexer no endereço não pode disparar nada; aviso que aparece quando não
+ *     precisa é aviso que ninguém lê quando precisa.
+ *   * Post que nunca esteve no ar — rascunho estreando endereço. Ninguém viu a
+ *     URL, e o caminho de escrita nem aposenta.
+ */
+export function trocaDeEnderecoQuebraLinks({ original, slug } = {}) {
+  if (original === null || original === undefined) return false;
+
+  const antes = String(original.slug ?? "").trim();
+  const agora = String(slug ?? "").trim();
+  if (antes === "" || agora === "" || antes === agora) return false;
+
+  return jaEsteveNoAr(original);
 }
