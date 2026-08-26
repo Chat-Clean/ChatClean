@@ -145,7 +145,15 @@ export default async function handler(req, res) {
      um Post torto é defeito de um registro, e responder 500 tiraria todos os
      artigos do ar. O corpo é omitido, a página continua funcionando no
      navegador — onde a aplicação renderiza normalmente — e fica o rastro. */
-  const corpo = corpoDoArtigo({ situacao, post, canonica: pagina.canonica });
+  const corpo = corpoDoArtigo({
+    situacao,
+    post,
+    canonica: pagina.canonica,
+    /* Os metadados JA RESOLVIDOS viajam junto (Story 4.6): o dado estruturado
+       do artigo declara titulo, descricao e imagem, e le-los do Post de novo
+       seria a terceira opiniao sobre a mesma cadeia de heranca. */
+    pagina,
+  });
   if (corpo.defeito !== null) {
     console.error(`[entrega] ${corpo.defeito}`);
   }

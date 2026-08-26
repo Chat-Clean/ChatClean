@@ -33,6 +33,10 @@ import {
   ETIQUETAS_EMITIDAS,
 } from "../../src/render/blog/paraHtml.js";
 import { NO_AR } from "../../src/domain/blog/entrega.js";
+/* O ESCAPE VEM DA STORY 4.3, e não é reescrito aqui: a tabela é fechada e já
+   tem autoteste nos cinco caracteres. Uma segunda implementação do mesmo escape
+   é onde nasce a que esquece o `&`. */
+import { escapar } from "./metadados.js";
 
 /** Os marcadores da região do corpo. Mesma ideia da região de metadados. */
 export const MARCA_CORPO_INICIO = "<!-- CORPO-DO-ARTIGO:INICIO";
@@ -163,7 +167,7 @@ export function textoDoConteudo(html) {
  * fica, porque derrubar a rota por um registro torto tiraria o blog inteiro do
  * ar, e servir HTML desconhecido é pior que os dois.
  */
-export function corpoDoArtigo({ situacao, post, canonica }) {
+export function corpoDoArtigo({ situacao, post, canonica, pagina = null }) {
   if (situacao !== NO_AR || post === null || post === undefined) {
     return { html: "", defeito: null };
   }
@@ -178,14 +182,49 @@ export function corpoDoArtigo({ situacao, post, canonica }) {
   const conferido = conferirConteudo(conteudo);
   if (!conferido.ok) return { html: "", defeito: conferido.defeito };
 
-  const texto = textoDoConteudo(conteudo);
-  const dados = {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    headline: post.titulo ?? "",
-    articleBody: texto,
-    mainEntityOfPage: { "@type": "WebPage", "@id": canonica },
+  /* O TÍTULO, A DESCRIÇÃO E A IMAGEM VÊM DE `metadadosDaPagina` (Story 4.6),
+     que por sua vez sai de `metadadosDoPost`. Relê-los do Post aqui seria a
+     TERCEIRA opinião sobre a mesma cadeia de herança — e a que ninguém lembraria
+     de atualizar. Quando `pagina` não vem, o título cai no do Post: é o caminho
+     de quem chama sem os metadados resolvidos, e ele não inventa nada. */
+  const titulo = pagina?.titulo ?? post.titulo ?? "";
+  const dados = { "@context": "https://schema.org", "@type": "Article" };
+
+  /* CADA CAMPO É POSTO SÓ SE TIVER VALOR. `"author": {"name": ""}` declara que
+     o artigo tem um autor chamado nada; a ausência declara que não se sabe. O
+     validador do Google trata os dois de formas diferentes, e a segunda é a
+     verdade. Por isso a montagem é campo a campo, e não um objeto literal com
+     `?? ""` espalhado. */
+  const por = (chave, valor) => {
+    if (valor === null || valor === undefined || valor === "") return;
+    dados[chave] = valor;
   };
+
+  por("headline", titulo);
+  por("description", pagina?.descricao ?? null);
+  por("image", pagina?.imagem?.endereco ?? null);
+  por("articleBody", textoDoConteudo(conteudo));
+
+  const autor = typeof post.autor_nome === "string" ? post.autor_nome.trim() : "";
+  if (autor !== "") dados.author = { "@type": "Person", name: autor };
+
+  /* DATA INVENTADA É PIOR QUE DATA AUSENTE, e por isso a que não é reconhecível
+     como instante simplesmente não sai. */
+  const instante = (valor) => {
+    if (typeof valor !== "string" || valor === "") return null;
+    return Number.isFinite(Date.parse(valor)) ? valor : null;
+  };
+  const publicado = instante(post.publicado_em);
+  por("datePublished", publicado);
+  /* `dateModified` CAI EM `datePublished`, e é o único campo desta lista com
+     padrão. Um artigo nunca editado TEM data de modificação: a da publicação.
+     Omiti-la faria o buscador supor, e alguns supõem "hoje" — o que faz o
+     artigo parecer perpetuamente fresco e mina a confiança nas datas do site
+     inteiro. O padrão aqui é a verdade, e não uma conveniência. */
+  por("dateModified", instante(post.atualizado_em) ?? publicado);
+
+  por("inLanguage", "pt-BR");
+  por("mainEntityOfPage", canonica ? { "@type": "WebPage", "@id": canonica } : null);
 
   /* `JSON.stringify` é o que escapa aqui, e ele já resolve `<` e `&` dentro de
      string JSON — mas NÃO resolve `</script>`, que fecharia o bloco. A troca
@@ -198,6 +237,12 @@ export function corpoDoArtigo({ situacao, post, canonica }) {
          o navegador com JavaScript nunca desenhar isto. */
       "    <noscript>",
       '      <article class="artigo">',
+      /* ★ O ÚNICO `h1` DA PÁGINA (Story 4.6) ★
+         Ele vem do TÍTULO, e não do conteúdo — e não existe caminho pelo qual
+         apareça um segundo: `h1` está fora de `ETIQUETAS_EMITIDAS` desde a
+         Story 2.5, então o Autor não consegue escrever um, e a conferência
+         acima recusaria. A garantia é estrutural, e não disciplina. */
+      `        <h1>${escapar(titulo)}</h1>`,
       `        ${conteudo}`,
       "      </article>",
       "    </noscript>",

@@ -11895,6 +11895,382 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     `${daListagem.codigo} | ${String(daListagem.corpo ?? "").length} caracteres`,
   );
 
+  /* ══ STORY 4.6: DADOS ESTRUTURADOS E UM `h1` POR PÁGINA ════════════════ */
+  //
+  // O artigo servido tinha texto e NENHUM título: `h1` está fora do vocabulário
+  // do renderizador desde a Story 2.5, então o corpo abria direto no primeiro
+  // parágrafo. O rastreador recebia o artigo decapitado — sabia o que estava
+  // escrito, não sabia do que se tratava.
+  //
+  // E é a MESMA ausência que torna a garantia possível: o Autor não consegue
+  // escrever um `h1`, então o emissor pode pôr exatamente um e não existe
+  // caminho pelo qual apareça um segundo. Estrutural, e não disciplina.
+  {
+    secao("(4.6) os dados estruturados do artigo, e o único `h1`");
+
+    const artigo46 = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "artigo.js")).href
+    );
+    const meta46 = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "metadados.js")).href
+    );
+    const render46 = await import(
+      pathToFileURL(path.join(raiz, "src", "render", "blog", "paraHtml.js")).href
+    );
+    const entrega46 = await import(
+      pathToFileURL(path.join(raiz, "src", "domain", "blog", "entrega.js")).href
+    );
+    const RAIZ_46 = "https://chatclean.com.br";
+
+    const postCompleto = {
+      titulo: "O artigo que precisa de um título",
+      resumo: "A descrição que vem do Resumo.",
+      conteudo_html: "<h2>Um subtítulo</h2><p>O texto do artigo.</p>",
+      autor_nome: "Felix",
+      publicado_em: "2026-08-01T12:00:00.000Z",
+      atualizado_em: "2026-08-05T12:00:00.000Z",
+      imagem_url: "https://chatclean.com.br/capa.png",
+      imagem_alt: "A capa do artigo",
+      seo_titulo: null,
+      seo_descricao: null,
+      seo_imagem_url: null,
+    };
+    const corpoDe = (post, situacao = entrega46.NO_AR) => {
+      const pg = meta46.metadadosDaPagina({
+        situacao,
+        post,
+        slug: "o-artigo",
+        raiz: RAIZ_46,
+      });
+      return {
+        pagina: pg,
+        ...artigo46.corpoDoArtigo({
+          situacao,
+          post,
+          canonica: pg.canonica,
+          pagina: pg,
+        }),
+      };
+    };
+    const ldDe = (html) => {
+      const bruto = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(
+        String(html ?? ""),
+      )?.[1];
+      try {
+        return JSON.parse(String(bruto ?? "").replace(/<\\\//g, "</"));
+      } catch {
+        return null;
+      }
+    };
+
+    const doArtigo = corpoDe(postCompleto);
+
+    /* ── O CONTEÚDO NÃO PODE COMPETIR PELO `h1` ─────────────────────────── */
+    //
+    // As DUAS metades: a lista não tem `h1`, e a conferência recusa um plantado.
+    // A primeira sozinha é uma lista que ninguém aplica; a segunda sozinha não
+    // diz de onde vem a regra.
+
+    afirmar(
+      "`h1` está FORA do vocabulário do renderizador — é o que torna o único `h1` da página uma garantia estrutural, e não disciplina",
+      !render46.ETIQUETAS_EMITIDAS.includes("h1"),
+      render46.ETIQUETAS_EMITIDAS.join(", "),
+    );
+    /* E A CONFERÊNCIA APLICA. A lista sozinha é uma lista que ninguém consulta;
+       a recusa sozinha não diz de onde vem a regra. As duas juntas fecham. */
+    afirmar(
+      "e a conferência da Story 4.4 RECUSA um `<h1>` plantado no Conteúdo — o Autor não consegue escrever um segundo",
+      artigo46.conferirConteudo("<h1>Um título</h1>").ok === false &&
+        String(artigo46.conferirConteudo("<h1>x</h1>").defeito ?? "").includes("h1"),
+      String(artigo46.conferirConteudo("<h1>x</h1>").defeito ?? "").slice(0, 80),
+    );
+
+    /* ── UM `h1`, E É O TÍTULO DO POST ──────────────────────────────────── */
+
+    const quantosH1 = (html) => (String(html ?? "").match(/<h1[\s>]/gi) ?? []).length;
+    afirmar(
+      "o corpo servido traz EXATAMENTE um `h1`",
+      quantosH1(doArtigo.html) === 1,
+      `${quantosH1(doArtigo.html)} ocorrência(s)`,
+    );
+    afirmar(
+      "e ele é o TÍTULO do Post — o rastreador precisa saber do que o artigo trata, não só o que está escrito",
+      new RegExp(`<h1>${postCompleto.titulo}</h1>`).test(doArtigo.html),
+      /<h1>([^<]*)<\/h1>/.exec(doArtigo.html)?.[1] ?? "ausente",
+    );
+    afirmar(
+      "e ele vem ANTES do conteúdo, dentro do `<article class=\"artigo\">`",
+      doArtigo.html.indexOf("<h1>") > doArtigo.html.indexOf('<article class="artigo">') &&
+        doArtigo.html.indexOf("<h1>") < doArtigo.html.indexOf("<h2>"),
+      `article ${doArtigo.html.indexOf('<article class="artigo">')}, h1 ${doArtigo.html.indexOf("<h1>")}, h2 ${doArtigo.html.indexOf("<h2>")}`,
+    );
+
+    /* E O TÍTULO É ESCAPADO pela MESMA tabela da Story 4.3. Um título com
+       `</h1>` fecharia a etiqueta e derramaria o resto na página. */
+    const hostil46 = corpoDe({
+      ...postCompleto,
+      titulo: `Aspas " e & e </h1><script>x()</script>`,
+    });
+    /* ★ A ASSERÇÃO MEDE O `h1`, E NÃO O BLOCO INTEIRO ★
+       A primeira versão procurava `<script>x()` no documento todo e falhava —
+       com razão, e por um motivo que vale escrever: o título hostil aparece
+       LITERALMENTE dentro do JSON-LD, como DADO da chave `headline`, e ali ele
+       é inofensivo. O que fecharia o bloco é `</script`, e essa sequência já é
+       neutralizada desde a Story 4.4. Procurar a forma errada teria me feito
+       "consertar" um escape que já estava certo. */
+    const oH1Hostil = /<h1>([\s\S]*?)<\/h1>/.exec(hostil46.html)?.[1] ?? "";
+    afirmar(
+      "título hostil no `h1` sai ESCAPADO — continua sendo exatamente um, e o `</h1>` do texto não o fecha",
+      quantosH1(hostil46.html) === 1 &&
+        (hostil46.html.match(/<\/h1>/gi) ?? []).length === 1 &&
+        !/[<>"]/.test(oH1Hostil) &&
+        oH1Hostil.includes("&lt;") &&
+        oH1Hostil.includes("&amp;"),
+      oH1Hostil.slice(0, 100),
+    );
+    /* E O BLOCO DE DADO ESTRUTURADO CONTINUA FECHANDO ONDE DEVE. O título
+       hostil vive DENTRO dele como dado, e ali é inofensivo; o que não pode é a
+       sequência que o encerra aparecer crua. */
+    const jsonHostil =
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(
+        hostil46.html,
+      )?.[1] ?? "";
+    afirmar(
+      "e o bloco de dado estruturado não é fechado pelo texto do título — `</script` sai neutralizado",
+      ldDe(hostil46.html) !== null && !/<\/script>/.test(jsonHostil),
+      ldDe(hostil46.html) === null ? "não parseou" : "fecha onde deve",
+    );
+
+    /* ── ZERO `h1` ONDE NÃO HÁ ARTIGO ───────────────────────────────────── */
+
+    for (const situacao of entrega46.SITUACOES_SEM_CONTEUDO) {
+      const r = corpoDe(postCompleto, situacao);
+      afirmar(
+      `situação ${situacao}: NENHUM \`h1\` — não há artigo, e um título sozinho anunciaria um que não existe`,
+        quantosH1(r.html) === 0,
+        `${quantosH1(r.html)} ocorrência(s)`,
+      );
+    }
+    const semConteudo46 = corpoDe({ ...postCompleto, conteudo_html: null });
+    afirmar(
+      "Post sem Conteúdo: nenhum `h1` e nenhum dado estruturado — não se declara artigo sem corpo",
+      quantosH1(semConteudo46.html) === 0 && semConteudo46.html === "",
+      JSON.stringify(semConteudo46.html).slice(0, 60),
+    );
+
+    /* ── OS CAMPOS DO DADO ESTRUTURADO, UM A UM ─────────────────────────── */
+    //
+    // Conferidos contra o VALOR esperado, e não por "a chave existe": um
+    // emissor que pusesse a chave certa com o valor errado passaria.
+
+    const ld = ldDe(doArtigo.html);
+    afirmar(
+      "o dado estruturado do artigo é JSON válido e do tipo `Article`",
+      ld !== null && ld["@type"] === "Article" && ld["@context"] === "https://schema.org",
+      ld === null ? "não parseou" : `${ld["@type"]} / ${ld["@context"]}`,
+    );
+
+    const ESPERADOS_DO_LD = [
+      ["headline", () => ld?.headline === doArtigo.pagina.titulo],
+      ["description", () => ld?.description === doArtigo.pagina.descricao],
+      ["image", () => ld?.image === doArtigo.pagina.imagem.endereco],
+      [
+        "author",
+        () => ld?.author?.name === postCompleto.autor_nome && ld?.author?.["@type"] === "Person",
+      ],
+      ["datePublished", () => ld?.datePublished === postCompleto.publicado_em],
+      ["dateModified", () => ld?.dateModified === postCompleto.atualizado_em],
+    ];
+    for (const [campo, confere] of ESPERADOS_DO_LD) {
+      afirmar(
+        `o dado estruturado traz \`${campo}\` com o VALOR certo — a chave existir não é o critério`,
+        confere(),
+        JSON.stringify(ld?.[campo] ?? null).slice(0, 100),
+      );
+    }
+    /* ★ E OS TRÊS PRIMEIROS SAEM DA MESMA CADEIA DE HERANÇA DA STORY 4.3 ★
+       Comparar com `metadadosDaPagina` — e não com o Post — é o que impede a
+       TERCEIRA opinião sobre título, descrição e imagem. Com Título SEO
+       preenchido, o `headline` precisa segui-lo, e não o título do Post. */
+    const comSeo = corpoDe({
+      ...postCompleto,
+      seo_titulo: "O título que o Autor escreveu para a busca",
+      seo_descricao: "E a descrição dele.",
+    });
+    const ldComSeo = ldDe(comSeo.html);
+    afirmar(
+      "e `headline` e `description` seguem a HERANÇA — com campo de SEO preenchido, é ele que vale, e não o título do Post",
+      ldComSeo?.headline === "O título que o Autor escreveu para a busca" &&
+        ldComSeo?.description === "E a descrição dele." &&
+        ldComSeo?.headline !== postCompleto.titulo,
+      `${ldComSeo?.headline} | ${ldComSeo?.description}`,
+    );
+
+    /* ── CAMPO AUSENTE É OMITIDO, NUNCA VAZIO ───────────────────────────── */
+    //
+    // `"author": {"name": ""}` declara que o artigo tem um autor chamado nada;
+    // a ausência declara que não se sabe. O validador do Google trata os dois de
+    // formas diferentes, e a segunda é a verdade.
+
+    const magro = corpoDe({
+      ...postCompleto,
+      autor_nome: null,
+      resumo: null,
+      seo_descricao: null,
+    });
+    const ldMagro = ldDe(magro.html);
+    afirmar(
+      "sem Autor e sem descrição, as CHAVES não aparecem — chave com valor vazio afirma que o campo é nada",
+      ldMagro !== null &&
+        !("author" in ldMagro) &&
+        !("description" in ldMagro),
+      Object.keys(ldMagro ?? {}).join(", "),
+    );
+    /* CONTROLE POSITIVO: com os dois presentes, as chaves aparecem. Sem isto,
+       um emissor que nunca emitisse nenhum dos dois passaria. */
+    afirmar(
+      "controle positivo: com Autor e descrição, as duas chaves aparecem — a omissão acima não é o emissor calado",
+      "author" in (ld ?? {}) && "description" in (ld ?? {}),
+      Object.keys(ld ?? {}).join(", "),
+    );
+    /* E AUTOR SÓ COM ESPAÇOS conta como ausente — três espaços num campo livre
+       é um campo que a pessoa não preencheu. */
+    const ldEspacos = ldDe(corpoDe({ ...postCompleto, autor_nome: "   " }).html);
+    afirmar(
+      "Autor com só espaços conta como ausente — é um campo que ninguém preencheu",
+      ldEspacos !== null && !("author" in ldEspacos),
+      JSON.stringify(ldEspacos?.author ?? "omitido"),
+    );
+
+    /* ── `dateModified` CAI EM `datePublished` ──────────────────────────── */
+    //
+    // Um artigo nunca editado TEM data de modificação: a da publicação. Omitir
+    // faria o buscador supor, e alguns supõem "hoje" — o artigo pareceria
+    // perpetuamente fresco, e isso mina a confiança nas datas do site inteiro.
+
+    const nuncaEditado = ldDe(
+      corpoDe({ ...postCompleto, atualizado_em: null }).html,
+    );
+    afirmar(
+      "artigo nunca editado tem `dateModified` IGUAL a `datePublished` — omitir faria o buscador supor \"hoje\"",
+      nuncaEditado?.dateModified === postCompleto.publicado_em &&
+        nuncaEditado?.datePublished === postCompleto.publicado_em,
+      `${nuncaEditado?.datePublished} / ${nuncaEditado?.dateModified}`,
+    );
+    /* E DATA TORTA NÃO SAI. Data inventada é pior que data ausente. */
+    const dataTorta = ldDe(
+      corpoDe({
+        ...postCompleto,
+        publicado_em: "ontem de manhã",
+        atualizado_em: null,
+      }).html,
+    );
+    afirmar(
+      "data que não é instante NÃO é emitida — data inventada é pior que data ausente",
+      dataTorta !== null && !("datePublished" in dataTorta) && !("dateModified" in dataTorta),
+      JSON.stringify({ p: dataTorta?.datePublished, m: dataTorta?.dateModified }),
+    );
+
+    /* ── O IDIOMA, DECLARADO ────────────────────────────────────────────── */
+
+    afirmar(
+      "o dado estruturado declara o idioma como `pt-BR`",
+      ld?.inLanguage === "pt-BR",
+      String(ld?.inLanguage ?? "ausente"),
+    );
+
+    /* ── OS DOIS `h1` DA APLICAÇÃO SÃO MUTUAMENTE EXCLUSIVOS ────────────── */
+    //
+    // ★ O ÉPICO ESTÁ DESATUALIZADO AQUI, E A ASSERÇÃO REGISTRA ISSO ★
+    //
+    // Ele diz que `BlogPost.jsx:235` transforma `# ` em outro `<h1>`. Esse
+    // renderizador de markdown FOI REMOVIDO, não adaptado — está escrito no
+    // cabeçalho do arquivo, porque ele emitia `h1` e `h4` que o Estilo do
+    // Artigo não tem. Seguir o épico ao pé da letra me faria procurar um
+    // defeito que já não existe e não olhar para o que sobrou.
+    //
+    // O que sobrou são DOIS `h1`: o do artigo e o da tela de erro. Eles nunca
+    // coexistem porque a tela de erro está atrás de um `return` ANTECIPADO —
+    // e é isso que se mede, por posição, e não a contagem, que seria 2.
+
+    const telaDoArtigo = ler("src/pages/BlogPost.jsx");
+    const posicoesDeH1 = [...telaDoArtigo.matchAll(/<(?:motion\.)?h1[\s>]/g)].map(
+      (m) => m.index,
+    );
+    afirmar(
+      "a tela do artigo tem exatamente DOIS `h1` no arquivo — o do artigo e o da tela de erro",
+      posicoesDeH1.length === 2,
+      `${posicoesDeH1.length} ocorrência(s)`,
+    );
+    /* ─── O QUE OS SEPARA É A FRONTEIRA DE `SituacaoRuim` ───────────────────
+       A primeira versão desta asserção usou o `return` do caminho feliz como
+       divisor, e falhou: os DOIS `h1` ficam depois dele. O motivo é que a tela
+       de erro não é um ramo do mesmo `return` — ela é um COMPONENTE PRÓPRIO,
+       `SituacaoRuim`, declarado adiante no arquivo.
+
+       A exclusividade vem daí: o `h1` do artigo mora no componente principal, o
+       da tela de erro mora dentro de `SituacaoRuim`, e a CHAMADA de
+       `SituacaoRuim` está num `return` antecipado — antes de o artigo começar a
+       desenhar. Medir o divisor errado teria acusado uma estrutura correta. */
+    const inicioDeSituacaoRuim = telaDoArtigo.indexOf("function SituacaoRuim(");
+    const chamadaDeSituacaoRuim = telaDoArtigo.indexOf("<SituacaoRuim");
+    afirmar(
+      "e eles estão em componentes DIFERENTES — o do erro vive em `SituacaoRuim`, o do artigo no componente principal",
+      posicoesDeH1.length === 2 &&
+        inicioDeSituacaoRuim > 0 &&
+        posicoesDeH1[0] < inicioDeSituacaoRuim &&
+        posicoesDeH1[1] > inicioDeSituacaoRuim,
+      `h1 em ${posicoesDeH1.join(" e ")}, \`SituacaoRuim\` declarada em ${inicioDeSituacaoRuim}`,
+    );
+    /* ★ E HÁ UM `return` ENTRE A CHAMADA DA TELA DE ERRO E O `h1` DO ARTIGO ★
+       É isto que fecha a exclusividade, e a primeira versão desta asserção
+       errou o alvo: ela usava `data-tela="artigo-publico"` como marca do
+       caminho feliz, e essa marca aparece DUAS vezes — a casca da tela de erro
+       tem a mesma. O `indexOf` achava a primeira, que é justamente a errada.
+
+       O que se mede é a estrutura: a chamada de `SituacaoRuim` vem antes do
+       `h1` do artigo, e existe um `return` no meio. Logo, quando a tela de erro
+       desenha, o artigo nem chega a ser avaliado — e mover a chamada para
+       dentro do artigo derrubaria esta asserção, que é o ponto. */
+    const retornoEntreOsDois =
+      chamadaDeSituacaoRuim > 0 && posicoesDeH1.length === 2
+        ? telaDoArtigo.slice(chamadaDeSituacaoRuim, posicoesDeH1[0]).indexOf("return (")
+        : -1;
+    afirmar(
+      "e há um `return` entre a chamada da tela de erro e o `h1` do artigo — quando o erro desenha, o artigo nem é avaliado",
+      chamadaDeSituacaoRuim > 0 &&
+        chamadaDeSituacaoRuim < posicoesDeH1[0] &&
+        retornoEntreOsDois !== -1,
+      `chamada em ${chamadaDeSituacaoRuim}, h1 do artigo em ${posicoesDeH1[0]}, \`return (\` no meio: ${retornoEntreOsDois !== -1}`,
+    );
+    /* AUTOTESTE do detector: ele precisa enxergar `<motion.h1` também. A tela
+       do artigo usa a versão animada, e um detector que só casasse `<h1` acharam
+       um só — e a asserção de "exatamente dois" falharia pelo motivo errado. */
+    afirmar(
+      "autoteste: o detector enxerga `<h1` E `<motion.h1` — a tela do artigo usa a versão animada",
+      [..."<h1 x><motion.h1 y>".matchAll(/<(?:motion\.)?h1[\s>]/g)].length === 2,
+      "acusou os dois",
+    );
+
+    /* ── E NENHUMA IMAGEM NO CORPO SERVIDO ──────────────────────────────── */
+    //
+    // O critério pede alternativo em toda imagem exibida. No corpo servido não
+    // há nenhuma — `img` está fora do vocabulário —, e isso é MEDIDO, e não
+    // deduzido: se `img` entrasse na lista um dia, esta asserção acusaria antes
+    // de a primeira imagem sem alternativo ser servida.
+
+    afirmar(
+      "`img` está fora do vocabulário do renderizador — o corpo servido não pode ter imagem sem alternativo porque não pode ter imagem",
+      !render46.ETIQUETAS_EMITIDAS.includes("img"),
+      render46.ETIQUETAS_EMITIDAS.join(", "),
+    );
+    afirmar(
+      "e o corpo servido de fato não traz nenhuma `<img>`",
+      !/<img[\s>]/i.test(doArtigo.html),
+      (doArtigo.html.match(/<img[\s>]/gi) ?? []).join(" ") || "nenhuma",
+    );
+  }
+
   /* ══ STORY 4.5: O STATUS DIZ A VERDADE ═════════════════════════════════ */
   //
   // Desde a 4.1 a rota respondia 200 para tudo. Um artigo arquivado dizia
@@ -12166,6 +12542,81 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
           String(r?.corpo ?? "").includes("/api/"),
         ).length === 1,
         "acusou",
+      );
+
+      /* ── STORY 4.6, NO DOCUMENTO INTEIRO ─────────────────────────── */
+      //
+      // O que veio na seção (4.6) julga o EMISSOR. Estas julgam o DOCUMENTO
+      // que a rota devolve: é nele que o `h1` precisa ser único, e é nele que
+      // os três blocos de dado estruturado convivem.
+
+      const documentoNoAr = String(doNoAr?.corpo ?? "");
+      const h1sDoDocumento = documentoNoAr.match(/<h1[\s>]/gi) ?? [];
+      const oH1Servido = /<h1>([^<]*)<\/h1>/.exec(documentoNoAr)?.[1] ?? null;
+      afirmar(
+        "o DOCUMENTO servido de um Post tem exatamente um `h1`, e ele é o título do Post",
+        h1sDoDocumento.length === 1 &&
+          oH1Servido === "O artigo que está no ar",
+        `${h1sDoDocumento.length} ocorrência(s): ${oH1Servido ?? "nenhuma"}`,
+      );
+      /* E ZERO nas páginas que NÃO são artigo. Um `h1` sobrando no 410 ou na
+         listagem anunciaria um artigo que não está ali. */
+      const comH1Indevido = [
+        ["arquivado (410)", String(respostas.get("arquivado")?.corpo ?? "")],
+        ["inexistente (404)", String(respostas.get("inexistente")?.corpo ?? "")],
+        ["a listagem", String(listagem.corpo ?? "")],
+      ].filter(([, html]) => (html.match(/<h1[\s>]/gi) ?? []).length !== 0);
+      afirmar(
+        "e ZERO `h1` no 410, no 404 e na listagem — um título sozinho anunciaria um artigo que não existe",
+        comH1Indevido.length === 0,
+        comH1Indevido.map(([n]) => n).join(" | ") || "as três sem h1",
+      );
+
+      /* ── OS TRÊS `@type` CONVIVEM ────────────────────────────────── */
+      //
+      // `Organization` e `SoftwareApplication` ficaram FORA da região governada
+      // na Story 4.3, de propósito: são identidade do SITE. O bloco de artigo é
+      // um terceiro tipo no mesmo documento, o que é válido e esperado — e a
+      // asserção existe porque a troca de região poderia tê-los levado junto.
+
+      const blocosLd = [
+        ...documentoNoAr.matchAll(
+          /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g,
+        ),
+      ].map(([, textoDoBloco]) => {
+        try {
+          return JSON.parse(String(textoDoBloco).replace(/<\\\//g, "</"));
+        } catch {
+          return null;
+        }
+      });
+      const tiposLd = blocosLd.filter(Boolean).map((b) => b["@type"]);
+      afirmar(
+        "o documento traz os TRÊS tipos de dado estruturado — `Article`, `Organization` e `SoftwareApplication`",
+        ["Article", "Organization", "SoftwareApplication"].every((tipo) =>
+          tiposLd.includes(tipo),
+        ),
+        tiposLd.join(", ") || "nenhum",
+      );
+      afirmar(
+        "e TODOS os blocos são JSON válido — um bloco quebrado invalida a página inteira no validador",
+        blocosLd.length > 0 && blocosLd.every((b) => b !== null),
+        `${blocosLd.filter(Boolean).length} de ${blocosLd.length} parsearam`,
+      );
+      /* E O `Article` SÓ APARECE NA PÁGINA DE POST. Na listagem ele declararia
+         que a página de índice é um artigo. */
+      afirmar(
+        "e o `Article` NÃO aparece na listagem — lá ele declararia que a página de índice é um artigo",
+        !String(listagem.corpo ?? "").includes('"Article"'),
+        String(listagem.corpo ?? "").includes('"Article"') ? "aparece" : "ausente",
+      );
+
+      /* ── O IDIOMA, DECLARADO NO DOCUMENTO ────────────────────────── */
+
+      afirmar(
+        "o documento servido declara o idioma como `pt-BR`",
+        /<html[^>]*lang="pt-BR"/.test(documentoNoAr),
+        /<html[^>]*>/.exec(documentoNoAr)?.[0]?.slice(0, 60) ?? "sem <html>",
       );
 
       /* ── FALHA DE LEITURA NÃO VIRA 404 ───────────────────────────── */
