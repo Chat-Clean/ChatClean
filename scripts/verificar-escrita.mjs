@@ -11266,9 +11266,37 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
         else process.env[nome] = valor;
       }
     }
-    const indice = await comDominio(DOMINIO, () =>
-      dirigir("llms.js", { method: "GET", url: "/api/llms" }),
-    );
+    /* O ÍNDICE TAMBÉM PASSOU A CONSULTAR O BANCO (Story 4.8), e pela MESMA
+       função que o mapa. Sem leitura ele responde 500 — comportamento certo
+       — e a asserção de TIPO acusaria a coisa errada. */
+    const guardadoDoIndice = {
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_CHAVE_PUBLICAVEL: process.env.SUPABASE_CHAVE_PUBLICAVEL,
+      VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
+    };
+    const servidorDoIndice = criarServidorDoTipo((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("[]");
+      });
+    });
+    await new Promise((pronto) => servidorDoIndice.listen(0, "127.0.0.1", pronto));
+    process.env.SUPABASE_URL = `http://127.0.0.1:${servidorDoIndice.address().port}`;
+    process.env.SUPABASE_CHAVE_PUBLICAVEL = "sb_publishable_de_mentira";
+    delete process.env.VITE_SUPABASE_URL;
+    let indice;
+    try {
+      indice = await comDominio(DOMINIO, () =>
+        dirigir("llms.js", { method: "GET", url: "/api/llms" }),
+      );
+    } finally {
+      await new Promise((pronto) => servidorDoIndice.close(pronto));
+      for (const [nome, valor] of Object.entries(guardadoDoIndice)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    }
     afirmar(
       "o mapa sai como XML e o índice como texto — HTML num endereço que promete outra coisa é silêncio com outra roupa",
       String(mapa.cabecalhos["content-type"] ?? "").startsWith("application/xml") &&
@@ -11287,6 +11315,244 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       r.codigo === 405 && String(r.cabecalhos.allow ?? "").includes("GET"),
       `${r.codigo} | ${r.cabecalhos.allow}`,
     );
+  }
+
+  /* ══ STORY 4.8: O ÍNDICE PARA MOTORES GENERATIVOS ══════════════════════ */
+  //
+  // Um rastreador que quer citar o blog precisa saber O QUE EXISTE antes de
+  // decidir o que buscar. O índice listava cinco páginas fixas, sem descrição
+  // e sem nenhum artigo: dizia que o site existe, não dizia o que ele tem.
+  {
+    secao("(4.8) o índice para motores generativos");
+
+    const paginas48 = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "paginasDoSite.js")).href
+    );
+
+    /* ── UM SERVIDOR, AS DUAS ROTAS ───────────────────────────────────── */
+    //
+    // ★ É ASSIM QUE O CRITÉRIO DE "MESMA CONSULTA" É MEDIDO ★
+    //
+    // Afirmar que os dois arquivos importam `postsNoAr` prova que alguém
+    // escreveu o nome certo. Dirigir as DUAS rotas contra o mesmo servidor e
+    // comparar os conjuntos prova que elas ENTREGAM o mesmo — que é o que o
+    // critério quer dizer.
+
+    const { createServer: criarFonteUnica } = await import("node:http");
+    let postsDaFonte = [];
+    const fonteUnica = criarFonteUnica((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(postsDaFonte));
+      });
+    });
+    await new Promise((pronto) => fonteUnica.listen(0, "127.0.0.1", pronto));
+
+    const comFonte = async (acao) => {
+      const guardado = {};
+      const ambiente = {
+        VITE_DOMINIO_DO_SITE: DOMINIO,
+        SUPABASE_URL: `http://127.0.0.1:${fonteUnica.address().port}`,
+        SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_de_mentira",
+        VITE_SUPABASE_URL: undefined,
+        VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+      };
+      for (const [nome, valor] of Object.entries(ambiente)) {
+        guardado[nome] = process.env[nome];
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+      try {
+        return await acao();
+      } finally {
+        for (const [nome, valor] of Object.entries(guardado)) {
+          if (valor === undefined) delete process.env[nome];
+          else process.env[nome] = valor;
+        }
+      }
+    };
+
+    try {
+      postsDaFonte = [
+        {
+          slug: "como-automatizar",
+          titulo: "Como automatizar o atendimento",
+          resumo: "O que dá para automatizar sem parecer robô.",
+          publicado_em: "2026-08-01T10:00:00.000Z",
+          atualizado_em: "2026-08-05T10:00:00.000Z",
+        },
+        {
+          slug: "sem-resumo",
+          titulo: "Um artigo sem Resumo",
+          resumo: null,
+          publicado_em: "2026-08-02T10:00:00.000Z",
+          atualizado_em: null,
+        },
+      ];
+
+      const doIndice = await comFonte(() =>
+        dirigir("llms.js", { method: "GET", url: "/api/llms" }),
+      );
+      const doMapa = await comFonte(() =>
+        dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
+      );
+      const textoDoIndice = String(doIndice.corpo ?? "");
+
+      /* ── CADA POST, COM AS TRÊS COISAS ────────────────────────────── */
+
+      afirmar(
+        "cada Post no ar aparece no índice com TÍTULO, endereço ABSOLUTO e Resumo",
+        textoDoIndice.includes(
+          `- [Como automatizar o atendimento](${DOMINIO}/blog/como-automatizar): O que dá para automatizar sem parecer robô.`,
+        ),
+        textoDoIndice.split("\n").find((l) => l.includes("como-automatizar")) ?? "ausente",
+      );
+      afirmar(
+        "Post sem Resumo aparece com título e endereço, e SEM os dois-pontos — vazio leria como um resumo que é nada",
+        textoDoIndice.includes(`- [Um artigo sem Resumo](${DOMINIO}/blog/sem-resumo)`) &&
+          !textoDoIndice.includes(`${DOMINIO}/blog/sem-resumo): `),
+        textoDoIndice.split("\n").find((l) => l.includes("sem-resumo")) ?? "ausente",
+      );
+
+      /* ── A HOME E A PÁGINA PILAR, COM DESCRIÇÃO ───────────────────── */
+      //
+      // O critério as nomeia. E a descrição é o que o torna um índice, e não
+      // uma lista de endereços que o rastreador teria de buscar um a um.
+
+      for (const caminho of ["/", "/api-oficial-whatsapp"]) {
+        const daPagina = paginas48.PAGINAS_DO_SITE.find((p) => p.caminho === caminho);
+        afirmar(
+          `o índice traz \`${caminho}\` COM descrição — sem ela é lista de endereços, e não índice`,
+          typeof daPagina?.descricao === "string" &&
+            daPagina.descricao.trim() !== "" &&
+            textoDoIndice.includes(`- ${DOMINIO}${caminho}: ${daPagina.descricao}`),
+          textoDoIndice.split("\n").find((l) => l.startsWith(`- ${DOMINIO}${caminho}:`)) ??
+            "ausente",
+        );
+      }
+      /* E TODAS as fixas têm descrição — não só as duas que o critério nomeia. */
+      const semDescricao = paginas48.PAGINAS_DO_SITE.filter(
+        (p) => typeof p.descricao !== "string" || p.descricao.trim() === "",
+      );
+      afirmar(
+        `as ${paginas48.PAGINAS_DO_SITE.length} páginas fixas têm descrição — uma sem descrição vira endereço solto no meio de uma lista descrita`,
+        semDescricao.length === 0,
+        semDescricao.map((p) => p.caminho).join(", ") || "todas descritas",
+      );
+
+      /* ── ★ O ÍNDICE E O MAPA LISTAM OS MESMOS POSTS ★ ─────────────── */
+      //
+      // Nos DOIS sentidos: um índice que listasse a mais anunciaria artigo que
+      // o mapa não conhece, e um que listasse a menos esconderia artigo do
+      // rastreador que confia nele.
+
+      /* A EXTRACAO E POR OPERACAO DE STRING, e nao por expressao montada a
+         partir do dominio. A primeira versao montava uma e o `$&` da
+         substituicao foi interpretado na hora de escrever o arquivo — as duas
+         listas sairam VAZIAS, e a assercao de igualdade passou... porque duas
+         listas vazias sao iguais. Quem acusou foi o controle de vacuidade, e e
+         exatamente para isso que ele existe. */
+      const depoisDe = (texto, prefixo, ate) =>
+        texto
+          .split(prefixo)
+          .slice(1)
+          .map((pedaco) => pedaco.split(ate)[0])
+          .filter((s) => s !== "");
+      const doIndiceSlugs = depoisDe(textoDoIndice, `](${DOMINIO}/blog/`, ")");
+      const doMapaSlugs = depoisDe(
+        String(doMapa.corpo ?? ""),
+        `<loc>${DOMINIO}/blog/`,
+        "</loc>",
+      );
+      const soNoIndice = doIndiceSlugs.filter((s) => !doMapaSlugs.includes(s));
+      const soNoMapa = doMapaSlugs.filter((s) => !doIndiceSlugs.includes(s));
+      afirmar(
+        "o índice e o mapa listam EXATAMENTE os mesmos Posts — mesma fonte, mesma consulta, medido por comportamento",
+        doIndiceSlugs.length > 0 &&
+          soNoIndice.length === 0 &&
+          soNoMapa.length === 0,
+        `só no índice: ${soNoIndice.join(", ") || "nenhum"} | só no mapa: ${soNoMapa.join(", ") || "nenhum"}`,
+      );
+      /* CONTROLE: os dois viram Posts de verdade. Duas listas vazias são
+         iguais, e a asserção acima passaria por vacuidade. */
+      afirmar(
+        "controle: os dois viram os Posts que a fonte devolveu — duas listas vazias também seriam iguais",
+        doIndiceSlugs.length === postsDaFonte.length &&
+          doMapaSlugs.length === postsDaFonte.length,
+        `índice ${doIndiceSlugs.length}, mapa ${doMapaSlugs.length}, fonte ${postsDaFonte.length}`,
+      );
+
+      /* ── SEM POSTS, A SEÇÃO DE ARTIGOS SOME INTEIRA ───────────────── */
+      //
+      // Um cabeçalho sozinho afirmaria que existe uma lista e que ela está
+      // vazia, que é diferente de não afirmar.
+
+      postsDaFonte = [];
+      const vazio48 = await comFonte(() =>
+        dirigir("llms.js", { method: "GET", url: "/api/llms" }),
+      );
+      afirmar(
+        "sem Post no ar, a seção de artigos é OMITIDA inteira — cabeçalho sozinho afirmaria uma lista vazia",
+        !String(vazio48.corpo ?? "").includes("## Artigos") &&
+          String(vazio48.corpo ?? "").includes("## Páginas"),
+        String(vazio48.corpo ?? "").slice(-80),
+      );
+
+      /* ── É TEXTO SIMPLES DE VERDADE ───────────────────────────────── */
+
+      afirmar(
+        "o índice é texto simples — sem etiqueta de HTML; servir outra coisa num endereço que promete texto é silêncio com outra roupa",
+        !/<[a-z!/][^>]*>/i.test(textoDoIndice) &&
+          String(doIndice.cabecalhos["content-type"] ?? "").startsWith("text/plain"),
+        (textoDoIndice.match(/<[a-z!/][^>]*>/gi) ?? []).join(" ") || "sem etiquetas",
+      );
+      /* AUTOTESTE do detector: ele precisa acusar uma etiqueta plantada, e NÃO
+         acusar o `- [título](endereço)` que o formato usa. */
+      afirmar(
+        "autoteste: o detector de HTML acusa `<p>` e poupa o formato de link do índice",
+        /<[a-z!/][^>]*>/i.test("<p>x</p>") &&
+          !/<[a-z!/][^>]*>/i.test("- [Título](https://x/blog/a): Resumo."),
+        "acusou o certo",
+      );
+
+      /* ── LEITURA QUE FALHA ⇒ 500 ──────────────────────────────────── */
+
+      const semLeitura = await (async () => {
+        const guardado = process.env.SUPABASE_URL;
+        const guardadoVite = process.env.VITE_SUPABASE_URL;
+        process.env.SUPABASE_URL = "http://127.0.0.1:1";
+        delete process.env.VITE_SUPABASE_URL;
+        try {
+          return await comDominio(DOMINIO, () =>
+            dirigir("llms.js", { method: "GET", url: "/api/llms" }),
+          );
+        } finally {
+          if (guardado === undefined) delete process.env.SUPABASE_URL;
+          else process.env.SUPABASE_URL = guardado;
+          if (guardadoVite !== undefined) process.env.VITE_SUPABASE_URL = guardadoVite;
+        }
+      })();
+      afirmar(
+        "leitura que falha derruba o índice com 500 — servir só as fixas diria ao rastreador que o blog está vazio",
+        semLeitura.codigo === 500 &&
+          !String(semLeitura.corpo ?? "").includes("## Páginas"),
+        `${semLeitura.codigo} | ${String(semLeitura.corpo ?? "").slice(0, 60)}`,
+      );
+
+      /* ── E NENHUMA DAS DUAS DECIDE VISIBILIDADE ───────────────────── */
+
+      const codigoDoIndice = mascararComentariosJs(ler("api/llms.js"));
+      afirmar(
+        "a rota do índice NÃO decide visibilidade — quem decide é `posts_no_ar()`, a mesma do mapa",
+        !/publicado|rascunho|agendado|arquivado|estado/i.test(codigoDoIndice) &&
+          /postsNoAr\s*\(/.test(codigoDoIndice),
+        (codigoDoIndice.match(/publicado|rascunho|agendado|arquivado|estado/gi) ?? []).join(" ") ||
+          "não decide",
+      );
+    } finally {
+      await new Promise((pronto) => fonteUnica.close(pronto));
+    }
   }
 
   /* ── O CAMINHO DE LEITURA NÃO TOCA A CHAVE DE SERVIÇO ─────────────────── */

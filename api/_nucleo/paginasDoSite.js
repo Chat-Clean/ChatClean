@@ -22,11 +22,37 @@
 
 /** Caminho e importância de cada página fixa. Lista fechada. */
 export const PAGINAS_DO_SITE = Object.freeze([
-  Object.freeze({ caminho: "/", prioridade: "1.0", frequencia: "weekly" }),
-  Object.freeze({ caminho: "/api-oficial-whatsapp", prioridade: "0.9", frequencia: "monthly" }),
-  Object.freeze({ caminho: "/sobre", prioridade: "0.7", frequencia: "monthly" }),
-  Object.freeze({ caminho: "/blog", prioridade: "0.9", frequencia: "weekly" }),
-  Object.freeze({ caminho: "/carreiras", prioridade: "0.5", frequencia: "monthly" }),
+  Object.freeze({
+    caminho: "/",
+    prioridade: "1.0",
+    frequencia: "weekly",
+    descricao: "A plataforma: CRM e chatbot para WhatsApp com API Oficial.",
+  }),
+  Object.freeze({
+    caminho: "/api-oficial-whatsapp",
+    prioridade: "0.9",
+    frequencia: "monthly",
+    descricao:
+      "O que e a API Oficial do WhatsApp Business, como contratar e quanto custa.",
+  }),
+  Object.freeze({
+    caminho: "/sobre",
+    prioridade: "0.7",
+    frequencia: "monthly",
+    descricao: "Quem faz a ChatClean, e de onde.",
+  }),
+  Object.freeze({
+    caminho: "/blog",
+    prioridade: "0.9",
+    frequencia: "weekly",
+    descricao: "Artigos sobre atendimento no WhatsApp, automacao e gestao de clientes.",
+  }),
+  Object.freeze({
+    caminho: "/carreiras",
+    prioridade: "0.5",
+    frequencia: "monthly",
+    descricao: "Vagas abertas e como e trabalhar aqui.",
+  }),
 ]);
 
 /** Escapa o que vai dentro de um nó de XML. Endereço com `&` é o caso real. */

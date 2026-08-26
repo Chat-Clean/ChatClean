@@ -2692,10 +2692,16 @@ if (temToken && temChave) {
             noArSlugs.includes(slug("agendado-passado")),
           noArSlugs.map((s) => s.slice(prefixo.length)).join(", ") || "nenhum",
         );
+        /* ★ A COLUNA `resumo` ENTROU NA STORY 4.8 ★
+           O indice para motores generativos precisa dela, e o criterio manda o
+           mapa e o indice virem da MESMA consulta — entao a funcao cresceu, em
+           vez de nascer uma segunda. A assercao e sobre o CONJUNTO exato de
+           colunas: acrescentar so o nome novo a uma lista deixaria passar o dia
+           em que a funcao trouxesse conteudo junto. */
         const colunasNoAr = Object.keys(noArNossos[0] ?? {}).sort();
         afirmar(
-          "`posts_no_ar` devolve só endereço, título e os dois instantes — conteúdo e imagem não passam por aqui",
-          colunasNoAr.join(",") === "atualizado_em,publicado_em,slug,titulo",
+          "`posts_no_ar` devolve endereço, título, Resumo e os dois instantes — conteúdo do artigo e imagem não passam por aqui",
+          colunasNoAr.join(",") === "atualizado_em,publicado_em,resumo,slug,titulo",
           colunasNoAr.join(",") || "nenhuma coluna",
         );
 
