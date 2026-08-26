@@ -5,9 +5,9 @@
  *
  * Ela serve o SHELL DO BUILD — o mesmo `dist/index.html` que a hospedagem
  * serviria, com os ativos com hash daquele build — com a região de metadados
- * trocada pela do Post (Story 4.3), o corpo do artigo em `<noscript>` (4.4) e o
- * STATUS que diz a verdade (4.5). Os dados estruturados completos e a regra de
- * um `h1` por página são a 4.6, e é o que falta.
+ * trocada pela do Post (Story 4.3), o corpo do artigo em `<noscript>` (4.4), o
+ * STATUS que diz a verdade (4.5), os dados estruturados completos (4.6) e o
+ * diagnóstico de toda resposta (4.10).
  *
  * ─── O STATUS NÃO É DECIDIDO AQUI ─────────────────────────────────────────
  *
@@ -28,6 +28,20 @@
  * A canônica de um aposentado é o endereço de hoje — é para isso que a leitura
  * da Story 4.2 devolve `slug_atual`. Usar o da URL faria dois endereços se
  * declararem canônicos um do outro.
+ *
+ * ─── E QUANDO A LEITURA FALHA, O CORPO É O SHELL DE VERDADE (Story 4.10) ──
+ *
+ * O status continua 500 — a Story 4.5 protege isso, e continua valendo: nunca
+ * 200, nunca 404 numa falha de leitura. O que muda é o CORPO, que passa a ser
+ * a aplicação de verdade em vez de um parágrafo de texto. É a diferença entre
+ * quem lê o status (rastreador, monitoramento) e quem vê a página (uma
+ * pessoa): a máquina continua recebendo o sinal certo, e a pessoa recebe algo
+ * que carrega e funciona — a aplicação assume dali, buscando pelo cliente do
+ * navegador, exatamente como fazia antes deste Épico existir.
+ *
+ * Isto NÃO se aplica a `inexistente` nem a `arquivado`: essas são respostas
+ * HONESTAS da leitura, não falhas dela, e continuam servindo o shell com o
+ * metadado do site — o comportamento que a Story 4.3 já construiu.
  */
 
 import {
@@ -36,6 +50,14 @@ import {
   responderDefeito,
   responderDocumento,
 } from "./_nucleo/entrega.js";
+import {
+  DIAGNOSTICO_CONTEUDO_RECUSADO,
+  DIAGNOSTICO_LEITURA_FALHOU,
+  DIAGNOSTICO_OK,
+  DIAGNOSTICO_REGIAO_AUSENTE,
+  DIAGNOSTICO_SEM_DOMINIO,
+  DIAGNOSTICO_SEM_SHELL,
+} from "./_nucleo/diagnostico.js";
 import { situacaoDoEndereco } from "./_nucleo/leitura.js";
 import {
   REDIRECIONADO,
@@ -49,6 +71,9 @@ import {
 } from "./_nucleo/artigo.js";
 import { MARCA_FIM, MARCA_INICIO, metadadosDaPagina, regiaoDeMetadados } from "./_nucleo/metadados.js";
 import { lerShell, trocarRegiao } from "./_nucleo/shell.js";
+
+/** O nome desta rota, para o diagnóstico e o registro de evento. */
+const ROTA = "blog";
 
 /** O tipo do documento que esta rota promete. */
 export const TIPO_DA_PAGINA = "text/html; charset=utf-8";
@@ -65,20 +90,25 @@ export function slugDaConsulta(req) {
 }
 
 export default async function handler(req, res) {
-  if (metodoRecusado(req, res)) return;
+  if (metodoRecusado(req, res, { rota: ROTA })) return;
 
   const dominio = dominioDoAmbiente();
   if (!dominio.ok) {
     /* SEM DOMÍNIO NÃO SE SERVE. A alternativa seria emitir canônica relativa —
        que rastreador nenhum resolve para o lugar certo — e o sintoma seria um
-       artigo que nunca indexa, sem nada acusando por quê. */
-    responderDefeito(res, dominio.defeito);
+       artigo que nunca indexa, sem nada acusando por quê. E não há shell
+       alternativo aqui: sem domínio não há como montar canônica nenhuma, então
+       degradar para o shell só trocaria uma falha muda por uma que parece
+       funcionar e não funciona. */
+    responderDefeito(res, dominio.defeito, { diagnostico: DIAGNOSTICO_SEM_DOMINIO, rota: ROTA });
     return;
   }
 
   const shell = await lerShell();
   if (!shell.ok) {
-    responderDefeito(res, shell.defeito);
+    /* SEM SHELL NÃO HÁ SHELL PARA DEGRADAR A ELE. É a mesma razão da Story
+       4.1: cair no `index.html` do repositório seria o pior dos dois lados. */
+    responderDefeito(res, shell.defeito, { diagnostico: DIAGNOSTICO_SEM_SHELL, rota: ROTA });
     return;
   }
 
@@ -93,9 +123,22 @@ export default async function handler(req, res) {
   if (slug !== null) {
     const lida = await situacaoDoEndereco(slug);
     if (!lida.ok) {
-      /* A leitura falhou — e servir o shell com o metadado da HOME seria
-         responder 200 anunciando outra página. Falha de leitura é falha. */
-      responderDefeito(res, lida.defeito);
+      /* ─── A DEGRADAÇÃO (Story 4.10) ─────────────────────────────────────
+         O status continua 500: responder 200 aqui afirmaria "este endereço
+         existe e está no ar", que é exatamente a mentira que a Story 4.5
+         proíbe. O que muda é o CORPO — o shell EMBUTIDO, sem passar por
+         substituição de região nenhuma. Ele é o que existe sem depender de
+         mais nada ter dado certo: se o próprio processo de montar metadado do
+         site tivesse um bug, tentar montá-lo aqui arriscaria uma segunda
+         falha em cima da primeira. */
+      responderDocumento(res, {
+        tipo: TIPO_DA_PAGINA,
+        status: 500,
+        corpo: shell.html,
+        diagnostico: DIAGNOSTICO_LEITURA_FALHOU,
+        rota: ROTA,
+        detalhe: lida.defeito,
+      });
       return;
     }
     situacao = lida.situacao;
@@ -122,6 +165,8 @@ export default async function handler(req, res) {
       tipo: "text/plain; charset=utf-8",
       status: STATUS_DA_SITUACAO[REDIRECIONADO],
       corpo: `Este endereço mudou. O artigo está em ${pagina.canonica}\n`,
+      diagnostico: DIAGNOSTICO_OK,
+      rota: ROTA,
     });
     return;
   }
@@ -136,7 +181,7 @@ export default async function handler(req, res) {
     fim: MARCA_FIM,
   });
   if (!comMetadados.ok) {
-    responderDefeito(res, comMetadados.defeito);
+    responderDefeito(res, comMetadados.defeito, { diagnostico: DIAGNOSTICO_REGIAO_AUSENTE, rota: ROTA });
     return;
   }
 
@@ -144,7 +189,8 @@ export default async function handler(req, res) {
      Conteúdo que não passa na conferência do vocabulário NÃO derruba a rota:
      um Post torto é defeito de um registro, e responder 500 tiraria todos os
      artigos do ar. O corpo é omitido, a página continua funcionando no
-     navegador — onde a aplicação renderiza normalmente — e fica o rastro. */
+     navegador — onde a aplicação renderiza normalmente —, e o diagnóstico
+     desta resposta (Story 4.10) registra o desvio. */
   const corpo = corpoDoArtigo({
     situacao,
     post,
@@ -154,16 +200,13 @@ export default async function handler(req, res) {
        seria a terceira opiniao sobre a mesma cadeia de heranca. */
     pagina,
   });
-  if (corpo.defeito !== null) {
-    console.error(`[entrega] ${corpo.defeito}`);
-  }
 
   const comCorpo = trocarRegiao(comMetadados.html, corpo.html, {
     inicio: MARCA_CORPO_INICIO,
     fim: MARCA_CORPO_FIM,
   });
   if (!comCorpo.ok) {
-    responderDefeito(res, comCorpo.defeito);
+    responderDefeito(res, comCorpo.defeito, { diagnostico: DIAGNOSTICO_REGIAO_AUSENTE, rota: ROTA });
     return;
   }
 
@@ -174,5 +217,8 @@ export default async function handler(req, res) {
     /* A etiqueta do POST so existe quando ha Post. Na listagem sobra a da
        colecao, que e o que ela e. */
     etiquetas: { slug: slugAtual },
+    diagnostico: corpo.defeito === null ? DIAGNOSTICO_OK : DIAGNOSTICO_CONTEUDO_RECUSADO,
+    rota: ROTA,
+    detalhe: corpo.defeito,
   });
 }

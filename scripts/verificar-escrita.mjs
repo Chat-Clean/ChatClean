@@ -11203,6 +11203,26 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       `${semBanco.codigo} | ${String(semBanco.corpo ?? "").slice(0, 70)}`,
     );
 
+    /* ── O DIAGNÓSTICO (Story 4.10): SITEMAP NÃO DEGRADA ─────────────── */
+    //
+    // O corpo continua sendo o defeito puro, e não um mapa alternativo —
+    // decisão da 4.7, intacta. O que a 4.10 acrescenta é o cabeçalho.
+
+    const diagDoMapa = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "diagnostico.js")).href
+    );
+    afirmar(
+      "o mapa, servido com sucesso, tem `X-Entrega-Diagnostico: ok`",
+      comPosts.cabecalhos["x-entrega-diagnostico"] === diagDoMapa.DIAGNOSTICO_OK,
+      comPosts.cabecalhos["x-entrega-diagnostico"] ?? "ausente",
+    );
+    afirmar(
+      "leitura que falha: o mapa nomeia a causa no diagnóstico, e o corpo continua sendo só o defeito — NÃO degrada, ao contrário de `/blog/:slug`",
+      semBanco.cabecalhos["x-entrega-diagnostico"] === diagDoMapa.DIAGNOSTICO_LEITURA_FALHOU &&
+        !String(semBanco.corpo ?? "").includes("<urlset"),
+      semBanco.cabecalhos["x-entrega-diagnostico"] ?? "ausente",
+    );
+
     /* ── A VISIBILIDADE NÃO É DECIDIDA NA ROTA ───────────────────────── */
     //
     // `posts_no_ar()` já aplica a regra, e é a MESMA que a página consulta.
@@ -11538,6 +11558,23 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
         semLeitura.codigo === 500 &&
           !String(semLeitura.corpo ?? "").includes("## Páginas"),
         `${semLeitura.codigo} | ${String(semLeitura.corpo ?? "").slice(0, 60)}`,
+      );
+
+      /* ── O DIAGNÓSTICO (Story 4.10): O ÍNDICE TAMBÉM NÃO DEGRADA ─────── */
+
+      const diagDoIndice = await import(
+        pathToFileURL(path.join(raiz, "api", "_nucleo", "diagnostico.js")).href
+      );
+      afirmar(
+        "o índice, servido com sucesso, tem `X-Entrega-Diagnostico: ok`",
+        doIndice.cabecalhos["x-entrega-diagnostico"] === diagDoIndice.DIAGNOSTICO_OK,
+        doIndice.cabecalhos["x-entrega-diagnostico"] ?? "ausente",
+      );
+      afirmar(
+        "leitura que falha: o índice nomeia a causa, e o corpo continua sendo só o defeito — mesma decisão do mapa",
+        semLeitura.cabecalhos["x-entrega-diagnostico"] === diagDoIndice.DIAGNOSTICO_LEITURA_FALHOU &&
+          !String(semLeitura.corpo ?? "").includes("## Páginas"),
+        semLeitura.cabecalhos["x-entrega-diagnostico"] ?? "ausente",
       );
 
       /* ── E NENHUMA DAS DUAS DECIDE VISIBILIDADE ───────────────────── */
@@ -13323,6 +13360,117 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
         etiquetasTortas.join(","),
       );
 
+      /* ══ STORY 4.10: A DEGRADAÇÃO E O DIAGNÓSTICO ══════════════════ */
+      //
+      // Uma falha na entrega hoje só é percebida por quem olha os registros de
+      // propósito, ou por um visitante que tropeça nela. Toda resposta passa a
+      // se explicar — e, no caso ESPECÍFICO de `/blog/:slug` falhando ao ler o
+      // Supabase, o CORPO passa a ser o shell de verdade em vez de um texto de
+      // erro, sem que o STATUS deixe de ser 500 — a garantia da Story 4.5
+      // continua intacta, e é isso que a primeira asserção confere de novo.
+
+      const diagMod = await import(
+        pathToFileURL(path.join(raiz, "api", "_nucleo", "diagnostico.js")).href
+      );
+      const diagnosticoDe = (r) =>
+        String(r?.cabecalhos["x-entrega-diagnostico"] ?? "");
+
+      /* ── A LEITURA FALHANDO: O CORPO VIRA O SHELL DE VERDADE ─────── */
+
+      afirmar(
+        "e o STATUS continua 500 nessa falha — a degradação é só do corpo, a Story 4.5 não perde a garantia",
+        semRede.codigo === 500,
+        String(semRede.codigo),
+      );
+      afirmar(
+        "o CORPO da falha de leitura é o shell embutido, byte a byte igual ao `dist/index.html` — não um texto de erro",
+        semRede.corpo === distHtml,
+        `${String(semRede.corpo ?? "").length} × ${distHtml.length} caracteres`,
+      );
+      afirmar(
+        "e o `X-Entrega-Diagnostico` da falha de leitura nomeia a causa",
+        diagnosticoDe(semRede) === diagMod.DIAGNOSTICO_LEITURA_FALHOU,
+        diagnosticoDe(semRede) || "ausente",
+      );
+      /* CONTROLE: o corpo do shell embutido TEM o título da home — é o sinal
+         que o script de monitoramento de pausa (`monitorar-pausa.mjs`) vai
+         procurar. Sem este controle, a asserção acima poderia estar comparando
+         com um `distHtml` que por acaso está vazio ou igualmente quebrado. */
+      afirmar(
+        "controle: o shell servido na falha TEM o título da home — é o sinal que o monitor de pausa procura",
+        /<title>[^<]{5,}<\/title>/.test(semRede.corpo ?? ""),
+        /<title>([^<]*)<\/title>/.exec(semRede.corpo ?? "")?.[1]?.slice(0, 60) ?? "sem título",
+      );
+
+      /* ── E ISSO NÃO SE APLICA A `inexistente`/`arquivado` ─────────── */
+      //
+      // Essas são respostas HONESTAS da leitura — ela funcionou e classificou
+      // o endereço —, não falhas dela. Continuam com metadado do SITE (Story
+      // 4.3), e o diagnóstico é `ok`: nada degradou, a leitura respondeu.
+
+      for (const nome of ["no-ar", "arquivado", "inexistente"]) {
+        afirmar(
+          `situação ${nome}: o diagnóstico é \`ok\` — a leitura RESPONDEU, mesmo que a resposta seja "não está no ar"`,
+          diagnosticoDe(respostas.get(nome)) === diagMod.DIAGNOSTICO_OK,
+          diagnosticoDe(respostas.get(nome)) || "ausente",
+        );
+      }
+      afirmar(
+        "a listagem `/blog` também tem diagnóstico `ok`",
+        diagnosticoDe(listagem) === diagMod.DIAGNOSTICO_OK,
+        diagnosticoDe(listagem) || "ausente",
+      );
+      afirmar(
+        "e o endereço aposentado (301) também — redirecionar é o comportamento certo, não um desvio",
+        diagnosticoDe(doRedirecionado) === diagMod.DIAGNOSTICO_OK,
+        diagnosticoDe(doRedirecionado) || "ausente",
+      );
+
+      /* ── CONTEÚDO RECUSADO (4.4) TAMBÉM GANHA DIAGNÓSTICO PRÓPRIO ─── */
+
+      linhaDaEntrega = linha({
+        situacao: "no-ar",
+        slug_atual: "post-com-conteudo-torto",
+        titulo: "Um Post com Conteúdo torto",
+        conteudo_html: "<p>ok</p><script>mau()</script>",
+      });
+      const comConteudoTorto = await dirigirEntrega("post-com-conteudo-torto");
+      afirmar(
+        "Conteúdo que a conferência da 4.4 recusa: a página continua 200, e o diagnóstico nomeia o desvio",
+        comConteudoTorto.codigo === 200 &&
+          diagnosticoDe(comConteudoTorto) === diagMod.DIAGNOSTICO_CONTEUDO_RECUSADO,
+        `${comConteudoTorto.codigo} | ${diagnosticoDe(comConteudoTorto)}`,
+      );
+
+      /* ── SEM DOMÍNIO E SEM SHELL: FALHAS QUE NÃO DEGRADAM ─────────── */
+      //
+      // Não há shell alternativo nesses dois casos — sem domínio não há como
+      // montar canônica nenhuma, e sem shell não há shell para servir. O
+      // diagnóstico nomeia CADA UM, e não os confunde com leitura-falhou.
+
+      const semDominioComDiag = await comDominio(null, () =>
+        dirigir("blog.js", { method: "GET", url: "/api/blog?slug=x", query: { slug: "x" } }),
+      );
+      afirmar(
+        "sem Domínio Canônico, o diagnóstico é `falha:sem-dominio` — não `leitura-falhou`, que confundiria a causa",
+        semDominioComDiag.codigo === 500 &&
+          diagnosticoDe(semDominioComDiag) === diagMod.DIAGNOSTICO_SEM_DOMINIO,
+        diagnosticoDe(semDominioComDiag) || "ausente",
+      );
+
+      /* ── MÉTODO RECUSADO TAMBÉM DIAGNOSTICA ───────────────────────── */
+
+      const metodoErrado = await comAmbiente(
+        { VITE_DOMINIO_DO_SITE: DOMINIO },
+        () => dirigir("blog.js", { method: "POST", url: "/api/blog" }),
+      );
+      afirmar(
+        "método fora do vocabulário: 405 com diagnóstico próprio",
+        metodoErrado.codigo === 405 &&
+          diagnosticoDe(metodoErrado) === diagMod.DIAGNOSTICO_METODO_RECUSADO,
+        `${metodoErrado.codigo} | ${diagnosticoDe(metodoErrado)}`,
+      );
+
     } finally {
       await new Promise((pronto) => servidorDaEntrega.close(pronto));
     }
@@ -13508,6 +13656,242 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       !String(semDominio.corpo ?? "").includes("<html"),
     `${semDominio.codigo} | ${String(semDominio.corpo ?? "").slice(0, 90)}`,
   );
+
+  /* ══ STORY 4.10: O VOCABULÁRIO, O REGISTRO E O MONITOR DE PAUSA ═══════ */
+  //
+  // O que precede julgou o COMPORTAMENTO das rotas — cabeçalho e corpo, num
+  // servidor de mentira. Isto julga as peças PURAS por trás: o vocabulário
+  // fechado de diagnóstico, o formato do registro, e a lógica do script que
+  // detecta a pausa do Supabase — todas exercitadas por injeção.
+  {
+    secao("(4.10) o vocabulário de diagnóstico, o registro e o monitor de pausa");
+
+    const diag10 = await import(
+      pathToFileURL(path.join(raiz, "api", "_nucleo", "diagnostico.js")).href
+    );
+
+    /* ── O VOCABULÁRIO É FECHADO, ÚNICO E COMPLETO ────────────────────── */
+
+    const NOMES_DE_DIAGNOSTICO = [
+      "DIAGNOSTICO_OK",
+      "DIAGNOSTICO_LEITURA_FALHOU",
+      "DIAGNOSTICO_CONTEUDO_RECUSADO",
+      "DIAGNOSTICO_SEM_DOMINIO",
+      "DIAGNOSTICO_SEM_SHELL",
+      "DIAGNOSTICO_REGIAO_AUSENTE",
+      "DIAGNOSTICO_METODO_RECUSADO",
+      "DIAGNOSTICO_SEM_NOME",
+    ];
+    const valoresDeclarados = NOMES_DE_DIAGNOSTICO.map((n) => diag10[n]);
+    afirmar(
+      `os ${NOMES_DE_DIAGNOSTICO.length} diagnósticos nomeados estão TODOS em \`DIAGNOSTICOS_CONHECIDOS\`, nos dois sentidos`,
+      valoresDeclarados.every((v) => diag10.DIAGNOSTICOS_CONHECIDOS.includes(v)) &&
+        diag10.DIAGNOSTICOS_CONHECIDOS.every((v) => valoresDeclarados.includes(v)),
+      diag10.DIAGNOSTICOS_CONHECIDOS.join(", "),
+    );
+    afirmar(
+      "e os valores são todos DISTINTOS — dois diagnósticos com o mesmo texto seriam indistinguíveis no registro",
+      new Set(valoresDeclarados).size === valoresDeclarados.length,
+      valoresDeclarados.join(", "),
+    );
+
+    /* ── O NÍVEL VEM DO PREFIXO, E O `ok` NÃO REGISTRA NADA ───────────── */
+
+    afirmar(
+      "`ok` não tem nível — é o caminho normal, e não é para logar nada",
+      diag10.nivelDoDiagnostico(diag10.DIAGNOSTICO_OK) === null,
+      String(diag10.nivelDoDiagnostico(diag10.DIAGNOSTICO_OK)),
+    );
+    for (const nome of ["DIAGNOSTICO_LEITURA_FALHOU", "DIAGNOSTICO_CONTEUDO_RECUSADO"]) {
+      afirmar(
+        `\`${diag10[nome]}\` (prefixo \`degradado:\`) registra em nível AVISO`,
+        diag10.nivelDoDiagnostico(diag10[nome]) === "warn",
+        String(diag10.nivelDoDiagnostico(diag10[nome])),
+      );
+    }
+    for (const nome of ["DIAGNOSTICO_SEM_DOMINIO", "DIAGNOSTICO_SEM_SHELL", "DIAGNOSTICO_REGIAO_AUSENTE", "DIAGNOSTICO_METODO_RECUSADO", "DIAGNOSTICO_SEM_NOME"]) {
+      afirmar(
+        `\`${diag10[nome]}\` (prefixo \`falha:\`) registra em nível ERRO`,
+        diag10.nivelDoDiagnostico(diag10[nome]) === "error",
+        String(diag10.nivelDoDiagnostico(diag10[nome])),
+      );
+    }
+
+    /* ── `registrarEvento`: O FORMATO, E A INJEÇÃO ────────────────────── */
+    //
+    // `escrever` é injetável pela mesma razão de `buscar` na leitura: o
+    // caminho de registro se exercita sem depender de capturar saída de
+    // console através de um limite de módulo.
+
+    let capturado = null;
+    diag10.registrarEvento({
+      diagnostico: diag10.DIAGNOSTICO_LEITURA_FALHOU,
+      rota: "blog",
+      detalhe: "motivo de teste",
+      escrever: (nivel, linha) => { capturado = { nivel, linha }; },
+    });
+    afirmar(
+      "o registro sai em nível `warn` e no formato `[entrega:evento] {...}`, com diagnóstico, rota e detalhe",
+      capturado?.nivel === "warn" &&
+        capturado?.linha.startsWith("[entrega:evento] ") &&
+        (() => {
+          try {
+            const dados = JSON.parse(capturado.linha.slice("[entrega:evento] ".length));
+            return (
+              dados.diagnostico === diag10.DIAGNOSTICO_LEITURA_FALHOU &&
+              dados.rota === "blog" &&
+              dados.detalhe === "motivo de teste"
+            );
+          } catch {
+            return false;
+          }
+        })(),
+      JSON.stringify(capturado),
+    );
+    /* CONTROLE: um diagnóstico `ok` NÃO chama `escrever`. Sem isto, um
+       registro que sempre escrevesse passaria na asserção acima e ainda assim
+       geraria log constante — ruído que ninguém lê no dia em que precisar. */
+    let chamouParaOk = false;
+    diag10.registrarEvento({
+      diagnostico: diag10.DIAGNOSTICO_OK,
+      escrever: () => { chamouParaOk = true; },
+    });
+    afirmar(
+      "controle: um diagnóstico `ok` NÃO chama `escrever` — log constante é ruído, e a asserção acima não passa por um registro que grita sempre",
+      chamouParaOk === false,
+      String(chamouParaOk),
+    );
+
+    /* ── `monitorar-pausa.mjs`: A LÓGICA PURA, POR INJEÇÃO ────────────── */
+    //
+    // Ele busca o mapa, resolve UM Post a partir dele — não de um endereço
+    // fixo escrito no código, que quebraria no dia em que aquele Post fosse
+    // arquivado ou renomeado —, e compara o título dele com o da home.
+
+    const monitor = await import(
+      pathToFileURL(path.join(raiz, "scripts", "monitorar-pausa.mjs")).href
+    );
+
+    afirmar(
+      "resolve o endereço do PRIMEIRO Post a partir do XML do mapa",
+      monitor.enderecoDoPrimeiroPost(
+        "<urlset><url><loc>https://x/</loc></url><url><loc>https://x/blog/artigo-a</loc></url></urlset>",
+        "https://x",
+      ) === "https://x/blog/artigo-a",
+      monitor.enderecoDoPrimeiroPost("<urlset></urlset>", "https://x") ?? "nulo",
+    );
+    afirmar(
+      "mapa sem Post nenhum devolve `null` — não um endereço inventado",
+      monitor.enderecoDoPrimeiroPost("<urlset><url><loc>https://x/</loc></url></urlset>", "https://x") === null,
+      String(monitor.enderecoDoPrimeiroPost("<urlset><url><loc>https://x/</loc></url></urlset>", "https://x")),
+    );
+    afirmar(
+      "extrai o texto de `<title>`",
+      monitor.extrairTitulo("<html><head><title>Um Artigo</title></head></html>") === "Um Artigo",
+      monitor.extrairTitulo("<html><head><title>Um Artigo</title></head></html>") ?? "nulo",
+    );
+    afirmar(
+      "sem `<title>`, devolve `null`",
+      monitor.extrairTitulo("<html><body>sem título</body></html>") === null,
+      String(monitor.extrairTitulo("<html><body>sem título</body></html>")),
+    );
+
+    /* ★ A COMPARAÇÃO: É O CORAÇÃO DO ALARME ★
+       Título IGUAL ao da home é o sinal de que a rota degradou (Story 4.10) —
+       o shell cru tem o título da home. Título DIFERENTE é saúde. E qualquer
+       coisa que impeça a comparação (sem Post, sem título) é tratada como
+       ALARME: o custo de um alarme falso é uma olhada; o custo de um silêncio
+       falso é dias sem ninguém saber que o blog caiu. */
+    const CASOS_DO_MONITOR = [
+      [
+        "título do Post diferente do da home — saudável",
+        { enderecoDoPost: "https://x/blog/a", tituloDoPost: "Artigo A", tituloDaHome: "ChatClean" },
+        false,
+      ],
+      [
+        "título do Post IGUAL ao da home — sinal de degradação",
+        { enderecoDoPost: "https://x/blog/a", tituloDoPost: "ChatClean", tituloDaHome: "ChatClean" },
+        true,
+      ],
+      [
+        "nenhum Post no mapa — não dá para confirmar saúde",
+        { enderecoDoPost: null, tituloDoPost: null, tituloDaHome: "ChatClean" },
+        true,
+      ],
+      [
+        "o Post não respondeu com título nenhum",
+        { enderecoDoPost: "https://x/blog/a", tituloDoPost: null, tituloDaHome: "ChatClean" },
+        true,
+      ],
+      [
+        "a home não respondeu com título nenhum",
+        { enderecoDoPost: "https://x/blog/a", tituloDoPost: "Artigo A", tituloDaHome: null },
+        true,
+      ],
+    ];
+    const erradosNoMonitor = CASOS_DO_MONITOR.filter(
+      ([, entrada, esperado]) => monitor.avaliarPausa(entrada).alerta !== esperado,
+    );
+    afirmar(
+      `\`avaliarPausa\` decide certo nos ${CASOS_DO_MONITOR.length} casos — inclusive os de incerteza, que viram alarme e não saúde`,
+      erradosNoMonitor.length === 0,
+      erradosNoMonitor.map(([n]) => n).join(" | ") || `os ${CASOS_DO_MONITOR.length}`,
+    );
+    afirmar(
+      "controle: a matriz do monitor tem caso de ALARME e de SAÚDE — uma função que sempre alarmasse passaria numa matriz de um lado só",
+      CASOS_DO_MONITOR.some(([, , e]) => e === true) &&
+        CASOS_DO_MONITOR.some(([, , e]) => e === false),
+      `${CASOS_DO_MONITOR.filter(([, , e]) => e).length} alarme / ${CASOS_DO_MONITOR.filter(([, , e]) => !e).length} saúde`,
+    );
+
+    /* ── A ORQUESTRAÇÃO INTEIRA, COM `buscar` INJETADO ────────────────── */
+
+    const buscarDeMentira = (respostas) => async (url) => {
+      const resposta = respostas[url];
+      if (resposta === undefined) return { ok: false, text: async () => "" };
+      return { ok: true, text: async () => resposta };
+    };
+
+    const semDegradacao = await monitor.verificarPausa({
+      raiz: "https://x",
+      buscar: buscarDeMentira({
+        "https://x/sitemap.xml":
+          "<urlset><url><loc>https://x/blog/artigo-a</loc></url></urlset>",
+        "https://x/blog/artigo-a": "<title>Artigo A</title>",
+        "https://x/": "<title>ChatClean</title>",
+      }),
+    });
+    afirmar(
+      "fim a fim, saudável: título do Post diferente do da home ⇒ sem alarme",
+      semDegradacao.alerta === false,
+      semDegradacao.motivo,
+    );
+
+    const comDegradacao = await monitor.verificarPausa({
+      raiz: "https://x",
+      buscar: buscarDeMentira({
+        "https://x/sitemap.xml":
+          "<urlset><url><loc>https://x/blog/artigo-a</loc></url></urlset>",
+        "https://x/blog/artigo-a": "<title>ChatClean</title>",
+        "https://x/": "<title>ChatClean</title>",
+      }),
+    });
+    afirmar(
+      "fim a fim, degradado: o Post responde com o título da home ⇒ ALARME — é o sintoma exato da Story 4.10",
+      comDegradacao.alerta === true,
+      comDegradacao.motivo,
+    );
+
+    const semMapaNenhum = await monitor.verificarPausa({
+      raiz: "https://x",
+      buscar: buscarDeMentira({}),
+    });
+    afirmar(
+      "fim a fim, sem `/sitemap.xml` respondendo: ALARME — sem o mapa não há como escolher um Post",
+      semMapaNenhum.alerta === true,
+      semMapaNenhum.motivo,
+    );
+  }
 }
 
 }

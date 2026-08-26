@@ -28,8 +28,12 @@ import {
   responderDefeito,
   responderDocumento,
 } from "./_nucleo/entrega.js";
+import { DIAGNOSTICO_LEITURA_FALHOU, DIAGNOSTICO_SEM_DOMINIO } from "./_nucleo/diagnostico.js";
 
 export const TIPO_DO_INDICE = "text/plain; charset=utf-8";
+
+/** O nome desta rota, para o diagnóstico e o registro de evento. */
+const ROTA = "llms";
 
 export const TITULO_DO_INDICE = "# ChatClean";
 
@@ -88,19 +92,20 @@ export function indiceParaLlms(raiz, posts = []) {
 }
 
 export default async function handler(req, res) {
-  if (metodoRecusado(req, res)) return;
+  if (metodoRecusado(req, res, { rota: ROTA })) return;
 
   const dominio = dominioDoAmbiente();
   if (!dominio.ok) {
-    responderDefeito(res, dominio.defeito);
+    responderDefeito(res, dominio.defeito, { diagnostico: DIAGNOSTICO_SEM_DOMINIO, rota: ROTA });
     return;
   }
 
   const lidos = await postsNoAr();
   if (!lidos.ok) {
-    /* FALHA ALTO, pelo mesmo motivo do mapa: um índice com cinco páginas e zero
-       artigos diz ao rastreador que o blog está vazio, e ele age nisso. */
-    responderDefeito(res, lidos.defeito);
+    /* FALHA ALTO, pelo mesmo motivo do mapa — e pela mesma razão desta rota não
+       degradar (Story 4.10): é documento só para máquina, sem shell nenhum a
+       oferecer no lugar do que faltou. */
+    responderDefeito(res, lidos.defeito, { diagnostico: DIAGNOSTICO_LEITURA_FALHOU, rota: ROTA });
     return;
   }
 
@@ -108,5 +113,6 @@ export default async function handler(req, res) {
     tipo: TIPO_DO_INDICE,
     corpo: indiceParaLlms(dominio.raiz, lidos.posts),
     etiquetas: { colecoes: ["llms"] },
+    rota: ROTA,
   });
 }

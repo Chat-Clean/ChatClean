@@ -18,6 +18,13 @@
  * disso precisa de uma segunda opinião escrita nesta função. Filtrar por Estado
  * aqui divergiria no dia em que a regra mudasse, e o sintoma seria um mapa
  * anunciando endereço que a página responde 404.
+ *
+ * ─── E ESTA ROTA NÃO DEGRADA (Story 4.10) ─────────────────────────────────
+ *
+ * `/blog/:slug` passa a servir o shell de verdade quando a leitura falha,
+ * porque ele É uma página que um humano abre. Este arquivo é só para máquina:
+ * não há "shell" dele para degradar a, e fingir sucesso aqui seria o oposto do
+ * que o comentário logo abaixo já protege — um mapa vazio de propósito.
  */
 
 import { mapaDoSite } from "./_nucleo/paginasDoSite.js";
@@ -28,15 +35,19 @@ import {
   responderDefeito,
   responderDocumento,
 } from "./_nucleo/entrega.js";
+import { DIAGNOSTICO_LEITURA_FALHOU, DIAGNOSTICO_SEM_DOMINIO } from "./_nucleo/diagnostico.js";
 
 export const TIPO_DO_MAPA = "application/xml; charset=utf-8";
 
+/** O nome desta rota, para o diagnóstico e o registro de evento. */
+const ROTA = "sitemap";
+
 export default async function handler(req, res) {
-  if (metodoRecusado(req, res)) return;
+  if (metodoRecusado(req, res, { rota: ROTA })) return;
 
   const dominio = dominioDoAmbiente();
   if (!dominio.ok) {
-    responderDefeito(res, dominio.defeito);
+    responderDefeito(res, dominio.defeito, { diagnostico: DIAGNOSTICO_SEM_DOMINIO, rota: ROTA });
     return;
   }
 
@@ -47,7 +58,7 @@ export default async function handler(req, res) {
        "melhor que nada". É PIOR que nada: um mapa que lista cinco páginas e
        zero artigos diz ao buscador que o blog está vazio, e ele desindexa o que
        já conhecia. Um 500 diz "tente de novo", e ele tenta. */
-    responderDefeito(res, lidos.defeito);
+    responderDefeito(res, lidos.defeito, { diagnostico: DIAGNOSTICO_LEITURA_FALHOU, rota: ROTA });
     return;
   }
 
@@ -55,5 +66,6 @@ export default async function handler(req, res) {
     tipo: TIPO_DO_MAPA,
     corpo: mapaDoSite(dominio.raiz, undefined, lidos.posts),
     etiquetas: { colecoes: ["sitemap"] },
+    rota: ROTA,
   });
 }

@@ -13,6 +13,7 @@
     "conta:criar": "node scripts/criar-conta.mjs",
     "conta:remover": "node scripts/criar-conta.mjs --remover",
     "ativo:imagem-padrao": "node scripts/gerar-imagem-padrao.mjs",
+    "entrega:monitorar-pausa": "node scripts/monitorar-pausa.mjs",
     "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:artigo": "node scripts/verificar-artigo.mjs",
