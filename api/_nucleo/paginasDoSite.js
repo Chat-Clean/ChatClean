@@ -46,24 +46,54 @@ export function escaparXml(texto) {
  * montá-lo a partir da requisição daria o caminho da própria função, que é o
  * engano que a Story 4.5 registra por escrito.
  */
-export function mapaDoSite(raiz, paginas = PAGINAS_DO_SITE) {
+export function mapaDoSite(raiz, paginas = PAGINAS_DO_SITE, posts = []) {
   const semBarra = String(raiz).replace(/\/+$/, "");
-  const nos = paginas
-    .map((p) => {
-      const endereco = escaparXml(`${semBarra}${p.caminho}`);
-      return (
-        "  <url>\n" +
-        `    <loc>${endereco}</loc>\n` +
-        `    <changefreq>${p.frequencia}</changefreq>\n` +
-        `    <priority>${p.prioridade}</priority>\n` +
-        "  </url>"
-      );
-    })
-    .join("\n");
+
+  const noDaPagina = (p) =>
+    "  <url>\n" +
+    `    <loc>${escaparXml(`${semBarra}${p.caminho}`)}</loc>\n` +
+    `    <changefreq>${p.frequencia}</changefreq>\n` +
+    `    <priority>${p.prioridade}</priority>\n` +
+    "  </url>";
+
+  /**
+   * O nó de um Post (Story 4.7).
+   *
+   * `lastmod` é o `atualizado_em` REAL, e é OMITIDO quando não há ou quando não
+   * é reconhecível como instante. Data congelada é pior que data ausente: o
+   * mapa estático trazia uma de maio que ninguém mantinha — um buscador que
+   * confia nela deixa de revisitar, e um que percebe a mentira passa a
+   * desconfiar de todas as datas do site.
+   */
+  const noDoPost = (post) => {
+    const slug = String(post?.slug ?? "").trim();
+    if (slug === "") return null;
+
+    const bruto = post?.atualizado_em;
+    const quando =
+      typeof bruto === "string" && Number.isFinite(Date.parse(bruto))
+        ? new Date(bruto).toISOString().slice(0, 10)
+        : null;
+
+    return (
+      "  <url>\n" +
+      `    <loc>${escaparXml(`${semBarra}/blog/${slug}`)}</loc>\n` +
+      (quando === null ? "" : `    <lastmod>${quando}</lastmod>\n`) +
+      "    <changefreq>monthly</changefreq>\n" +
+      "    <priority>0.8</priority>\n" +
+      "  </url>"
+    );
+  };
+
+  const nos = [
+    ...paginas.map(noDaPagina),
+    ...(Array.isArray(posts) ? posts.map(noDoPost) : []),
+  ].filter((no) => no !== null);
+
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-    `${nos}\n` +
+    `${nos.join("\n")}\n` +
     "</urlset>\n"
   );
 }

@@ -1986,10 +1986,46 @@ function divergenciasDeSuperficie(existe) {
      sobre coisa que já não é servida. As duas garantias abaixo continuam as
      mesmas — mudou onde elas medem, e o lugar novo é o que o visitante vê. */
   const DOMINIO_DE_PROVA = "https://chatclean.com.br";
+
+  /* ─── O MAPA PASSOU A CONSULTAR O BANCO (Story 4.7) ─────────────────────
+     Antes ele era montado só das páginas fixas, e servi-lo não precisava de
+     nada. Agora ele lista os Posts — e sem o banco a rota falha ALTO, de
+     propósito: um mapa com cinco páginas e zero artigos diria ao buscador que
+     o blog está vazio, e ele desindexaria o que já conhecia.
+
+     O que estas asserções medem é o CONTEÚDO do mapa, então elas precisam de
+     uma leitura que responda. O servidor de mentira devolve lista vazia: o que
+     se julga aqui é o Painel não aparecer e o tipo do documento, e nenhuma das
+     duas depende de haver Post. As asserções dos Posts vivem em
+     `verificar:escrita`, que é onde a rota inteira é dirigida. */
+  const { createServer: criarLeituraDeMentira } = await import("node:http");
+  const leituraDeMentira = criarLeituraDeMentira((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("[]");
+    });
+  });
+  await new Promise((pronto) => leituraDeMentira.listen(0, "127.0.0.1", pronto));
+  /* `unref` PARA A FERRAMENTA PODER TERMINAR. Um servidor aberto segura o laço
+     de eventos, e a ferramenta ficaria pendurada depois da última asserção —
+     que é pior que falhar, porque não diz nada. Esta seção não tem `finally`
+     onde fechá-lo, então a saída é não deixá-lo contar. */
+  leituraDeMentira.unref();
+  const enderecoDaLeitura = `http://127.0.0.1:${leituraDeMentira.address().port}`;
+
   const servirMapa = async (ambiente) => {
-    const guardado = process.env.VITE_DOMINIO_DO_SITE;
+    const guardado = {
+      VITE_DOMINIO_DO_SITE: process.env.VITE_DOMINIO_DO_SITE,
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_CHAVE_PUBLICAVEL: process.env.SUPABASE_CHAVE_PUBLICAVEL,
+      VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
+    };
     if (ambiente === null) delete process.env.VITE_DOMINIO_DO_SITE;
     else process.env.VITE_DOMINIO_DO_SITE = ambiente;
+    process.env.SUPABASE_URL = enderecoDaLeitura;
+    process.env.SUPABASE_CHAVE_PUBLICAVEL = "sb_publishable_de_mentira";
+    delete process.env.VITE_SUPABASE_URL;
     try {
       const r = respostaDublada();
       const { default: servir } = await import(
@@ -1998,8 +2034,10 @@ function divergenciasDeSuperficie(existe) {
       await servir({ method: "GET", url: "/api/sitemap" }, r);
       return r;
     } finally {
-      if (guardado === undefined) delete process.env.VITE_DOMINIO_DO_SITE;
-      else process.env.VITE_DOMINIO_DO_SITE = guardado;
+      for (const [nome, valor] of Object.entries(guardado)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
     }
   };
   const respostaDoMapa = await servirMapa(DOMINIO_DE_PROVA);
@@ -2046,6 +2084,113 @@ function divergenciasDeSuperficie(existe) {
     "e ele não DESAUTORIZA a leitura de `/admin` — bloquear a busca é o jeito de o `noindex` nunca ser lido",
     diretivas.every((l) => !/^disallow\s*:\s*\/admin/i.test(l)),
     diretivas.filter((l) => /^disallow/i.test(l)).join(" | "),
+  );
+
+  /* ─── A HERANÇA DE GRUPO DO `robots.txt` (Story 4.7) ───────────────────
+
+     Um agente com grupo PRÓPRIO ignora inteiramente o grupo `*`. Não é
+     detalhe: os cinco rastreadores de IA têm grupo próprio, e nada do `*`
+     chega neles. Hoje isso não custa nada, porque o `*` só traz `Allow: /`.
+
+     O dia em que alguém puser uma diretiva no `*` — achando que ela vale para
+     todo mundo — os cinco continuarão sem ela, e a página parecerá
+     configurada. Esta asserção existe para acusar esse dia.
+
+     ★ E É POR ISSO QUE `Disallow: /admin` NÃO ENTRA AQUI ★
+
+     A Story 4.7 pede, num critério, repetir `Disallow: /admin` em cada grupo
+     — e a própria frase do critério é o argumento contra: ela diz que
+     `Disallow` impede rastreamento mas não indexação. Exatamente. O rastreador
+     que obedece ao bloqueio nunca busca a página, portanto nunca lê o
+     `noindex`, e o endereço descoberto por link continua podendo ser listado —
+     agora sem conteúdo e sem a diretiva que o tiraria. Os dois juntos são o
+     anti-padrão: o `Disallow` desarma o `noindex`.
+
+     A decisão é da Story 2.13, está escrita dentro do próprio `robots.txt`, e
+     a asserção acima é a evidência viva dela. O que a 4.7 acrescenta é a
+     preocupação legítima que o critério nomeia junto — esta. */
+
+  const gruposDoRobots = (() => {
+    const grupos = [];
+    let atual = null;
+    for (const linha of diretivas) {
+      const agente = /^user-agent\s*:\s*(.+)$/i.exec(linha);
+      if (agente !== null) {
+        /* `User-agent` consecutivos formam UM grupo com vários agentes — é a
+           regra do formato, e tratá-los como grupos separados diria que o
+           segundo está vazio. */
+        if (atual !== null && atual.regras.length === 0) {
+          atual.agentes.push(agente[1].trim());
+          continue;
+        }
+        atual = { agentes: [agente[1].trim()], regras: [] };
+        grupos.push(atual);
+        continue;
+      }
+      if (atual !== null) atual.regras.push(linha);
+    }
+    return grupos;
+  })();
+
+  afirmar(
+    "o `robots.txt` tem grupos de agente legíveis, e o grupo `*` é um deles",
+    gruposDoRobots.length > 1 &&
+      gruposDoRobots.some((g) => g.agentes.includes("*")),
+    gruposDoRobots.map((g) => g.agentes.join("+")).join(" | ") || "nenhum grupo",
+  );
+
+  /* O QUE O `*` MANDA E OS NOMEADOS NÃO HERDAM. A comparação é sobre a
+     DIRETIVA inteira, e não só sobre o verbo: `Allow: /` e `Allow: /blog` são
+     regras diferentes, e tratá-las como a mesma esconderia justamente o caso
+     em que alguém restringiu o `*` e esqueceu dos nomeados. */
+  const normalizar = (l) => l.replace(/\s+/g, " ").trim().toLowerCase();
+  const doCoringa = (gruposDoRobots.find((g) => g.agentes.includes("*"))?.regras ?? []).map(
+    normalizar,
+  );
+  const nomeados = gruposDoRobots.filter((g) => !g.agentes.includes("*"));
+  const semHerdar = nomeados.flatMap((g) => {
+    const minhas = g.regras.map(normalizar);
+    return doCoringa
+      .filter((r) => !minhas.includes(r))
+      .map((r) => `${g.agentes.join("+")} não tem "${r}"`);
+  });
+  afirmar(
+    "nenhum grupo nomeado depende de herdar do `*` — um agente com grupo próprio ignora o `*` inteiro, e a diretiva sumiria em silêncio",
+    semHerdar.length === 0,
+    semHerdar.join(" | ") || `${nomeados.length} grupo(s) nomeado(s), nada a herdar`,
+  );
+  /* AUTOTESTE: com uma diretiva plantada só no `*`, a comparação precisa
+     acusar. Sem isto, um `doCoringa` vazio deixaria a asserção verde para
+     sempre — e é exatamente o estado de hoje que a torna fácil de quebrar. */
+  afirmar(
+    "autoteste: a comparação de herança ACUSA uma diretiva que só o `*` tem",
+    (() => {
+      const coringa = ["disallow: /pasta"];
+      const nomeado = ["allow: /"];
+      return coringa.filter((r) => !nomeado.includes(r)).length === 1;
+    })(),
+    "acusou",
+  );
+
+  /* E OS CINCO RASTREADORES DE IA TÊM GRUPO PRÓPRIO — é o que os faz ignorar
+     o `*`, e é por isso que a asserção acima importa para eles. */
+  const RASTREADORES_COM_GRUPO = [
+    "GPTBot",
+    "ChatGPT-User",
+    "Google-Extended",
+    "PerplexityBot",
+    "ClaudeBot",
+  ];
+  const semGrupoProprio = RASTREADORES_COM_GRUPO.filter(
+    (nome) =>
+      !gruposDoRobots.some((g) =>
+        g.agentes.some((a) => a.toLowerCase() === nome.toLowerCase()),
+      ),
+  );
+  afirmar(
+    `os ${RASTREADORES_COM_GRUPO.length} rastreadores de IA têm grupo PRÓPRIO — é o que os faz ignorar o \`*\`, e o que torna a herança um risco real`,
+    semGrupoProprio.length === 0,
+    semGrupoProprio.join(", ") || "os cinco",
   );
   afirmar(
     "e o mapa do site SERVIDO não lista `/admin` nem filha nenhuma dele",

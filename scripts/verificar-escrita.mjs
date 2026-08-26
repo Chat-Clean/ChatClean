@@ -10954,7 +10954,13 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     );
   }
 
-  /* ── O QUE O ARQUIVO REMOVIDO LISTAVA CONTINUA SERVIDO ───────────────── */
+  /* ── O MAPA DO SITE: AS FIXAS, E OS POSTS (Stories 4.1 e 4.7) ───────── */
+  //
+  // ★ ESTE BLOCO MUDOU NA STORY 4.7 ★
+  //
+  // Ele dirigia a rota sem banco, porque o mapa não consultava nada. Agora
+  // consulta — e sem o Supabase de mentira a rota responde 500, que é o
+  // comportamento CERTO e faria estas asserções acusarem a coisa errada.
   {
     const ANTES = Object.freeze([
       "/",
@@ -10963,9 +10969,51 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       "/blog",
       "/carreiras",
     ]);
-    const r = await comDominio(DOMINIO, () =>
-      dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
-    );
+
+    const { createServer: criarServidorDoMapa } = await import("node:http");
+    /* O que `posts_no_ar()` devolve. Trocado a cada caso. */
+    let postsDoMapa = [];
+    let chamadasAoMapa = 0;
+    const servidorDoMapa = criarServidorDoMapa((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        chamadasAoMapa += 1;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(postsDoMapa));
+      });
+    });
+    await new Promise((pronto) => servidorDoMapa.listen(0, "127.0.0.1", pronto));
+    const portaDoMapa = servidorDoMapa.address().port;
+
+    const comBanco = async (acao) => {
+      const guardado = {};
+      const ambiente = {
+        VITE_DOMINIO_DO_SITE: DOMINIO,
+        SUPABASE_URL: `http://127.0.0.1:${portaDoMapa}`,
+        SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_de_mentira",
+        VITE_SUPABASE_URL: undefined,
+        VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+      };
+      for (const [nome, valor] of Object.entries(ambiente)) {
+        guardado[nome] = process.env[nome];
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+      try {
+        return await acao();
+      } finally {
+        for (const [nome, valor] of Object.entries(guardado)) {
+          if (valor === undefined) delete process.env[nome];
+          else process.env[nome] = valor;
+        }
+      }
+    };
+    const dirigirMapa = () =>
+      comBanco(() => dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }));
+
+    try {
+    postsDoMapa = [];
+    const r = await dirigirMapa();
     const servidos = [...String(r.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
     const perdidos = ANTES.filter((c) => !servidos.includes(`${DOMINIO}${c === "/" ? "/" : c}`));
     afirmar(
@@ -10978,13 +11026,246 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       servidos.length > 0 && servidos.every((u) => u.startsWith(`${DOMINIO}/`)),
       servidos.find((u) => !u.startsWith(`${DOMINIO}/`)) ?? "todos absolutos",
     );
+    /* CONTROLE: a rota REALMENTE consultou o banco. Sem isto, uma rota que
+       voltasse a servir só as fixas passaria nas duas asserções acima. */
+    afirmar(
+      "o mapa CONSULTA o banco — sem isso ele listaria as fixas para sempre, e nenhum artigo",
+      chamadasAoMapa > 0,
+      `${chamadasAoMapa} chamada(s)`,
+    );
+
+    /* ── OS POSTS ENTRAM NO MAPA (Story 4.7) ──────────────────────────── */
+    //
+    // O buscador descobre artigo de dois jeitos: seguindo link, ou lendo este
+    // arquivo. Sem os Posts, todo artigo dependia de alguém ter linkado.
+
+    postsDoMapa = [
+      {
+        slug: "como-automatizar",
+        titulo: "Como automatizar",
+        publicado_em: "2026-08-01T10:00:00.000Z",
+        atualizado_em: "2026-08-05T10:00:00.000Z",
+      },
+      {
+        slug: "quanto-custa-a-api",
+        titulo: "Quanto custa a API",
+        publicado_em: "2026-08-02T10:00:00.000Z",
+        atualizado_em: null,
+      },
+    ];
+    const comPosts = await dirigirMapa();
+    const locsComPosts = [
+      ...String(comPosts.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g),
+    ].map((m) => m[1]);
+    afirmar(
+      "cada Post no ar aparece no mapa, em endereço ABSOLUTO no Domínio Canônico",
+      postsDoMapa.every((p) =>
+        locsComPosts.includes(`${DOMINIO}/blog/${p.slug}`),
+      ),
+      locsComPosts.filter((u) => u.includes("/blog/")).join(" ") || "nenhum Post",
+    );
+    afirmar(
+      "e as cinco fixas continuam junto — o mapa CRESCEU, não trocou de conteúdo",
+      ANTES.every((c) => locsComPosts.includes(`${DOMINIO}${c}`)) &&
+        locsComPosts.length === ANTES.length + postsDoMapa.length,
+      `${locsComPosts.length} endereços (esperado ${ANTES.length + postsDoMapa.length})`,
+    );
+
+    /* ── `lastmod` É O `atualizado_em` REAL, E OMITIDO QUANDO NÃO HÁ ─── */
+    //
+    // Data congelada é pior que data ausente: o mapa estático trazia uma de
+    // maio que ninguém mantinha. Um buscador que confia nela deixa de
+    // revisitar; um que percebe a mentira desconfia de todas as datas do site.
+
+    const nosDoMapa = [
+      ...String(comPosts.corpo ?? "").matchAll(/<url>([\s\S]*?)<\/url>/g),
+    ].map((m) => m[1]);
+    const noDe = (endereco) =>
+      nosDoMapa.find((no) => no.includes(`<loc>${endereco}</loc>`)) ?? "";
+    afirmar(
+      "o `lastmod` do Post é o `atualizado_em` REAL — e não uma data inventada nem o instante de agora",
+      /<lastmod>2026-08-05<\/lastmod>/.test(noDe(`${DOMINIO}/blog/como-automatizar`)),
+      /<lastmod>([^<]*)<\/lastmod>/.exec(noDe(`${DOMINIO}/blog/como-automatizar`))?.[1] ??
+        "ausente",
+    );
+    afirmar(
+      "e Post sem `atualizado_em` sai SEM `lastmod` — ausência é honesta, data inventada não",
+      !noDe(`${DOMINIO}/blog/quanto-custa-a-api`).includes("<lastmod>"),
+      /<lastmod>([^<]*)<\/lastmod>/.exec(noDe(`${DOMINIO}/blog/quanto-custa-a-api`))?.[1] ??
+        "omitido",
+    );
+    /* E AS PÁGINAS FIXAS TAMBÉM NÃO TÊM — não há registro que diga quando
+       mudaram, e inventar `now()` faria o site parecer editado a cada
+       requisição. */
+    afirmar(
+      "as páginas fixas continuam sem `lastmod` — não há registro de quando mudaram, e `now()` faria o site parecer editado sempre",
+      ANTES.every((c) => !noDe(`${DOMINIO}${c}`).includes("<lastmod>")),
+      "sem lastmod",
+    );
+
+    /* ── DATA TORTA NÃO VIRA `lastmod` ────────────────────────────────── */
+
+    postsDoMapa = [
+      {
+        slug: "data-torta",
+        titulo: "Data torta",
+        publicado_em: null,
+        atualizado_em: "ontem de manhã",
+      },
+    ];
+    const comDataTorta = await dirigirMapa();
+    afirmar(
+      "data que não é instante NÃO vira `lastmod` — o Post continua no mapa, sem a etiqueta",
+      String(comDataTorta.corpo ?? "").includes(`${DOMINIO}/blog/data-torta`) &&
+        !String(comDataTorta.corpo ?? "").includes("<lastmod>"),
+      /<lastmod>([^<]*)<\/lastmod>/.exec(String(comDataTorta.corpo ?? ""))?.[1] ??
+        "nenhum lastmod",
+    );
+
+    /* ── O XML CONTINUA VÁLIDO COM OS POSTS ──────────────────────────── */
+
+    const abrem = (String(comPosts.corpo ?? "").match(/<url>/g) ?? []).length;
+    const fecham = (String(comPosts.corpo ?? "").match(/<\/url>/g) ?? []).length;
+    const locs = (String(comPosts.corpo ?? "").match(/<loc>/g) ?? []).length;
+    afirmar(
+      "o XML fecha o que abre, e há exatamente um `loc` por `url` — mapa malformado é mapa descartado inteiro",
+      abrem > 0 && abrem === fecham && locs === abrem &&
+        String(comPosts.corpo ?? "").startsWith('<?xml version="1.0" encoding="UTF-8"?>'),
+      `${abrem} <url>, ${fecham} </url>, ${locs} <loc>`,
+    );
+
+    /* ── E O MAPA NUNCA REVELA O PAINEL ──────────────────────────────── */
+    //
+    // Nenhuma linha do `robots.txt` e nenhuma entrada do mapa revelam `/admin`
+    // para quem não sabia dele. É a garantia da Story 2.13, e ela precisa
+    // sobreviver ao mapa passar a ser gerado.
+
+    postsDoMapa = [
+      {
+        slug: "admin",
+        titulo: "Um Post com endereço perigoso",
+        publicado_em: null,
+        atualizado_em: null,
+      },
+    ];
+    const comSlugPerigoso = await dirigirMapa();
+    /* ★ O DETECTOR É ANCORADO NA RAIZ DO DOMÍNIO, e a primeira versão não era ★
+       Ela procurava `/admin` em qualquer posição e ACUSOU `/blog/admin` — que é
+       um Post com o endereço `admin`, e não o Painel. Um Post pode legitimamente
+       se chamar assim; o que não pode aparecer é `<DOMÍNIO>/admin`, a raiz do
+       Painel. Sem a âncora, esta asserção proibiria um endereço válido e
+       ninguém saberia por quê até alguém tentar publicar. */
+    const painelNoMapa = new RegExp(
+      `<loc>${DOMINIO.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/admin(?:/|<)`,
+    );
+    afirmar(
+      "o mapa não anuncia a raiz do Painel — e um Post cujo endereço seja `admin` continua valendo, porque ele não é o Painel",
+      !painelNoMapa.test(String(comSlugPerigoso.corpo ?? "")) &&
+        String(comSlugPerigoso.corpo ?? "").includes(`${DOMINIO}/blog/admin`),
+      (String(comSlugPerigoso.corpo ?? "").match(/<loc>[^<]*admin[^<]*<\/loc>/g) ?? []).join(" ") ||
+        "não anuncia",
+    );
+    /* AUTOTESTE: o detector precisa acusar a raiz do Painel e a filha dela, e
+       NÃO acusar o Post. Sem as três metades, um padrão errado passaria. */
+    afirmar(
+      "autoteste: o detector acusa `/admin` e `/admin/…`, e NÃO acusa `/blog/admin`",
+      painelNoMapa.test(`<loc>${DOMINIO}/admin</loc>`) &&
+        painelNoMapa.test(`<loc>${DOMINIO}/admin/posts</loc>`) &&
+        !painelNoMapa.test(`<loc>${DOMINIO}/blog/admin</loc>`),
+      "acusou os dois certos e poupou o Post",
+    );
+
+    /* ── LEITURA QUE FALHA ⇒ 500, E NUNCA MAPA SÓ COM AS FIXAS ──────── */
+    //
+    // Um mapa que lista cinco páginas e zero artigos diz ao buscador que o
+    // blog está vazio, e ele DESINDEXA o que já conhecia. Um 500 diz "tente
+    // de novo", e ele tenta.
+
+    const semBanco = await (async () => {
+      const guardado = process.env.SUPABASE_URL;
+      const guardadoVite = process.env.VITE_SUPABASE_URL;
+      process.env.SUPABASE_URL = "http://127.0.0.1:1";
+      delete process.env.VITE_SUPABASE_URL;
+      try {
+        return await comDominio(DOMINIO, () =>
+          dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
+        );
+      } finally {
+        if (guardado === undefined) delete process.env.SUPABASE_URL;
+        else process.env.SUPABASE_URL = guardado;
+        if (guardadoVite !== undefined) process.env.VITE_SUPABASE_URL = guardadoVite;
+      }
+    })();
+    afirmar(
+      "leitura que falha derruba o mapa com 500 — servir só as fixas diria que o blog está vazio, e o buscador desindexaria",
+      semBanco.codigo === 500 &&
+        !String(semBanco.corpo ?? "").includes("<urlset"),
+      `${semBanco.codigo} | ${String(semBanco.corpo ?? "").slice(0, 70)}`,
+    );
+
+    /* ── A VISIBILIDADE NÃO É DECIDIDA NA ROTA ───────────────────────── */
+    //
+    // `posts_no_ar()` já aplica a regra, e é a MESMA que a página consulta.
+    // Um filtro por Estado escrito aqui divergiria no dia em que a regra
+    // mudasse, e o sintoma seria um mapa anunciando endereço que dá 404.
+
+    const codigoDoMapa = mascararComentariosJs(ler("api/sitemap.js"));
+    afirmar(
+      "a rota do mapa NÃO decide visibilidade — nenhum Estado é mencionado nela; quem decide é `posts_no_ar()`",
+      !/publicado|rascunho|agendado|arquivado|estado/i.test(codigoDoMapa) &&
+        /postsNoAr\s*\(/.test(codigoDoMapa),
+      (codigoDoMapa.match(/publicado|rascunho|agendado|arquivado|estado/gi) ?? []).join(" ") ||
+        "não decide",
+    );
+    afirmar(
+      "autoteste: o detector de decisão de visibilidade ACUSA um filtro plantado",
+      /publicado|rascunho|agendado|arquivado|estado/i.test(
+        codigoDoMapa + '\nposts.filter((p) => p.estado === "publicado")',
+      ),
+      "acusou",
+    );
+    } finally {
+      await new Promise((pronto) => servidorDoMapa.close(pronto));
+    }
   }
 
   /* ── O TIPO DO DOCUMENTO É O QUE O ENDEREÇO PROMETE ──────────────────── */
   {
-    const mapa = await comDominio(DOMINIO, () =>
-      dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
-    );
+    /* O MAPA PRECISA DO BANCO desde a Story 4.7. Sem ele a rota responde 500 —
+       que e o comportamento certo — e a assercao de TIPO acusaria a coisa
+       errada. O servidor de mentira sobe so para esta pergunta. */
+    const { createServer: criarServidorDoTipo } = await import("node:http");
+    const servidorDoTipo = criarServidorDoTipo((req, res) => {
+      /* O corpo e CONSUMIDO e descartado: `posts_no_ar()` nao tem argumento,
+         e guardar o que chega seria cerimonia copiada do molde da Story 2.12,
+         onde ele importa. */
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("[]");
+      });
+    });
+    await new Promise((pronto) => servidorDoTipo.listen(0, "127.0.0.1", pronto));
+    const guardadoDoTipo = {
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_CHAVE_PUBLICAVEL: process.env.SUPABASE_CHAVE_PUBLICAVEL,
+      VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
+    };
+    process.env.SUPABASE_URL = `http://127.0.0.1:${servidorDoTipo.address().port}`;
+    process.env.SUPABASE_CHAVE_PUBLICAVEL = "sb_publishable_de_mentira";
+    delete process.env.VITE_SUPABASE_URL;
+    let mapa;
+    try {
+      mapa = await comDominio(DOMINIO, () =>
+        dirigir("sitemap.js", { method: "GET", url: "/api/sitemap" }),
+      );
+    } finally {
+      await new Promise((pronto) => servidorDoTipo.close(pronto));
+      for (const [nome, valor] of Object.entries(guardadoDoTipo)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    }
     const indice = await comDominio(DOMINIO, () =>
       dirigir("llms.js", { method: "GET", url: "/api/llms" }),
     );
