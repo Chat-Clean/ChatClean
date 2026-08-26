@@ -54,5 +54,6 @@ export default async function handler(req, res) {
   responderDocumento(res, {
     tipo: TIPO_DO_MAPA,
     corpo: mapaDoSite(dominio.raiz, undefined, lidos.posts),
+    etiquetas: { colecoes: ["sitemap"] },
   });
 }

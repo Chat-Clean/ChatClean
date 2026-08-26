@@ -167,5 +167,12 @@ export default async function handler(req, res) {
     return;
   }
 
-  responderDocumento(res, { tipo: TIPO_DA_PAGINA, status, corpo: comCorpo.html });
+  responderDocumento(res, {
+    tipo: TIPO_DA_PAGINA,
+    status,
+    corpo: comCorpo.html,
+    /* A etiqueta do POST so existe quando ha Post. Na listagem sobra a da
+       colecao, que e o que ela e. */
+    etiquetas: { slug: slugAtual },
+  });
 }

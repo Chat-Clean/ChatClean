@@ -13186,6 +13186,143 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
         semRede.codigo === 500,
         String(semRede.codigo),
       );
+      /* ── STORY 4.9: A POLÍTICA DE CACHE ──────────────────────────── */
+      //
+      // O caso que ela existe para impedir e especifico: um Post agendado para
+      // as 9h responde 404 as 8h59. Se esse 404 for guardado, o artigo entra no
+      // ar e quem tem o link continua recebendo "nao existe" — por um tempo que
+      // ninguem escolheu, porque sem declaracao a hospedagem decide sozinha.
+
+      const cacheMod = await import(
+        pathToFileURL(path.join(raiz, "api", "_nucleo", "cache.js")).href
+      );
+      const cacheDe = (r) => String(r?.cabecalhos["cache-control"] ?? "");
+
+      /* ── O TETO É 60, E O NÚMERO É A PROMESSA ─────────────────────── */
+      //
+      // "A correcao do Autor aparece em ate 60 segundos" deixa de ser verdade
+      // no instante em que este numero sobe, e nada na tela acusaria.
+
+      afirmar(
+        "o teto de cache é 60 segundos — é a promessa da story, e subir o número a quebra em silêncio",
+        cacheMod.SEGUNDOS_DE_CACHE === 60,
+        String(cacheMod.SEGUNDOS_DE_CACHE),
+      );
+      afirmar(
+        "a resposta de um Post no ar declara `s-maxage=60`",
+        /(^|,\s*)s-maxage=60(\s*,|$)/.test(cacheDe(doNoAr)),
+        cacheDe(doNoAr) || "sem Cache-Control",
+      );
+      /* ★ E SEM `stale-while-revalidate` ★
+         Ele e quase sempre a escolha certa — serve rapido e atualiza atras. Mas
+         a promessa desta story e um NUMERO: quem chegasse no segundo 61
+         receberia a versao velha e dispararia a atualizacao para o proximo, e o
+         teto viraria "60 segundos mais o tempo ate alguem pedir". Para o Autor
+         que acabou de corrigir o artigo que esta circulando, e a story inteira. */
+      afirmar(
+        "e SEM `stale-while-revalidate` — com ele o teto vira \"60 segundos mais o tempo até alguém pedir\"",
+        !/stale-while-revalidate/i.test(cacheDe(doNoAr)),
+        cacheDe(doNoAr),
+      );
+
+      /* ── AS NEGATIVAS NÃO SE GUARDAM ──────────────────────────────── */
+
+      const NEGATIVAS = [
+        ["arquivado (410)", respostas.get("arquivado")],
+        ["inexistente (404) — o agendado antes da hora", respostas.get("inexistente")],
+        ["leitura que falha (500)", semRede],
+      ];
+      for (const [nome, r] of NEGATIVAS) {
+        afirmar(
+          `${nome}: declara \`no-store\` — negativa guardada sobrevive à publicação`,
+          cacheDe(r) === "no-store",
+          cacheDe(r) || "sem Cache-Control",
+        );
+      }
+      /* E NENHUMA delas traz `s-maxage`. Sem esta metade, um `no-store,
+         s-maxage=60` passaria na de cima — e as duas diretivas juntas sao
+         ambiguas o bastante para a hospedagem escolher a que preferir. */
+      const comMaxAge = NEGATIVAS.filter(([, r]) => /s-maxage/i.test(cacheDe(r)));
+      afirmar(
+        "e nenhuma negativa traz `s-maxage` junto — as duas diretivas juntas deixam a hospedagem escolher",
+        comMaxAge.length === 0,
+        comMaxAge.map(([n]) => n).join(" | ") || "nenhuma",
+      );
+
+      /* ── O MAPA É FECHADO E COMPLETO ──────────────────────────────── */
+      //
+      // Um status que as rotas emitem e o mapa nao conhece sairia sem
+      // `Cache-Control` — que e o estado de ANTES desta story.
+
+      const semPolitica = cacheMod.STATUS_EMITIDOS.filter(
+        (s) => typeof cacheMod.POLITICA_POR_STATUS[s] !== "string",
+      );
+      afirmar(
+        `os ${cacheMod.STATUS_EMITIDOS.length} status que as rotas emitem têm política declarada — sem ela, quem decide é a hospedagem`,
+        semPolitica.length === 0,
+        semPolitica.join(", ") || "todos",
+      );
+      afirmar(
+        "status desconhecido cai em `no-store` — o lado seguro é não guardar o que ninguém classificou",
+        cacheMod.politicaDeCache(418) === "no-store" &&
+          cacheMod.politicaDeCache(undefined) === "no-store",
+        cacheMod.politicaDeCache(418),
+      );
+
+      /* ── NENHUM REQUISITO DEPENDE DE PURGA ───────────────────────── */
+      //
+      // O criterio e explicito. As etiquetas sao preparacao para o dia em que
+      // alguem quiser invalidar na hora; a garantia dos 60 segundos e do TTL,
+      // sozinho. Por isso a assercao mede o TTL, e nao a etiqueta.
+
+      const tetoDeclarado = Number(
+        /s-maxage=(\d+)/.exec(cacheDe(doNoAr))?.[1] ?? Number.NaN,
+      );
+      afirmar(
+        "o TTL sozinho garante os 60 segundos — nenhuma garantia depende de alguém lembrar de purgar",
+        Number.isFinite(tetoDeclarado) && tetoDeclarado <= 60,
+        String(tetoDeclarado),
+      );
+      afirmar(
+        "autoteste: a leitura do TTL ACUSA um teto maior que 60",
+        Number(/s-maxage=(\d+)/.exec("public, s-maxage=3600")?.[1]) > 60,
+        "acusou",
+      );
+
+      /* ── AS ETIQUETAS, POR POST E POR COLEÇÃO ────────────────────── */
+
+      const etiquetasDe = (r) =>
+        String(r?.cabecalhos["vercel-cache-tag"] ?? "").split(",").filter(Boolean);
+      afirmar(
+        "a resposta de um Post traz a etiqueta DELE e a da coleção",
+        etiquetasDe(doNoAr).includes("post:artigo-vivo") &&
+          etiquetasDe(doNoAr).includes(cacheMod.ETIQUETA_DA_COLECAO),
+        etiquetasDe(doNoAr).join(",") || "sem etiquetas",
+      );
+      afirmar(
+        "a listagem traz só a da coleção — não há Post a purgar ali",
+        etiquetasDe(listagem).includes(cacheMod.ETIQUETA_DA_COLECAO) &&
+          !etiquetasDe(listagem).some((e) => e.startsWith("post:")),
+        etiquetasDe(listagem).join(",") || "sem etiquetas",
+      );
+      /* E A NEGATIVA NÃO TRAZ ETIQUETA. Numa resposta que ninguém guarda elas
+         seriam ruído: não há o que purgar. */
+      afirmar(
+        "a resposta `no-store` NÃO traz etiqueta — não há o que purgar no que ninguém guarda",
+        etiquetasDe(respostas.get("inexistente")).length === 0,
+        etiquetasDe(respostas.get("inexistente")).join(",") || "nenhuma",
+      );
+      /* SLUG FORA DO VOCABULÁRIO DE ETIQUETA não derruba a resposta: a etiqueta
+         do Post é conveniência, e trocar o essencial pelo acessório seria o
+         defeito. A da coleção fica. */
+      const etiquetasTortas = cacheMod.etiquetasDaResposta({ slug: "com espaço, e vírgula" });
+      afirmar(
+        "slug fora do vocabulário de etiqueta OMITE a etiqueta do Post e mantém a da coleção — cabeçalho quebrado derrubaria a resposta inteira",
+        etiquetasTortas.includes(cacheMod.ETIQUETA_DA_COLECAO) &&
+          !etiquetasTortas.some((e) => e.startsWith("post:")),
+        etiquetasTortas.join(","),
+      );
+
     } finally {
       await new Promise((pronto) => servidorDaEntrega.close(pronto));
     }

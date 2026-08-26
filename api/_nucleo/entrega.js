@@ -6,6 +6,7 @@
  */
 
 import { raizDoSite } from "../../src/domain/blog/compartilhamento.js";
+import { etiquetasDaResposta, politicaDeCache } from "./cache.js";
 
 /** Os métodos que uma rota de leitura atende. Lista fechada. */
 export const METODOS_DE_LEITURA = Object.freeze(["GET", "HEAD"]);
@@ -44,6 +45,7 @@ export function dominioDoAmbiente(ambiente = process.env) {
 export function metodoRecusado(req, res) {
   if (METODOS_DE_LEITURA.includes(req?.method)) return false;
   res.setHeader("Allow", METODOS_DE_LEITURA.join(", "));
+  res.setHeader("Cache-Control", politicaDeCache(405));
   res.status(405).json({
     erro: "metodo_nao_permitido",
     mensagem: `Esta rota atende ${METODOS_DE_LEITURA.join(" e ")}.`,
@@ -58,8 +60,18 @@ export function metodoRecusado(req, res) {
  * seria trocar um silêncio por outro — o rastreador aceitaria a resposta e
  * descartaria o conteúdo sem dizer nada.
  */
-export function responderDocumento(res, { tipo, corpo, status = 200 }) {
+export function responderDocumento(res, { tipo, corpo, status = 200, etiquetas = null }) {
   res.setHeader("Content-Type", tipo);
+  /* A POLÍTICA DE CACHE VEM DO MAPA (Story 4.9), e é declarada AQUI porque é
+     por aqui que toda resposta de documento passa. Deixá-la em cada rota faria
+     a próxima rota nascer sem — e "sem política" não é neutro: é a hospedagem
+     escolhendo sozinha por quanto tempo guardar. */
+  res.setHeader("Cache-Control", politicaDeCache(status));
+  /* As etiquetas SÓ acompanham o que é guardável. Numa resposta `no-store` elas
+     seriam ruído: não há o que purgar. */
+  if (etiquetas !== null && !politicaDeCache(status).includes("no-store")) {
+    res.setHeader("Vercel-Cache-Tag", etiquetasDaResposta(etiquetas).join(","));
+  }
   res.status(status);
   res.send(corpo);
 }
@@ -68,6 +80,10 @@ export function responderDocumento(res, { tipo, corpo, status = 200 }) {
 export function responderDefeito(res, defeito) {
   console.error(`[entrega] ${defeito}`);
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  /* GUARDAR UM ERRO transforma uma falha de um segundo numa falha de um minuto
+     — e como o defeito costuma ser de infraestrutura, o minuto seguinte é
+     justamente quando ele já pode ter passado. */
+  res.setHeader("Cache-Control", politicaDeCache(500));
   res.status(500);
   res.send(`${defeito}\n`);
 }

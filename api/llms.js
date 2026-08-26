@@ -107,5 +107,6 @@ export default async function handler(req, res) {
   responderDocumento(res, {
     tipo: TIPO_DO_INDICE,
     corpo: indiceParaLlms(dominio.raiz, lidos.posts),
+    etiquetas: { colecoes: ["llms"] },
   });
 }
