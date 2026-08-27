@@ -134,6 +134,10 @@ export function haBuscaAtiva({ termo = "", estados = [] } = {}) {
  * marcadas, independentemente da sequência de cliques.
  *
  * Estado fora do vocabulário não entra — o filtro nunca inventa texto solto.
+ *
+ * Contrato ORIGINAL, protegido por `scripts/verificar-editor.mjs` — não é o
+ * que a listagem do Painel usa hoje (ver `selecionarEstadoExclusivo`, logo
+ * abaixo). Mantido por quem mais depender de seleção multi-Estado.
  */
 export function alternarEstado(estados, estado) {
   const marcados = Array.isArray(estados) ? estados.filter(ehEstado) : [];
@@ -142,6 +146,32 @@ export function alternarEstado(estados, estado) {
     ? marcados.filter((e) => e !== estado)
     : [...marcados, estado];
   return ESTADOS.filter((e) => desejados.includes(e));
+}
+
+/**
+ * Marca um Estado no filtro da LISTAGEM — SELEÇÃO EXCLUSIVA, não
+ * multi-seleção. É esta função, e não `alternarEstado`, que os quatro botões
+ * de filtro da listagem chamam.
+ *
+ * Clicar num Estado diferente do marcado SUBSTITUI a marcação: só aquele
+ * fica marcado. Clicar de novo no que já está marcado DESMARCA, e a lista
+ * volta a mostrar todos os Estados — filtro "sem Estado nenhum marcado" é
+ * "sem filtro", não "nenhum resultado".
+ *
+ * Multi-seleção fazia o filtro devolver a UNIÃO de Estados marcados, e isso
+ * nunca foi a pergunta que os quatro botões perguntam: cada um responde "só
+ * este Estado?", não "estes Estados também?". `alternarEstado` continua
+ * existindo, com o contrato multi-seleção original, porque
+ * `scripts/verificar-editor.mjs` prova esse contrato diretamente — repor o
+ * seletor exclusivo NAQUELA função quebraria uma garantia já publicada em vez
+ * de trocá-la de propósito.
+ *
+ * Estado fora do vocabulário não entra — o filtro nunca inventa texto solto.
+ */
+export function selecionarEstadoExclusivo(estados, estado) {
+  const marcados = Array.isArray(estados) ? estados.filter(ehEstado) : [];
+  if (!ehEstado(estado)) return ESTADOS.filter((e) => marcados.includes(e));
+  return marcados.includes(estado) ? [] : [estado];
 }
 
 /* ─── Categoria ──────────────────────────────────────────────────────────── */

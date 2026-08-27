@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Plus, Pencil, Trash2, Eye, RotateCcw,
   Save,
@@ -13,11 +14,12 @@ import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import EditorDePost from "@/admin/blog/EditorDePost";
 import ListaDePosts from "@/admin/blog/ListaDePosts";
-import { alternarEstado } from "@/admin/blog/listagem";
+import { selecionarEstadoExclusivo } from "@/admin/blog/listagem";
 import { ENDERECO_DAS_CATEGORIAS } from "@/admin/blog/rotas";
 import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
 import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
+import { pageTransition } from "@/lib/motion";
 
 /* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
 const ID_DO_CONTEUDO = "conteudo-do-painel";
@@ -431,19 +433,21 @@ export default function AdminBlog() {
      Markdown SAIU: quem edita post agora é o Editor visual da Story 2.4 com a
      gaveta de metadados da 2.6, e quem grava é a função de servidor da 2.5. A
      listagem SAIU na Story 2.10, e virou `ListaDePosts` — o que ficou aqui é
-     para onde "editar" e "novo" levam, e o aviso de que gravou. */
-  if (blogView === "form") {
-    return (
-      <EditorDePost
-        postId={editingPost?.id ?? null}
-        aoSalvar={handleSavePost}
-        aoSair={() => { setBlogView("list"); setEditingPost(null); }}
-      />
-    );
-  }
+     para onde "editar" e "novo" levam, e o aviso de que gravou.
+
+     A troca com a listagem NÃO É MAIS `return` condicional (item 5): um
+     `return` cedo troca a árvore inteira num quadro só, e é por isso que a
+     versão anterior não animava — não havia `AnimatePresence` para animar,
+     porque as duas telas nunca coexistiam nem por um instante. Agora as duas
+     são ramos de UM retorno só, mais abaixo. */
 
   /* ── Formulário de vaga (tela cheia) ──────────────────────────── */
-  if (vagasView === "form") {
+  /* `blogView !== "form"` é a guarda que preserva a prioridade de ANTES desta
+     mudança: o Editor de Post sempre vencia quando os dois estavam abertos.
+     Sem ela, este `return` antecipado passaria na frente do ramo do Editor
+     (mais abaixo, dentro do `AnimatePresence`) sempre que os dois Estados
+     fossem "form" ao mesmo tempo — inversão de prioridade, e não decisão. */
+  if (vagasView === "form" && blogView !== "form") {
     return (
       <VagaForm
         vaga={editingVaga}
@@ -473,8 +477,36 @@ export default function AdminBlog() {
   const tipoDoAlvo = "vaga";
 
   /* ── Render principal ─────────────────────────────────────────── */
+  //
+  // O Editor e a listagem são ramos do MESMO `AnimatePresence`, com
+  // `mode="wait"` — a tela que sai termina a saída antes de a que entra
+  // começar a entrar, então as duas nunca disputam a mesma área ao mesmo
+  // tempo. A chave (`key="editor"` / `key="lista"`) é o que diz ao
+  // `AnimatePresence` que são telas DIFERENTES, e não a mesma tela
+  // reordenando props — sem ela não haveria saída para animar.
   return (
-    <div className="painel h-screen flex flex-col bg-zinc-950 text-white overflow-hidden">
+    <AnimatePresence mode="wait">
+      {blogView === "form" ? (
+        <motion.div
+          key="editor"
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+        >
+          <EditorDePost
+            postId={editingPost?.id ?? null}
+            aoSalvar={handleSavePost}
+            aoSair={() => { setBlogView("list"); setEditingPost(null); }}
+          />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="lista"
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+          className="painel h-screen flex flex-col bg-background text-ink overflow-hidden"
+        >
 
       {/* ────── Barra superior ─────────────────────────────────────
           Vive na casca (`admin/shell`), não mais aqui: é compartilhada com
@@ -535,7 +567,7 @@ export default function AdminBlog() {
                     data-filtro-de-estado={estado}
                     aria-pressed={marcado}
                     onClick={() =>
-                      setEstadosDoFiltro((atuais) => alternarEstado(atuais, estado))
+                      setEstadosDoFiltro((atuais) => selecionarEstadoExclusivo(atuais, estado))
                     }
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
                       marcado
@@ -600,14 +632,6 @@ export default function AdminBlog() {
         role="tabpanel"
         aria-labelledby={idDaAba(activeTab)}
         tabIndex={-1}
-        /* O FUNDO DO CORPO CONTINUA ESCURO, nas duas abas. A listagem nova veste
-           os tokens do Painel (cartão em `surface`, tinta `ink`) e é o primeiro
-           pedaço do corpo reconstruído — mas repintar a superfície ATRÁS dela
-           deixaria a faixa de busca, que é compartilhada com Carreiras, escura
-           entre duas áreas claras. Repintar a faixa junto significaria mexer em
-           controle de um módulo fora de escopo, que não pode regredir. O corpo
-           inteiro clareia quando Carreiras for migrada; até lá, cartão claro
-           sobre fundo escuro é a transição honesta. */
         className="flex-1 overflow-y-auto p-6"
       >
 
@@ -738,6 +762,8 @@ export default function AdminBlog() {
         perigo={false}
         aoConfirmar={handleResetVagas}
       />
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

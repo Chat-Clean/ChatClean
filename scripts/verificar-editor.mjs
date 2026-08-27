@@ -4444,6 +4444,32 @@ if (janela && schema && configuracao && compilado) {
           igual(regras.alternarEstado(["rascunho", "draft"], "no ar"), ["rascunho"]),
         JSON.stringify(regras.alternarEstado(["rascunho", "draft"], "no ar")),
       );
+      /* ── O FILTRO DA LISTAGEM É EXCLUSIVO, não multi-seleção (bugfix da tela
+         de Listagem, item 3) ── É `selecionarEstadoExclusivo`, e não
+         `alternarEstado`, que os quatro botões de filtro chamam — a tabela
+         acima prova o contrato ANTIGO (que continua existindo, para quem mais
+         depender dele); esta prova o contrato NOVO, que é o que a tela usa. */
+      afirmar(
+        "clicar num Estado diferente SUBSTITUI a marcação — nunca soma",
+        igual(regras.selecionarEstadoExclusivo([], "publicado"), ["publicado"]) &&
+          igual(regras.selecionarEstadoExclusivo(["publicado"], "rascunho"), [
+            "rascunho",
+          ]),
+        JSON.stringify(regras.selecionarEstadoExclusivo(["publicado"], "rascunho")),
+      );
+      afirmar(
+        "clicar de novo no Estado JÁ marcado desmarca — filtro sem Estado nenhum é \"sem filtro\", não \"nada bate\"",
+        igual(regras.selecionarEstadoExclusivo(["publicado"], "publicado"), []),
+        JSON.stringify(regras.selecionarEstadoExclusivo(["publicado"], "publicado")),
+      );
+      afirmar(
+        "e texto solto também não entra neste filtro — mesmo vocabulário fechado",
+        igual(regras.selecionarEstadoExclusivo([], "no ar"), []) &&
+          igual(regras.selecionarEstadoExclusivo(["rascunho", "draft"], "draft"), [
+            "rascunho",
+          ]),
+        JSON.stringify(regras.selecionarEstadoExclusivo(["rascunho", "draft"], "draft")),
+      );
       if (estadosDoDominio) {
         afirmar(
           "as palavras do filtro saem do VOCABULÁRIO, na ordem do ciclo de vida, com “ou” antes da última",
@@ -4835,6 +4861,58 @@ if (janela && schema && configuracao && compilado) {
 
       afirmar(
         "o React não reclamou ao montar a listagem",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+    }
+
+    /* ── TROCAR SÓ O FILTRO DE ESTADO NÃO MOSTRA ESQUELETO (bugfix item 2) ──
+       Trocar de filtro é um clique comum, e reencapar a lista inteira em
+       esqueleto a cada troca pisca a tela e faz o Autor perder o lugar onde
+       estava. A regra: com posts já na tela e sem erro, uma troca só de
+       Estado mantém as linhas ANTIGAS visíveis enquanto a nova página
+       chega — o esqueleto continua reservado para a carga inicial. */
+    if (regras) {
+      modulo.controle.listagens = 0;
+      modulo.controle.aoListar = null;
+      modulo.controle.listagem = { ok: true, dados: POSTS_DE_PROVA };
+      const tela = await montarLista({ estados: [] });
+
+      afirmar(
+        "a carga inicial chega com as linhas, sem esqueleto pendente",
+        tela.situacao() === "lista" && tela.linhas().length === POSTS_DE_PROVA.length,
+        `situação: ${tela.situacao()} | linhas: ${tela.linhas().length}`,
+      );
+
+      let liberar = null;
+      modulo.controle.aoListar = () =>
+        new Promise((resolver) => {
+          liberar = resolver;
+        });
+      await tela.reRenderizar({ estados: ["publicado"] });
+
+      afirmar(
+        "trocar só o filtro de Estado NÃO mostra esqueleto — a lista anterior fica na tela enquanto a nova página chega",
+        tela.situacao() === "lista" &&
+          tela.esqueletos().length === 0 &&
+          tela.linhas().length === POSTS_DE_PROVA.length,
+        `situação: ${tela.situacao()} | esqueletos: ${tela.esqueletos().length} | linhas: ${tela.linhas().length}`,
+      );
+
+      await act(async () => {
+        liberar({ ok: true, dados: [POSTS_DE_PROVA.find((p) => p.id === ID_A)] });
+      });
+      modulo.controle.aoListar = null;
+
+      afirmar(
+        "e quando a resposta do novo filtro chega, a lista é SUBSTITUÍDA pela página nova — não somada à antiga",
+        tela.situacao() === "lista" && tela.linhas().length === 1 && tela.linha(ID_A) !== null,
+        `linhas: ${tela.linhas().length}`,
+      );
+
+      afirmar(
+        "o React não reclamou na troca de filtro sem esqueleto",
         tela.reclamacoes.length === 0,
         tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
       );
@@ -8601,6 +8679,76 @@ if (janela && schema && configuracao && compilado) {
                 );
               }
               await tela.desmontar();
+            }
+
+            /* ─── A CAPA DO DESTAQUE E DO CARTÃO (bugfix "post em destaque
+               fica sem imagem no site", item 7) ─────────────────────────
+               Um Post marcado como Destaque desenhava só o fundo `aurora-bg`,
+               mesmo tendo `imagem_url` gravado — a capa nunca aparecia. Aqui a
+               capa DEVE aparecer quando o endereço existe, tanto no Destaque
+               quanto no cartão da grade, e degradar para o fundo (nunca um
+               `<img>` quebrado) quando falta ou falha ao carregar — o mesmo
+               padrão já provado em `BlogPost.jsx` (Story 3.2). */
+            {
+              const CAPA_DESTAQUE = "https://cdn.exemplo.com/capa-destaque.jpg";
+              const CAPA_CARTAO = "https://cdn.exemplo.com/capa-cartao.jpg";
+              cc.aoBuscarPublicos = null;
+              cc.posts_publicos = {
+                ok: true,
+                dados: [
+                  { ...OS_POSTS[0], imagem_url: CAPA_DESTAQUE, imagem_alt: "A capa do destaque" },
+                  { ...OS_POSTS[1], imagem_url: CAPA_CARTAO, imagem_alt: "A capa do cartão" },
+                  { ...OS_POSTS[2], imagem_url: null },
+                ],
+              };
+              const tela = await montarPublica(modulo.BlogPublico, "/blog", "/blog");
+
+              const capaDoDestaque = tela.q('[data-papel="capa-do-destaque"]');
+              afirmar(
+                "o Post em Destaque com `imagem_url` DESENHA a capa — antes ficava só no fundo aurora, mesmo tendo endereço gravado",
+                capaDoDestaque !== null &&
+                  capaDoDestaque.getAttribute("src") === CAPA_DESTAQUE &&
+                  capaDoDestaque.getAttribute("alt") === "A capa do destaque",
+                String(capaDoDestaque?.getAttribute("src")),
+              );
+
+              const capaDoCartao = tela.q('[data-papel="capa-do-cartao"]');
+              afirmar(
+                "e o cartão da grade também desenha a própria capa, quando o Post tem `imagem_url`",
+                capaDoCartao !== null && capaDoCartao.getAttribute("src") === CAPA_CARTAO,
+                String(capaDoCartao?.getAttribute("src")),
+              );
+              afirmar(
+                "o cartão sem `imagem_url` (null) não desenha capa nenhuma — nunca um <img> sem endereço",
+                tela.todos('[data-papel="capa-do-cartao"]').length === 1,
+                String(tela.todos('[data-papel="capa-do-cartao"]').length),
+              );
+
+              await act(async () => {
+                capaDoDestaque.dispatchEvent(new janela.Event("error", { bubbles: false }));
+              });
+              afirmar(
+                "a capa do Destaque que FALHA ao carregar degrada para o fundo — nunca o ícone de imagem quebrada do navegador, e o Destaque continua inteiro",
+                tela.q('[data-papel="capa-do-destaque"]') === null &&
+                  (tela.q('[data-papel="destaque"]')?.textContent ?? "").includes(
+                    "Post em destaque",
+                  ),
+                `capa ainda no DOM: ${tela.q('[data-papel="capa-do-destaque"]') !== null}`,
+              );
+
+              const cartoesAntes = tela.todos("[data-post]").length;
+              await act(async () => {
+                capaDoCartao.dispatchEvent(new janela.Event("error", { bubbles: false }));
+              });
+              afirmar(
+                "e a capa do cartão que falha perde só a IMAGEM — o cartão continua na grade",
+                tela.q('[data-papel="capa-do-cartao"]') === null &&
+                  tela.todos("[data-post]").length === cartoesAntes,
+                `cartões antes: ${cartoesAntes} | depois: ${tela.todos("[data-post]").length}`,
+              );
+
+              await tela.desmontar();
+              cc.posts_publicos = { ok: true, dados: OS_POSTS };
             }
 
             /* ─── A PAGINAÇÃO ─────────────────────────────────────────────
@@ -12760,6 +12908,298 @@ if (compilado) {
     rmSync(compilado.pasta, { recursive: true, force: true });
   } catch {
     /* fica para a próxima execução varrer */
+  }
+}
+
+secao("(i) a busca da listagem: digitar, esperar o debounce, a lista responder");
+{
+  /* Bugfix "Correções de UI/UX na Listagem de Posts do Painel Admin", item 4:
+     a investigação estática não achou defeito na consulta, na normalização,
+     no debounce nem na fiação de props — a spec pedia reprodução AO VIVO antes
+     de fixar a causa. Reproduzida (com o servidor de dev, contra o Supabase de
+     produção) a busca respondeu certo; o que parecia quebrado era o esqueleto
+     piscando por cima da lista a cada tecla (item 2) e o filtro de Estado em
+     multi-seleção (item 3) — os dois já corrigidos acima. Esta seção prova o
+     COMPORTAMENTO fim a fim (digitar, esperar `ESPERA_DA_BUSCA_MS`, a lista
+     responder; termo sem correspondência cai no vazio de busca com "limpar
+     busca"), com a tela real e um dublê de dados — não mais um script solto
+     que só imprimia o que viu. */
+  const pastaBusca = criarPastaDeCompilacao("verificar-editor-busca-");
+  const arquivoDosPostsBusca = `${pastaBusca}/dublê-posts.js`;
+  writeFileSync(
+    arquivoDosPostsBusca,
+    `
+export const controle = { pedidos: [] };
+const POSTS = [
+  { id: "1", slug: "a", titulo: "5 Estratégias para Atendimento", autor_nome: "Fulano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "publicado", publicado_em: "2027-01-01T00:00:00Z", atualizado_em: "2027-01-01T00:00:00Z" },
+  { id: "2", slug: "b", titulo: "Guia de Automação", autor_nome: "Ciclano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "publicado", publicado_em: "2027-01-02T00:00:00Z", atualizado_em: "2027-01-02T00:00:00Z" },
+  { id: "3", slug: "c", titulo: "Rascunho de Novidades", autor_nome: "Beltrano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "rascunho", publicado_em: null, atualizado_em: "2027-01-03T00:00:00Z" },
+];
+export async function listarPostsDoPainel(pedido) {
+  controle.pedidos.push(pedido ?? null);
+  const termo = (pedido?.termo ?? "").trim().toLowerCase();
+  const estados = Array.isArray(pedido?.estados) ? pedido.estados : [];
+  let dados = termo === "" ? POSTS : POSTS.filter((p) => p.titulo.toLowerCase().includes(termo));
+  if (estados.length > 0) dados = dados.filter((p) => estados.includes(p.estado));
+  return { ok: true, dados };
+}
+export function ordenarListagem(posts) { return posts; }
+`,
+  );
+  const arquivoDaEscritaBusca = `${pastaBusca}/dublê-escrita.js`;
+  writeFileSync(
+    arquivoDaEscritaBusca,
+    `
+export async function definirDestaque() { return { ok: true, dados: {} }; }
+export async function excluirPost() { return { ok: true, dados: {} }; }
+`,
+  );
+  const arquivoDoEditorBusca = `${pastaBusca}/dublê-editor.jsx`;
+  writeFileSync(
+    arquivoDoEditorBusca,
+    `export default function EditorDePostDublê() { return null; }\n`,
+  );
+
+  const fonteBusca =
+    `export { default as AdminBlog } from ${caminhoDeModulo("src/pages/AdminBlog.jsx")};\n` +
+    `export { default as SessaoProvider } from ${caminhoDeModulo("src/admin/shell/SessaoProvider.jsx")};\n` +
+    `export { controle } from ${comoModulo(arquivoDosPostsBusca)};\n` +
+    /* A ESPERA VEM DO MÓDULO DE VERDADE, e não é um número escrito à mão aqui.
+       Um segundo número contando a mesma coisa diverge no dia em que
+       `ESPERA_DA_BUSCA_MS` mudar, e a asserção passaria a provar um tempo que
+       não é mais o real — é o mesmo motivo que já vale para as seções (f) e
+       (h) mais acima neste arquivo. */
+    `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n`;
+
+  const { arquivo: arquivoCompiladoBusca } = await compilarParaNode({
+    pasta: pastaBusca,
+    fonte: fonteBusca,
+    alias: {
+      "@/data/blog/posts": arquivoDosPostsBusca,
+      "@/data/blog/escrita": arquivoDaEscritaBusca,
+      "@/admin/blog/EditorDePost": arquivoDoEditorBusca,
+    },
+  });
+
+  try {
+    const janelaBusca = montarNavegador({ url: "https://painel.local/admin" });
+    const moduloBusca = await import(pathToFileURL(arquivoCompiladoBusca).href);
+    const ReactBusca = (await import("react")).default;
+    const { createRoot: criarRaizBusca } = await import("react-dom/client");
+    const { act: atoBusca } = await import("react");
+    const { MemoryRouter: RoteadorDeMemoriaBusca } = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+
+    const alvoBusca = janelaBusca.document.createElement("div");
+    janelaBusca.document.body.appendChild(alvoBusca);
+    const raizBusca = criarRaizBusca(alvoBusca);
+
+    const digitar = async (texto) => {
+      const campo = alvoBusca.querySelector('input[data-busca="posts"]');
+      const setter = Object.getOwnPropertyDescriptor(
+        janelaBusca.HTMLInputElement.prototype,
+        "value",
+      ).set;
+      await atoBusca(async () => {
+        setter.call(campo, texto);
+        campo.dispatchEvent(new janelaBusca.Event("input", { bubbles: true }));
+      });
+    };
+
+    await atoBusca(async () => {
+      raizBusca.render(
+        ReactBusca.createElement(
+          RoteadorDeMemoriaBusca,
+          { initialEntries: ["/admin"] },
+          ReactBusca.createElement(
+            moduloBusca.SessaoProvider,
+            null,
+            ReactBusca.createElement(moduloBusca.AdminBlog),
+          ),
+        ),
+      );
+    });
+    await atoBusca(async () => {
+      await new Promise((resolver) => setTimeout(resolver, 50));
+    });
+
+    afirmar(
+      "o campo de busca da listagem existe no DOM",
+      alvoBusca.querySelector('input[data-busca="posts"]') !== null,
+    );
+
+    const pedidosAntesDeDigitar = moduloBusca.controle.pedidos.length;
+    await digitar("atendimento");
+    afirmar(
+      "digitar não dispara pedido novo antes do debounce — uma consulta por tecla castigaria o banco",
+      moduloBusca.controle.pedidos.length === pedidosAntesDeDigitar,
+      `pedidos antes: ${pedidosAntesDeDigitar}, logo após digitar: ${moduloBusca.controle.pedidos.length}`,
+    );
+
+    await atoBusca(async () => {
+      await new Promise((resolver) =>
+        setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+      );
+    });
+    const ultimoPedidoBusca = moduloBusca.controle.pedidos.at(-1);
+    afirmar(
+      "passado o debounce, o pedido à camada de dados carrega o termo digitado",
+      ultimoPedidoBusca?.termo === "atendimento",
+      JSON.stringify(ultimoPedidoBusca),
+    );
+    afirmar(
+      "o Post cujo termo só existe no título aparece na lista, e o que não bate some",
+      alvoBusca.querySelector('[data-abrir="1"]') !== null &&
+        alvoBusca.querySelector('[data-abrir="2"]') === null,
+      alvoBusca.querySelector("[data-estado-da-lista]")?.getAttribute("data-estado-da-lista"),
+    );
+
+    /* ── Termo sem correspondência: o vazio DE BUSCA, não o inicial nem erro. */
+    await digitar("termo-sem-post-nenhum");
+    await atoBusca(async () => {
+      await new Promise((resolver) =>
+        setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+      );
+    });
+    const regiaoBusca = alvoBusca.querySelector("[data-estado-da-lista]");
+    afirmar(
+      "termo sem post nenhum cai no vazio DE BUSCA — distinto do vazio inicial e do erro",
+      regiaoBusca?.getAttribute("data-estado-da-lista") === "vazio-de-busca",
+      `estado: ${regiaoBusca?.getAttribute("data-estado-da-lista")}`,
+    );
+
+    const botaoLimparBusca = [...alvoBusca.querySelectorAll("button")].find((b) =>
+      /limpar/i.test(b.textContent ?? ""),
+    );
+    afirmar("o vazio de busca oferece 'limpar busca'", Boolean(botaoLimparBusca));
+    if (botaoLimparBusca) {
+      await atoBusca(async () => {
+        botaoLimparBusca.dispatchEvent(new janelaBusca.MouseEvent("click", { bubbles: true }));
+      });
+      afirmar(
+        "clicar em 'limpar busca' esvazia o campo",
+        alvoBusca.querySelector('input[data-busca="posts"]')?.value === "",
+        alvoBusca.querySelector('input[data-busca="posts"]')?.value,
+      );
+      /* E A LISTA VOLTA A MOSTRAR OS DOIS — não basta o campo ficar vazio: o
+         critério é "limpar busca" trazer de volta o que a busca escondeu. Sem
+         esta metade, um botão que só limpasse o TEXTO sem refazer o pedido
+         passaria na asserção de cima e deixaria a lista presa no resultado
+         vazio. */
+      await atoBusca(async () => {
+        await new Promise((resolver) =>
+          setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+        );
+      });
+      afirmar(
+        "e a lista volta a mostrar os dois Posts — limpar busca não é só esvaziar o campo, é refazer o pedido",
+        alvoBusca.querySelector('[data-estado-da-lista]')?.getAttribute("data-estado-da-lista") ===
+          "lista" &&
+          alvoBusca.querySelector('[data-abrir="1"]') !== null &&
+          alvoBusca.querySelector('[data-abrir="2"]') !== null,
+        alvoBusca.querySelector('[data-estado-da-lista]')?.getAttribute("data-estado-da-lista"),
+      );
+    }
+
+    /* ── Fix item 3: o filtro de Estado é EXCLUSIVO, na tela real ────────
+       A função pura já está coberta acima; aqui é a FIAÇÃO do clique —
+       `AdminBlog` monta o botão certo, `aria-pressed` reflete a marcação e
+       a lista É REFEITA pela camada com os Estados aplicados. Sem este
+       teste, um botão que chamasse a função errada (ou não chamasse
+       nenhuma) passaria pela suíte inteira. */
+    const botaoDoEstado = (estado) =>
+      alvoBusca.querySelector(`[data-filtro-de-estado="${estado}"]`);
+
+    await atoBusca(async () => {
+      await new Promise((resolver) =>
+        setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+      );
+    });
+    afirmar(
+      "os quatro botões de Estado existem, um por palavra do vocabulário fechado",
+      ["rascunho", "agendado", "publicado", "arquivado"].every(
+        (estado) => botaoDoEstado(estado) !== null,
+      ),
+    );
+    afirmar(
+      "nenhum começa marcado — sem filtro é o estado inicial",
+      ["rascunho", "agendado", "publicado", "arquivado"].every(
+        (estado) => botaoDoEstado(estado)?.getAttribute("aria-pressed") === "false",
+      ),
+    );
+
+    await atoBusca(async () => {
+      botaoDoEstado("publicado").dispatchEvent(
+        new janelaBusca.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    afirmar(
+      "clicar em 'publicado' marca ELE, com aria-pressed, e não só pela cor",
+      botaoDoEstado("publicado")?.getAttribute("aria-pressed") === "true",
+    );
+
+    await atoBusca(async () => {
+      await new Promise((resolver) =>
+        setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+      );
+    });
+    afirmar(
+      "e a lista é REFEITA pela camada com o Estado marcado — some o rascunho, ficam os publicados",
+      moduloBusca.controle.pedidos.at(-1)?.estados?.includes("publicado") &&
+        alvoBusca.querySelector('[data-abrir="1"]') !== null &&
+        alvoBusca.querySelector('[data-abrir="2"]') !== null &&
+        alvoBusca.querySelector('[data-abrir="3"]') === null,
+      JSON.stringify(moduloBusca.controle.pedidos.at(-1)),
+    );
+
+    await atoBusca(async () => {
+      botaoDoEstado("rascunho").dispatchEvent(
+        new janelaBusca.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    afirmar(
+      "clicar num Estado DIFERENTE substitui a marcação — 'publicado' desmarca, 'rascunho' marca",
+      botaoDoEstado("publicado")?.getAttribute("aria-pressed") === "false" &&
+        botaoDoEstado("rascunho")?.getAttribute("aria-pressed") === "true",
+      `publicado: ${botaoDoEstado("publicado")?.getAttribute("aria-pressed")} | rascunho: ${botaoDoEstado("rascunho")?.getAttribute("aria-pressed")}`,
+    );
+
+    await atoBusca(async () => {
+      await new Promise((resolver) =>
+        setTimeout(resolver, moduloBusca.ESPERA_DA_BUSCA_MS + 150),
+      );
+    });
+    afirmar(
+      "e a lista troca para o novo Estado — nunca SOMA os dois filtros",
+      moduloBusca.controle.pedidos.at(-1)?.estados?.length === 1 &&
+        moduloBusca.controle.pedidos.at(-1)?.estados?.includes("rascunho") &&
+        alvoBusca.querySelector('[data-abrir="3"]') !== null &&
+        alvoBusca.querySelector('[data-abrir="1"]') === null,
+      JSON.stringify(moduloBusca.controle.pedidos.at(-1)),
+    );
+
+    await atoBusca(async () => {
+      botaoDoEstado("rascunho").dispatchEvent(
+        new janelaBusca.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    afirmar(
+      "clicar de novo no Estado JÁ marcado desmarca — não fica preso num filtro",
+      botaoDoEstado("rascunho")?.getAttribute("aria-pressed") === "false",
+    );
+
+    await atoBusca(async () => raizBusca.unmount());
+    alvoBusca.remove();
+  } finally {
+    try {
+      rmSync(pastaBusca, { recursive: true, force: true });
+    } catch {
+      /* fica para a próxima execução varrer */
+    }
   }
 }
 

@@ -247,6 +247,43 @@ export default function Blog() {
   const destaque = lista.find((p) => p.destaque === true) ?? null;
   const demais = destaque === null ? lista : lista.filter((p) => p !== destaque);
 
+  /* ── A CAPA QUE NÃO CARREGA É CAPA AUSENTE (mesmo padrão de BlogPost.jsx,
+     Story 3.2) ── Post sem `imagem_url`, ou cuja imagem falha ao carregar,
+     cai no MESMO fallback: o card de Destaque volta ao `aurora-bg` que já
+     desenhava antes desta mudança, e o card da grade fica sem faixa de
+     imagem — nunca um `<img>` quebrado. `onError` é o único sinal que o
+     navegador dá, e ele é por ENDEREÇO: o benefício da dúvida volta a cada
+     Post, senão uma falha condenaria o card seguinte. */
+  const [capaDoDestaqueQuebrada, setCapaDoDestaqueQuebrada] = useState(false);
+  const enderecoDaCapaDoDestaque =
+    typeof destaque?.imagem_url === "string" ? destaque.imagem_url.trim() : "";
+  useEffect(() => {
+    setCapaDoDestaqueQuebrada(false);
+  }, [enderecoDaCapaDoDestaque]);
+  const mostrarCapaDoDestaque = enderecoDaCapaDoDestaque !== "" && !capaDoDestaqueQuebrada;
+
+  /* A grade tem VÁRIOS cartões, e a resposta é POR CARTÃO — a mesma regra dos
+     relacionados em `BlogPost.jsx`: um cartão com a imagem podre não pode
+     esconder a dos outros.
+     Sem efeito de reinício: o registro é chaveado por `post.id`, um
+     identificador estável, e nunca é limpo. Uma versão anterior o zerava a
+     cada mudança de `lista` — mas `lista` troca de referência a cada "carregar
+     mais" (Blog.jsx:190, `setPosts` concatenando), e zerar apagava o registro
+     dos cartões JÁ na tela, fazendo imagens já conhecidas como quebradas
+     tentarem carregar de novo. Um `id` que já falhou continua no Set para
+     sempre — inofensivo: o mesmo Post não muda de imagem sem a página
+     recarregar, e a entrada de um Post que saiu da lista só ocupa memória, não
+     desenha nada. */
+  const [capasDaGradeQuebradas, setCapasDaGradeQuebradas] = useState(() => new Set());
+  const marcarCapaDaGradeQuebrada = useCallback((id) => {
+    setCapasDaGradeQuebradas((atuais) => {
+      if (atuais.has(id)) return atuais;
+      const proximo = new Set(atuais);
+      proximo.add(id);
+      return proximo;
+    });
+  }, []);
+
   return (
     <div
       className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white"
@@ -407,8 +444,27 @@ export default function Blog() {
               className="group block"
             >
               <div className="rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden grid md:grid-cols-5 green-glow card-3d transition-all duration-500">
-                <div className="md:col-span-2 aurora-bg flex items-center justify-center p-12 min-h-48">
-                  <div className="text-center">
+                <div className="md:col-span-2 relative aurora-bg flex items-center justify-center p-12 min-h-48 overflow-hidden">
+                  {/* A CAPA DO DESTAQUE. Quando falta ou falha, o `aurora-bg`
+                      do próprio invólucro já é o fallback — nada a mais para
+                      desenhar. */}
+                  {mostrarCapaDoDestaque && (
+                    <img
+                      src={enderecoDaCapaDoDestaque}
+                      alt={destaque.imagem_alt ?? ""}
+                      data-papel="capa-do-destaque"
+                      referrerPolicy="no-referrer"
+                      onError={() => setCapaDoDestaqueQuebrada(true)}
+                      className="absolute inset-0 size-full object-cover"
+                    />
+                  )}
+                  <div
+                    className={`relative z-10 text-center ${
+                      mostrarCapaDoDestaque
+                        ? "rounded-2xl bg-black/40 px-4 py-3 backdrop-blur-sm"
+                        : ""
+                    }`}
+                  >
                     {nomeDaCategoria(destaque) !== "" && (
                       <span className="inline-block px-3 py-1 rounded-full bg-white/20 border border-white/40 text-white text-xs font-bold uppercase tracking-widest mb-4">
                         {nomeDaCategoria(destaque)}
@@ -474,49 +530,72 @@ export default function Blog() {
                   aria-label={rotuloDoCartao(post)}
                   className="group block h-full"
                 >
-                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white p-8 flex flex-col green-glow card-3d transition-all duration-500">
-                    <div className="flex items-center justify-between mb-6">
-                      {/* Categoria é NULÁVEL: sem ela o cartão aparece do mesmo
-                          jeito, sem pastilha — e não com uma pastilha vazia. */}
-                      {nomeDaCategoria(post) !== "" ? (
-                        <span className="inline-block px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
-                          {nomeDaCategoria(post)}
-                        </span>
-                      ) : (
-                        <span />
+                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden flex flex-col green-glow card-3d transition-all duration-500">
+                    {/* A CAPA DO CARTÃO. Post sem `imagem_url`, ou cuja imagem
+                        falha ao carregar, fica sem faixa — nunca um `<img>`
+                        quebrado. `loading="lazy"`: a grade inteira fica abaixo
+                        da dobra, e carregar toda capa de host de terceiro antes
+                        de a pessoa rolar até ela é gastar a rede por uma
+                        imagem que talvez ninguém veja. */}
+                    {typeof post.imagem_url === "string" &&
+                      post.imagem_url.trim() !== "" &&
+                      !capasDaGradeQuebradas.has(post.id) && (
+                        <img
+                          src={post.imagem_url.trim()}
+                          alt={post.imagem_alt ?? post.titulo}
+                          data-papel="capa-do-cartao"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          width={1200}
+                          height={630}
+                          onError={() => marcarCapaDaGradeQuebrada(post.id)}
+                          className="w-full h-40 object-cover"
+                        />
                       )}
-                      {textoDoTempoDeLeitura(post) !== "" && (
-                        <span className="flex items-center gap-1 text-xs text-zinc-400">
-                          <Clock className="h-3.5 w-3.5" />
-                          {textoDoTempoDeLeitura(post)}
-                        </span>
-                      )}
-                    </div>
+                    <div className="p-8 flex flex-1 flex-col">
+                      <div className="flex items-center justify-between mb-6">
+                        {/* Categoria é NULÁVEL: sem ela o cartão aparece do mesmo
+                            jeito, sem pastilha — e não com uma pastilha vazia. */}
+                        {nomeDaCategoria(post) !== "" ? (
+                          <span className="inline-block px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                            {nomeDaCategoria(post)}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        {textoDoTempoDeLeitura(post) !== "" && (
+                          <span className="flex items-center gap-1 text-xs text-zinc-400">
+                            <Clock className="h-3.5 w-3.5" />
+                            {textoDoTempoDeLeitura(post)}
+                          </span>
+                        )}
+                      </div>
 
-                    <h3 className="text-lg font-black text-zinc-900 tracking-tight mb-3 group-hover:text-emerald-700 transition-colors flex-1">
-                      {post.titulo}
-                    </h3>
-                    <p className="text-zinc-500 text-sm leading-relaxed mb-6 line-clamp-3">
-                      {post.resumo}
-                    </p>
+                      <h3 className="text-lg font-black text-zinc-900 tracking-tight mb-3 group-hover:text-emerald-700 transition-colors flex-1">
+                        {post.titulo}
+                      </h3>
+                      <p className="text-zinc-500 text-sm leading-relaxed mb-6 line-clamp-3">
+                        {post.resumo}
+                      </p>
 
-                    <div className="flex items-center justify-between text-xs text-zinc-400 mt-auto pt-4 border-t border-zinc-100">
-                      {/* O Autor é NULÁVEL como a Categoria, e é condicionado do
-                          mesmo jeito: o `<span>` inteiro sai, e não só o texto
-                          dentro dele — senão sobra uma caixa vazia ocupando
-                          espaço no rodapé do cartão. */}
-                      {nomeDoAutor(post) !== "" ? (
-                        <span className="flex items-center gap-1">
-                          <User className="h-3.5 w-3.5" />
-                          {nomeDoAutor(post)}
+                      <div className="flex items-center justify-between text-xs text-zinc-400 mt-auto pt-4 border-t border-zinc-100">
+                        {/* O Autor é NULÁVEL como a Categoria, e é condicionado do
+                            mesmo jeito: o `<span>` inteiro sai, e não só o texto
+                            dentro dele — senão sobra uma caixa vazia ocupando
+                            espaço no rodapé do cartão. */}
+                        {nomeDoAutor(post) !== "" ? (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3.5 w-3.5" />
+                            {nomeDoAutor(post)}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        <span className="flex items-center gap-1 text-emerald-600 font-semibold group-hover:gap-2 transition-all">
+                          Ler
+                          <ArrowRight className="h-3.5 w-3.5" />
                         </span>
-                      ) : (
-                        <span />
-                      )}
-                      <span className="flex items-center gap-1 text-emerald-600 font-semibold group-hover:gap-2 transition-all">
-                        Ler
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </span>
+                      </div>
                     </div>
                   </div>
                 </Link>

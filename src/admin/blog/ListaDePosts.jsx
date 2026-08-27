@@ -259,10 +259,35 @@ export default function ListaDePosts({
      número, então nada aplicado depois de desmontar. */
   const ultimoPedido = useRef(0);
 
+  /* O pedido do ciclo ANTERIOR do efeito abaixo — o que diferencia "só o
+     filtro de Estado mudou" de qualquer outro motivo para o efeito rodar de
+     novo (busca, `recarregarEm`, "tentar de novo"). `null` marca que ainda não
+     houve ciclo nenhum, e por isso o primeiro carregamento nunca entra no
+     ramo sem esqueleto. */
+  const cicloAnterior = useRef(null);
+
   useEffect(() => {
     ultimoPedido.current += 1;
     const pedido = ultimoPedido.current;
-    setCarregando(true);
+
+    /* ── Sem esqueleto ao trocar SÓ o filtro de Estado ───────────────────
+       Esqueleto por cima da lista que já está na tela pisca a tela inteira a
+       cada clique num filtro — e as linhas que já estavam lá continuam
+       válidas até a resposta chegar. O esqueleto continua aparecendo no
+       carregamento INICIAL (`posts` ainda vazio) e depois de um erro
+       anterior: nos dois casos não há o que preservar na tela. */
+    const anterior = cicloAnterior.current;
+    const soOFiltroDeEstadoMudou =
+      anterior !== null &&
+      posts.length > 0 &&
+      erro === null &&
+      anterior.termoAplicado === termoAplicado &&
+      anterior.recarregarEm === recarregarEm &&
+      anterior.tentativa === tentativa &&
+      anterior.chaveDosEstados !== chaveDosEstados;
+    cicloAnterior.current = { termoAplicado, chaveDosEstados, recarregarEm, tentativa };
+
+    if (!soOFiltroDeEstadoMudou) setCarregando(true);
     setErro(null);
 
     (async () => {
@@ -297,6 +322,12 @@ export default function ListaDePosts({
     return () => {
       ultimoPedido.current += 1;
     };
+    /* `posts.length`, `erro` e `chaveDosEstados` são lidos só para DECIDIR se
+       este ciclo mostra esqueleto — não para disparar o efeito de novo.
+       Listá-los faria o efeito rodar a cada linha que sai da lista e a cada
+       erro que a PRÓPRIA leitura produz, num laço que não tem a ver com "o
+       que foi pedido" mudar. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarregarEm, tentativa, termoAplicado, estadosAplicados]);
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
