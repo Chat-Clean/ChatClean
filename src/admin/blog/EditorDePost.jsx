@@ -105,7 +105,7 @@
  * Autor: ele é resolvido no servidor, a partir da Conta autenticada.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ExternalLink, Eye, Loader2 } from "lucide-react";
 
 /* A pergunta "dá para ver este Post no site?" e o endereço público moram em
@@ -119,9 +119,11 @@ import GavetaDeMetadados from "@/admin/blog/GavetaDeMetadados";
 import PilulaDeEstado from "@/admin/blog/PilulaDeEstado";
 import { larguraDaGaveta, nasceAberta } from "@/admin/blog/gaveta";
 import {
+  FRASES_DE_FALTA,
   confirmacaoDoAgendamento,
   corpoDoPedido,
   faltandoNaGaveta,
+  textoDaDataDoCampo,
   valoresDoPost,
   valoresVazios,
 } from "@/admin/blog/metadados";
@@ -177,6 +179,14 @@ import {
 } from "@/domain/blog/transicoes";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -193,6 +203,11 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      Post que já existe. */
   const [id, setId] = useState(postId);
   const criando = id === null || id === undefined || id === "";
+
+  /* Um prefixo por instância, do modal de agendamento — a verificação monta
+     dois `EditorDePost` no mesmo bloco de propósito, e um `id` fixo faria o
+     rótulo do campo de um apontar para o input do outro. */
+  const idDoAgendamento = useId();
 
   const [carregando, setCarregando] = useState(!criando);
   const [erroDeCarga, setErroDeCarga] = useState(null);
@@ -335,6 +350,26 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      botão que ele apertou: publicar e salvar-rascunho passam por aqui, e
      confirmar um levando ao outro seria pior que não perguntar. */
   const [trocaDeEnderecoPendente, setTrocaDeEnderecoPendente] = useState(null);
+
+  /* ── O MODAL DE AGENDAMENTO (correção de UI/UX do Editor) ────────────────
+     O campo de data deixou de morar na gaveta — ele era redundante com este
+     botão, que hoje abre um modal em vez de só cobrar o campo de novo.
+
+     `agendamentoPendente` guarda a AÇÃO esperando confirmação (`agendar` ou
+     `reagendar`), pela mesma razão de `trocaDeEnderecoPendente`: o Autor
+     confirma e cai na mesma ação que apertou.
+
+     `rascunhoDeData` é um RASCUNHO LOCAL ao modal, e não um espelho de
+     `valores.publicado_em` atualizado a cada tecla: ele só é sincronizado com
+     o que está gravado no instante em que o modal ABRE (`abrirAgendamento`).
+     Escrever em `valores` a cada tecla faria "Cancelar" não desfazer nada —
+     o valor já teria sido escrito no estado que `salvar` usa. */
+  const [agendamentoPendente, setAgendamentoPendente] = useState(null);
+  const [rascunhoDeData, setRascunhoDeData] = useState("");
+  /* A recusa do SERVIDOR por `publicado_em` — via o mecanismo genérico de
+     `erro.faltando` — mostra aqui dentro, e não como marca num campo da
+     gaveta: o campo saiu de lá. `null` quando não há recusa em curso. */
+  const [erroDoAgendamento, setErroDoAgendamento] = useState(null);
 
   /* O ESPELHO DOS VALORES, para a faxina da capa ler o endereço de AGORA.
      `enviarCapa` e `removerCapa` não podem depender de `valores`: elas seriam
@@ -618,8 +653,23 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      a tela tem naquele momento. */
   const salvarDeNovo = useRef(null);
 
-  const salvar = useCallback(async (acao, { enderecoConfirmado = false } = {}) => {
+  const salvar = useCallback(async (
+    acao,
+    { enderecoConfirmado = false, publicadoEmForcado = null } = {},
+  ) => {
     if (salvando) return;
+
+    /* O DADO DO MODAL DE AGENDAMENTO, quando `confirmarAgendamento` o passa.
+       `valores.publicado_em` só é atualizado por `setValores`, que agenda
+       para o PRÓXIMO render — lê-lo aqui, no mesmo instante em que o Autor
+       confirmou o modal, ainda veria o valor antigo. O que muda com o
+       agendamento é só esta coluna; o resto de `valores` continua valendo. */
+    const dataDePublicacao =
+      publicadoEmForcado !== null ? publicadoEmForcado : valores.publicado_em;
+    const valoresParaSalvar =
+      publicadoEmForcado !== null
+        ? { ...valores, publicado_em: publicadoEmForcado }
+        : valores;
 
     /* SALVAR COM UMA IMAGEM AINDA SUBINDO GRAVARIA O POST SEM ELA.
        O endereço só existe depois que o envio conclui; salvar antes mandaria
@@ -645,14 +695,13 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     /* A ação que EXIGE data recusa aqui, com a frase da tela.
        O banco recusaria de qualquer jeito — a restrição `posts_publicavel_
        exige_data` existe desde a Story 2.1 — e o servidor recusa antes dele.
-       O que se ganha recusando aqui é a marca no campo certo da gaveta em vez
-       de uma frase no rodapé sobre uma coluna. */
-    if (acao.exigeData && String(valores.publicado_em ?? "").trim() === "") {
-      setFaltando(["publicado_em"]);
-      notificarErro(
-        "Falta a data de publicação",
-        "Informe o dia e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
-      );
+       O que se ganha recusando aqui é a REABERTURA do modal com a recusa
+       dentro dele: o campo saiu da gaveta, então não há mais "campo certo"
+       para marcar por fora — `setFaltando(["publicado_em"])` marcaria um
+       campo que não existe mais ali. */
+    if (acao.exigeData && String(dataDePublicacao ?? "").trim() === "") {
+      setErroDoAgendamento(FRASES_DE_FALTA.publicado_em);
+      setAgendamentoPendente(acao);
       return;
     }
 
@@ -709,13 +758,20 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
        que está GRAVADO. */
     const pedido = corpoDoPedido({
       id: criando ? null : id,
-      valores,
+      valores: valoresParaSalvar,
       documento,
       estado: acao.destino,
       omitirTags: tagsIndisponiveis,
     });
     if (!pedido.ok) {
-      setFaltando([pedido.campo]);
+      /* `publicado_em` não tem mais campo na gaveta: a recusa reabre o modal
+         de agendamento, em vez de marcar um campo que não existe mais ali. */
+      if (pedido.campo === "publicado_em") {
+        setErroDoAgendamento(pedido.motivo);
+        setAgendamentoPendente(acao);
+      } else {
+        setFaltando([pedido.campo]);
+      }
       notificarErro("Não deu para salvar o post", pedido.motivo);
       return;
     }
@@ -730,7 +786,16 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
          é justamente agora que a proteção contra sair precisa estar de pé. */
       const { erro } = resultado;
       if (Array.isArray(erro.faltando) && erro.faltando.length > 0) {
-        setFaltando([...erro.faltando]);
+        /* `publicado_em` NÃO vira marca de campo: a gaveta não tem mais um
+           campo correspondente desde que a data passou a morar no modal de
+           agendamento (mecanismo genérico de `erro.faltando`, achado da
+           revisão desta correção). A saída é reabrir o modal com a frase do
+           servidor dentro dele — nunca um campo marcado que ninguém vê. */
+        setFaltando(erro.faltando.filter((campo) => campo !== "publicado_em"));
+        if (erro.faltando.includes("publicado_em")) {
+          setErroDoAgendamento(erro.mensagem);
+          setAgendamentoPendente(acao);
+        }
       }
       if (erro.tipo === ERRO_CONFLITO) setProblemaNoEndereco(erro.mensagem);
       /* A RECUSA QUE TEM SAÍDA VIRA UMA BIFURCAÇÃO, E NÃO UM BECO.
@@ -870,6 +935,55 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     salvarDeNovo.current = salvar;
   }, [salvar]);
 
+  /* ── O modal de agendamento: abrir, cancelar, confirmar ─────────────────
+     O botão "Agendar publicação"/"Reagendar publicação" (`acao.exigeData`)
+     não chama `salvar` direto: ele abre este modal, e é a CONFIRMAÇÃO dele
+     que chama `salvar`. */
+
+  /** Abre o modal, com o rascunho sincronizado ao que está gravado AGORA. */
+  const abrirAgendamento = useCallback(
+    (acao) => {
+      setRascunhoDeData(valores.publicado_em ?? "");
+      setErroDoAgendamento(null);
+      setAgendamentoPendente(acao);
+    },
+    [valores.publicado_em],
+  );
+
+  /**
+   * Cancelar fecha sem gravar. O rascunho é LOCAL ao modal — ele nunca foi
+   * escrito em `valores.publicado_em`, então não há o que desfazer ali; o
+   * que este fechamento descarta é só o texto que estava no campo do modal.
+   */
+  const fecharAgendamento = useCallback(() => {
+    setAgendamentoPendente(null);
+    setErroDoAgendamento(null);
+  }, []);
+
+  /**
+   * Confirmar NÃO escreve o rascunho em `valores.publicado_em` — passa o
+   * valor direto a `salvar` (`publicadoEmForcado`), que usa esse valor para
+   * montar o pedido sem depender de `valores` estar atualizado a tempo.
+   *
+   * Achado da revisão adversarial desta correção: escrever em `valores` AQUI,
+   * antes de `salvar` confirmar qualquer coisa, deixava uma recusa (data
+   * vencida, `erro.faltando`, o cheque local de campo vazio) com o valor
+   * REJEITADO preso em `valores.publicado_em` para sempre — sem `salvar`
+   * nunca ter sucesso, e sem "Cancelar" (que só fecha o modal) desfazer isso.
+   * Um "Salvar" comum, depois, reenviaria esse valor rejeitado sem o Autor
+   * saber. O padrão que o resto deste arquivo já segue (`valoresGravados`,
+   * mais abaixo) é o certo: `valores` só reflete o que o SERVIDOR gravou,
+   * nunca uma tentativa otimista — e só o sucesso de `salvar` grava.
+   */
+  const confirmarAgendamento = useCallback(() => {
+    const acao = agendamentoPendente;
+    if (!acao) return;
+    const data = rascunhoDeData;
+    setAgendamentoPendente(null);
+    setErroDoAgendamento(null);
+    salvar(acao, { publicadoEmForcado: data });
+  }, [agendamentoPendente, rascunhoDeData, salvar]);
+
   /* ── Sair, nas três formas ───────────────────────────────────────────── */
 
   /**
@@ -908,6 +1022,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     setConfirmandoSaida(false);
     aoSair?.();
   }, [aoSair]);
+
+  /* A ação clicada na barra: as que EXIGEM data abrem o modal de
+     agendamento em vez de salvar direto — é `confirmarAgendamento` que, no
+     fim das contas, chama `salvar`. As demais seguem como sempre. */
+  const acionarAcao = useCallback(
+    (acao) => (acao.exigeData ? abrirAgendamento(acao) : salvar(acao)),
+    [abrirAgendamento, salvar],
+  );
 
   /* ── Desenho ─────────────────────────────────────────────────────────── */
 
@@ -1001,7 +1123,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                 data-acao={acao.chave}
                 data-destino={acao.destino}
                 variant={acao.enfase === ENFASE_PRINCIPAL ? "default" : "outline"}
-                onClick={() => salvar(acao)}
+                onClick={() => acionarAcao(acao)}
                 aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
                 disabled={salvando || carregando}
                 className={cn(ANEL_DE_FOCO, "gap-2")}
@@ -1027,7 +1149,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                 type="button"
                 data-acao-compacta={acao.chave}
                 variant="default"
-                onClick={() => salvar(acao)}
+                onClick={() => acionarAcao(acao)}
                 aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
                 disabled={salvando || carregando}
                 className={cn(ANEL_DE_FOCO, "gap-2")}
@@ -1059,7 +1181,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                     <DropdownMenuItem
                       key={acao.chave}
                       data-acao-compacta={acao.chave}
-                      onSelect={() => salvar(acao)}
+                      onSelect={() => acionarAcao(acao)}
                       className={cn(ALVO_DE_TOQUE, "gap-2")}
                     >
                       {acao.rotulo}
@@ -1170,6 +1292,110 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         rotuloDeCancelamento={ROTULO_PARA_FICAR}
         aoConfirmar={sairDescartando}
       />
+
+      {/* O MODAL DE AGENDAMENTO. Substitui o campo `datetime-local` solto que
+          vivia na Gaveta — ele era redundante com o botão "Agendar
+          publicação"/"Reagendar publicação", que hoje o abre.
+
+          `Dialog`, e não `AlertDialog`/`DialogoDeConfirmacao`: aquele é para
+          CONFIRMAR uma ação já decidida ("Excluir post?"); este é para
+          COLETAR um dado antes da ação existir. Mesma razão pela qual
+          `alert-dialog.jsx` não é reaproveitado aqui.
+
+          `.painel`, porque `DialogContent` monta em portal, fora da árvore do
+          Painel — sem a classe, os tokens de cor resolveriam para os do site
+          público. Mesmo precedente de `DialogoDeConfirmacao.jsx`. */}
+      <Dialog
+        open={agendamentoPendente !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) fecharAgendamento();
+        }}
+      >
+        <DialogContent className="painel rounded-cartao">
+          <DialogHeader>
+            <DialogTitle className="tracking-tight">
+              Dia e hora da publicação
+            </DialogTitle>
+            <DialogDescription>
+              O post vai ao ar no horário de Brasília que você informar aqui.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor={`${idDoAgendamento}-data`}
+              className="text-sm font-semibold text-ink"
+            >
+              Dia e hora
+            </label>
+            <input
+              id={`${idDoAgendamento}-data`}
+              type="datetime-local"
+              /* `data-campo` colado perto de `className`, e não depois de
+                 `onChange`/`aria-describedby`: a verificação do vocabulário
+                 fechado de `.dado` (`verificar-interface.mjs`) lê vizinhança
+                 no código-fonte, e um atributo longe demais sai da janela
+                 que ela olha. */
+              data-campo="publicado_em"
+              className={cn(
+                "dado w-full rounded-controle border bg-surface px-3 py-2 text-sm text-ink",
+                "placeholder:text-ink-muted transition-colors",
+                ANEL_DE_FOCO,
+                erroDoAgendamento ? "border-destructive" : "border-border-soft",
+              )}
+              value={rascunhoDeData}
+              onChange={(evento) => {
+                setRascunhoDeData(evento.target.value);
+                setErroDoAgendamento(null);
+              }}
+              aria-invalid={erroDoAgendamento ? "true" : undefined}
+              aria-describedby={
+                erroDoAgendamento
+                  ? `${idDoAgendamento}-erro`
+                  : `${idDoAgendamento}-ajuda`
+              }
+            />
+            {erroDoAgendamento ? (
+              <p
+                id={`${idDoAgendamento}-erro`}
+                role="alert"
+                className="flex items-start gap-1.5 text-xs font-medium text-destructive"
+              >
+                {erroDoAgendamento}
+              </p>
+            ) : null}
+            {/* O instante é gravado em UTC; o que se lê e o que se digita é a
+                hora de Brasília — dizer o fuso por extenso é o que impede
+                alguém de agendar 00h30 achando que agendou no fuso do
+                próprio navegador. */}
+            <p id={`${idDoAgendamento}-ajuda`} className="text-xs text-ink-muted">
+              Horário de Brasília{" "}
+              <span className="dado" data-papel="data-em-sao-paulo">
+                {textoDaDataDoCampo(rascunhoDeData)}
+              </span>
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={fecharAgendamento}
+              className={cn("min-h-10 rounded-controle", ANEL_DE_FOCO)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              data-papel="confirmar-agendamento"
+              onClick={confirmarAgendamento}
+              className={cn("min-h-10 rounded-controle font-semibold", ANEL_DE_FOCO)}
+            >
+              {agendamentoPendente?.rotulo ?? "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Moldura>
   );
 }
@@ -1177,7 +1403,14 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 /** A casca da tela: voltar, título e a ação da direita. */
 function Moldura({ aoSair, titulo, subtitulo, acao = null, children }) {
   return (
-    <div className="painel flex h-screen flex-col bg-surface-sunk text-ink">
+    <div
+      /* `overflow-hidden`: sem ele, `h-screen` fixa a ALTURA da moldura, mas
+         não impede o navegador de rolar quando o conteúdo — ou um artefato de
+         layout com pouco texto — ultrapassa essa altura por um triz. A tela
+         rolava além do fim real do conteúdo; cada painel interno (Editor e
+         Gaveta) já tem a própria rolagem, então a moldura não precisa de mais
+         nenhuma. Mesmo padrão já usado em `AdminBlog.jsx`. */
+      className="painel flex h-screen flex-col overflow-hidden bg-surface-sunk text-ink">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border-soft px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button

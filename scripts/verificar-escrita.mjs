@@ -442,6 +442,22 @@ const DOCUMENTO_COMPLETO = Object.freeze({
       content: [{ type: "text", text: 'if (a < 2) x.onclick = "b";' }],
     },
     { type: "horizontalRule" },
+    /* Correção de UI/UX do Editor: os três de alinhamento. `data-alinhamento`
+       é o nono nome de atributo do renderizador (`ATRIBUTOS_EMITIDOS`), e sem
+       um nó não-padrão AQUI a asserção "os nomes declarados são EXATAMENTE os
+       emitidos" (mais abaixo) teria um nome declarado que este documento
+       nunca produz. `left` (o padrão) é OMITIDO de propósito — é o que a
+       asserção dedicada, logo depois deste documento, prova. */
+    {
+      type: "paragraph",
+      attrs: { textAlign: "right" },
+      content: [{ type: "text", text: "alinhado à direita" }],
+    },
+    {
+      type: "heading",
+      attrs: { level: 3, textAlign: "center" },
+      content: [{ type: "text", text: "título centralizado" }],
+    },
   ],
 });
 
@@ -1475,6 +1491,75 @@ secao("(b) o renderizador único: derivação, vocabulário e escape");
       ATRIBUTOS_EMITIDOS.every((a) => !/^on/i.test(a)) &&
         !ATRIBUTOS_EMITIDOS.includes("style"),
       ATRIBUTOS_EMITIDOS.join(", "),
+    );
+
+    /* ── Correção de UI/UX do Editor: o alinhamento SOBREVIVE ao HTML ──────
+       `paragraph` e `heading` ignoravam `node.attrs` por completo — o
+       alinhamento escolhido no Editor nunca chegava ao HTML publicado
+       (achado do loopback desta correção). Provado aqui, contra o único
+       caminho documento → HTML fora do editor. */
+    afirmar(
+      "o parágrafo alinhado à direita sai com `data-alinhamento=\"right\"`",
+      /<p data-alinhamento="right">alinhado à direita<\/p>/.test(derivado.html),
+      (/<p[^>]*>alinhado à direita<\/p>/.exec(derivado.html) ?? [])[0] ?? "não encontrado",
+    );
+    afirmar(
+      "o TÍTULO centralizado sai com `data-alinhamento=\"center\"` — não só o parágrafo",
+      /<h3 data-alinhamento="center">título centralizado<\/h3>/.test(derivado.html),
+      (/<h3[^>]*>título centralizado<\/h3>/.exec(derivado.html) ?? [])[0] ?? "não encontrado",
+    );
+
+    /* left é O PADRÃO, e por isso é OMITIDO — mesma disciplina de
+       `orderedList.start`/`type`: emitir o caso comum poluiria todo `<p>` e
+       todo título do artigo com um atributo que não diz nada. O documento
+       aqui declara `textAlign: "left"` EXPLICITAMENTE, como o editor real
+       emite (é o `defaultAlignment` da extensão, presente em todo nó desde a
+       primeira tecla) — omissão por AUSÊNCIA do atributo já é coberta pelo
+       resto de `DOCUMENTO_COMPLETO`, que nunca declara `textAlign`. */
+    {
+      const esquerdaExplicita = derivarHtml({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            attrs: { textAlign: "left" },
+            content: [{ type: "text", text: "alinhado à esquerda" }],
+          },
+        ],
+      });
+      afirmar(
+        "`textAlign: \"left\"` explícito NÃO emite `data-alinhamento` — o padrão é omitido",
+        esquerdaExplicita.ok &&
+          esquerdaExplicita.html === "<p>alinhado à esquerda</p>" &&
+          !esquerdaExplicita.html.includes("data-alinhamento"),
+        esquerdaExplicita.ok ? esquerdaExplicita.html : JSON.stringify(esquerdaExplicita.erro),
+      );
+    }
+
+    /* Alinhamento fora do vocabulário (`justify`, ou qualquer string livre)
+       não sobrevive à higienização do domínio — a MESMA validação que a
+       Story 2.5 sempre exerceu sobre todo atributo, exercitada aqui para o
+       atributo novo: um valor que o schema não conhece é descartado, e o nó
+       sobrevive sem ele (como um parágrafo sem alinhamento nenhum). */
+    afirmar(
+      "`textAlign` fora do vocabulário (`justify`) é descartado — o nó sobrevive sem o atributo",
+      (() => {
+        const sujo = derivarHtml({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              attrs: { textAlign: "justify" },
+              content: [{ type: "text", text: "sem alinhamento válido" }],
+            },
+          ],
+        });
+        return (
+          sujo.ok &&
+          sujo.html === "<p>sem alinhamento válido</p>" &&
+          sujo.documento.content[0].attrs === undefined
+        );
+      })(),
     );
 
     // Ponto fixo: o documento validado atravessa a validação sem mudar. Sem

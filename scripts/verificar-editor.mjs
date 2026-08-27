@@ -165,11 +165,15 @@ const PACOTES_EXATOS = [
 ];
 
 /**
- * Os dez elementos que a story nomeia, na ordem em que ela os nomeia.
+ * Os treze elementos que a story nomeia, na ordem em que ela os nomeia.
  * Escritos AQUI, à mão, de propósito: se a lista viesse do próprio schema, a
  * asserção diria apenas "o schema é igual a si mesmo".
+ *
+ * Os três de alinhamento (correção de UI/UX do Editor) declaram `nome: null`
+ * — o atributo mora num nó, mas não troca o TIPO dele (Design Notes,
+ * `domain/blog/schema.js`).
  */
-const DEZ_ELEMENTOS = [
+const TREZE_ELEMENTOS = [
   { chave: "titulo2", nome: "heading", atributos: { level: 2 } },
   { chave: "titulo3", nome: "heading", atributos: { level: 3 } },
   { chave: "negrito", nome: "bold", atributos: null },
@@ -180,6 +184,9 @@ const DEZ_ELEMENTOS = [
   { chave: "citacao", nome: "blockquote", atributos: null },
   { chave: "blocoDeCodigo", nome: "codeBlock", atributos: null },
   { chave: "linhaDivisoria", nome: "horizontalRule", atributos: null },
+  { chave: "alinharEsquerda", nome: null, atributos: { textAlign: "left" } },
+  { chave: "alinharCentro", nome: null, atributos: { textAlign: "center" } },
+  { chave: "alinharDireita", nome: null, atributos: { textAlign: "right" } },
 ];
 
 /** O piso que a story fixa para a resposta de teclado, em milissegundos. */
@@ -625,8 +632,8 @@ const schema = await tentar(
 
 if (schema) {
   afirmar(
-    "`ELEMENTOS` tem exatamente dez entradas",
-    Array.isArray(schema.ELEMENTOS) && schema.ELEMENTOS.length === 10,
+    "`ELEMENTOS` tem exatamente treze entradas",
+    Array.isArray(schema.ELEMENTOS) && schema.ELEMENTOS.length === 13,
     `encontrado: ${schema.ELEMENTOS?.length}`,
   );
 
@@ -637,15 +644,15 @@ if (schema) {
   );
 
   afirmar(
-    "os dez elementos são os que a story nomeia, na ordem declarada",
+    "os treze elementos são os que a story nomeia, na ordem declarada",
     igual(
       schema.ELEMENTOS.map((e) => e.chave),
-      DEZ_ELEMENTOS.map((e) => e.chave),
+      TREZE_ELEMENTOS.map((e) => e.chave),
     ),
     schema.ELEMENTOS.map((e) => e.chave).join(", "),
   );
 
-  for (const esperado of DEZ_ELEMENTOS) {
+  for (const esperado of TREZE_ELEMENTOS) {
     const achado = schema.elementoPorChave(esperado.chave);
     afirmar(
       `\`${esperado.chave}\` aponta para \`${esperado.nome}\`${esperado.atributos ? ` ${JSON.stringify(esperado.atributos)}` : ""}`,
@@ -2138,20 +2145,37 @@ if (editor && schema && configuracao) {
     );
     if (resultado === null) continue;
 
+    /* `alinharEsquerda` é a EXCEÇÃO NOMEADA desta checagem: esquerda é o
+       `defaultAlignment` da extensão (`configuracao.js`), então todo
+       parágrafo JÁ NASCE alinhado à esquerda — aplicar o alinhamento que já
+       está lá é, de verdade, um no-op no documento. O comando ainda tem
+       êxito, o botão ainda acende (ver a asserção de `ativo`, abaixo); só o
+       DOCUMENTO não muda, e é exatamente isso que o resto dos controles não
+       compartilha com este. */
     afirmar(
       `\`${controle.chave}\` aplica de verdade: o documento muda e o texto sobrevive`,
       resultado.aplicou === true &&
-        resultado.mudou === true &&
+        (controle.chave === "alinharEsquerda" ? true : resultado.mudou === true) &&
         resultado.texto.includes(TEXTO_DE_PROVA),
       JSON.stringify(resultado).slice(0, 260),
     );
 
+    /* `controle.nome` é `null` para os três de alinhamento (Design Notes,
+       `domain/blog/schema.js`): o atributo não troca o TIPO do nó, então não
+       há nó nem marca novos para procurar em `tipos`/`marcas`. O que prova
+       que o comando fez o que declarou, para estes três, é `estaAtivo` —
+       a MESMA função que a barra usa para acender o botão — responder que o
+       alinhamento pedido está de fato ali. */
     afirmar(
-      `\`${controle.chave}\` produz o \`${controle.nome}\` que declarou`,
-      controle.especie === schema.MARCA
-        ? resultado.marcas.includes(controle.nome)
-        : resultado.tipos.includes(controle.nome),
-      JSON.stringify({ tipos: resultado.tipos, marcas: resultado.marcas }),
+      controle.nome === null
+        ? `\`${controle.chave}\` produz o alinhamento que declarou (sem nó nem marca novos)`
+        : `\`${controle.chave}\` produz o \`${controle.nome}\` que declarou`,
+      controle.nome === null
+        ? resultado.ativo === true
+        : controle.especie === schema.MARCA
+          ? resultado.marcas.includes(controle.nome)
+          : resultado.tipos.includes(controle.nome),
+      JSON.stringify({ tipos: resultado.tipos, marcas: resultado.marcas, ativo: resultado.ativo }),
     );
 
     afirmar(
@@ -2814,12 +2838,21 @@ if (janela && schema && configuracao && compilado) {
 
       /* O ESTADO LIDO POR VALOR. A versão anterior contava `hasAttribute`, que
          é verdadeiro tanto para "true" quanto para "false" — congelar a barra
-         depois do primeiro quadro deixava tudo verde. */
+         depois do primeiro quadro deixava tudo verde.
+
+         `alinharEsquerda` é a EXCEÇÃO NOMEADA: todo controle que alterna
+         começa "false" — verdade para negrito, título etc, ausentes do texto
+         de prova — mas falso para alinhamento, porque TODO parágrafo TEM um
+         alinhamento, e o padrão é esquerda. "Alinhar à esquerda" começa
+         legitimamente aceso, sem que o Autor tenha clicado nada. */
       afirmar(
-        "quem alterna anuncia `aria-pressed=\"false\"` no início, e quem só insere não tem o atributo",
+        "quem alterna anuncia `aria-pressed` correto no início — \"false\", exceto `alinharEsquerda`, já ativo por padrão — e quem só insere não tem o atributo",
         botoes.every((botao, i) => {
           const valor = botao.getAttribute("aria-pressed");
-          return controles[i].alterna ? valor === "false" : valor === null;
+          if (!controles[i].alterna) return valor === null;
+          return controles[i].chave === "alinharEsquerda"
+            ? valor === "true"
+            : valor === "false";
         }),
         botoes.map((b) => `${b.getAttribute("aria-label")}=${b.getAttribute("aria-pressed")}`).join(" | "),
       );
@@ -3112,6 +3145,72 @@ if (janela && schema && configuracao && compilado) {
       );
       await um.desmontar();
       await dois.desmontar();
+    }
+
+    /* ── Correção de UI/UX do Editor: os três de alinhamento, na tela ────
+       O laço genérico da seção (e) já prova, num editor headless, que cada
+       controle roda o comando que declarou. Aqui a prova é NA TELA: o Autor
+       clica, o botão acende, e — o caso que a spec nomeia — um TÍTULO
+       centralizado acende `aria-pressed` também, não só um parágrafo. */
+    {
+      const recebidos = [];
+      const tela = await montar({
+        documento: {
+          type: "doc",
+          content: [
+            {
+              type: "heading",
+              attrs: { level: 2 },
+              content: [{ type: "text", text: "título de prova" }],
+            },
+          ],
+        },
+        aoMudar: (doc) => recebidos.push(doc),
+      });
+
+      const areaDeEscrita = tela.areaDeEscrita();
+      await act(async () => {
+        areaDeEscrita.dispatchEvent(
+          new janela.KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }),
+        );
+      });
+
+      const centralizar = tela.porRotulo("Centralizar");
+      afirmar(
+        "\"Centralizar\" começa apagado num título recém-aberto (esquerda é o padrão)",
+        centralizar?.getAttribute("aria-pressed") === "false",
+        String(centralizar?.getAttribute("aria-pressed")),
+      );
+
+      await tela.clicar(centralizar);
+      afirmar(
+        "clicar em \"Centralizar\" dentro de um TÍTULO acende o botão — não só em parágrafo",
+        tela.porRotulo("Centralizar")?.getAttribute("aria-pressed") === "true",
+        String(tela.porRotulo("Centralizar")?.getAttribute("aria-pressed")),
+      );
+      const centralizado = recebidos[recebidos.length - 1];
+      afirmar(
+        "e o documento que saiu por `aoMudar` carrega `textAlign: \"center\"` no título",
+        acharNo(centralizado, (n) => n.type === "heading")?.attrs?.textAlign === "center",
+        JSON.stringify(centralizado).slice(0, 220),
+      );
+
+      /* Alternar para "Alinhar à direita" desliga "Centralizar" — os três são
+         mutuamente exclusivos, como qualquer alinhamento de texto. */
+      await tela.clicar(tela.porRotulo("Alinhar à direita"));
+      afirmar(
+        "escolher outro alinhamento desliga o anterior: são mutuamente exclusivos",
+        tela.porRotulo("Alinhar à direita")?.getAttribute("aria-pressed") === "true" &&
+          tela.porRotulo("Centralizar")?.getAttribute("aria-pressed") === "false",
+        `direita=${tela.porRotulo("Alinhar à direita")?.getAttribute("aria-pressed")} centro=${tela.porRotulo("Centralizar")?.getAttribute("aria-pressed")}`,
+      );
+
+      afirmar(
+        "o React não reclamou de nada ao alinhar um título",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
     }
 
     /* ── Documento SUJO: o caso que a validação da entrada existe para ── */
@@ -3483,7 +3582,18 @@ if (janela && schema && configuracao && compilado) {
            por classe: uma busca por classe encontraria o invólucro de rolagem
            de dentro do Editor e a asserção mudaria de assunto sem avisar. */
         involucroDoTexto: () => gaveta()?.previousElementSibling ?? null,
-        campo: (nome) => alvo.querySelector(`[data-campo="${nome}"]`),
+        /* O campo de `publicado_em` mora, hoje, dentro do modal de
+           agendamento — um `Dialog` que monta em PORTAL, fora de `alvo`
+           (preso ao `body`, como todo componente do Radix). Buscar só dentro
+           de `alvo` faria o helper nunca achar esse campo; buscar sempre no
+           documento inteiro faria dois `EditorDePost` montados ao mesmo
+           tempo (como o bloco de agendamento faz de propósito) colidir — o
+           `querySelector` do documento bate sempre no campo do PRIMEIRO
+           montado. A busca tenta `alvo` primeiro — a instância certa — e só
+           cai para o documento inteiro se não achar, que é o caso do portal. */
+        campo: (nome) =>
+          alvo.querySelector(`[data-campo="${nome}"]`) ??
+          janela.document.querySelector(`[data-campo="${nome}"]`),
         voltar: () => alvo.querySelector('button[aria-label="Voltar para a listagem"]'),
         /* As ações da Story 2.8, lidas pelo DADO que cada botão carrega — não
            pelo texto: casar rótulo traduzido faria a asserção mudar de assunto
@@ -3500,6 +3610,10 @@ if (janela && schema && configuracao && compilado) {
             (b.textContent ?? "").includes("Salvar"),
           ) ?? null,
         dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+        /* O modal de agendamento é um `Dialog` (Radix), não um `AlertDialog`:
+           ele COLETA um dado, não confirma uma ação já decidida — por isso o
+           papel é `dialog`, e não `alertdialog`. */
+        modalDeAgendamento: () => janela.document.querySelector('[role="dialog"]'),
         async clicar(elemento) {
           await act(async () => {
             elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
@@ -3570,6 +3684,54 @@ if (janela && schema && configuracao && compilado) {
         tela.controle()?.getAttribute("aria-expanded") === "true" &&
           tela.campos() !== null,
         `aria-expanded: ${tela.controle()?.getAttribute("aria-expanded")}`,
+      );
+
+      /* ── Correção de UI/UX do Editor: rolagem contida ────────────────────
+         A `Moldura` (`EditorDePost.jsx`) fixa `h-screen`, mas isso não impede
+         o navegador de rolar quando o conteúdo excede essa altura por um
+         triz — cada painel interno (Editor, Gaveta) já rola por conta
+         própria, e a moldura não deveria rolar mais nenhuma vez. */
+      afirmar(
+        "a moldura do Editor tem `overflow-hidden` junto de `h-screen`: a tela não rola além do fim do conteúdo",
+        (() => {
+          const classe = tela.alvo.firstElementChild?.className ?? "";
+          const tokens = classe.split(/\s+/u);
+          return tokens.includes("h-screen") && tokens.includes("overflow-hidden");
+        })(),
+        `classe da moldura: ${tela.alvo.firstElementChild?.className}`,
+      );
+
+      /* ── Correção de UI/UX do Editor: sem padding duplicado ──────────────
+         `CLASSE_DA_AREA_DE_ESCRITA` (`configuracao.js`) não pode redeclarar
+         `py-*`: o invólucro em `Editor.jsx` já aplica `py-6`, e as duas
+         juntas dobravam o respiro antes do primeiro caractere do post. */
+      afirmar(
+        "a área de escrita não redeclara padding vertical: `py-6` só existe no invólucro",
+        configuracao
+          ? !configuracao.CLASSE_DA_AREA_DE_ESCRITA.split(/\s+/u).some((token) =>
+              /^p[ty]-/.test(token),
+            )
+          : false,
+        `classe declarada: ${configuracao?.CLASSE_DA_AREA_DE_ESCRITA}`,
+      );
+
+      /* ── Correção de UI/UX do Editor: o anel de foco da Gaveta não corta ──
+         A caixa que rola os campos (`GavetaDeMetadados.jsx`) só declarava
+         `overflow-y-auto`, e por especificação CSS isso faz o navegador
+         computar `overflow-x: auto` também — a caixa passa a CLIPAR o
+         `box-shadow` do anel de foco bem na borda de padding. `px-1 -mx-1`
+         devolve a folga sem realinhar nada. */
+      afirmar(
+        "o container que rola os campos da Gaveta tem `px-1 -mx-1`, a folga que evita o corte do anel de foco",
+        (() => {
+          const tokens = (tela.campos()?.className ?? "").split(/\s+/u);
+          return (
+            tokens.includes("overflow-y-auto") &&
+            tokens.includes("px-1") &&
+            tokens.includes("-mx-1")
+          );
+        })(),
+        `classe: ${tela.campos()?.className}`,
       );
 
       if (foco) {
@@ -3997,7 +4159,17 @@ if (janela && schema && configuracao && compilado) {
       {
         modulo.controle.post = postNoEstado("rascunho", null);
         modulo.controle.pedidos.length = 0;
-        const publicadoEm = new Date(Date.now() - 60_000).toISOString();
+        /* Segundos e milissegundos ZERADOS: o campo `datetime-local` só tem
+           minuto — `paraCampoDeInstante`/`deCampoDeInstante` arredondam para
+           baixo nessa granularidade. Um instante com segundos (o comum de
+           `new Date().toISOString()`) faria a comparação por INSTANTE, mais
+           abaixo, comparar um valor com segundos contra o mesmo valor SEM
+           eles — perda de precisão que é do campo, não um defeito da tela. */
+        const publicadoEm = (() => {
+          const d = new Date(Date.now() - 60_000);
+          d.setUTCSeconds(0, 0);
+          return d.toISOString();
+        })();
         modulo.controle.resposta = {
           ok: true,
           dados: {
@@ -4043,59 +4215,86 @@ if (janela && schema && configuracao && compilado) {
           tela.verNoSite()?.getAttribute("href") === "/blog/ciclo-de-vida",
           String(tela.verNoSite()?.getAttribute("href")),
         );
-        /* A data que o SERVIDOR gravou volta para o campo. Sem isto, a gaveta
-           continuaria mostrando o vazio de antes de publicar — e, no caso de um
-           Post no ar, mostraria a data que o Autor digitou e o servidor
-           deliberadamente NÃO gravou. */
+        /* A data que o SERVIDOR gravou passa a ser a que a tela guarda. Sem
+           isto, o próximo `salvar` mandaria de volta o vazio de antes de
+           publicar. `publicado` não oferece ação nenhuma que exija data — a
+           data não tem mais campo visível neste Estado —, então a prova é
+           INDIRETA: salvar de novo e conferir que o pedido leva a MESMA data
+           que o servidor gravou ao publicar, comparada pelo instante. */
+        await tela.clicar(tela.acaoPorChave("salvar"));
         afirmar(
-          "a data de publicação na gaveta passa a ser a que o servidor gravou",
-          (tela.campo("publicado_em")?.value ?? "") !== "",
-          `campo: ${tela.campo("publicado_em")?.value}`,
+          "a data que o servidor gravou ao publicar é a que um `salvar` seguinte leva de volta",
+          modulo.controle.pedidos.length === 2 &&
+            typeof modulo.controle.pedidos[1]?.publicado_em === "string" &&
+            new Date(modulo.controle.pedidos[1].publicado_em).getTime() ===
+              new Date(publicadoEm).getTime(),
+          `pedido: ${modulo.controle.pedidos[1]?.publicado_em} | gravado ao publicar: ${publicadoEm}`,
         );
         await tela.desmontar();
       }
 
-      /* ── AGENDAR SEM DATA É RECUSADO ANTES DE VIAJAR ────────────────── */
+      /* ── Correção de UI/UX do Editor: "Agendar publicação" ABRE UM MODAL ──
+         O campo saiu da gaveta — ele era redundante com este botão, que hoje
+         não submetia mais nada, só cobrava o campo de novo. Agora ele abre
+         um modal (dia/hora), e é a CONFIRMAÇÃO dele que salva. */
       {
         modulo.controle.post = postNoEstado("rascunho", null);
         modulo.controle.pedidos.length = 0;
         const tela = await montarTela({ postId: ID_DO_CICLO });
-        const historicoAntes = toast.getHistory().length;
+
+        afirmar(
+          "antes de clicar em \"Agendar publicação\", não há modal nenhum na tela",
+          tela.modalDeAgendamento() === null,
+        );
+
         await tela.clicar(tela.acaoPorChave("agendar"));
         afirmar(
-          "agendar sem data NÃO chega a viajar: nenhum pedido é enviado",
-          modulo.controle.pedidos.length === 0,
-          `pedidos: ${modulo.controle.pedidos.length}`,
+          "clicar em \"Agendar publicação\" ABRE O MODAL pedindo dia e hora, sem viajar pedido nenhum",
+          tela.modalDeAgendamento() !== null && modulo.controle.pedidos.length === 0,
+          `modal aberto: ${tela.modalDeAgendamento() !== null} | pedidos: ${modulo.controle.pedidos.length}`,
         );
         afirmar(
-          "e o campo de data é MARCADO na gaveta, em vez de uma frase solta no rodapé",
-          tela.campo("publicado_em")?.getAttribute("aria-invalid") === "true",
-          `aria-invalid: ${tela.campo("publicado_em")?.getAttribute("aria-invalid")}`,
+          "e o campo do modal nasce VAZIO — o Post ainda não tem data nenhuma",
+          (tela.campo("publicado_em")?.value ?? "algo") === "",
+          `campo: ${JSON.stringify(tela.campo("publicado_em")?.value)}`,
         );
-        {
-          const novos = toast.getHistory().slice(historicoAntes);
-          const aviso = novos[novos.length - 1] ?? null;
-          afirmar(
-            "a mensagem diz o que falta e o que fazer, e passa pelas guardas de voz",
-            aviso !== null &&
-              voz.diagnosticarMensagem("o que houve", String(aviso.title)) === null &&
-              voz.diagnosticarMensagem("o que fazer", String(aviso.description)) === null &&
-              /data/i.test(String(aviso.title) + String(aviso.description)),
-            aviso ? `${aviso.title} / ${aviso.description}` : "nenhuma notificação",
-          );
-        }
-        // Com data preenchida, a mesma ação passa — senão a asserção acima
+
+        const confirmar = () =>
+          tela.modalDeAgendamento()?.querySelector('[data-papel="confirmar-agendamento"]') ??
+          null;
+
+        // Confirmar sem preencher nada: a recusa aparece DENTRO do modal, e
+        // não fecha nem manda pedido nenhum.
+        await tela.clicar(confirmar());
+        afirmar(
+          "confirmar sem dia e hora recusa DENTRO do modal (`role=\"alert\"`, com conteúdo), sem fechar nem viajar pedido",
+          tela.modalDeAgendamento() !== null &&
+            modulo.controle.pedidos.length === 0 &&
+            (() => {
+              const alerta = tela.modalDeAgendamento()?.querySelector('[role="alert"]');
+              return alerta !== null && (alerta.textContent ?? "").trim() !== "";
+            })(),
+          `alerta: ${JSON.stringify(tela.modalDeAgendamento()?.querySelector('[role="alert"]')?.textContent ?? null)}`,
+        );
+
+        // Com data preenchida, confirmar passa — senão a asserção acima
         // estaria satisfeita por um botão que nunca funciona.
         await tela.digitar(tela.campo("publicado_em"), "2027-03-01T09:30");
-        await tela.clicar(tela.acaoPorChave("agendar"));
+        await tela.clicar(confirmar());
         afirmar(
-          "com a data preenchida, agendar viaja com o destino `agendado`",
-          modulo.controle.pedidos.length === 1 &&
+          "com a data preenchida, confirmar FECHA o modal e o pedido viaja com o destino `agendado`",
+          tela.modalDeAgendamento() === null &&
+            modulo.controle.pedidos.length === 1 &&
             modulo.controle.pedidos[0]?.estado === "agendado" &&
             typeof modulo.controle.pedidos[0]?.publicado_em === "string",
-          `pedidos: ${modulo.controle.pedidos.length} | ${JSON.stringify(
+          `modal aberto: ${tela.modalDeAgendamento() !== null} | pedidos: ${modulo.controle.pedidos.length} | ${JSON.stringify(
             modulo.controle.pedidos[0]?.estado,
           )} em ${JSON.stringify(modulo.controle.pedidos[0]?.publicado_em)}`,
+        );
+        afirmar(
+          "o React não reclamou de nada ao abrir, recusar e confirmar o modal",
+          tela.reclamacoes.length === 0,
+          tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
         );
         await tela.desmontar();
       }
@@ -4132,9 +4331,12 @@ if (janela && schema && configuracao && compilado) {
           },
         };
         const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.clicar(tela.acaoPorChave("agendar"));
         await tela.digitar(tela.campo("publicado_em"), HORA_DE_PAREDE);
         const historicoAntes = toast.getHistory().length;
-        await tela.clicar(tela.acaoPorChave("agendar"));
+        await tela.clicar(
+          tela.modalDeAgendamento().querySelector('[data-papel="confirmar-agendamento"]'),
+        );
         const novos = toast.getHistory().slice(historicoAntes);
         const confirmacao = novos[novos.length - 1] ?? null;
         const detalhe = String(confirmacao?.description ?? "");
@@ -4168,6 +4370,96 @@ if (janela && schema && configuracao && compilado) {
         await tela.desmontar();
       }
 
+      /* ── REABRIR COM DATA JÁ AGENDADA MOSTRA A DATA JÁ AGENDADA ──────── */
+      {
+        modulo.controle.post = postNoEstado("agendado", INSTANTE_AGENDADO);
+        modulo.controle.pedidos.length = 0;
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.clicar(tela.acaoPorChave("reagendar"));
+        afirmar(
+          "reabrir o modal com um Post JÁ agendado mostra a data já escolhida — não em branco",
+          tela.campo("publicado_em")?.value === HORA_DE_PAREDE,
+          `campo: ${tela.campo("publicado_em")?.value}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ── "CANCELAR" NÃO DESFAZ NADA: O RASCUNHO É LOCAL AO MODAL ─────── *
+       * Achado da revisão adversarial desta correção: o campo do modal
+       * escrevia direto em `valores.publicado_em` a cada tecla, e nem
+       * "Cancelar" nem o "X" revertiam isso — só fechavam o modal. Digitar
+       * uma data e cancelar precisa devolver EXATAMENTE a data de antes. */
+      {
+        modulo.controle.post = postNoEstado("agendado", INSTANTE_AGENDADO);
+        modulo.controle.pedidos.length = 0;
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.clicar(tela.acaoPorChave("reagendar"));
+        const dataDeAntes = tela.campo("publicado_em")?.value ?? "";
+
+        await tela.digitar(tela.campo("publicado_em"), "2027-05-20T18:00");
+        const cancelar = tela.botaoPorTexto(tela.modalDeAgendamento(), "Cancelar");
+        await tela.clicar(cancelar);
+        afirmar(
+          "\"Cancelar\" fecha o modal sem gravar nada: nenhum pedido viaja",
+          tela.modalDeAgendamento() === null && modulo.controle.pedidos.length === 0,
+          `modal aberto: ${tela.modalDeAgendamento() !== null} | pedidos: ${modulo.controle.pedidos.length}`,
+        );
+
+        await tela.clicar(tela.acaoPorChave("reagendar"));
+        afirmar(
+          "e reabrir o modal mostra a data de ANTES — nunca a que foi digitada e descartada",
+          tela.campo("publicado_em")?.value === dataDeAntes &&
+            tela.campo("publicado_em")?.value !== "2027-05-20T18:00",
+          `esperado ${JSON.stringify(dataDeAntes)}, encontrado ${JSON.stringify(tela.campo("publicado_em")?.value)}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ── A RECUSA DO SERVIDOR POR `publicado_em` REABRE O MODAL ──────── *
+       * Achado da revisão: o mecanismo GENÉRICO de `erro.faltando`,
+       * pré-existente para os outros campos, também pode nomear
+       * `publicado_em` — e a Gaveta não tem mais campo correspondente para
+       * marcar. A tela precisa reabrir o modal com a frase do servidor
+       * dentro dele, nunca `setFaltando(["publicado_em"])`. */
+      {
+        const RECUSA_DO_SERVIDOR_SOBRE_A_DATA =
+          "O servidor recusou a data de publicação informada.";
+        modulo.controle.post = postNoEstado("rascunho", null);
+        modulo.controle.pedidos.length = 0;
+        modulo.controle.resposta = {
+          ok: false,
+          erro: {
+            tipo: "dados_invalidos",
+            mensagem: RECUSA_DO_SERVIDOR_SOBRE_A_DATA,
+            faltando: ["publicado_em"],
+          },
+        };
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.clicar(tela.acaoPorChave("agendar"));
+        await tela.digitar(tela.campo("publicado_em"), "2027-03-01T09:30");
+        await tela.clicar(
+          tela.modalDeAgendamento().querySelector('[data-papel="confirmar-agendamento"]'),
+        );
+        afirmar(
+          "a recusa do servidor por `publicado_em` REABRE o modal, com a frase dentro dele",
+          (() => {
+            const modal = tela.modalDeAgendamento();
+            if (modal === null) return false;
+            const alerta = modal.querySelector('[role="alert"]');
+            return (
+              alerta !== null &&
+              (alerta.textContent ?? "").trim() === RECUSA_DO_SERVIDOR_SOBRE_A_DATA
+            );
+          })(),
+          `modal aberto: ${tela.modalDeAgendamento() !== null} | alerta: ${JSON.stringify(tela.modalDeAgendamento()?.querySelector('[role="alert"]')?.textContent ?? null)}`,
+        );
+        afirmar(
+          "e a Gaveta não marca campo nenhum — `publicado_em` não tem mais controle ali para marcar",
+          tela.gaveta()?.querySelector('[data-campo="publicado_em"]') === null,
+        );
+        await tela.desmontar();
+      }
+
       /* ── A RECUSA POR DATA VENCIDA OFERECE PUBLICAR AGORA ───────────── */
       //
       // É a diferença entre um beco e uma bifurcação. O servidor recusa e NOMEIA
@@ -4189,9 +4481,12 @@ if (janela && schema && configuracao && compilado) {
           },
         };
         const tela = await montarTela({ postId: ID_DO_CICLO });
+        await tela.clicar(tela.acaoPorChave("agendar"));
         await tela.digitar(tela.campo("publicado_em"), "2026-01-01T09:00");
         const historicoAntes = toast.getHistory().length;
-        await tela.clicar(tela.acaoPorChave("agendar"));
+        await tela.clicar(
+          tela.modalDeAgendamento().querySelector('[data-papel="confirmar-agendamento"]'),
+        );
         const novos = toast.getHistory().slice(historicoAntes);
         const recusa =
           novos.find((t) => String(t.description ?? "") === RECUSA_VENCIDA) ?? null;
@@ -4200,6 +4495,10 @@ if (janela && schema && configuracao && compilado) {
           "a recusa por data vencida chega INTEIRA à tela, com a frase do servidor",
           recusa !== null,
           novos.map((t) => `${t.title} / ${t.description}`).join(" | ").slice(0, 220),
+        );
+        afirmar(
+          "e ela NÃO é do mecanismo de `publicado_em` faltando: o modal já fechou ao confirmar, e continua fechado",
+          tela.modalDeAgendamento() === null,
         );
         const doDominio = transicoes.acaoDoEstado("rascunho", transicoes.ACAO_PUBLICAR);
         afirmar(
@@ -4216,11 +4515,24 @@ if (janela && schema && configuracao && compilado) {
             `${recusa.title} / ${recusa.description} / ${recusa.action?.label}`,
           );
         }
+        /* A RECUSA POR DATA VENCIDA NÃO SUJA `valores.publicado_em` — achado da
+           revisão adversarial desta correção (achado 2): `confirmarAgendamento`
+           costumava escrever o rascunho em `valores` ANTES de `salvar`
+           confirmar qualquer coisa, e uma recusa como esta (que fecha o modal
+           sem reabri-lo, ao contrário da recusa por `erro.faltando`) deixava o
+           valor REJEITADO preso ali para sempre — sem `salvar` ter tido
+           sucesso, e sem "Cancelar" (que só fecha o modal) desfazer isso. Um
+           "Salvar" comum, depois, reenviaria a data vencida sem o Autor saber.
+           A prova agora é a INVERSA: reabrir mostra o que está GRAVADO (vazio,
+           aqui — nada foi salvo), nunca o que foi tentado e recusado. */
         afirmar(
-          "e o conteúdo continua intacto: uma recusa não descarta o que foi escrito",
-          tela.campo("publicado_em")?.value === "2026-01-01T09:00" &&
-            tela.gaveta() !== null,
-          `campo: ${tela.campo("publicado_em")?.value}`,
+          "e `valores.publicado_em` NÃO fica com a data recusada presa: reabrir o modal mostra vazio, não a tentativa",
+          await (async () => {
+            await tela.clicar(tela.acaoPorChave("agendar"));
+            const vazio = (tela.campo("publicado_em")?.value ?? "") === "";
+            await tela.clicar(tela.botaoPorTexto(tela.modalDeAgendamento(), "Cancelar"));
+            return vazio && tela.gaveta() !== null;
+          })(),
         );
 
         /* A OFERTA FUNCIONA. Um botão que não faz nada seria pior que nenhum
@@ -4313,7 +4625,14 @@ if (janela && schema && configuracao && compilado) {
           },
         };
         const tela = await montarTela({ postId: ID_DO_CICLO });
-        const dataAntes = tela.campo("publicado_em")?.value ?? "";
+        /* `publicado` não oferece nenhuma ação que exija data (só `salvar` e
+           `arquivar`), então a data não tem mais campo nenhum na tela — ela
+           saiu da gaveta, e o botão que abriria o modal não existe neste
+           Estado. O que se prova aqui é que `salvar` manda a MESMA data que
+           já estava gravada, sem que ninguém tenha tocado nela: comparado
+           pelo INSTANTE, e não pela string — a volta por `paraCampoDeInstante`
+           não existe mais neste caminho, então a comparação é direta entre o
+           que veio do banco e o que o pedido levou de volta. */
         await tela.digitar(tela.campo("titulo"), "Ciclo de vida, revisado");
         await tela.clicar(tela.acaoPorChave("salvar"));
         afirmar(
@@ -4323,11 +4642,12 @@ if (janela && schema && configuracao && compilado) {
           `estado pedido: ${modulo.controle.pedidos[0]?.estado}`,
         );
         afirmar(
-          "e a tela continua publicada, com a data de publicação onde estava",
+          "e a tela continua publicada, com a data de publicação onde estava — ninguém a editou, e ela nem tem mais campo aqui",
           tela.pilula()?.getAttribute("data-estado") === "publicado" &&
-            (tela.campo("publicado_em")?.value ?? "") === dataAntes &&
-            dataAntes !== "",
-          `${dataAntes} → ${tela.campo("publicado_em")?.value}`,
+            typeof modulo.controle.pedidos[0]?.publicado_em === "string" &&
+            new Date(modulo.controle.pedidos[0].publicado_em).getTime() ===
+              new Date(NO_PASSADO).getTime(),
+          `pedido: ${modulo.controle.pedidos[0]?.publicado_em} | gravado: ${NO_PASSADO}`,
         );
         await tela.desmontar();
       }

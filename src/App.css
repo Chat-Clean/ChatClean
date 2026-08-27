@@ -325,6 +325,23 @@
   margin-block: 0 1.125rem;
 }
 
+/* Alinhamento de texto (correção de UI/UX do Editor). `data-alinhamento` vem
+   do renderizador único (`render/blog/paraHtml.js`), que só o emite para
+   `center`/`right` — esquerda é o padrão e nunca carrega o atributo, então não
+   precisa de regra. Os dois níveis de título entram pela mesma razão que o
+   parágrafo: o schema declara `textAlign` nos dois (`domain/blog/schema.js`). */
+.artigo p[data-alinhamento="center"],
+.artigo h2[data-alinhamento="center"],
+.artigo h3[data-alinhamento="center"] {
+  text-align: center;
+}
+
+.artigo p[data-alinhamento="right"],
+.artigo h2[data-alinhamento="right"],
+.artigo h3[data-alinhamento="right"] {
+  text-align: right;
+}
+
 .artigo strong {
   color: var(--ink);
   font-weight: 700;

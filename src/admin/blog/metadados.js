@@ -41,7 +41,7 @@ import {
 } from "@/domain/blog/compartilhamento";
 
 /**
- * Os DOZE campos da gaveta, na ordem em que ela os oferece.
+ * Os ONZE campos da gaveta, na ordem em que ela os oferece.
  *
  * A ordem é significativa e está declarada uma vez: Título e Slug primeiro
  * porque um gera o outro; Resumo em seguida porque é o segundo obrigatório; e a
@@ -67,12 +67,22 @@ export const CAMPOS_DA_GAVETA = Object.freeze([
   "imagem_alt",
   "categoria_id",
   "tags",
-  "publicado_em",
   "tempo_leitura",
   /* Espalhados do DOMÍNIO: a ordem entre eles é a de lá, e a lista não é
      escrita de novo em cada camada. */
   ...CAMPOS_DE_SEO,
 ]);
+
+/**
+ * `publicado_em` NÃO está em `CAMPOS_DA_GAVETA`.
+ *
+ * Ele continua sendo um valor do Post — `valoresVazios`, `valoresDoPost` e
+ * `corpoDoPedido` continuam lendo e escrevendo a chave —, mas deixou de ter
+ * campo próprio na gaveta (correção de UI/UX do Editor): ele era redundante
+ * com o botão "Agendar publicação" da tela, que hoje abre um modal para o
+ * mesmo dado. `CAMPOS_DA_GAVETA` é "o que a gaveta desenha, na ordem"; um
+ * valor que não tem mais controle ali não pertence à lista.
+ */
 
 /**
  * Os que a gravação exige.

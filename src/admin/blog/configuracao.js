@@ -18,12 +18,14 @@
  */
 
 import StarterKit from "@tiptap/starter-kit";
+import TextAlign from "@tiptap/extension-text-align";
 
 /* Caminho relativo com extensão, e não o apelido `@/`: é o que a camada de
    dados já faz, e é o que permite ao Node importar este módulo sem o
    resolvedor do Vite — a condição para a verificação EXECUTAR a derivação em
    vez de ler o código. */
 import {
+  ALINHAMENTOS_DE_TEXTO,
   ALTERNA,
   ELEMENTOS,
   MARCAS_PERMITIDAS,
@@ -45,9 +47,13 @@ import { diagnosticarRotuloDeAcao } from "../shell/voz.js";
  * medida, e a que fosse esquecida numa mudança futura é a que ganharia. Como a
  * medida vive no próprio elemento e não no contêiner, recolher qualquer coisa
  * ao redor não a estica — a coluna apenas se recentraliza (`mx-auto`).
+ *
+ * **Sem `py`.** O invólucro em `Editor.jsx` já aplica `py-6` — o respiro
+ * vertical da área de escrita. Repeti-lo aqui somava os dois, e o primeiro
+ * caractere do post nascia com o dobro de respiro antes dele.
  */
 export const CLASSE_DA_AREA_DE_ESCRITA =
-  "artigo mx-auto w-full min-h-[24rem] px-1 py-2 focus:outline-hidden";
+  "artigo mx-auto w-full min-h-[24rem] px-1 focus:outline-hidden";
 
 /**
  * O que o StarterKit instala de verdade, perguntado A ELE.
@@ -145,14 +151,29 @@ export function configuracaoDoKit() {
 /**
  * As extensões do editor, na configuração derivada do schema.
  *
- * O StarterKit já traz o atalho de teclado de oito dos dez elementos, e são
- * exatamente esses oito que declaram `atalho` no schema. Link e linha
- * divisória declaram `null` e não ganham atalho nenhum: atalho anunciado na
- * dica e inexistente no teclado é pior que atalho nenhum — e a verificação
- * cobra a correspondência nos dois sentidos, extensão por extensão.
+ * O StarterKit já traz o atalho de teclado de oito dos treze elementos, e são
+ * exatamente esses oito que declaram `atalho` no schema. Link, linha
+ * divisória e os três de alinhamento declaram `null` e não ganham atalho
+ * nenhum: atalho anunciado na dica e inexistente no teclado é pior que atalho
+ * nenhum — e a verificação cobra a correspondência nos dois sentidos,
+ * extensão por extensão.
  */
 export function extensoesDoEditor() {
-  return [StarterKit.configure(configuracaoDoKit())];
+  return [
+    StarterKit.configure(configuracaoDoKit()),
+    /* `types` explícito: sem ele a extensão tenta se acoplar a QUALQUER nó
+       que aceite atributo, e o schema só declara `textAlign` em `paragraph`
+       e `heading` (`domain/blog/schema.js`) — os dois lugares onde a
+       higienização sabe preservar o atributo. `alignments` vem da MESMA
+       lista fechada que valida o atributo lá, para não haver uma segunda
+       cópia que divirja dela. `defaultAlignment: "left"` é o que faz todo
+       parágrafo nascer alinhado à esquerda, sem que o Autor precise clicar. */
+    TextAlign.configure({
+      types: ["heading", "paragraph"],
+      alignments: [...ALINHAMENTOS_DE_TEXTO],
+      defaultAlignment: "left",
+    }),
+  ];
 }
 
 /**
@@ -282,7 +303,14 @@ export function controlesDaBarra(elementos = ELEMENTOS, { ehMac = false } = {}) 
       /** O cursor está dentro deste elemento agora? */
       estaAtivo(editor) {
         if (!editor || elemento.acao !== ALTERNA) return false;
-        return editor.isActive(elemento.nome, atributos);
+        /* `nome: null` é o alinhamento (Design Notes, `domain/blog/schema.js`):
+           o atributo não troca o TIPO do nó, então travar num nome faria o
+           botão acender só na metade dos blocos em que ele de fato se aplica.
+           Sem nome, `isActive` procura qualquer nó com estes atributos —
+           parágrafo ou título, os dois onde `textAlign` existe. */
+        return elemento.nome === null
+          ? editor.isActive(atributos)
+          : editor.isActive(elemento.nome, atributos);
       },
 
       /**

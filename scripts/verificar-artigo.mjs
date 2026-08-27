@@ -1412,6 +1412,51 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
       semRenderizador.length === 0,
       `estilizados sem emissor: [${semRenderizador.join(", ")}]`,
     );
+
+    /* ─── Correção de UI/UX do Editor: `data-alinhamento` tem regra ──────
+     * O renderizador (`paraHtml.js`) emite `data-alinhamento="center"`/
+     * `"right"` em `<p>`, `<h2>` e `<h3>` — o HTML carrega o atributo, mas
+     * sem regra em `.artigo` o navegador não desenha nada diferente. `left`
+     * (o padrão) nunca é emitido, então não precisa — e não tem — regra. */
+    afirmar(
+      "`data-alinhamento` é um dos nomes de atributo que o renderizador declara emitir",
+      Array.isArray(renderizador.ATRIBUTOS_EMITIDOS) &&
+        renderizador.ATRIBUTOS_EMITIDOS.includes("data-alinhamento"),
+      JSON.stringify(renderizador.ATRIBUTOS_EMITIDOS),
+    );
+
+    const doAlinhamento = doArtigo.filter(({ seletor }) => /data-alinhamento/.test(seletor));
+    afirmar(
+      "existe pelo menos uma regra `.artigo` mencionando `data-alinhamento`",
+      doAlinhamento.length > 0,
+      "nenhum seletor do CSS compilado menciona `data-alinhamento`",
+    );
+
+    for (const elemento of ["p", "h2", "h3"]) {
+      for (const valor of ["center", "right"]) {
+        const padrao = new RegExp(
+          `^\\.artigo ${elemento}\\[data-alinhamento=["']?${valor}["']?\\]$`,
+        );
+        const regra = doAlinhamento.find(({ seletor }) => padrao.test(seletor.trim()));
+        afirmar(
+          `\`.artigo ${elemento}[data-alinhamento="${valor}"]\` existe e declara \`text-align: ${valor}\``,
+          regra !== undefined && regra.decls.get("text-align") === valor,
+          regra
+            ? `seletor: ${regra.seletor} | text-align: ${regra.decls.get("text-align") ?? "ausente"}`
+            : `regra não encontrada entre: ${doAlinhamento.map((r) => r.seletor).join(" | ")}`,
+        );
+      }
+    }
+
+    /* `left` não é emitido, e por isso não tem — nem precisa ter — regra. Uma
+       regra para `data-alinhamento="left"` seria CSS morto: o atributo com
+       esse valor nunca sai do renderizador (ver `alinhamentoEmitido`, em
+       `paraHtml.js`), então nada no HTML publicado jamais casaria com ela. */
+    afirmar(
+      "não existe regra para `data-alinhamento=\"left\"` — o padrão nunca é emitido, e a regra seria morta",
+      !doAlinhamento.some(({ seletor }) => /left/.test(seletor)),
+      doAlinhamento.filter(({ seletor }) => /left/.test(seletor)).map((r) => r.seletor).join(" | "),
+    );
   }
 }
 

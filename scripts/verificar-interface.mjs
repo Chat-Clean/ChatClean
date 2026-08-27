@@ -426,6 +426,11 @@ const CAMINHO_NOTIFICACOES = "src/admin/shell/Notificacoes.jsx";
 const CAMINHO_DIALOGO = "src/admin/shell/DialogoDeConfirmacao.jsx";
 const CAMINHO_MENU = "src/admin/shell/MenuDoAutor.jsx";
 const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
+/* A tela do Editor. Ela não estava nesta lista antes da correção de UI/UX do
+   Editor — a Data de Publicação saiu da gaveta e passou a ser um campo do
+   MODAL de agendamento, que mora aqui, não lá. O dado se mudou de arquivo; a
+   regra que cobra `.dado` sobre ele precisa se mudar junto. */
+const CAMINHO_TELA = "src/admin/blog/EditorDePost.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 /* A pré-visualização da Story 2.13 e o módulo puro dela. Elas entram na lista
@@ -519,6 +524,7 @@ const notificacoes = lerOuFalhar(CAMINHO_NOTIFICACOES);
 const dialogo = lerOuFalhar(CAMINHO_DIALOGO);
 const menu = lerOuFalhar(CAMINHO_MENU);
 const gaveta = lerOuFalhar(CAMINHO_GAVETA);
+const tela = lerOuFalhar(CAMINHO_TELA);
 const pilula = lerOuFalhar(CAMINHO_PILULA);
 const lista = lerOuFalhar(CAMINHO_LISTA);
 const appCss = lerOuFalhar(CAMINHO_APP_CSS);
@@ -2200,13 +2206,13 @@ if (lista) {
     );
   }
 
-  /* O dado migrou de casa na Story 2.6: slug, Data de Publicacao e tempo de
-     leitura agora vivem na gaveta. A regra da Story 1.6 continua valendo, e
-     precisa de guardiao no lugar novo — senao trocar de arquivo teria sido o
-     jeito de perder a cobertura sem ninguem notar. */
+  /* O dado migrou de casa na Story 2.6: slug e tempo de leitura vivem na
+     gaveta. A regra da Story 1.6 continua valendo, e precisa de guardiao no
+     lugar novo — senao trocar de arquivo teria sido o jeito de perder a
+     cobertura sem ninguem notar. */
   if (gaveta) {
     const codigoDaGaveta = semComentarios(gaveta);
-    const NA_GAVETA = ["slug", "publicado_em", "tempo_leitura"];
+    const NA_GAVETA = ["slug", "tempo_leitura"];
     const semDadoNaGaveta = NA_GAVETA.filter((campo) => {
       const i = codigoDaGaveta.indexOf('campo("' + campo + '"');
       if (i === -1) return true;
@@ -2215,14 +2221,28 @@ if (lista) {
       return !trecho.includes("dado");
     });
     afirmar(
-      "na gaveta, slug, Data de Publicação e tempo de leitura usam `.dado`",
+      "na gaveta, slug e tempo de leitura usam `.dado`",
       semDadoNaGaveta.length === 0,
       semDadoNaGaveta.join(", "),
     );
+  }
+
+  /* A DATA DE PUBLICAÇÃO SE MUDOU DA GAVETA PARA O MODAL DE AGENDAMENTO
+     (correção de UI/UX do Editor): ela era redundante com o botão "Agendar
+     publicação", que hoje abre este modal em `EditorDePost.jsx` em vez da
+     gaveta. A regra que cobra `.dado` sobre ela se muda junto — para o
+     arquivo novo, não para uma segunda cópia da regra antiga. */
+  if (tela) {
+    const codigoDaTela = semComentarios(tela);
+    const iCampo = codigoDaTela.indexOf('data-campo="publicado_em"');
     afirmar(
-      "a data exibida em São Paulo também é dado, não prosa",
-      /data-papel="data-em-sao-paulo"/.test(codigoDaGaveta) &&
-        /className="dado"[^>]*data-papel="data-em-sao-paulo"|data-papel="data-em-sao-paulo"[^>]*className="dado"|className="dado"[sS]{0,80}data-papel="data-em-sao-paulo"/.test(codigoDaGaveta),
+      'no modal de agendamento, o campo de data usa `.dado` (`data-campo="publicado_em"` perto de `className`)',
+      iCampo !== -1 && codigoDaTela.slice(iCampo, iCampo + 240).includes("dado"),
+    );
+    afirmar(
+      "a data exibida em São Paulo, no modal de agendamento, também é dado, não prosa",
+      /data-papel="data-em-sao-paulo"/.test(codigoDaTela) &&
+        /className="dado"[^>]*data-papel="data-em-sao-paulo"|data-papel="data-em-sao-paulo"[^>]*className="dado"|className="dado"[sS]{0,80}data-papel="data-em-sao-paulo"/.test(codigoDaTela),
       "a exibição da data precisa da pilha monoespaçada",
     );
   }

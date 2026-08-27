@@ -14,7 +14,7 @@
  *
  * Três coisas moram neste arquivo, e nenhuma delas em outro lugar:
  *
- *   `ELEMENTOS`         — os dez elementos que o Autor pode aplicar, na ordem
+ *   `ELEMENTOS`         — os treze elementos que o Autor pode aplicar, na ordem
  *                         em que a barra os oferece. É a fonte da derivação:
  *                         acrescentar aqui faz o controle aparecer lá.
  *   `NOS` / `MARCAS`    — a forma de cada nó e de cada marca do documento,
@@ -51,7 +51,18 @@ export const INSERE = "insere";
 /** Os níveis de título que o schema conhece. `1` está fora de propósito. */
 export const NIVEIS_DE_TITULO = Object.freeze([2, 3]);
 
-/* ─── Os dez elementos, na ordem em que a barra os oferece ───────────────── */
+/**
+ * Os três alinhamentos de texto que o schema conhece. `justify` está fora de
+ * propósito — a story pede esquerda, centro e direita, na convenção de Word.
+ *
+ * Exportado, e não escrito à mão em `configuracao.js`: é a MESMA lista que
+ * configura a extensão do Tiptap e que valida o atributo aqui embaixo, em
+ * `NOS.paragraph`/`NOS.heading` — uma segunda cópia divergiria na primeira
+ * mudança.
+ */
+export const ALINHAMENTOS_DE_TEXTO = Object.freeze(["left", "center", "right"]);
+
+/* ─── Os treze elementos, na ordem em que a barra os oferece ─────────────── */
 
 /**
  * Cada entrada carrega tudo o que um controle precisa saber, e nada além:
@@ -224,6 +235,59 @@ export const ELEMENTOS = Object.freeze([
     pede: null,
     atalho: null,
   }),
+  /* ─── OS TRÊS DE ALINHAMENTO ────────────────────────────────────────────
+     `especie: NO` porque o atributo mora num nó (`textAlign`, em `paragraph`
+     e `heading`) — mas `nome: null`, e não `"paragraph"` nem `"heading"`: o
+     alinhamento não troca o TIPO do nó, então travar num nome faria o botão
+     acender só na metade dos blocos onde ele de fato se aplica. É `nome:
+     null` — e não `especie: "atributo"`, categoria que este schema nunca
+     teve — que diz a `estaAtivo` (`configuracao.js`) para consultar
+     `editor.isActive(atributos)` sem nome de nó travado, em vez de
+     `editor.isActive(nome, atributos)`.
+
+     `esquerda` é o `defaultAlignment` da extensão: todo parágrafo e todo
+     título JÁ NASCEM alinhados à esquerda, então o botão começa aceso sem
+     que o Autor tenha clicado nada — é o único elemento desta lista em que
+     "ativo desde o início" é o comportamento certo, não um defeito. */
+  Object.freeze({
+    chave: "alinharEsquerda",
+    especie: NO,
+    nome: null,
+    atributos: Object.freeze({ textAlign: "left" }),
+    rotulo: "Alinhar à esquerda",
+    faz: "Alinha o parágrafo ou o título à esquerda.",
+    comando: "setTextAlign",
+    acao: ALTERNA,
+    argumentos: Object.freeze(["left"]),
+    pede: null,
+    atalho: null,
+  }),
+  Object.freeze({
+    chave: "alinharCentro",
+    especie: NO,
+    nome: null,
+    atributos: Object.freeze({ textAlign: "center" }),
+    rotulo: "Centralizar",
+    faz: "Centraliza o parágrafo ou o título.",
+    comando: "setTextAlign",
+    acao: ALTERNA,
+    argumentos: Object.freeze(["center"]),
+    pede: null,
+    atalho: null,
+  }),
+  Object.freeze({
+    chave: "alinharDireita",
+    especie: NO,
+    nome: null,
+    atributos: Object.freeze({ textAlign: "right" }),
+    rotulo: "Alinhar à direita",
+    faz: "Alinha o parágrafo ou o título à direita.",
+    comando: "setTextAlign",
+    acao: ALTERNA,
+    argumentos: Object.freeze(["right"]),
+    pede: null,
+    atalho: null,
+  }),
 ]);
 
 /* ─── A forma do documento ───────────────────────────────────────────────── */
@@ -279,6 +343,19 @@ function umDentre(lista) {
   return (valor) => (lista.includes(valor) ? valor : undefined);
 }
 
+/**
+ * O alinhamento de texto de um parágrafo ou título.
+ *
+ * `null`/`undefined` passam como `null` — um documento de fora de que nunca
+ * ouviu falar de alinhamento continua abrindo, sem o atributo. O que sai da
+ * lista fechada (`ALINHAMENTOS_DE_TEXTO`) some, como qualquer atributo fora
+ * do vocabulário.
+ */
+function alinhamentoDeTexto(valor) {
+  if (valor === null || valor === undefined) return null;
+  return ALINHAMENTOS_DE_TEXTO.includes(valor) ? valor : undefined;
+}
+
 function textoOuNulo(valor) {
   if (valor === null || valor === undefined) return null;
   return typeof valor === "string" ? valor : undefined;
@@ -300,14 +377,21 @@ export const NOS = Object.freeze({
     vazioSobrevive: true,
   }),
   paragraph: Object.freeze({
-    atributos: Object.freeze({}),
+    // `textAlign` sobrevive à higienização pela MESMA lista que configura a
+    // extensão do Tiptap (`ALINHAMENTOS_DE_TEXTO`) — sem esta entrada, o
+    // alinhamento escolhido no Editor seria descartado aqui como qualquer
+    // atributo fora do vocabulário, e nunca chegaria ao HTML publicado.
+    atributos: Object.freeze({ textAlign: alinhamentoDeTexto }),
     filhos: INLINE,
     vazioSobrevive: true,
   }),
   heading: Object.freeze({
     // É AQUI que `h1` deixa de existir: nível fora da lista não passa, e um
     // título sem nível não é título — o nó inteiro cai.
-    atributos: Object.freeze({ level: umDentre([...NIVEIS_DE_TITULO]) }),
+    atributos: Object.freeze({
+      level: umDentre([...NIVEIS_DE_TITULO]),
+      textAlign: alinhamentoDeTexto,
+    }),
     atributosObrigatorios: Object.freeze(["level"]),
     filhos: INLINE,
     vazioSobrevive: true,

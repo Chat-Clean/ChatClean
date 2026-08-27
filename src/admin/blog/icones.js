@@ -15,6 +15,9 @@
  */
 
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
   Code,
   Heading2,
@@ -38,4 +41,7 @@ export const ICONES = Object.freeze({
   citacao: Quote,
   blocoDeCodigo: Code,
   linhaDivisoria: Minus,
+  alinharEsquerda: AlignLeft,
+  alinharCentro: AlignCenter,
+  alinharDireita: AlignRight,
 });

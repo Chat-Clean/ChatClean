@@ -1,13 +1,19 @@
 /**
  * A gaveta de metadados do Post — o que descreve o Post, ao lado do que ele diz.
  *
- * Doze campos: Título, Slug, Resumo, Imagem de capa, Descrição da imagem,
- * Categoria, Tags, Data de Publicação, tempo de leitura e — na seção de SEO —
- * Título SEO, Meta Descrição e Imagem de Compartilhamento. Cada um com
- * **rótulo associado** — `<label for>` ligado ao
- * `id` do controle, e não um texto solto acima dele: sem a associação, quem
- * navega por leitor de tela ouve "caixa de edição" doze vezes seguidas e
- * precisa adivinhar qual é qual.
+ * Onze campos: Título, Slug, Resumo, Imagem de capa, Descrição da imagem,
+ * Categoria, Tags, tempo de leitura e — na seção de SEO — Título SEO, Meta
+ * Descrição e Imagem de Compartilhamento. Cada um com **rótulo associado** —
+ * `<label for>` ligado ao `id` do controle, e não um texto solto acima dele:
+ * sem a associação, quem navega por leitor de tela ouve "caixa de edição"
+ * onze vezes seguidas e precisa adivinhar qual é qual.
+ *
+ * ─── A DATA DE PUBLICAÇÃO SAIU DAQUI (correção de UI/UX do Editor) ─────────
+ *
+ * Ela era redundante com o botão "Agendar publicação" da tela: os dois
+ * cobravam o mesmo dado, e o botão não abria nada — só reclamava do campo de
+ * novo. Agora só existe um lugar para informar a data: o modal que o botão
+ * abre, em `EditorDePost.jsx`. Esta gaveta não conhece mais `publicado_em`.
  *
  * ─── A SEÇÃO DE SEO, DEPOIS DA STORY 3.4 ───────────────────────────────────
  *
@@ -106,13 +112,6 @@
  * `aria-describedby`. Uma mensagem genérica no rodapé ("preencha os campos
  * obrigatórios") obriga a pessoa a percorrer a gaveta procurando qual é.
  *
- * ─── O fuso entra AQUI, e só aqui ───────────────────────────────────────────
- *
- * A Data de Publicação é `timestamptz` no banco e instante em UTC no caminho
- * inteiro. O campo mostra e lê **hora de parede em São Paulo**, pelas funções de
- * `domain/blog/formato.js` — o único lugar do projeto que conhece o fuso. A
- * comparação de visibilidade continua em UTC, na política do banco.
- *
  * ─── ABERTA OU RECOLHIDA — E QUEM DECIDE NÃO É ELA ──────────────────────────
  *
  * A gaveta ocupa 340px aberta e um trilho de 46px recolhida, e o controle de
@@ -136,7 +135,7 @@ import {
 } from "lucide-react";
 
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
-import { FRASES_DE_FALTA, textoDaDataDoCampo } from "@/admin/blog/metadados";
+import { FRASES_DE_FALTA } from "@/admin/blog/metadados";
 /* As situações e as falas do envio moram em módulo próprio — função pura não
    mora em arquivo de componente, e é assim que a verificação as executa em vez
    de procurá-las no JSX. */
@@ -427,7 +426,13 @@ export default function GavetaDeMetadados({
            A regra do Tailwind para `[hidden]` é `!important`, então o `flex`
            daqui não a desfaz — foi medido, e é o modo de falha clássico. */
         hidden={!aberta}
-        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto"
+        /* `px-1 -mx-1`: a caixa que rola só declarava `overflow-y-auto`, e por
+           especificação CSS isso faz o navegador computar `overflow-x: auto`
+           também — a caixa passa a CLIPAR o anel de foco (`ring-offset-2` +
+           `ring-2`, 4px além do campo) bem na própria borda de padding. O
+           padding devolve a folga que faltava; a margem negativa da mesma
+           medida repõe os campos no lugar exato de antes — nada realinha. */
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-1 -mx-1"
       >
         {/* ── Título ─────────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
@@ -654,32 +659,6 @@ export default function GavetaDeMetadados({
           <p id={idDaAjuda("tags")} className="text-xs text-ink-muted">
             Separe por vírgula, até {LIMITE_DE_TAGS}. Tag que já existe é
             reaproveitada; tag nova é criada ao salvar.
-          </p>
-        </div>
-
-        {/* ── Data de Publicação ─────────────────────────────────────────── */}
-        <div className="flex flex-col gap-1.5">
-          <Rotulo para={idDe("publicado_em")}>Data de publicação</Rotulo>
-          <input
-            type="datetime-local"
-            {...campo("publicado_em", { ajuda: true, extra: "dado" })}
-            value={valores.publicado_em ?? ""}
-            onChange={mudar("publicado_em")}
-          />
-          {/* A marca de recusa precisa ter O QUE dizer: `aria-invalid` sozinho
-              anuncia "inválido" e nada mais, e o `aria-describedby` do campo
-              apontava para um parágrafo que não existia. */}
-          <Recusa id={idDoErro("publicado_em")} visivel={falta("publicado_em")}>
-            {FRASES_DE_FALTA.publicado_em}
-          </Recusa>
-          {/* O instante é gravado em UTC; o que se lê e o que se digita é a hora de
-              Brasília. Dizer o fuso por extenso é o que impede alguém de agendar
-              00h30 achando que agendou no fuso do próprio navegador. */}
-          <p id={idDaAjuda("publicado_em")} className="text-xs text-ink-muted">
-            Horário de Brasília{" "}
-            <span className="dado" data-papel="data-em-sao-paulo">
-              {textoDaDataDoCampo(valores.publicado_em)}
-            </span>
           </p>
         </div>
 

@@ -43,6 +43,7 @@ import {
 } from "@tiptap/static-renderer/json/html-string";
 
 import {
+  ALINHAMENTOS_DE_TEXTO,
   ALVOS_DE_LINK,
   enderecoPermitido,
   NIVEIS_DE_TITULO,
@@ -74,6 +75,22 @@ function juntar(filhos) {
  */
 function atributo(nome, valor) {
   return ` ${nome}="${escapeHTMLAttribute(String(valor))}"`;
+}
+
+/**
+ * `data-alinhamento`, para `paragraph` e `heading` — os dois nós em que o
+ * schema declara `textAlign` (`domain/blog/schema.js`).
+ *
+ * Omitido quando o alinhamento é `left`: é o `defaultAlignment` da extensão
+ * do Tiptap, então TODO parágrafo carrega o atributo com esse valor — emiti-lo
+ * sempre poluiria cada `<p>` do artigo com um atributo que não diz nada.
+ * Mesma disciplina de `orderedList.start`/`type`, logo abaixo: omitir o caso
+ * comum.
+ */
+function alinhamentoEmitido(valor) {
+  return ALINHAMENTOS_DE_TEXTO.includes(valor) && valor !== "left"
+    ? atributo("data-alinhamento", valor)
+    : "";
 }
 
 /**
@@ -113,7 +130,10 @@ const NOS = Object.freeze({
   // a estrutura da página que ele não tem como ter.
   doc: ({ children }) => juntar(children),
 
-  paragraph: ({ children }) => `<p>${juntar(children)}</p>`,
+  paragraph: ({ node, children }) => {
+    const alinhamento = alinhamentoEmitido(node?.attrs?.textAlign);
+    return `<p${alinhamento}>${juntar(children)}</p>`;
+  },
 
   heading: ({ node, children }) => {
     /* O nível vem do schema, não do documento: um `level` fora da lista já
@@ -122,7 +142,8 @@ const NOS = Object.freeze({
     const nivel = NIVEIS_DE_TITULO.includes(node?.attrs?.level)
       ? node.attrs.level
       : NIVEIS_DE_TITULO[0];
-    return `<h${nivel}>${juntar(children)}</h${nivel}>`;
+    const alinhamento = alinhamentoEmitido(node?.attrs?.textAlign);
+    return `<h${nivel}${alinhamento}>${juntar(children)}</h${nivel}>`;
   },
 
   blockquote: ({ children }) => `<blockquote>${juntar(children)}</blockquote>`,
@@ -281,6 +302,7 @@ export const ATRIBUTOS_EMITIDOS = Object.freeze([
   "type",
   "tabindex",
   "data-linguagem",
+  "data-alinhamento",
 ]);
 
 /**
