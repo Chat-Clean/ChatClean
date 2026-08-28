@@ -74,7 +74,7 @@ import {
 } from "./blogPublico";
 
 const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
 
 /* ─── AS CATEGORIAS VÊM DO BANCO (Story 2.14) ──────────────────────────────
  *
@@ -458,20 +458,23 @@ export default function Blog() {
                       className="absolute inset-0 size-full object-cover"
                     />
                   )}
-                  <div
-                    className={`relative z-10 text-center ${
-                      mostrarCapaDoDestaque
-                        ? "rounded-2xl bg-black/40 px-4 py-3 backdrop-blur-sm"
-                        : ""
-                    }`}
-                  >
+                  {/* SEM faixa escura sobre a capa: `mostrarCapaDoDestaque`
+                      decidia entre desenhar a foto ou o fundo `aurora-bg`, mas
+                      a faixa cobria a foto de qualquer forma. `posts.destaque`
+                      continua sendo a única fonte de verdade — nada muda aí. */}
+                  <div className="relative z-10 text-center">
                     {nomeDaCategoria(destaque) !== "" && (
                       <span className="inline-block px-3 py-1 rounded-full bg-white/20 border border-white/40 text-white text-xs font-bold uppercase tracking-widest mb-4">
                         {nomeDaCategoria(destaque)}
                       </span>
                     )}
                     {textoDoTempoDeLeitura(destaque) !== "" && (
-                      <p className="text-white/70 text-sm">
+                      /* A faixa preta saiu, mas o texto continua sobre uma
+                         FOTO — sem fundo próprio, uma capa clara/branca o
+                         apaga. A mesma pílula translúcida que já protege o
+                         nome da Categoria acima, aplicada aqui: legível sobre
+                         qualquer foto, sem voltar a cobrir a imagem inteira. */
+                      <p className="inline-block px-3 py-1 rounded-full bg-white/20 border border-white/40 text-white text-sm">
                         {textoDoTempoDeLeitura(destaque)}
                       </p>
                     )}

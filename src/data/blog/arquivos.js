@@ -40,6 +40,8 @@ import {
   baseDoEnderecoPublico as baseDe,
   caminhoDaCapa,
   caminhoDaCapaNoEndereco,
+  caminhoDoCorpo,
+  caminhoDoCorpoNoEndereco,
   especieDeclarada,
   problemaNoArquivo,
 } from "../../domain/blog/arquivos.js";
@@ -322,6 +324,109 @@ export async function enviarImagemDeCapa(
      servidor vai recusar na hora de salvar — a pessoa veria a miniatura
      aparecer e o salvamento falhar por um motivo que ela não causou. */
   if (url === null || caminhoDaCapaNoEndereco(baseDe(url), url) === null) {
+    return falha(ERRO_CONFIGURACAO, {
+      operacao,
+      mensagem:
+        "A imagem subiu, mas não conseguimos montar o endereço público dela. Avise quem cuida do projeto.",
+      detalhe:
+        "endereço devolvido pelo Storage fora do formato esperado: " +
+        JSON.stringify(String(url ?? "").slice(0, 120)),
+    });
+  }
+
+  return sucesso({ url, caminho });
+}
+
+/**
+ * Envia uma imagem INLINE do corpo do Post e devolve o **endereço público
+ * absoluto** — espelho de `enviarImagemDeCapa`, acima, trocando só a pasta
+ * do bucket (`caminhoDoCorpo`, em vez de `caminhoDaCapa`) e a mensagem que
+ * nomeia o que falhou. MESMO bucket (`imagens-do-blog`), MESMA validação de
+ * espécie e tamanho (`problemaNoArquivo`, do domínio), MESMO desenho de
+ * nome de arquivo (identificador novo, nunca o nome escolhido pelo Autor).
+ *
+ * É a função que `ImageUploadNode.configure({ upload })` injeta no editor
+ * (`admin/blog/BarraDoEditor.jsx`): o Tiptap chama `upload(arquivo)`, esta
+ * função sobe o arquivo e devolve a URL que vira `src` do nó `image`.
+ *
+ * `{ ok: true, dados: { url, caminho } }` ou `{ ok: false, erro }` — erro
+ * TIPADO. **Nunca lança.**
+ */
+export async function enviarImagemDoCorpo(
+  arquivo,
+  {
+    obterCliente = clienteDoPainelOuFalha,
+    lerAssinatura = assinaturaDe,
+    novoIdentificador = identificadorNovo,
+  } = {},
+) {
+  const operacao = "enviarImagemDoCorpo";
+
+  if (arquivo === null || typeof arquivo !== "object" || typeof arquivo.slice !== "function") {
+    return falhaDoEnvio({
+      operacao,
+      mensagem: "Escolha um arquivo de imagem para inserir no texto.",
+      detalhe: `o que chegou não é um arquivo: ${arquivo === null ? "null" : typeof arquivo}`,
+    });
+  }
+
+  const assinatura = await lerAssinatura(arquivo);
+  const problema = problemaNoArquivo({
+    tamanho: arquivo.size,
+    tipo: arquivo.type,
+    assinatura,
+  });
+  if (problema !== null) {
+    return falhaDoEnvio({
+      operacao,
+      mensagem: problema,
+      detalhe:
+        `arquivo recusado antes da rede: ${arquivo.size} bytes, ` +
+        `tipo ${JSON.stringify(String(arquivo.type ?? ""))}`,
+    });
+  }
+
+  const caminho = caminhoDoCorpo(especieDeclarada(arquivo.type), novoIdentificador());
+  if (caminho === null) {
+    return falha(ERRO_INESPERADO, {
+      operacao,
+      detalhe: "não foi possível montar o caminho da imagem no bucket",
+    });
+  }
+
+  const cliente = await obterCliente(operacao);
+  if (!cliente.ok) return cliente;
+
+  let resposta;
+  try {
+    resposta = await cliente.dados.storage.from(BUCKET_DAS_IMAGENS).upload(caminho, arquivo, {
+      // NUNCA sobrescreve — mesmo motivo de `enviarImagemDeCapa`: cada envio
+      // nasce com nome próprio.
+      upsert: false,
+      contentType: especieDeclarada(arquivo.type),
+      cacheControl: String(CACHE_DA_CAPA_EM_SEGUNDOS),
+    });
+  } catch (excecao) {
+    return deExcecao(excecao, operacao);
+  }
+
+  if (resposta?.error) {
+    const erro = daRespostaDoSupabase(resposta, operacao);
+    if (erro.erro.tipo === ERRO_PERMISSAO) {
+      return falha(ERRO_PERMISSAO, {
+        operacao,
+        mensagem:
+          "Sua sessão não autoriza enviar imagens. Entre no Painel de novo e envie outra vez.",
+        detalhe: erro.erro.detalhe,
+        codigo: erro.erro.codigo,
+        status: erro.erro.status,
+      });
+    }
+    return erro;
+  }
+
+  const url = enderecoPublico(cliente.dados, caminho);
+  if (url === null || caminhoDoCorpoNoEndereco(baseDe(url), url) === null) {
     return falha(ERRO_CONFIGURACAO, {
       operacao,
       mensagem:

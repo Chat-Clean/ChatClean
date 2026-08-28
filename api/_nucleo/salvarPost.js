@@ -136,8 +136,14 @@ import {
   baseDoEnderecoPublico,
   ROTULO_DA_CAPA,
   caminhoDaCapaNoEndereco,
+  caminhoDoCorpoNoEndereco,
   enderecoDeImagemPermitido,
 } from "../../src/domain/blog/arquivos.js";
+/* `enderecosDeImagemDoDocumento` vem do MESMO domínio que valida o
+   documento — a limpeza de imagem órfã do corpo (Editor avançado) compara o
+   que o documento ANTERIOR referenciava com o que o ATUAL referencia, e
+   precisa da MESMA travessia que o resto do projeto usa, não uma segunda. */
+import { enderecosDeImagemDoDocumento } from "../../src/domain/blog/schema.js";
 /* Os DOIS NÚMEROS de cada campo de SEO vêm do DOMÍNIO (Story 3.4), e é o teto
    de HIGIENE que esta porta cobra — o comprimento usual sinaliza na tela e não
    chega aqui. Escrever o número à mão neste arquivo faria a porta e a restrição
@@ -1403,12 +1409,19 @@ async function gravar({ token, corpo, acesso }) {
 
      E ela roda só quando o endereço MUDOU. Salvar um Post sem tocar na capa
      manda `imagem_url` com o mesmo valor, e apagar o arquivo aí seria apagar a
-     capa que acabou de ser gravada. */
-  const residuo = await removerImagensAnteriores({
-    acesso,
-    anterior: existente.dados,
-    atual: escrita.dados,
-  });
+     capa que acabou de ser gravada.
+
+     DUAS limpezas, EM PARALELO: a das colunas (`imagem_url`/`seo_imagem_url`)
+     e a do CORPO do documento (Editor avançado) são independentes — pastas
+     diferentes do bucket, comparações diferentes — e este pedido tem prazo
+     TOTAL, então encadeá-las gastaria uma viagem de rede em série por um
+     ganho nenhum. `juntarResiduos` funde as duas na MESMA forma que a tela já
+     conhece. */
+  const [residuoDasColunas, residuoDoCorpo] = await Promise.all([
+    removerImagensAnteriores({ acesso, anterior: existente.dados, atual: escrita.dados }),
+    removerImagensDoCorpoAnteriores({ acesso, anterior: existente.dados, atual: escrita.dados }),
+  ]);
+  const residuo = juntarResiduos(residuoDasColunas, residuoDoCorpo);
 
   /* AS TAGS VÊM DEPOIS DA REMOÇÃO, e a ordem importa.
      Com a gravação das tags antes, uma falha ali retornava do meio da função e
@@ -1627,6 +1640,119 @@ export async function removerCapaAnterior({ acesso, anterior, atual }) {
     arquivo: caminho,
     motivo: detalhar(remocao, "remoção do arquivo da capa anterior"),
   };
+}
+
+/**
+ * Remove as imagens do CORPO que o documento ANTERIOR referenciava e o
+ * ATUAL não referencia mais — a limpeza de órfã do Editor avançado (Story do
+ * Editor Tiptap avançado), irmã de `removerImagensAnteriores` acima, que
+ * cuida de `imagem_url`/`seo_imagem_url`. Não entra em `COLUNAS_DE_IMAGEM`
+ * nem em `removerImagensAnteriores`: aquela família compara COLUNA contra
+ * COLUNA, uma imagem por vez; esta compara o CONTEÚDO do documento inteiro,
+ * que pode ter zero, uma ou muitas imagens.
+ *
+ * MESMA disciplina das duas funções acima: comparação pela LINHA inteira (o
+ * endereço que sobreviver em qualquer posição do documento ATUAL não é
+ * lixo), remoção só do que saiu, sem repetição, e nunca tenta remover
+ * endereço que não tem a FORMA de uma imagem do nosso bucket
+ * (`caminhoDoCorpoNoEndereco`) — uma imagem hospedada em outro lugar não é
+ * nossa para apagar.
+ *
+ * Devolve `null` ou um resíduo `{ arquivo, motivo }`, na MESMA forma que
+ * `removerImagensAnteriores` — é o que permite ao invólucro juntar os dois
+ * resíduos numa frase só (`juntarResiduos`, abaixo).
+ */
+export async function removerImagensDoCorpoAnteriores({ acesso, anterior, atual }) {
+  const anteriores = enderecosDeImagemDoDocumento(anterior?.conteudo ?? null);
+  if (anteriores.length === 0) return null;
+
+  const emUso = new Set(enderecosDeImagemDoDocumento(atual?.conteudo ?? null));
+
+  const paraRemover = [];
+  for (const endereco of anteriores) {
+    if (emUso.has(endereco)) continue;
+    if (paraRemover.includes(endereco)) continue;
+    paraRemover.push(endereco);
+  }
+  if (paraRemover.length === 0) return null;
+
+  /* A raiz do projeto, lida UMA vez — mesma disciplina de `removerCapaAnterior`.
+     Sem ela, "não sei se era nossa" viraria "não era nossa" para toda imagem
+     órfã, e o resíduo (a acusação de que um arquivo ficou para trás) nunca
+     nasceria. */
+  let base = null;
+  if (typeof acesso.baseDoProjeto === "function") {
+    try {
+      const bruta = acesso.baseDoProjeto();
+      if (typeof bruta === "string" && bruta.trim() !== "") base = bruta;
+    } catch {
+      /* montagem quebrada: cada endereço vira resíduo nomeado abaixo */
+    }
+  }
+
+  const sobras = await Promise.all(
+    paraRemover.map(async (endereco) => {
+      const formaDoCorpo = caminhoDoCorpoNoEndereco(baseDoEnderecoPublico(endereco), endereco);
+      if (base === null) {
+        if (formaDoCorpo === null) return null;
+        return {
+          arquivo: formaDoCorpo,
+          motivo:
+            "o acesso não sabe dizer a URL do projeto, então não há como saber se a imagem era nossa",
+        };
+      }
+      const caminho = caminhoDoCorpoNoEndereco(base, endereco);
+      if (caminho === null) return null;
+
+      if (typeof acesso.removerArquivoDoCorpo !== "function") {
+        return {
+          arquivo: caminho,
+          motivo:
+            "o acesso não sabe remover arquivo do Storage — defeito de montagem, não do Storage",
+        };
+      }
+
+      let remocao;
+      try {
+        remocao = await acesso.removerArquivoDoCorpo(caminho);
+      } catch (excecao) {
+        return {
+          arquivo: caminho,
+          motivo: `exceção ao remover: ${String(excecao?.message ?? excecao)}`,
+        };
+      }
+      if (remocao?.ok) return null;
+      return {
+        arquivo: caminho,
+        motivo: detalhar(remocao, "remoção de imagem do corpo anterior"),
+      };
+    }),
+  );
+
+  const residuos = sobras.filter((sobrou) => sobrou !== null);
+  if (residuos.length === 0) return null;
+  if (residuos.length === 1) return residuos[0];
+  return Object.freeze({
+    arquivo: residuos.map((r) => r.arquivo).join(SEPARADOR_DE_ARQUIVOS_NO_RESIDUO),
+    motivo: residuos.map((r) => r.motivo).join(SEPARADOR_DE_MOTIVOS_NO_RESIDUO),
+  });
+}
+
+/**
+ * Junta dois resíduos (ou `null`) numa forma só — a MESMA forma
+ * `{ arquivo, motivo }`, com os mesmos separadores que `removerImagensAnteriores`
+ * já usa para juntar duas colunas. Existe porque a capa/SEO e o corpo agora
+ * são DUAS limpezas independentes (`Promise.all`, no chamador), e a tela só
+ * conhece um campo `residuo` — juntar aqui é o que a mantém sem saber que
+ * existem duas famílias por trás.
+ */
+export function juntarResiduos(a, b) {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Object.freeze({
+    arquivo: [a.arquivo, b.arquivo].join(SEPARADOR_DE_ARQUIVOS_NO_RESIDUO),
+    motivo: [a.motivo, b.motivo].join(SEPARADOR_DE_MOTIVOS_NO_RESIDUO),
+  });
 }
 
 /**

@@ -40,9 +40,11 @@ import {
   falha,
   falhaDaEscrita,
   identificarChamador,
+  juntarResiduos,
   PADRAO_UUID,
   perfilOuFalha,
   removerImagensAnteriores,
+  removerImagensDoCorpoAnteriores,
 } from "./salvarPost.js";
 
 /**
@@ -194,12 +196,18 @@ export async function excluirPost({ token, corpo, acesso }) {
        **A EXCLUSÃO É AUTORITATIVA.** Falha ao remover o arquivo não desfaz nem
        impede nada: ela vira `residuo`, que viaja na resposta e é registrado
        pelo invólucro. O Post foi excluído, e dizer "não deu" por causa de um
-       arquivo faria a pessoa clicar de novo sobre uma linha que já saiu. */
-    const residuo = await removerImagensAnteriores({
-      acesso,
-      anterior: apagado.dados,
-      atual: null,
-    });
+       arquivo faria a pessoa clicar de novo sobre uma linha que já saiu.
+
+       E as imagens do CORPO do documento (Editor avançado) saem junto — a
+       mesma limpeza que o salvamento já faz quando uma imagem some do texto,
+       aqui aplicada ao documento inteiro de uma vez: `atual: null` é "nada
+       sobrevive", então toda imagem que o Post excluído referenciava vira
+       candidata à remoção. */
+    const [residuoDasColunas, residuoDoCorpo] = await Promise.all([
+      removerImagensAnteriores({ acesso, anterior: apagado.dados, atual: null }),
+      removerImagensDoCorpoAnteriores({ acesso, anterior: apagado.dados, atual: null }),
+    ]);
+    const residuo = juntarResiduos(residuoDasColunas, residuoDoCorpo);
 
     return Object.freeze({
       ok: true,

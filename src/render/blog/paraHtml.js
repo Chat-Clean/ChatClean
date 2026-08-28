@@ -45,6 +45,8 @@ import {
 import {
   ALINHAMENTOS_DE_TEXTO,
   ALVOS_DE_LINK,
+  CORES_DE_DESTAQUE,
+  enderecoDeImagemPermitido,
   enderecoPermitido,
   NIVEIS_DE_TITULO,
   RELACOES_DE_LINK,
@@ -187,6 +189,41 @@ const NOS = Object.freeze({
   hardBreak: () => "<br>",
 
   text: ({ node }) => escaparTexto(node?.text ?? ""),
+
+  /**
+   * A imagem inline do corpo. Nó atômico — `children` não existe, como
+   * `horizontalRule`. `src` já passou por `enderecoDeImagemPermitido` na
+   * validação (`domain/blog/schema.js`), mas a conferência é repetida aqui
+   * pela MESMA razão que a marca `link` repete `enderecoPermitido`:
+   * `htmlDoDocumento` é exportado, e alguém pode chamá-lo com um documento
+   * que não passou pela validação. Endereço recusado faz a imagem inteira
+   * desaparecer — não há `<img>` sem `src` aceitável, ao contrário do link,
+   * que ainda tem TEXTO para mostrar sem a marca.
+   *
+   * Sem `class`: quem estiliza é `.artigo img`, no CSS global.
+   */
+  image: ({ node }) => {
+    const attrs = node?.attrs ?? {};
+    /* `enderecoDeImagemPermitido` aceita `null`/`undefined` — é a regra
+       PARTILHADA com `imagem_url`/`seo_imagem_url`, onde ausência é "sem
+       capa", legítimo. Para `NOS.image` não é: uma imagem sem `src` não é
+       imagem, e a checagem sozinha deixaria passar `attrs.src` ausente para
+       virar `<img src="undefined">` — o `typeof` aqui é o que faz a exigência
+       de PRESENÇA valer também neste handler, e não só em `atributosObrigatorios`
+       do validador (que um documento não revalidado pode não ter passado). */
+    if (typeof attrs.src !== "string" || attrs.src.trim() === "") return "";
+    if (!enderecoDeImagemPermitido(attrs.src)) return "";
+    /* `alt` sempre sai, mesmo vazio: um `<img>` SEM o atributo faz leitor de
+       tela anunciar o nome do arquivo como conteúdo — pior que declarar a
+       imagem decorativa com `alt=""`. `title`, ao contrário, só sai quando
+       tem algo a dizer, porque a ausência dele não confunde ninguém. */
+    let tag = `<img${atributo("src", String(attrs.src).trim())}`;
+    tag += atributo("alt", typeof attrs.alt === "string" ? attrs.alt : "");
+    if (typeof attrs.title === "string" && attrs.title !== "") {
+      tag += atributo("title", attrs.title);
+    }
+    return `${tag}>`;
+  },
 });
 
 /* ─── As marcas ──────────────────────────────────────────────────────────── */
@@ -217,6 +254,23 @@ const RELACOES_OBRIGATORIAS_EM_NOVA_JANELA = Object.freeze(["noopener", "norefer
 const MARCAS = Object.freeze({
   bold: ({ children }) => `<strong>${juntar(children)}</strong>`,
   italic: ({ children }) => `<em>${juntar(children)}</em>`,
+
+  /**
+   * O destaque de cor. `cor` já passou por `umDentre(CORES_DE_DESTAQUE)` na
+   * validação, mas a conferência é repetida aqui pela MESMA razão que vale
+   * para `link`: `htmlDoDocumento` é exportado, e nada garante que quem o
+   * chama passou pelo validador primeiro. Cor fora da lista faz a MARCA
+   * cair — o texto continua, sem destaque, como um link com endereço ruim.
+   *
+   * Sem `style`: a aparência de cada cor mora em `.artigo mark[data-cor="…"]`,
+   * no CSS global — nunca um valor livre que o Autor escolheu.
+   */
+  highlight: ({ mark, children }) => {
+    const texto = juntar(children);
+    const cor = mark?.attrs?.cor;
+    if (!CORES_DE_DESTAQUE.includes(cor)) return texto;
+    return `<mark${atributo("data-cor", cor)}>${texto}</mark>`;
+  },
 
   link: ({ mark, children }) => {
     const attrs = mark?.attrs ?? {};
@@ -281,6 +335,8 @@ export const ETIQUETAS_EMITIDAS = Object.freeze([
   "code",
   "hr",
   "br",
+  "img",
+  "mark",
 ]);
 
 /**
@@ -303,6 +359,9 @@ export const ATRIBUTOS_EMITIDOS = Object.freeze([
   "tabindex",
   "data-linguagem",
   "data-alinhamento",
+  "src",
+  "alt",
+  "data-cor",
 ]);
 
 /**

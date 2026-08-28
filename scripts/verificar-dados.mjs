@@ -537,6 +537,11 @@ afirmar(
        que o bucket concede. A lista fechada a acusou assim que ela nasceu —
        que é exatamente o que ela existe para fazer. */
     ["arquivos.js", "removerImagemDeCapa"],
+    /* Editor Tiptap avançado: o ENVIO DA IMAGEM DO CORPO — espelho exato de
+       `enviarImagemDeCapa`, mesma razão: a política do bucket exige sessão
+       para inserir, e a incondicionalidade da escolha do cliente é o que
+       torna a recusa previsível em vez de um envio pela metade. */
+    ["arquivos.js", "enviarImagemDoCorpo"],
     /* E as Tags SUGERIDAS também (Story 2.14). Elas vinham do cliente público,
        e a política anônima de `tags` só devolve Tag associada a Post visível:
        uma Tag criada num rascunho nunca era sugerida — que é exatamente o caso

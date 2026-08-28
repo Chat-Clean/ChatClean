@@ -1952,6 +1952,28 @@ secao("(f2) Categoria: cor por token, ícone por mapa fechado (Story 2.14)");
       "sem isso, os Posts voltariam a vir do armazenamento no navegador",
     );
 
+    /* O CARD DE DESTAQUE NÃO TEM MARCA PRETA SOBRE A CAPA (correção de UI/UX).
+       Havia uma faixa `bg-black/40` cobrindo o centro da imagem sempre que o
+       Post em destaque tinha capa — a mesma faixa some para SEMPRE em vez de
+       só neste commit: se alguém reintroduzir `bg-black` em qualquer forma
+       (`bg-black/NN`, `bg-black/[...]`) no arquivo inteiro, esta asserção
+       acusa. E o Destaque continua sendo a MESMA fonte de verdade —
+       `post.destaque === true`, sem um segundo campo ou uma segunda lista —
+       porque é essa unicidade que a story pediu explicitamente ao corrigir a
+       marca: reutilizar, nunca duplicar. */
+    afirmar(
+      "o Blog Público não tem faixa preta em cima de imagem nenhuma",
+      !/bg-black/.test(semComentarios(filtroPublico)),
+      "achado: bg-black em src/pages/Blog.jsx — a marca preta sobre a capa do destaque deveria ter sumido",
+    );
+    afirmar(
+      "o Post em destaque continua vindo de `post.destaque === true`, sem um segundo campo",
+      /\.find\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\.destaque\s*===\s*true\s*\)/.test(
+        semComentarios(filtroPublico),
+      ),
+      "sem isso, o destaque teria uma segunda fonte de verdade — o que a story pediu para evitar",
+    );
+
     const artigoPublico = lerRelativoOuVazio(
       "src/pages/BlogPost.jsx legível",
       "src/pages/BlogPost.jsx",
@@ -4977,8 +4999,13 @@ function linhasComTravessaoForaDeComentario(fonte) {
  */
 const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
   "api/_nucleo/salvarPost.js": Object.freeze({
-    253: "detalhe de `falha()`: o próprio invólucro diz que registra e NÃO devolve",
-    1612: "motivo do resíduo da capa: viaja na resposta, mas só `residuo.arquivo` é lido — `falaDoResiduo`, em `admin/blog/capa.js`, nunca lê `.motivo`",
+    259: "detalhe de `falha()`: o próprio invólucro diz que registra e NÃO devolve",
+    1625: "motivo do resíduo da capa: viaja na resposta, mas só `residuo.arquivo` é lido — `falaDoResiduo`, em `admin/blog/capa.js`, nunca lê `.motivo`",
+    /* Editor Tiptap avançado: `removerImagensDoCorpoAnteriores` espelha
+       `removerCapaAnterior` inteiro, inclusive esta frase — MESMA garantia:
+       `motivo` viaja na resposta, mas só `.arquivo` é lido por
+       `falaDoResiduo`. */
+    1711: "motivo do resíduo da imagem do corpo: mesma garantia da linha 1625, mesma função `falaDoResiduo` que só lê `.arquivo`",
   }),
   "src/domain/blog/compartilhamento.js": Object.freeze({
     145: "motivo de `ESPECIES_FORA_DA_PREVIA`: documentação de por que o WebP é excluído, para quem lê o código — nenhuma tela nem resposta o expõe",
@@ -5014,7 +5041,7 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
     37: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
   }),
   "src/admin/blog/configuracao.js": Object.freeze({
-    98: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
+    101: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
   }),
   "src/admin/blog/previa.js": Object.freeze({
     164: "throw de `falaDaSituacao()`: o único chamador (`PreVisualizacaoDePost.jsx`) só passa o valor de `situacaoDaTela()`, que devolve exclusivamente as quatro situações fechadas já cobertas em `FALAS` — situação fora da lista é erro de programação, nunca alcança o fluxo normal",

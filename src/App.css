@@ -86,6 +86,23 @@
   --radius-cartao: 14px;
   --radius-controle: 12px;
   --radius-pilula: 999px;
+
+  /* --- Destaque de cor (Editor avançado): vocabulário FECHADO ------------
+     `CORES_DE_DESTAQUE`, em `src/domain/blog/schema.js`, é a lista — quatro
+     nomes, nunca `style` livre nem hexadecimal escolhido pelo Autor. Os
+     valores CRUS moram em `:root`, e não em `.painel`, pela MESMA razão da
+     marca ChatClean: `.artigo mark[data-cor="…"]`, mais abaixo, é GLOBAL — o
+     mesmo artigo no Editor e no site público —, e `.artigo` não pode ler
+     token que `.painel` remapeia (ver o comentário do bloco `.artigo`).
+     Registrados aqui (e não só como `var()`, ao contrário da Categoria) de
+     propósito: o Popover de destaque do Editor ESCREVE a classe
+     (`bg-destaque-amarelo`), porque o conjunto é fixo e conhecido em tempo
+     de build — a Categoria é dado que vem do banco, e por isso só é lida
+     como `var()` dentro de `style`. */
+  --color-destaque-amarelo: var(--destaque-amarelo);
+  --color-destaque-verde: var(--destaque-verde);
+  --color-destaque-azul: var(--destaque-azul);
+  --color-destaque-rosa: var(--destaque-rosa);
 }
 
 :root {
@@ -197,6 +214,16 @@
   --categoria-cinza-bg: #eef0f2;
   --categoria-cinza-ink: #5b6672;
 
+  /* Destaque de cor (Editor avançado): pastel o bastante para o texto — na
+     tinta escura de `.artigo` (`--ink-secondary`) — continuar legível por
+     cima. A referência declarada é `CORES_DE_DESTAQUE`, em
+     `domain/blog/schema.js`; os quatro nomes aqui são a ÚNICA tradução para
+     valor CSS que existe no projeto. */
+  --destaque-amarelo: #fde68a;
+  --destaque-verde: #bbf7d0;
+  --destaque-azul: #bae6fd;
+  --destaque-rosa: #fbcfe8;
+
   /* Raios da direção Etiqueta. */
   --radius-cartao: 14px;
   --radius-controle: 12px;
@@ -267,11 +294,14 @@
    chega ao compilador do Tailwind. Quem envolve, estiliza.
 
    `@tailwindcss/typography` está instalado e registrado no topo do arquivo,
-   mas `prose` não é aplicada em bloco: ela estiliza `h1` e `img`, e esta
-   story proíbe os dois — `h1` porque o título é da página (dois `h1` por
-   página é o defeito que o site tem hoje), `img` porque imagem inline está
-   fora do v1. Aplicar e depois desfazer deixaria os dois seletores no CSS
-   compilado, que é o oposto do que se quer provar.
+   mas `prose` não é aplicada em bloco: ela estiliza `h1`, e a story proíbe
+   o elemento — o título é da página, e dois `h1` por página é o defeito que
+   o site tem hoje. `img` deixou de estar fora do v1 (Editor avançado: imagem
+   inline e destaque de cor) — `prose` também o estiliza, com medida e
+   moldura que divergem do que este arquivo declara abaixo, então ele
+   continua nomeado à mão, e não herdado de `prose`. Aplicar e depois
+   desfazer deixaria o seletor de `h1` no CSS compilado, que é o oposto do
+   que se quer provar.
 
    Por isso também não há seletor coringa (`.artigo *`, `.artigo > * + *`):
    ele alcançaria `h1` por tabela. Cada elemento é nomeado.
@@ -468,7 +498,8 @@
 .artigo > ol:last-child,
 .artigo > blockquote:last-child,
 .artigo > pre:last-child,
-.artigo > hr:last-child {
+.artigo > hr:last-child,
+.artigo > img:last-child {
   margin-block-end: 0;
 }
 
@@ -535,6 +566,53 @@
   margin-block: 2.5rem;
   border: 0;
   border-block-start: 1px solid var(--ink-muted);
+}
+
+/* Imagem inline (Editor avançado). `max-width: 100%` é o que impede uma
+   imagem maior que a coluna de estourar o contêiner — a MESMA garantia que
+   `overflow-wrap` já dá ao texto corrido, agora para o elemento que não é
+   texto. `height: auto` preserva a proporção quando a largura encolhe.
+   `display: block` remove o respiro fantasma que `inline` deixa embaixo da
+   imagem (a mesma classe de defeito que a lista já resolve com
+   `list-style-position`). Cantos levemente arredondados, no mesmo raio de
+   cartão do resto do Painel — `--radius-cartao` é nome de marca, declarado
+   em `:root`, e `.artigo` pode lê-lo. */
+.artigo img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-block: 1.75rem;
+  border-radius: var(--radius-cartao);
+}
+
+/* Destaque de cor. `data-cor` vem do renderizador único
+   (`render/blog/paraHtml.js`), a partir do vocabulário FECHADO de
+   `CORES_DE_DESTAQUE` (`domain/blog/schema.js`) — nunca `style` livre nem
+   hexadecimal. Os quatro valores são os MESMOS tokens que o Popover de
+   destaque do Editor usa para pintar a amostra de cada cor
+   (`admin/blog/BarraDoEditor.jsx`): a cor que o Autor escolhe é a cor que o
+   artigo publicado mostra. Sem `color`: o `<mark>` do navegador já zera a
+   tinta para a do texto ao redor, e a tinta de `.artigo` — escura — segue
+   legível sobre qualquer uma das quatro, que são pastel de propósito. */
+.artigo mark {
+  border-radius: 2px;
+  padding-inline: 0.15em;
+}
+
+.artigo mark[data-cor="amarelo"] {
+  background-color: var(--destaque-amarelo);
+}
+
+.artigo mark[data-cor="verde"] {
+  background-color: var(--destaque-verde);
+}
+
+.artigo mark[data-cor="azul"] {
+  background-color: var(--destaque-azul);
+}
+
+.artigo mark[data-cor="rosa"] {
+  background-color: var(--destaque-rosa);
 }
 
 .dark {

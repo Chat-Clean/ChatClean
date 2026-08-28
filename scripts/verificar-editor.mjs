@@ -688,16 +688,27 @@ if (schema) {
   );
 
   afirmar(
-    "imagem inline e tabela não existem no vocabulário de nós",
+    "tabela não existe no vocabulário de nós",
     !schema.NOS_PERMITIDOS.some((n) =>
-      ["image", "img", "table", "tableRow", "tableCell", "iframe"].includes(n),
+      ["table", "tableRow", "tableCell", "iframe"].includes(n),
     ),
     schema.NOS_PERMITIDOS.join(", "),
   );
 
   afirmar(
-    "as marcas permitidas são apenas negrito, itálico e link",
-    igual([...schema.MARCAS_PERMITIDAS].sort(), ["bold", "italic", "link"]),
+    "imagem inline existe no vocabulário de nós",
+    schema.NOS_PERMITIDOS.includes("image"),
+    schema.NOS_PERMITIDOS.join(", "),
+  );
+
+  afirmar(
+    "as marcas permitidas são negrito, itálico, destaque e link",
+    igual([...schema.MARCAS_PERMITIDAS].sort(), [
+      "bold",
+      "highlight",
+      "italic",
+      "link",
+    ]),
     schema.MARCAS_PERMITIDAS.join(", "),
   );
 
@@ -1037,19 +1048,58 @@ if (schema && configuracao) {
 
   /* Nenhuma lista de botões escrita à mão: os nomes dos elementos não aparecem
      no fonte da barra nem no do editor. O mapa de ícones é a exceção declarada
-     — e a igualdade de chaves, logo abaixo, é o que a torna segura. */
-  const termos = [
-    ...schema.ELEMENTOS.map((e) => e.chave),
-    ...schema.ELEMENTOS.map((e) => e.comando),
-    ...schema.ELEMENTOS.map((e) => e.rotulo),
-  ];
+     — e a igualdade de chaves, logo abaixo, é o que a torna segura.
+
+     A BarraFlutuante precisa nomear por CHAVE um subconjunto explícito de
+     controles, para decidir ONDE cada um aparece (barra fixa vs. bolha
+     flutuante) — "titulo2", "titulo3", "negrito", "italico" (agrupados na
+     bolha) e "link" (que sai da barra fixa e vira gatilho de popover na
+     bolha). Isso não é uma lista de botões escrita à mão: rótulo, ícone,
+     estado e comportamento continuam inteiramente derivados de
+     `controlesDaBarra()` — só a SELEÇÃO de chaves é nomeada. É a mesma
+     exceção declarada do mapa de ícones, agora para chaves, e a checagem
+     cruzada logo abaixo é o que a torna segura: se a exceção aqui divergir
+     do que o arquivo realmente nomeia, ela acusa. */
+  const EXCECOES_DE_CHAVE_NA_BARRA = Object.freeze({
+    [CAMINHO_BARRA]: Object.freeze(["titulo2", "titulo3", "negrito", "italico", "link"]),
+  });
+
   for (const arquivo of [CAMINHO_BARRA, CAMINHO_EDITOR]) {
     const fonte = tentar(`${arquivo} legível`, () => ler(arquivo), "");
+    const excecoesDeChave = EXCECOES_DE_CHAVE_NA_BARRA[arquivo] ?? [];
+    const termos = [
+      ...schema.ELEMENTOS.map((e) => e.chave).filter((chave) => !excecoesDeChave.includes(chave)),
+      ...schema.ELEMENTOS.map((e) => e.comando),
+      ...schema.ELEMENTOS.map((e) => e.rotulo),
+    ];
     const achados = termosPresentes(fonte, termos);
     afirmar(
-      `${arquivo} não escreve nenhum elemento do schema à mão`,
+      `${arquivo} não escreve nenhum elemento do schema à mão (além da exceção declarada de chaves)`,
       achados.length === 0,
       `encontrados: ${achados.join(", ")}`,
+    );
+  }
+
+  /* A exceção acima só é segura se bater com o que BarraDoEditor.jsx REALMENTE
+     nomeia — senão vira uma porta para esconder uma lista completa de botões
+     escrita à mão atrás de uma "exceção declarada" cada vez maior. */
+  {
+    const fonteBarraCru = tentar(`${CAMINHO_BARRA} legível`, () => ler(CAMINHO_BARRA), "");
+    const declaracao = /CHAVES_DA_BUBBLE_SIMPLES\s*=\s*Object\.freeze\(\[([^\]]*)\]\)/.exec(
+      fonteBarraCru,
+    );
+    const chavesDaBubbleSimples =
+      declaracao?.[1].match(/"([^"]+)"/g)?.map((s) => s.slice(1, -1)) ?? [];
+    const nomeiaLinkParaAExcecao =
+      /chave\s*===\s*"link"/.test(fonteBarraCru) || /chave\s*!==\s*"link"/.test(fonteBarraCru);
+    const chavesRealmenteNomeadas = [
+      ...chavesDaBubbleSimples,
+      ...(nomeiaLinkParaAExcecao ? ["link"] : []),
+    ];
+    afirmar(
+      "a exceção declarada de chaves bate com o que BarraDoEditor.jsx realmente nomeia — não é uma lista escondida maior",
+      igual([...chavesRealmenteNomeadas].sort(), [...EXCECOES_DE_CHAVE_NA_BARRA[CAMINHO_BARRA]].sort()),
+      `no arquivo: ${chavesRealmenteNomeadas.join(", ")} | exceção declarada: ${EXCECOES_DE_CHAVE_NA_BARRA[CAMINHO_BARRA].join(", ")}`,
     );
   }
 
@@ -1233,15 +1283,17 @@ if (schema) {
   }
 
   {
-    // Nó fora do schema: `table`, `image` e `h1`. O que está fora cai; o resto
-    // do documento sobrevive inteiro.
+    // Nó fora do schema: `table`, `video` e `h1`. `image` SAIU desta lista
+    // (Editor avançado: entrou no vocabulário) — `video` ocupa o lugar dela
+    // como nó que continua inteiramente fora do schema. O que está fora cai;
+    // o resto do documento sobrevive inteiro.
     const sujo = {
       type: "doc",
       content: [
         { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "TITULO H1" }] },
         { type: "paragraph", content: [{ type: "text", text: "sobrevivente um" }] },
         { type: "table", content: [{ type: "tableRow", content: [] }] },
-        { type: "image", attrs: { src: "x.png" } },
+        { type: "video", attrs: { src: "https://exemplo/x.mp4" } },
         { type: "paragraph", content: [{ type: "text", text: "sobrevivente dois" }] },
       ],
     };
@@ -1252,7 +1304,7 @@ if (schema) {
       "nó fora do schema é descartado e o resto do documento sobrevive",
       resultado.ok === true &&
         !tipos.has("table") &&
-        !tipos.has("image") &&
+        !tipos.has("video") &&
         texto.includes("sobrevivente um") &&
         texto.includes("sobrevivente dois"),
       JSON.stringify(resultado.documento).slice(0, 200),
@@ -1265,8 +1317,30 @@ if (schema) {
     afirmar(
       "o que caiu fica registrado, com espécie e nome",
       resultado.descartados.some((d) => d.especie === "no" && d.nome === "table") &&
-        resultado.descartados.some((d) => d.especie === "no" && d.nome === "image") &&
+        resultado.descartados.some((d) => d.especie === "no" && d.nome === "video") &&
         resultado.descartados.some((d) => d.especie === "no" && d.nome.startsWith("heading")),
+      JSON.stringify(resultado.descartados),
+    );
+  }
+
+  {
+    // `image` ENTROU no vocabulário — mas um `src` fora da regra de endereço
+    // (relativo, sem `https://`/`http://` local) faz o atributo obrigatório
+    // desaparecer, e `atributosObrigatorios` derruba o nó inteiro: uma
+    // imagem sem endereço aceitável não é imagem. Caminho diferente do nó
+    // "fora do schema": aqui a espécie está registrada, só o atributo falha.
+    const sujo = {
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "x.png" } }],
+    };
+    const resultado = validarDocumento(sujo);
+    afirmar(
+      "imagem com endereço fora da regra cai por atributo obrigatório ausente, não por nó fora do schema",
+      resultado.ok === true &&
+        !tiposDeNo(resultado.documento).has("image") &&
+        resultado.descartados.some(
+          (d) => d.especie === "no" && d.nome === "image (atributo obrigatório fora do schema)",
+        ),
       JSON.stringify(resultado.descartados),
     );
   }
@@ -2049,10 +2123,16 @@ if (editor && schema && configuracao) {
   );
 
   afirmar(
-    "tabela, imagem, tachado, sublinhado e código embutido não existem no editor",
-    !["table", "image", "strike", "underline", "code"].some(
+    "tabela, tachado, sublinhado e código embutido não existem no editor",
+    !["table", "strike", "underline", "code"].some(
       (nome) => nosDoEditor.includes(nome) || marcasDoEditor.includes(nome),
     ),
+  );
+
+  afirmar(
+    "imagem inline e destaque de cor existem no editor",
+    nosDoEditor.includes("image") && marcasDoEditor.includes("highlight"),
+    `nós: ${nosDoEditor.join(", ")} | marcas: ${marcasDoEditor.join(", ")}`,
   );
 
   afirmar(
@@ -2294,7 +2374,12 @@ if (editor && schema) {
     "<ol><li>item numerado</li></ol>",
     "<blockquote><p>citado de fora</p></blockquote>",
     '<table><tbody><tr><td>celula de tabela</td></tr></tbody></table>',
-    '<img src="foto.png" alt="foto">',
+    // `image` SAIU desta lista (Editor avançado: entrou no vocabulário — o
+    // editor agora reconhece `<img>` de verdade, ver teste dedicado logo
+    // abaixo deste bloco). `<video>` ocupa o lugar dela como tag que continua
+    // inteiramente fora do vocabulário do editor, e por isso some na colagem
+    // como qualquer marcação não reconhecida.
+    "<video src=\"video-de-fora.mp4\"></video>",
     '<div style="color:red" class="utilitario-de-fora"><p>parágrafo em div</p></div>',
     "<script>window.roubar()</script><style>body{display:none}</style>",
     '<p><span style="font-size:44px">texto com estilo</span></p>',
@@ -2352,11 +2437,11 @@ if (editor && schema) {
       acharNo(colado, (n) => n.type === "heading" && n.attrs?.level === 1) === null,
     );
     afirmar(
-      "colagem: tabela e imagem descartadas",
+      "colagem: tabela e vídeo descartados",
       !tipos.has("table") &&
         !tipos.has("tableRow") &&
         !tipos.has("tableCell") &&
-        !tipos.has("image"),
+        !tipos.has("video"),
       `tipos: ${[...tipos].join(", ")}`,
     );
     afirmar(
@@ -2419,6 +2504,53 @@ if (editor && schema) {
         revalidado.totalDescartado === 0,
       JSON.stringify(revalidado.descartados),
     );
+  }
+
+  /* Cobertura dedicada da capacidade NOVA: `<img>` colado de fora agora vira
+     um nó `image` de verdade — `@tiptap/extension-image` reconhece
+     `img[src]:not([src^="data:"])` no HTML colado, e `image` está no
+     vocabulário do editor. Fica separado do bloco acima de propósito: o
+     `Image` do Tiptap sempre declara `width`/`height` no seu próprio schema
+     (mesmo quando a tag colada não os traz — ficam `null`), e nenhum dos dois
+     está no vocabulário de `NOS.image` do domínio. Colar imagem NUNCA é
+     ponto fixo estrito por causa disso — é um descarte esperado e
+     documentado, não uma regressão — então este teste afirma exatamente
+     isso, em vez de reaproveitar (e enfraquecer) a asserção estrita acima. */
+  {
+    const colado2 = tentar(
+      "a colagem de uma imagem roda pelo caminho real do editor",
+      () => {
+        editor.commands.setContent(schema.documentoVazio());
+        editor.view.pasteHTML('<img src="https://chatclean.com.br/blog/foto.png" alt="foto">');
+        return editor.getJSON();
+      },
+      null,
+    );
+    if (colado2) {
+      const noImagem = acharNo(colado2, (n) => n.type === "image");
+      afirmar(
+        "colagem: imagem com endereço absoluto sobrevive no editor, com `src` e `alt` intactos",
+        noImagem !== null &&
+          noImagem.attrs?.src === "https://chatclean.com.br/blog/foto.png" &&
+          noImagem.attrs?.alt === "foto",
+        JSON.stringify(noImagem),
+      );
+
+      const revalidado2 = validar(colado2);
+      const noImagemRevalidado = acharNo(revalidado2.documento, (n) => n.type === "image");
+      afirmar(
+        "colagem: a imagem sobrevive à revalidação do domínio, só perdendo `width`/`height` — atributos que o Tiptap sempre declara e que não existem em `NOS.image`",
+        revalidado2.ok === true &&
+          noImagemRevalidado !== null &&
+          noImagemRevalidado.attrs?.src === "https://chatclean.com.br/blog/foto.png" &&
+          noImagemRevalidado.attrs?.alt === "foto" &&
+          revalidado2.descartados.every(
+            (d) => d.especie === "atributo" && (d.nome === "width" || d.nome === "height"),
+          ) &&
+          revalidado2.descartados.length > 0,
+        JSON.stringify(revalidado2.descartados),
+      );
+    }
   }
 
   /* A ORIGEM MAJORITÁRIA. Num painel de blog quase nada é colado de HTML
@@ -2743,35 +2875,135 @@ async function montarEditor(modulo, React, createRoot, act, props) {
   const porRotulo = (rotulo) =>
     botoes().find((b) => b.getAttribute("aria-label") === rotulo) ?? null;
 
+  /* A BubbleMenu porta o CONTEÚDO do Popover (Radix) para `document.body` —
+     fora de `alvo` — mas o GATILHO (o próprio botão "Link"/"Destaque de cor")
+     fica dentro de `alvo`, como sibling do `view.dom` do editor (é
+     `view.dom.parentElement` quem recebe o elemento da BubbleMenu por
+     padrão). Por isso: gatilhos se buscam em `alvo` por `aria-label`, sem
+     escopar a `[role="toolbar"]`; o CONTEÚDO do popover se busca em
+     `document.body`. */
+  const porRotuloNaTela = (rotulo) =>
+    [...alvo.querySelectorAll("[aria-label]")].find(
+      (b) => b.tagName === "BUTTON" && b.getAttribute("aria-label") === rotulo,
+    ) ?? null;
+  const botaoNoCorpoPorRotulo = (rotulo) =>
+    [...janela.document.body.querySelectorAll("button")].find(
+      (b) => b.getAttribute("aria-label") === rotulo,
+    ) ?? null;
+  const botaoNoCorpoPorTexto = (texto) =>
+    [...janela.document.body.querySelectorAll("button")].find(
+      (b) => b.textContent === texto,
+    ) ?? null;
+  const campoNoCorpo = () => janela.document.body.querySelector("input[type='text']");
+  const formularioNoCorpo = () => campoNoCorpo()?.closest("form") ?? null;
+  const alertaNoCorpo = () => {
+    const id = campoNoCorpo()?.getAttribute("aria-describedby");
+    return id ? janela.document.body.querySelector(`#${id}`) : null;
+  };
+
+  const setterDeInput = Object.getOwnPropertyDescriptor(
+    janela.HTMLInputElement.prototype,
+    "value",
+  ).set;
+
   return {
     alvo,
     reclamacoes,
     botoes,
     porRotulo,
+    porRotuloNaTela,
+    botaoNoCorpoPorRotulo,
+    botaoNoCorpoPorTexto,
     areaDeEscrita: () => alvo.querySelector('[role="textbox"]'),
     campo: () => alvo.querySelector("form input[type='text']"),
     formulario: () => alvo.querySelector("form"),
     alerta: () => alvo.querySelector("form [role='alert']"),
+    campoNoCorpo,
+    formularioNoCorpo,
+    alertaNoCorpo,
     avisoDoConteudo: () => alvo.querySelector("[data-gravidade]"),
     async clicar(elemento) {
       await act(async () => {
         elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
       });
     },
+    /* A BubbleMenu só sobrevive a um clique dentro dela se o `mousedown`
+       chegar primeiro: é ele que arma `preventHide` no plugin do Tiptap. Um
+       `click` sintético isolado (sem `mousedown`/`mouseup` antes) não é o
+       que um clique de verdade dispara, e some com a BubbleMenu inteira —
+       inclusive o próprio gatilho — porque o `blurHandler` do plugin não
+       reconhece o novo alvo do foco como "dentro" da área seguraem tempo. */
+    async clicarDeVerdade(elemento) {
+      await act(async () => {
+        elemento.dispatchEvent(new janela.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        elemento.dispatchEvent(new janela.MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      // SEM espera automática aqui, de propósito: o Popover abre de forma
+      // SÍNCRONA dentro do próprio `act` (medido). Esperar sempre — mesmo
+      // logo depois de abrir — dá tempo para o `blurHandler` do plugin da
+      // BubbleMenu decidir, depois do `campo.current?.focus()` do Popover,
+      // que o editor perdeu o foco para fora da "área segura" e ESCONDER a
+      // BubbleMenu inteira, gatilho incluído — o conteúdo do Popover (do
+      // Radix, autônomo) sobrevive, mas o botão que o abriu some do DOM.
+      // Quem chama decide se precisa esperar (`aguardarBubble`), e só
+      // quando o que vem depois já não depende do GATILHO continuar
+      // alcançável.
+    },
+    /* O plugin da BubbleMenu decide se mostra/esconde num `setTimeout` de
+       `updateDelay` (250ms, o padrão do Tiptap) depois de cada transação —
+       e o Popover do Radix também assenta seu próprio estado de forma
+       assíncrona. Sem esperar depois de QUALQUER interação que abra, feche
+       ou troque o conteúdo do Popover, a leitura seguinte corre uma corrida
+       real contra esses timers — medido: sem a espera, o mesmo passo produz
+       resultados diferentes em execuções diferentes. */
+    async aguardarBubble() {
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 350));
+      });
+    },
+    /* Poll em vez de espera fixa, para o único passo que segue flaky mesmo
+       com `aguardarBubble`: sondar até a condição ficar verdadeira (ou
+       estourar o teto) é mais robusto do que apostar numa duração fixa
+       contra um timer cujo disparo real varia por execução. */
+    async esperarAte(condicao, tentativas = 8, intervaloMs = 150) {
+      for (let i = 0; i < tentativas; i += 1) {
+        if (condicao()) return true;
+        await act(async () => {
+          await new Promise((resolver) => setTimeout(resolver, intervaloMs));
+        });
+      }
+      return condicao();
+    },
+    async mostrarBubble(areaDeEscrita) {
+      await act(async () => {
+        areaDeEscrita.focus();
+      });
+      await act(async () => {
+        areaDeEscrita.dispatchEvent(
+          new janela.KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }),
+        );
+      });
+      await this.aguardarBubble();
+    },
     async digitar(entrada, texto) {
       // O ajuste de valor precisa passar pelo `setter` nativo: o React guarda
       // o último valor no próprio nó e ignoraria um evento cujo valor ele
       // acredita já ter visto.
-      const setter = Object.getOwnPropertyDescriptor(
-        janela.HTMLInputElement.prototype,
-        "value",
-      ).set;
       await act(async () => {
-        setter.call(entrada, texto);
+        setterDeInput.call(entrada, texto);
         entrada.dispatchEvent(new janela.Event("input", { bubbles: true }));
       });
     },
     async submeter(form) {
+      // SEM espera automática, de propósito (mesma razão de `clicarDeVerdade`):
+      // o resultado do `submit` — sucesso fecha, recusa mantém aberto com o
+      // alerta — já está refletido de forma SÍNCRONA dentro do próprio `act`.
+      // Esperar aqui, sempre, tem custo real: medido que uma segunda espera
+      // de 350ms enquanto o campo do Popover está com o foco (o editor NÃO
+      // está) dá tempo do `blurHandler` da BubbleMenu decidir esconder tudo
+      // — inclusive fechando o Popover que ainda deveria estar aberto
+      // mostrando a recusa. Quem chama espera só quando precisa.
       await act(async () => {
         form.dispatchEvent(new janela.Event("submit", { bubbles: true, cancelable: true }));
       });
@@ -2827,11 +3059,23 @@ if (janela && schema && configuracao && compilado) {
       });
 
       const botoes = tela.botoes();
+      /* O Link saiu da barra fixa (foi para a BubbleMenu, ver mais abaixo) —
+         a barra fixa desenha os OUTROS 12 elementos do schema, na mesma
+         ordem, mais três botões de mão própria que não vêm do schema:
+         Inserir imagem, Desfazer e Refazer. Todos dentro do MESMO
+         `[role="toolbar"]`, então `tela.botoes()` continua os encontrando. */
+      const controlesFixos = controles.filter((c) => c.chave !== "link");
+      const rotulosEsperados = [
+        ...controlesFixos.map((c) => c.rotulo),
+        "Inserir imagem",
+        "Desfazer",
+        "Refazer",
+      ];
       afirmar(
-        "a barra desenha um botão por elemento do schema, com o rótulo de cada um",
+        "a barra desenha um botão por elemento do schema (menos o link, que mudou para a BubbleMenu), mais Inserir imagem/Desfazer/Refazer, com o rótulo de cada um",
         igual(
           botoes.map((b) => b.getAttribute("aria-label")),
-          schema.ELEMENTOS.map((e) => e.rotulo),
+          rotulosEsperados,
         ),
         botoes.map((b) => b.getAttribute("aria-label")).join(" | "),
       );
@@ -2844,13 +3088,19 @@ if (janela && schema && configuracao && compilado) {
          começa "false" — verdade para negrito, título etc, ausentes do texto
          de prova — mas falso para alinhamento, porque TODO parágrafo TEM um
          alinhamento, e o padrão é esquerda. "Alinhar à esquerda" começa
-         legitimamente aceso, sem que o Autor tenha clicado nada. */
+         legitimamente aceso, sem que o Autor tenha clicado nada.
+
+         Inserir imagem/Desfazer/Refazer não vêm de `controlesDaBarra()` — são
+         botões de mão própria, sem `alterna`/`insere` do vocabulário fechado
+         — e por isso NENHUM dos três anuncia `aria-pressed` (nem `"true"`,
+         nem `"false"`: o atributo simplesmente não existe). */
       afirmar(
-        "quem alterna anuncia `aria-pressed` correto no início — \"false\", exceto `alinharEsquerda`, já ativo por padrão — e quem só insere não tem o atributo",
+        "quem alterna anuncia `aria-pressed` correto no início — \"false\", exceto `alinharEsquerda`, já ativo por padrão —, quem só insere não tem o atributo, e os três botões de mão própria (Inserir imagem/Desfazer/Refazer) também não",
         botoes.every((botao, i) => {
+          if (i >= controlesFixos.length) return botao.getAttribute("aria-pressed") === null;
           const valor = botao.getAttribute("aria-pressed");
-          if (!controles[i].alterna) return valor === null;
-          return controles[i].chave === "alinharEsquerda"
+          if (!controlesFixos[i].alterna) return valor === null;
+          return controlesFixos[i].chave === "alinharEsquerda"
             ? valor === "true"
             : valor === "false";
         }),
@@ -2858,28 +3108,44 @@ if (janela && schema && configuracao && compilado) {
       );
 
       afirmar(
-        "`aria-keyshortcuts` traz a notação canônica, e só em quem tem atalho",
-        botoes.every(
-          (botao, i) =>
-            (botao.getAttribute("aria-keyshortcuts") ?? null) === controles[i].atalhoCanonico,
-        ) &&
+        "`aria-keyshortcuts` traz a notação canônica só em quem tem atalho — e os três botões de mão própria não anunciam atalho nenhum (não têm `aria-keyshortcuts`)",
+        botoes.every((botao, i) => {
+          if (i >= controlesFixos.length) return (botao.getAttribute("aria-keyshortcuts") ?? null) === null;
+          return (botao.getAttribute("aria-keyshortcuts") ?? null) === controlesFixos[i].atalhoCanonico;
+        }) &&
           botoes.some((b) => /^Control\+/.test(b.getAttribute("aria-keyshortcuts") ?? "")) &&
           botoes.every((b) => !/[⌘⌥⇧]|Ctrl/.test(b.getAttribute("aria-keyshortcuts") ?? "")),
         botoes.map((b) => b.getAttribute("aria-keyshortcuts")).join(" | "),
       );
 
       /* `role="toolbar"` obriga a UMA parada de Tab, com as setas movendo
-         dentro. Dez paradas de Tab entre o Autor e o texto é o defeito que o
-         papel declarado sem o padrão de teclado produz. */
+         dentro — mas o rodízio de `tabindex` só cobre os 12 controles fixos
+         derivados do schema. Inserir imagem/Desfazer/Refazer participam da
+         ordem NORMAL de Tab do navegador (nenhum `tabindex` — nem `0` nem
+         `-1`), de propósito: não são um grupo de rádio do schema, e entrar
+         no rodízio como um 13º/14º/15º membro fingiria que são. */
       afirmar(
-        "a barra é UMA parada de Tab: exatamente um controle com `tabindex=0`",
-        botoes.filter((b) => b.getAttribute("tabindex") === "0").length === 1 &&
-          botoes.filter((b) => b.getAttribute("tabindex") === "-1").length === botoes.length - 1,
+        "a barra é UMA parada de Tab entre os 12 controles fixos do schema; Inserir imagem/Desfazer/Refazer ficam fora do rodízio (sem `tabindex`)",
+        botoes.slice(0, controlesFixos.length).filter((b) => b.getAttribute("tabindex") === "0").length === 1 &&
+          botoes.slice(0, controlesFixos.length).filter((b) => b.getAttribute("tabindex") === "-1").length ===
+            controlesFixos.length - 1 &&
+          botoes.slice(controlesFixos.length).every((b) => b.getAttribute("tabindex") === null),
         botoes.map((b) => b.getAttribute("tabindex")).join(","),
       );
+      /* Desfazer/Refazer são indisponíveis por FALTA DE HISTÓRICO — o editor
+         acabou de montar, não há nada para desfazer/refazer ainda — e não
+         por o documento estar de alguma forma inválido. É uma indisponibi-
+         lidade LEGÍTIMA, ortogonal a "há conteúdo disponível", e a asserção
+         abaixo separa os dois: nenhum controle DERIVADO DO SCHEMA (nem
+         Inserir imagem) se anuncia indisponível com tudo disponível; a prova
+         de que Desfazer deixa de estar indisponível DEPOIS de uma edição vem
+         logo abaixo, junto do clique em Negrito. */
       afirmar(
-        "com tudo disponível, nenhum controle se anuncia indisponível",
-        botoes.every((b) => b.getAttribute("aria-disabled") === null),
+        "com tudo disponível, nenhum controle do schema nem Inserir imagem se anuncia indisponível — Desfazer/Refazer começam indisponíveis por falta de histórico, não por falta de conteúdo válido",
+        botoes.slice(0, controlesFixos.length).every((b) => b.getAttribute("aria-disabled") === null) &&
+          tela.porRotulo("Inserir imagem")?.getAttribute("aria-disabled") === null &&
+          tela.porRotulo("Desfazer")?.getAttribute("aria-disabled") === "true" &&
+          tela.porRotulo("Refazer")?.getAttribute("aria-disabled") === "true",
         botoes
           .map((b) => `${b.getAttribute("aria-label")}=${b.getAttribute("aria-disabled")}`)
           .join(" | "),
@@ -2916,15 +3182,11 @@ if (janela && schema && configuracao && compilado) {
           !/pré-?visualiza|preview/i.test(tela.alvo.innerHTML),
       );
 
-      // Seleciona o texto do parágrafo, no DOM, como o Autor faria.
-      const selecionarTudo = async () => {
-        await act(async () => {
-          areaDeEscrita.dispatchEvent(
-            new janela.KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true }),
-          );
-        });
-      };
-      await selecionarTudo();
+      /* Seleciona o texto do parágrafo, no DOM, como o Autor faria — e dá
+         tempo para a BubbleMenu aparecer: o plugin do Tiptap decide
+         mostrar/esconder num `setTimeout` de 250ms (o padrão) depois da
+         transação de seleção, e é nela que Link e Destaque de cor moraram. */
+      await tela.mostrarBubble(areaDeEscrita);
 
       const antesDoClique = recebidos.length;
       await tela.clicar(negrito);
@@ -2937,6 +3199,14 @@ if (janela && schema && configuracao && compilado) {
         "e o botão passa a anunciar `aria-pressed=\"true\"`",
         tela.porRotulo("Negrito").getAttribute("aria-pressed") === "true",
         String(tela.porRotulo("Negrito").getAttribute("aria-pressed")),
+      );
+      /* A prova prometida acima: a indisponibilidade inicial de Desfazer era
+         falta de HISTÓRICO, não bug — agora que uma edição de verdade
+         aconteceu, ele deixa de se anunciar indisponível. */
+      afirmar(
+        "depois de uma edição de verdade, Desfazer passa a se anunciar disponível",
+        tela.porRotulo("Desfazer")?.getAttribute("aria-disabled") === null,
+        String(tela.porRotulo("Desfazer")?.getAttribute("aria-disabled")),
       );
 
       /* `aoMudar` é o ÚNICO canal de saída do componente e o insumo das
@@ -2966,38 +3236,60 @@ if (janela && schema && configuracao && compilado) {
         JSON.stringify(ultimo).slice(0, 200),
       );
 
-      /* ── O campo genérico: aplica, recusa, e explica a recusa ───────── */
-      const link = tela.porRotulo("Link");
+      /* ── O Link migrou da barra fixa para um Popover na BubbleMenu ─────
+         MESMO controle de `controlesDaBarra()` (`aplicar`/`podeAplicar`/
+         `valorAtual`/`recusa`) — só a casca mudou. O gatilho ("Link") vive
+         dentro de `alvo`, como sibling do `view.dom` do editor; o CONTEÚDO
+         do Popover (Radix) porta para `document.body` — por isso os
+         helpers `campoNoCorpo`/`formularioNoCorpo`/`alertaNoCorpo`, e a
+         busca do gatilho por `porRotuloNaTela` (não escopada à barra fixa).
+
+         Nota sobre `clicarDeVerdade`: um `click` sintético isolado faz a
+         BubbleMenu inteira sumir do DOM (o `blurHandler` do plugin do
+         Tiptap não vê o novo alvo do foco como "dentro" da área segura sem
+         o `mousedown` que arma `preventHide`) — medido por tentativa direta
+         antes de encontrar a receita mousedown+mouseup+click. E toda leitura
+         depois de abrir/fechar/mudar o Popover espera o assentamento
+         (`aguardarBubble`, dentro de `clicarDeVerdade`/`submeter`): sem a
+         espera, o mesmo passo mediu resultados diferentes em execuções
+         diferentes — a causa é o debounce de 250ms do plugin somado ao
+         próprio assentamento assíncrono do Popover do Radix. */
+      const link = tela.porRotuloNaTela("Link");
+      afirmar(
+        "o Link não mora mais na barra fixa — saiu de `[role=\"toolbar\"]` e foi para a BubbleMenu",
+        link !== null && tela.porRotulo("Link") === null,
+      );
       afirmar(
         "o controle que pede um dado anuncia que abre algo (`aria-expanded`)",
         link.getAttribute("aria-expanded") === "false",
         String(link.getAttribute("aria-expanded")),
       );
-      await tela.clicar(link);
+      await tela.clicarDeVerdade(link);
       afirmar(
-        "clicar nele abre o campo, e o controle passa a se anunciar expandido",
-        tela.campo() !== null && tela.porRotulo("Link").getAttribute("aria-expanded") === "true",
-        String(tela.porRotulo("Link").getAttribute("aria-expanded")),
+        "clicar nele abre o campo (portado para `document.body` pelo Popover), e o controle passa a se anunciar expandido",
+        tela.campoNoCorpo() !== null &&
+          tela.porRotuloNaTela("Link")?.getAttribute("aria-expanded") === "true",
+        String(tela.porRotuloNaTela("Link")?.getAttribute("aria-expanded")),
       );
       afirmar(
         "o campo é rotulado pelo texto que o SCHEMA declara, e o rótulo aponta para ele",
         (() => {
-          const campo = tela.campo();
-          const rotulo = tela.alvo.querySelector(`label[for="${campo?.id}"]`);
+          const campo = tela.campoNoCorpo();
+          const rotulo = janela.document.body.querySelector(`label[for="${campo?.id}"]`);
           return (
             campo?.id &&
             rotulo?.textContent === controleDeLink.pede.rotulo &&
             campo.getAttribute("placeholder") === controleDeLink.pede.exemplo
           );
         })(),
-        `${tela.campo()?.id}`,
+        `${tela.campoNoCorpo()?.id}`,
       );
 
       /* Digitar não pode refocar o campo a cada tecla: o efeito depende só da
          ABERTURA. Espionar `focus` é o jeito de observar isso — o sintoma (o
          cursor voltando para o fim) não existe no jsdom, mas a causa sim. */
       {
-        const campo = tela.campo();
+        const campo = tela.campoNoCorpo();
         let focos = 0;
         const focoOriginal = campo.focus.bind(campo);
         campo.focus = () => {
@@ -3016,8 +3308,8 @@ if (janela && schema && configuracao && compilado) {
       }
 
       const antesDoLink = recebidos.length;
-      await tela.digitar(tela.campo(), "https://chatclean.com.br/blog");
-      await tela.submeter(tela.formulario());
+      await tela.digitar(tela.campoNoCorpo(), "https://chatclean.com.br/blog");
+      await tela.submeter(tela.formularioNoCorpo());
       const comLink = recebidos[recebidos.length - 1];
       afirmar(
         "preencher o campo e submeter APLICA o elemento no documento",
@@ -3033,40 +3325,144 @@ if (janela && schema && configuracao && compilado) {
         JSON.stringify(comLink).slice(0, 220),
       );
       afirmar(
-        "aplicado com sucesso, o campo fecha e o foco volta para o controle que o abriu",
-        tela.campo() === null &&
-          janela.document.activeElement === tela.porRotulo("Link"),
-        String(janela.document.activeElement?.getAttribute?.("aria-label")),
+        "aplicado com sucesso, o popover fecha",
+        tela.campoNoCorpo() === null,
+      );
+
+      // Reabrir: o popover nasce com o endereço JÁ aplicado (editar é a
+      // mesma ação de criar) — igual ao campo inline de antes.
+      await tela.clicarDeVerdade(tela.porRotuloNaTela("Link"));
+      await tela.esperarAte(() => tela.campoNoCorpo() !== null);
+      afirmar(
+        "reabrir preenche o campo com o valor JÁ aplicado (`valorAtual`)",
+        tela.campoNoCorpo()?.value === "https://chatclean.com.br/blog",
+        String(tela.campoNoCorpo()?.value),
+      );
+      afirmar(
+        "com o link ativo, o popover oferece Aplicar E Remover",
+        tela.botaoNoCorpoPorTexto("Aplicar link") !== null &&
+          tela.botaoNoCorpoPorTexto("Remover link") !== null,
       );
 
       // Agora a recusa por FORMATO, com a frase que o schema declara.
-      await tela.clicar(tela.porRotulo("Link"));
       const antesDaRecusa = recebidos.length;
-      await tela.digitar(tela.campo(), "javascript:alert(1)");
-      await tela.submeter(tela.formulario());
+      await tela.digitar(tela.campoNoCorpo(), "javascript:alert(1)");
+      await tela.submeter(tela.formularioNoCorpo());
       afirmar(
         "endereço executável não é aplicado e o campo continua aberto",
-        recebidos.length === antesDaRecusa && tela.campo() !== null,
+        recebidos.length === antesDaRecusa && tela.campoNoCorpo() !== null,
         `${antesDaRecusa} → ${recebidos.length}`,
       );
       afirmar(
         "e a recusa é MOSTRADA, com a frase que vem do schema — não de uma string do componente",
-        tela.alerta()?.textContent ===
+        tela.alertaNoCorpo()?.textContent ===
           controleDeLink.pede.recusaDeFormato("javascript:alert(1)"),
-        JSON.stringify(tela.alerta()?.textContent ?? null),
+        JSON.stringify(tela.alertaNoCorpo()?.textContent ?? null),
       );
       afirmar(
-        "a mensagem de recusa está ligada ao campo por `aria-describedby`",
-        tela.campo()?.getAttribute("aria-describedby") === tela.alerta()?.id &&
-          tela.campo()?.getAttribute("aria-invalid") === "true",
+        "a mensagem de recusa está ligada ao campo por `aria-describedby`, com `role=\"alert\"`",
+        tela.campoNoCorpo()?.getAttribute("aria-describedby") === tela.alertaNoCorpo()?.id &&
+          tela.campoNoCorpo()?.getAttribute("aria-invalid") === "true" &&
+          tela.alertaNoCorpo()?.getAttribute("role") === "alert",
       );
       afirmar(
         "a frase da recusa não está escrita à mão no componente genérico",
         !mascararComentariosJs(ler(CAMINHO_BARRA)).includes("https://"),
       );
 
+      // Escape fecha o popover.
+      await act(async () => {
+        tela
+          .campoNoCorpo()
+          .dispatchEvent(
+            new janela.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+          );
+      });
+      await tela.aguardarBubble();
+      afirmar(
+        "Escape fecha o popover sem aplicar a recusa",
+        tela.campoNoCorpo() === null,
+      );
+
+      // Remover link: reabre, clica "Remover link", a marca sai do documento.
+      await tela.clicarDeVerdade(tela.porRotuloNaTela("Link"));
+      await tela.esperarAte(() => tela.botaoNoCorpoPorTexto("Remover link") !== null);
+      const antesDeRemover = recebidos.length;
+      await tela.clicarDeVerdade(tela.botaoNoCorpoPorTexto("Remover link"));
+      const semLink = recebidos[recebidos.length - 1];
+      afirmar(
+        "\"Remover link\" tira a marca do documento",
+        recebidos.length > antesDeRemover &&
+          acharNo(
+            semLink,
+            (n) => n.type === "text" && (n.marks ?? []).some((m) => m.type === "link"),
+          ) === null,
+        JSON.stringify(semLink).slice(0, 200),
+      );
+
       afirmar(
         "o React não reclamou de nada durante toda a interação",
+        tela.reclamacoes.length === 0,
+        tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+      );
+      await tela.desmontar();
+    }
+
+    /* ── Destaque de cor: cobertura nova, dedicada ao Popover novo ────────
+       Não existia antes da story. `CORES_DE_DESTAQUE` é o vocabulário
+       fechado do domínio (`domain/blog/schema.js`) — a lista de botões nasce
+       dele, não de uma lista escrita à mão no componente.
+
+       Mora numa montagem PRÓPRIA, de propósito: emendado na cauda do bloco
+       anterior (depois de abrir/fechar o Popover de Link várias vezes —
+       aplicar, reabrir, recusar, Escape, reabrir, remover), abrir MAIS um
+       popover mediu-se flaky por sabotagem direta — a mesma classe de corrida
+       contra o debounce de 250ms da BubbleMenu que motivou `aguardarBubble`/
+       `esperarAte`, só que desta vez sobrevivendo à espera com poll. Um
+       editor fresco, com uma única transição de abertura, elimina a corrida
+       em vez de tentar vencê-la de novo. */
+    {
+      const recebidos = [];
+      const tela = await montar({
+        documento: documentoLimpo(),
+        aoMudar: (doc) => recebidos.push(doc),
+      });
+      await tela.mostrarBubble(tela.areaDeEscrita());
+
+      const destaque = tela.porRotuloNaTela("Destaque de cor");
+      afirmar(
+        "o Destaque de cor é um gatilho de popover na BubbleMenu",
+        destaque !== null && destaque.getAttribute("aria-haspopup") === "dialog",
+      );
+      await tela.clicarDeVerdade(destaque);
+      const cadaCorTemBotao = () =>
+        schema.CORES_DE_DESTAQUE.every(
+          (cor, i) =>
+            tela.botaoNoCorpoPorRotulo(
+              `Destacar em ${["Amarelo", "Verde", "Azul", "Rosa"][i]}`,
+            ) !== null,
+        ) && tela.botaoNoCorpoPorRotulo("Remover destaque") !== null;
+      await tela.esperarAte(cadaCorTemBotao);
+      afirmar(
+        "o popover lista um botão por cor de `CORES_DE_DESTAQUE`, mais Remover destaque",
+        cadaCorTemBotao(),
+      );
+      const antesDoDestaque = recebidos.length;
+      await tela.clicarDeVerdade(tela.botaoNoCorpoPorRotulo("Destacar em Amarelo"));
+      const comDestaque = recebidos[recebidos.length - 1];
+      afirmar(
+        "clicar numa cor aplica a marca `highlight` com a `cor` certa, do vocabulário do domínio",
+        recebidos.length > antesDoDestaque &&
+          acharNo(
+            comDestaque,
+            (n) =>
+              n.type === "text" &&
+              (n.marks ?? []).some((m) => m.type === "highlight" && m.attrs?.cor === "amarelo"),
+          ) !== null,
+        JSON.stringify(comDestaque).slice(0, 220),
+      );
+      afirmar(
+        "o React não reclamou de nada durante a interação com o Destaque de cor",
         tela.reclamacoes.length === 0,
         tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
       );
@@ -3079,7 +3475,12 @@ if (janela && schema && configuracao && compilado) {
        "não usamos `disabled`" passava por vacuidade — com tudo disponível, o
        React nem emite o atributo, e trocar `aria-disabled` por `disabled`
        continuava verde. Foi assim que esta sabotagem escapou na primeira
-       rodada. */
+       rodada.
+
+       O Link agora só aparece com uma seleção de texto não-vazia (é a
+       BubbleMenu) — por isso a seleção dentro do bloco de código, aqui, não é
+       cosmética: sem ela o gatilho nem chega a existir no DOM para a
+       asserção examinar. */
     {
       const recebidos = [];
       const tela = await montar({
@@ -3090,7 +3491,8 @@ if (janela && schema && configuracao && compilado) {
         aoMudar: (doc) => recebidos.push(doc),
       });
 
-      const link = tela.porRotulo("Link");
+      await tela.mostrarBubble(tela.areaDeEscrita());
+      const link = tela.porRotuloNaTela("Link");
       afirmar(
         "dentro de um bloco de código, o controle de link se anuncia indisponível na TELA",
         link?.getAttribute("aria-disabled") === "true",
@@ -3108,16 +3510,38 @@ if (janela && schema && configuracao && compilado) {
         })(),
         String(janela.document.activeElement?.getAttribute?.("aria-label")),
       );
+      /* O Popover (Radix) não recusa abrir por `aria-disabled` — só a
+         `disabled` nativa faria isso, e a barra usa `aria-disabled` de
+         propósito (comentário acima). Diferença real do campo inline de
+         antes: o gatilho ABRE mesmo indisponível. A garantia que sobrevive
+         é outra — o clique não muda o documento — e o Popover, uma vez
+         aberto, recusa por CONTEXTO com a frase que o schema declara, a
+         MESMA garantia de antes por um caminho diferente. */
       const antes = recebidos.length;
-      await tela.clicar(link);
+      await tela.clicarDeVerdade(link);
+      await tela.esperarAte(() => tela.campoNoCorpo() !== null);
       afirmar(
-        "clicar num controle indisponível não abre o campo nem mexe no documento",
-        tela.campo() === null && recebidos.length === antes,
+        "clicar num controle indisponível não muda o documento",
+        recebidos.length === antes,
         `${antes} → ${recebidos.length}`,
+      );
+      /* Valor VAZIO tenta remover — e "remover uma marca que não está lá"
+         sucede trivialmente em qualquer contexto, sem testar nada. Só um
+         endereço de FORMATO válido força o caminho que checa se o comando
+         roda aqui, e é aí que o bloco de código recusa por CONTEXTO. */
+      await tela.digitar(tela.campoNoCorpo(), "https://chatclean.com.br/blog");
+      await tela.submeter(tela.formularioNoCorpo());
+      afirmar(
+        "e submeter dentro dele recusa por CONTEXTO, com a frase que o schema declara",
+        recebidos.length === antes &&
+          tela.alertaNoCorpo()?.textContent === controleDeLink.pede.recusaDeContexto,
+        JSON.stringify(tela.alertaNoCorpo()?.textContent ?? null),
       );
 
       // E um controle que CABE num bloco de código continua disponível: a
       // indisponibilidade é por contexto, não uma barra desligada inteira.
+      // "Título 2" mora na barra FIXA (não na BubbleMenu) — continua
+      // alcançável do mesmo jeito de sempre.
       afirmar(
         "no mesmo lugar, um controle que cabe continua disponível",
         tela.porRotulo("Título 2")?.getAttribute("aria-disabled") === null,
@@ -3127,22 +3551,42 @@ if (janela && schema && configuracao && compilado) {
 
     /* ── Dois editores na mesma página não colidem ─────────────────────── */
     {
+      // O Popover de Link agora porta o campo para o MESMO `document.body`,
+      // qualquer que seja o editor que o abriu — não dá para ter os dois
+      // abertos ao mesmo tempo e distinguir por `alvo` como antes (o campo
+      // não mora mais dentro de nenhum dos dois). A prova de "não colide"
+      // vira SEQUENCIAL: abre no primeiro, confere, fecha, abre no segundo,
+      // confere que o identificador é outro.
       const um = await montar({ documento: documentoLimpo() });
       const dois = await montar({ documento: documentoLimpo() });
-      await um.clicar(um.porRotulo("Link"));
-      await dois.clicar(dois.porRotulo("Link"));
-      const campoUm = um.campo();
-      const campoDois = dois.campo();
+
+      await um.mostrarBubble(um.areaDeEscrita());
+      await um.clicarDeVerdade(um.porRotuloNaTela("Link"));
+      await um.esperarAte(() => um.campoNoCorpo() !== null);
+      const campoUm = um.campoNoCorpo();
+      const idUm = campoUm?.id;
       afirmar(
-        "dois editores na mesma página têm identificadores próprios, e cada rótulo aponta para o seu campo",
-        campoUm?.id &&
-          campoDois?.id &&
-          campoUm.id !== campoDois.id &&
-          um.alvo.querySelector(`label[for="${campoUm.id}"]`) !== null &&
-          dois.alvo.querySelector(`label[for="${campoDois.id}"]`) !== null &&
-          um.alvo.querySelector(`label[for="${campoDois.id}"]`) === null,
-        `${campoUm?.id} vs ${campoDois?.id}`,
+        "o Popover de Link tem identificador próprio, e o rótulo aponta para o campo certo",
+        Boolean(idUm) && janela.document.body.querySelector(`label[for="${idUm}"]`) !== null,
+        `${idUm}`,
       );
+      await act(async () => {
+        campoUm.dispatchEvent(
+          new janela.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        );
+      });
+      await um.aguardarBubble();
+
+      await dois.mostrarBubble(dois.areaDeEscrita());
+      await dois.clicarDeVerdade(dois.porRotuloNaTela("Link"));
+      await dois.esperarAte(() => dois.campoNoCorpo() !== null);
+      const idDois = dois.campoNoCorpo()?.id;
+      afirmar(
+        "o segundo editor gera um identificador DIFERENTE do primeiro — sem colisão entre montagens",
+        Boolean(idDois) && idDois !== idUm,
+        `${idUm} vs ${idDois}`,
+      );
+
       await um.desmontar();
       await dois.desmontar();
     }

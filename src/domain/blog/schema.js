@@ -62,6 +62,21 @@ export const NIVEIS_DE_TITULO = Object.freeze([2, 3]);
  */
 export const ALINHAMENTOS_DE_TEXTO = Object.freeze(["left", "center", "right"]);
 
+/**
+ * As cores de destaque que o schema conhece. Vocabulário FECHADO — o mesmo
+ * padrão de `ALINHAMENTOS_DE_TEXTO`: um nome, nunca um valor CSS livre nem um
+ * hexadecimal escolhido pelo Autor. `MARCAS.highlight`, abaixo, só aceita
+ * `cor` de dentro desta lista; o que sai daqui é um NOME, e é o nome que vira
+ * `data-cor="…"` no HTML derivado (`render/blog/paraHtml.js`) — a aparência de
+ * cada nome mora no CSS (`.artigo mark[data-cor="…"]`), nunca no documento.
+ *
+ * Exportada, e não escrita à mão em `configuracao.js` nem no componente da
+ * barra flutuante: é a MESMA lista que valida o atributo aqui embaixo e que
+ * alimenta o seletor de cor do Editor — uma segunda cópia divergiria na
+ * primeira cor nova.
+ */
+export const CORES_DE_DESTAQUE = Object.freeze(["amarelo", "verde", "azul", "rosa"]);
+
 /* ─── Os treze elementos, na ordem em que a barra os oferece ─────────────── */
 
 /**
@@ -314,7 +329,15 @@ export const NOS_ESTRUTURAIS = Object.freeze([
  */
 export const TIPOS_DE_LISTA_ORDENADA = Object.freeze(["1", "a", "A", "i", "I"]);
 
-/** Os nós que podem aparecer onde um bloco cabe. */
+/**
+ * Os nós que podem aparecer onde um bloco cabe.
+ *
+ * `image` entra aqui, e não em `INLINE`: o nó vem do
+ * `@tiptap/extension-image` configurado com `inline: false` (o padrão do
+ * pacote), no mesmo nível de `horizontalRule` — pode aparecer no topo do
+ * documento, dentro de uma citação ou de um item de lista, nunca no meio de
+ * uma linha de texto.
+ */
 const BLOCOS = Object.freeze([
   "paragraph",
   "heading",
@@ -323,6 +346,7 @@ const BLOCOS = Object.freeze([
   "orderedList",
   "codeBlock",
   "horizontalRule",
+  "image",
 ]);
 
 /** O que pode aparecer dentro de uma linha de texto. */
@@ -435,6 +459,28 @@ export const NOS = Object.freeze({
   }),
   horizontalRule: Object.freeze({
     atributos: Object.freeze({}),
+    filhos: null,
+    vazioSobrevive: true,
+  }),
+  /**
+   * A imagem inline do corpo do Post. Nó ATÔMICO (`filhos: null`), como
+   * `horizontalRule`: nada é digitado dentro dela.
+   *
+   * `src` é obrigatório e passa pela MESMA regra que já valida
+   * `imagem_url`/`seo_imagem_url` — `enderecoDeImagemPermitido`, declarada
+   * acima. `alt`/`title` são texto livre ou ausentes, como `title` de
+   * `MARCAS.link`. Sem `width`/`height`: o editor pode produzi-los (o
+   * `@tiptap/extension-image` os declara por padrão), mas eles não estão
+   * neste vocabulário — somem na higienização como qualquer atributo fora
+   * da lista, e nunca chegam ao HTML servido.
+   */
+  image: Object.freeze({
+    atributos: Object.freeze({
+      src: enderecoDeImagemDoDocumento,
+      alt: textoOuNulo,
+      title: textoOuNulo,
+    }),
+    atributosObrigatorios: Object.freeze(["src"]),
     filhos: null,
     vazioSobrevive: true,
   }),
@@ -708,6 +754,82 @@ function linguagemDeCodigo(valor) {
   return /^[a-z0-9][a-z0-9+#._-]{0,31}$/.test(limpo) ? limpo : undefined;
 }
 
+/* ─── O endereço de IMAGEM (Story 3.1/3.2, e agora `NOS.image`) ──────────────
+ *
+ * Nasceu em `domain/blog/arquivos.js`, que continua sendo o vocabulário de
+ * espécie e teto do arquivo — mas o nó `image`, abaixo, precisa validar `src`
+ * DENTRO da travessia síncrona de `filtrarNo`, e este arquivo não importa
+ * nada (é a condição que o mantém executável antes de qualquer DOM, e a
+ * verificação afirma isso lendo o próprio texto-fonte). A regra migrou para
+ * cá; `domain/blog/arquivos.js` a IMPORTA de volta e a reexporta com o MESMO
+ * nome — quem já importava dela continua importando o mesmo símbolo, e
+ * `src` de imagem no documento e `imagem_url`/`seo_imagem_url` da capa
+ * continuam validados pela ÚNICA função, nunca por uma segunda regra.
+ */
+
+/** O teto do endereço de imagem — o mesmo que a restrição do banco cobra. */
+export const TAMANHO_MAXIMO_DO_ENDERECO = 2048;
+
+/**
+ * O endereço tem caractere que o vocabulário de imagem não aceita?
+ *
+ * SÓ ASCII IMPRIMÍVEL, de `!` a `~` — mais duro que "sem espaço e sem
+ * controle" de propósito: `[[:space:]]` do Postgres depende do locale e
+ * `\s` do JavaScript inclui U+00A0 e companhia. A conferência é por PONTO DE
+ * CÓDIGO porque um literal de expressão regular com caractere de controle
+ * dentro não sobrevive a uma cópia.
+ */
+export function temCaractereForaDoEndereco(endereco) {
+  for (const caractere of endereco) {
+    const ponto = caractere.codePointAt(0);
+    if (ponto < 0x21 || ponto > 0x7e) return true;
+  }
+  return /[\\<>"'`{}|^]/.test(endereco);
+}
+
+/**
+ * O endereço serve para um `src` de imagem (capa, SEO ou `NOS.image` do
+ * documento)?
+ *
+ * **Espelho em JavaScript de `public.endereco_de_imagem_e_permitido`**, e as
+ * duas são comparadas sobre um corpus por `verificar:escrita`. É lista de
+ * PERMISSÃO, e a permissão é estreita de propósito: **`https://` absoluto**,
+ * mais `http://` para host local. `null`/`undefined` passam: nem toda coluna
+ * de imagem é obrigatória — quem exige `src` (o nó `image`, abaixo) cobra a
+ * presença à parte, com `atributosObrigatorios`.
+ */
+export function enderecoDeImagemPermitido(endereco) {
+  if (endereco === null || endereco === undefined) return true;
+  if (typeof endereco !== "string") return false;
+  if (endereco === "") return false;
+  if (endereco.length > TAMANHO_MAXIMO_DO_ENDERECO) return false;
+  if (temCaractereForaDoEndereco(endereco)) return false;
+
+  const comTls = /^https:\/\//i.test(endereco);
+  const semTls = /^http:\/\//i.test(endereco);
+  if (!comTls && !semTls) return false;
+
+  const autoridade = endereco.slice(comTls ? 8 : 7).replace(/[/?#].*$/s, "");
+  if (autoridade === "") return false;
+  if (autoridade.includes("@")) return false;
+  if (!/^[a-z0-9.-]+(:[0-9]{1,5})?$/i.test(autoridade)) return false;
+
+  if (comTls) return true;
+  const host = autoridade.replace(/:[0-9]{1,5}$/, "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
+/**
+ * O `src` de um nó `image`: obrigatório, e validado pela MESMA regra que a
+ * capa e a imagem de SEO. String vazia ou fora da regra faz o atributo
+ * desaparecer — e `atributosObrigatorios` derruba o nó inteiro, porque uma
+ * imagem sem endereço não é imagem.
+ */
+function enderecoDeImagemDoDocumento(valor) {
+  if (typeof valor !== "string" || valor === "") return undefined;
+  return enderecoDeImagemPermitido(valor) ? valor : undefined;
+}
+
 /**
  * A forma de cada marca. `atributos` lista o que sobrevive; o resto some.
  * `normalizar` roda depois, para as regras que dependem de mais de um atributo.
@@ -720,6 +842,18 @@ function linguagemDeCodigo(valor) {
 export const MARCAS = Object.freeze({
   bold: Object.freeze({ atributos: Object.freeze({}) }),
   italic: Object.freeze({ atributos: Object.freeze({}) }),
+  /**
+   * O destaque de cor. `cor` é OBRIGATÓRIA e vem só de `CORES_DE_DESTAQUE`,
+   * a lista fechada declarada no alto deste arquivo — nunca `style` livre
+   * nem hexadecimal escolhido pelo Autor. Uma marca sem cor aceitável não é
+   * highlight: ela cai inteira, como `link` sem `href` aceitável.
+   */
+  highlight: Object.freeze({
+    atributos: Object.freeze({
+      cor: umDentre([...CORES_DE_DESTAQUE]),
+    }),
+    atributosObrigatorios: Object.freeze(["cor"]),
+  }),
   link: Object.freeze({
     atributos: Object.freeze({
       href: (valor) => (enderecoPermitido(valor) ? valor.trim() : undefined),
@@ -1055,6 +1189,35 @@ export function validarDocumento(entrada) {
     totalSaneado,
     descartadosTruncados: totalDescartado + totalSaneado > descartados.length,
   };
+}
+
+/**
+ * Todo `src` de nó `image` dentro do documento, na ordem em que aparecem —
+ * repetido inclui, porque quem chama (`api/_nucleo/salvarPost.js`, limpando
+ * imagem órfã do corpo) precisa saber que um mesmo endereço usado duas vezes
+ * continua em uso mesmo que uma das duas caia.
+ *
+ * Mesma disciplina de pilha de `textoDoDocumento`, logo abaixo: percorre sem
+ * recursão, porque o documento que chega aqui é o mesmo conteúdo de
+ * terceiros que `validarDocumento` trata — ainda que, neste caminho
+ * específico, ele já tenha passado pela validação antes de chegar ao banco.
+ */
+export function enderecosDeImagemDoDocumento(no) {
+  const enderecos = [];
+  if (no === null || typeof no !== "object") return enderecos;
+
+  const pilha = [no];
+  while (pilha.length > 0) {
+    const atual = pilha.pop();
+    if (atual === null || typeof atual !== "object" || Array.isArray(atual)) continue;
+    if (atual.type === "image" && typeof atual.attrs?.src === "string" && atual.attrs.src !== "") {
+      enderecos.push(atual.attrs.src);
+    }
+    if (Array.isArray(atual.content)) {
+      for (let i = atual.content.length - 1; i >= 0; i -= 1) pilha.push(atual.content[i]);
+    }
+  }
+  return enderecos;
 }
 
 /**

@@ -34,7 +34,25 @@
  * WhatsApp e da Meta impõem limites bem abaixo de 5 MB e tempos de espera
  * curtos, então uma capa de 4 MB seria aceita aqui e ignorada por eles — o
  * defeito apareceria como "o link não mostra imagem", longe da causa.
+ *
+ * ─── O ÚNICO IMPORT DESTE ARQUIVO ───────────────────────────────────────────
+ *
+ * `TAMANHO_MAXIMO_DO_ENDERECO`, `temCaractereForaDoEndereco` e
+ * `enderecoDeImagemPermitido` moram em `domain/blog/schema.js` — o nó `image`
+ * do documento (`NOS.image`) precisa da MESMA regra dentro da travessia
+ * síncrona de `validarDocumento`, e `schema.js` é o único arquivo do domínio
+ * que não importa nada (a condição que o mantém executável antes de qualquer
+ * DOM). Reexportadas abaixo com o MESMO nome: quem já importava desta capa
+ * continua importando o mesmo símbolo, e `imagem_url`/`seo_imagem_url` e o
+ * `src` de `NOS.image` continuam validados pela ÚNICA função, nunca por uma
+ * segunda regra de endereço.
  */
+import {
+  TAMANHO_MAXIMO_DO_ENDERECO,
+  temCaractereForaDoEndereco,
+  enderecoDeImagemPermitido,
+} from "./schema.js";
+export { TAMANHO_MAXIMO_DO_ENDERECO, enderecoDeImagemPermitido };
 
 /* ─── O bucket, e o formato do endereço público ──────────────────────────── */
 
@@ -47,6 +65,21 @@ export const BUCKET_DAS_IMAGENS = "imagens-do-blog";
 
 /** A pasta das capas dentro do bucket. */
 export const PASTA_DAS_CAPAS = "capas";
+
+/**
+ * A pasta das imagens INLINE do corpo do Post — mesmo bucket, pasta PRÓPRIA.
+ *
+ * `enviarImagemDoCorpo` (`data/blog/arquivos.js`) usa `caminhoDoCorpo`, abaixo,
+ * exatamente como `enviarImagemDeCapa` usa `caminhoDaCapa`: um identificador
+ * novo por envio, nunca o nome do arquivo escolhido. A pasta é diferente da
+ * capa por decisão — a política de `storage.objects` já libera o bucket
+ * inteiro para leitura e escrita autenticada (ela decide por `bucket_id`, não
+ * por prefixo), então a separação aqui é só ORGANIZAÇÃO: distinguir "capa de
+ * Post" de "imagem dentro do texto" ao olhar o bucket, e permitir que a
+ * limpeza de órfã (`api/_nucleo/salvarPost.js`) reconheça as duas famílias
+ * sem ambiguidade.
+ */
+export const PASTA_DO_CORPO = "corpo";
 
 /**
  * O prefixo que o Storage do Supabase dá a todo arquivo de bucket público.
@@ -171,9 +204,6 @@ export const ROTULO_DA_CAPA = "Imagem de capa";
  * encontra quando precisa mudar.
  */
 export const CACHE_DA_CAPA_EM_SEGUNDOS = 31536000;
-
-/** O teto do endereço da capa, o mesmo que a restrição do banco cobra. */
-export const TAMANHO_MAXIMO_DO_ENDERECO = 2048;
 
 /**
  * A espécie destes bytes, ou `null`.
@@ -328,6 +358,35 @@ export function ehCaminhoDeCapa(caminho) {
   ).test(caminho);
 }
 
+/**
+ * O caminho de uma imagem do CORPO dentro do bucket:
+ * `corpo/<identificador>.<extensao>` — o mesmo desenho de `caminhoDaCapa`,
+ * pasta trocada. Devolve `null` para espécie fora do vocabulário.
+ */
+export function caminhoDoCorpo(tipo, identificador) {
+  const extensao = extensaoDaEspecie(tipo);
+  if (extensao === null) return null;
+  const chave = String(identificador ?? "")
+    .trim()
+    .toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(chave)) return null;
+  return `${PASTA_DO_CORPO}/${chave}.${extensao}`;
+}
+
+/**
+ * O caminho é um caminho de imagem do CORPO deste bucket? Lista de
+ * PERMISSÃO, pelo mesmo motivo que `ehCaminhoDeCapa`: a remoção acontece com
+ * a chave de serviço, que ignora política, e um caminho vindo de um endereço
+ * gravado no documento não pode apagar qualquer coisa do bucket.
+ */
+export function ehCaminhoDoCorpo(caminho) {
+  if (typeof caminho !== "string") return false;
+  const extensoes = ESPECIES_DE_IMAGEM.map((e) => e.extensao).join("|");
+  return new RegExp(
+    `^${PASTA_DO_CORPO}/[a-z0-9][a-z0-9-]{7,63}\\.(${extensoes})$`,
+  ).test(caminho);
+}
+
 /* ─── O endereço público, nos dois sentidos ──────────────────────────────── */
 
 /** O endereço público absoluto de um caminho do bucket. */
@@ -360,6 +419,24 @@ export function ehEnderecoDoBucket(base, endereco) {
 }
 
 /**
+ * O caminho de uma imagem do CORPO a partir de um endereço público — ou
+ * `null` quando o endereço não é uma imagem do corpo deste bucket.
+ *
+ * Espelha `caminhoDaCapaNoEndereco`, trocando `ehCaminhoDeCapa` por
+ * `ehCaminhoDoCorpo`: a limpeza de órfã do documento (`api/_nucleo/salvarPost.js`)
+ * usa esta para não tentar apagar, com a chave de serviço, um endereço que
+ * nunca foi nosso.
+ */
+export function caminhoDoCorpoNoEndereco(base, endereco) {
+  const raiz = String(base ?? "").replace(/\/+$/, "");
+  if (raiz === "" || typeof endereco !== "string") return null;
+  const prefixo = `${raiz}${PREFIXO_PUBLICO_DO_STORAGE}${BUCKET_DAS_IMAGENS}/`;
+  if (!endereco.startsWith(prefixo)) return null;
+  const caminho = endereco.slice(prefixo.length);
+  return ehCaminhoDoCorpo(caminho) ? caminho : null;
+}
+
+/**
  * A raiz do projeto DENTRO de um endereço público do Storage — `""` quando o
  * endereço não tem essa forma.
  *
@@ -380,83 +457,9 @@ export function baseDoEnderecoPublico(endereco) {
 }
 
 /* ─── O que a COLUNA aceita ──────────────────────────────────────────────── */
-
-/**
- * O endereço tem caractere que o vocabulário não aceita?
- *
- * SÓ ASCII IMPRIMÍVEL, de `!` a `~`. É lista de permissão, e é mais dura que
- * "sem espaço e sem controle" de propósito: `[[:space:]]` do Postgres depende
- * do locale e `\s` do JavaScript inclui U+00A0, U+2028 e mais uma dúzia — as
- * duas implementações divergiriam exatamente nos caracteres que ninguém pensa
- * em testar. Endereço de arquivo público é ASCII por construção; o que não for
- * cabe percent-codificado. A conferência é por PONTO DE CÓDIGO porque um
- * literal de expressão regular com caractere de controle dentro não sobrevive
- * a uma cópia.
- *
- * Vive numa função própria, e não embutida em `enderecoDeImagemPermitido`,
- * porque `problemaNoEnderecoDaImagem` precisa da MESMA cláusula para escolher
- * a frase certa. Duplicá-la faria a tela acusar "espaço" num endereço que o
- * veredito recusou por outro motivo — que é exatamente o defeito que a escolha
- * de frase existe para não ter.
- */
-function temCaractereForaDoEndereco(endereco) {
-  for (const caractere of endereco) {
-    const ponto = caractere.codePointAt(0);
-    if (ponto < 0x21 || ponto > 0x7e) return true;
-  }
-  return /[\\<>"'`{}|^]/.test(endereco);
-}
-
-/**
- * O endereço serve para a coluna da capa?
- *
- * **Espelho em JavaScript de `public.endereco_de_imagem_e_permitido`**, e as
- * duas são comparadas sobre um corpus por `verificar:escrita`. Uma regra mais
- * dura de um lado apareceria como conteúdo legítimo recusado na gravação; uma
- * mais frouxa apareceria como nada, que é pior.
- *
- * É lista de PERMISSÃO, e a permissão é estreita de propósito: **`https://`
- * absoluto**, mais `http://` para host local — a mesma distinção que
- * `problemaNaUrl` já faz para a URL do projeto, e pela mesma razão. É essa
- * cláusula, e não o teto de tamanho, que torna conteúdo de arquivo NÃO
- * REPRESENTÁVEL na coluna: `data:image/png;base64,…` não começa com nenhum dos
- * dois por menor que seja, e nem uma imagem de um pixel cabe aqui.
- *
- * `null` passa: capa é opcional. O par com o texto alternativo é cobrado por
- * outra restrição, que já existe desde a Story 2.1.
- */
-export function enderecoDeImagemPermitido(endereco) {
-  if (endereco === null || endereco === undefined) return true;
-  if (typeof endereco !== "string") return false;
-  if (endereco === "") return false;
-  if (endereco.length > TAMANHO_MAXIMO_DO_ENDERECO) return false;
-  if (temCaractereForaDoEndereco(endereco)) return false;
-
-  /* ── O ESQUEMA: a cláusula que faz o trabalho ──────────────────────────
-     `https://` para qualquer host, e `http://` **só para host local**. É a
-     MESMA distinção que `problemaNaUrl`, em `api/_nucleo/acesso.js`, já faz
-     para a URL do projeto — e ela existe pela mesma razão: o stack local do
-     Supabase (`supabase start`) e o Supabase de mentira da verificação
-     respondem em `http://127.0.0.1`, e uma regra que não pode ser exercida
-     localmente é uma regra que ninguém verifica.
-
-     `[::1]` fica de fora, e a ausência é deliberada: o literal de IPv6 exige
-     colchete, que não está no vocabulário de autoridade abaixo, e o stack
-     local responde em `127.0.0.1`. Acrescentá-lo exigiria alargar a autoridade
-     nas duas implementações para ganhar um caso que ninguém usa. */
-  const comTls = /^https:\/\//i.test(endereco);
-  const semTls = /^http:\/\//i.test(endereco);
-  if (!comTls && !semTls) return false;
-
-  const autoridade = endereco.slice(comTls ? 8 : 7).replace(/[/?#].*$/s, "");
-  if (autoridade === "") return false;
-  if (autoridade.includes("@")) return false;
-  if (!/^[a-z0-9.-]+(:[0-9]{1,5})?$/i.test(autoridade)) return false;
-
-  if (comTls) return true;
-  const host = autoridade.replace(/:[0-9]{1,5}$/, "").toLowerCase();
-  return host === "localhost" || host === "127.0.0.1";
-}
+/*     `TAMANHO_MAXIMO_DO_ENDERECO`, `temCaractereForaDoEndereco` e
+       `enderecoDeImagemPermitido` são importadas no topo do arquivo — ver o
+       comentário lá. */
 
 /* ─── A RECUSA DO ENDEREÇO, EM PALAVRAS (Story 3.2) ──────────────────────────
  *

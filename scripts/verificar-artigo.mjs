@@ -67,7 +67,12 @@ const caminhoBaselineCss = path.join(
   "dist-index.baseline.css",
 );
 
-/** Os treze elementos que a story nomeia. `h1` está fora de propósito. */
+/**
+ * Os elementos que `.artigo` estiliza. Treze da story original, `h1` fora de
+ * propósito — e `img`/`mark` desde o Editor Tiptap avançado (imagem inline e
+ * destaque de cor), que acrescentou `.artigo img` e
+ * `.artigo mark[data-cor="…"]` ao CSS canônico.
+ */
 const ELEMENTOS = [
   "h2",
   "h3",
@@ -82,6 +87,8 @@ const ELEMENTOS = [
   "pre",
   "code",
   "hr",
+  "img",
+  "mark",
 ];
 
 /** Pisos WCAG 2.1: 1.4.3 para texto, 1.4.11 para marca não textual. */
@@ -700,14 +707,20 @@ if (temCss) {
     tocamH1.slice(0, 5).join(" | "),
   );
 
-  // Imagem inline está fora do v1 por decisão registrada.
-  const tocamImg = doArtigo
-    .map(({ seletor }) => seletor)
-    .filter((s) => alcanca(s, "img") || alcanca(s, "figure"));
+  // Imagem inline entrou no vocabulário (Editor avançado: `NOS.image`,
+  // `domain/blog/schema.js`) — o seletor precisa EXISTIR agora, e não mais
+  // estar ausente. `figure` continua fora: o schema não tem esse nó.
+  const tocamImg = doArtigo.map(({ seletor }) => seletor).filter((s) => alcanca(s, "img"));
   afirmar(
-    "nenhum seletor estiliza imagem inline (fora do v1)",
-    tocamImg.length === 0,
+    "`.artigo img` existe e limita a largura à coluna (imagem inline não estoura o contêiner)",
+    tocamImg.length > 0,
     tocamImg.slice(0, 5).join(" | "),
+  );
+  const tocamFigure = doArtigo.map(({ seletor }) => seletor).filter((s) => alcanca(s, "figure"));
+  afirmar(
+    "nenhum seletor estiliza `figure` — o schema não tem esse nó",
+    tocamFigure.length === 0,
+    tocamFigure.slice(0, 5).join(" | "),
   );
 }
 
@@ -1233,6 +1246,30 @@ if (temCss) {
     declsDe(".artigo pre").get("background-color"),
     PISO_TEXTO,
   );
+
+  /* O DESTAQUE DE COR (Editor avançado): quatro pares novos, mesma disciplina
+     do código — texto sobre um fundo que o PRÓPRIO elemento declara, não a
+     superfície do consumidor. `.artigo mark` não define `color`: o texto
+     destacado herda a tinta corrida do artigo (`base.get("color")`), e é
+     ESSA tinta, não branco nem preto fixo, que precisa vencer cada uma das
+     quatro cores pastel — CORES_DE_DESTAQUE, em `domain/blog/schema.js`, é o
+     vocabulário fechado; os quatro seletores abaixo são a ÚNICA tradução
+     para CSS que existe no projeto (mesmo comentário no próprio arquivo). */
+  const CORES_DE_DESTAQUE = ["amarelo", "verde", "azul", "rosa"];
+  for (const cor of CORES_DE_DESTAQUE) {
+    /* SEM aspas no seletor: o minificador (Lightning CSS, via Tailwind v4)
+       remove a aspa do valor do atributo quando ele já é um identificador
+       CSS válido — `[data-cor=amarelo]`, não `[data-cor="amarelo"]` — no
+       `dist/` compilado, que é o que `doArtigo` de fato leu. Medido contra o
+       CSS gerado, não suposto: `data-alinhamento` já perde a aspa do mesmo
+       jeito, mais adiante neste arquivo. */
+    conferir(
+      `destaque de cor "${cor}": texto sobre o próprio fundo`,
+      base.get("color"),
+      declsDe(`.artigo mark[data-cor=${cor}]`).get("background-color"),
+      PISO_TEXTO,
+    );
+  }
 
   /* Marcas NÃO textuais que carregam significado sozinhas: a barra da
      citação, a régua do divisor, o sublinhado do link e os anéis de foco. É
