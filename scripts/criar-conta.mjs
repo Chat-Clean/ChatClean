@@ -62,7 +62,7 @@ export const COLUNAS_DE_TOKEN = [
   "reauthentication_token",
 ];
 
-export const TAMANHO_MINIMO_DA_SENHA = 10;
+export const TAMANHO_MINIMO_DA_SENHA = 9;
 
 /**
  * bcrypt trunca a entrada em 72 BYTES e não avisa: acima disso, duas senhas
