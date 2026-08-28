@@ -8,7 +8,7 @@ import { StaggerGroup, StaggerItem } from "../components/animated/StaggerGroup";
 import { getVagas } from "@/lib/vagasStore";
 
 const WHATSAPP_BASE =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=";
 
 const beneficios = [
   {

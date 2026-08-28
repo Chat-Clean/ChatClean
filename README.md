@@ -7,7 +7,7 @@ Site da ChatClean com modificações personalizadas incluindo links do WhatsApp,
 ### ✅ Links do WhatsApp
 
 - Todos os botões de "Demonstração Gratuita", "Começar Agora" e "Falar com Especialista" redirecionam para:
-- **WhatsApp:** https://api.whatsapp.com/send?phone=5584996950105&text=Achei+seu+n%C3%BAmero+no+Google%21
+- **WhatsApp:** https://api.whatsapp.com/send?phone=5584998900718&text=Achei+seu+n%C3%BAmero+no+Google%21
 
 ### ✅ Parede de Logos Animada
 

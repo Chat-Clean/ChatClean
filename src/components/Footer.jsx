@@ -3,7 +3,7 @@ import { Mail, MapPin, Phone } from "lucide-react";
 import chatcleanLogoWhite from "/chatclean-white.svg";
 
 const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
 
 export default function Footer() {
   return (

@@ -203,7 +203,7 @@ export default function ApiOficialWhatsApp() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
             <a
-              href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
+              href="https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -402,7 +402,7 @@ export default function ApiOficialWhatsApp() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a
-              href="https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
+              href="https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
               target="_blank"
               rel="noopener noreferrer"
             >

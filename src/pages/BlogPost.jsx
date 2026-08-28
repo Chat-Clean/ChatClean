@@ -83,7 +83,7 @@ import {
 } from "./blogPublico";
 
 const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+saber+mais+sobre+a+ChatClean";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+saber+mais+sobre+a+ChatClean";
 
 export default function BlogPost() {
   const { slug } = useParams();
