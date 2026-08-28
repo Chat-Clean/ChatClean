@@ -85,7 +85,7 @@ Você pode controlar o uso de cookies nas configurações do seu navegador.`,
 ChatClean, CNPJ: 57.487.327/0001-57
 Av. Prudente de Morais, 5121, Natal-RN, CEP 59020-400
 E-mail: contato@chatclean.com.br
-Telefone: +55 84 9695-0105`,
+Telefone: +55 84 99890-0718`,
   },
 ];
 
