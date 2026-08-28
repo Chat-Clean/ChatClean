@@ -10,13 +10,35 @@
     <link rel="apple-touch-icon" href="/Logo CC.svg" />
     <meta name="theme-color" content="#007a2a" />
 
-    <!-- SEO core -->
-    <title>CRM e ChatBot para WhatsApp com API Oficial | ChatClean</title>
-    <meta name="description" content="ChatClean é a plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centralize WhatsApp, Instagram, Facebook e Telegram, automatize atendimento com IA e venda mais. Agende uma demonstração gratuita." />
+    <!-- Política do site, IGUAL em toda página: não é identidade de página. -->
     <meta name="keywords" content="CRM para WhatsApp, API oficial WhatsApp, chatbot WhatsApp, multiatendimento WhatsApp, CRM omnichannel, CRM Brasil, atendimento WhatsApp empresas, plataforma CRM WhatsApp Instagram" />
     <meta name="author" content="ChatClean" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="googlebot" content="index, follow" />
+
+    <!-- METADADOS-DA-PAGINA:INICIO
+         TUDO o que está entre este marcador e o de FIM é substituído, inteiro,
+         pela função de servidor quando ela serve um Post (Story 4.3). O que
+         está aqui é o que a HOME declara, e é o que qualquer rota não servida
+         continua recebendo.
+
+         ─── POR QUE UMA REGIÃO, E NÃO SUBSTITUIÇÃO ETIQUETA A ETIQUETA ───
+
+         A alternativa é o emissor procurar a etiqueta `og:title` e trocá-la.
+         É lista de PROIBIÇÃO disfarçada: o casamento teria de prever ordem de
+         atributo, tipo de aspa, espaço a mais, maiúscula, atributo extra — e no
+         dia em que não previsse, sobraria a etiqueta da home ao lado da do
+         Post, e o rastreador escolheria uma das duas.
+
+         A região inverte a pergunta: o que está DENTRO é governado, o que está
+         fora não é. E há asserção de que nenhuma etiqueta do vocabulário
+         governado ficou do lado de fora.
+
+         NÃO acrescente aqui etiqueta que valha para o site inteiro: ela sumiria
+         na página do Post. Política do site fica ACIMA deste marcador. -->
+
+    <title>CRM e ChatBot para WhatsApp com API Oficial | ChatClean</title>
+    <meta name="description" content="ChatClean é a plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centralize WhatsApp, Instagram, Facebook e Telegram, automatize atendimento com IA e venda mais. Agende uma demonstração gratuita." />
     <link rel="canonical" href="https://chatclean.com.br/" />
     <link rel="alternate" hreflang="pt-BR" href="https://chatclean.com.br/" />
     <link rel="alternate" hreflang="x-default" href="https://chatclean.com.br/" />
@@ -28,90 +50,31 @@
     <meta property="og:title" content="CRM e ChatBot para WhatsApp com API Oficial | ChatClean" />
     <meta property="og:description" content="Centralize WhatsApp, Instagram e seus canais de atendimento em um único CRM com API Oficial. Aumente a eficiência da equipe e venda mais com automação real." />
     <meta property="og:url" content="https://chatclean.com.br/" />
-    <meta property="og:image" content="https://chatclean.com.br/chatclean.svg" />
-    <meta property="og:image:alt" content="Logo da ChatClean — Plataforma de CRM e ChatBot para WhatsApp" />
+    <!-- Prévia de link: raster derivado da marca, gerado por `npm run ativo:imagem-padrao`.
+         Era um SVG, que prévia nenhuma renderiza. Medidas e tipo conferidos contra os
+         bytes do arquivo em `verificar:interface`. -->
+    <meta property="og:image" content="https://chatclean.com.br/imagem-padrao-do-site.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Logo da ChatClean, Plataforma de CRM e ChatBot para WhatsApp" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CRM e ChatBot para WhatsApp com API Oficial | ChatClean" />
     <meta name="twitter:description" content="Centralize WhatsApp, Instagram e seus canais de atendimento em um único CRM com API Oficial. Automatize com IA e venda mais." />
-    <meta name="twitter:image" content="https://chatclean.com.br/chatclean.svg" />
+    <meta name="twitter:image" content="https://chatclean.com.br/imagem-padrao-do-site.png" />
+    <meta name="twitter:image:alt" content="Logo da ChatClean, Plataforma de CRM e ChatBot para WhatsApp" />
 
-    <!-- Performance: preconnect e preload -->
-    <link rel="preconnect" href="https://connect.facebook.net" />
-    <link rel="dns-prefetch" href="https://api.whatsapp.com" />
 
-    <!-- Schema.org: Organization -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "name": "ChatClean",
-      "legalName": "ChatClean",
-      "url": "https://chatclean.com.br",
-      "logo": "https://chatclean.com.br/chatclean.svg",
-      "image": "https://chatclean.com.br/chatclean.svg",
-      "description": "Plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centraliza WhatsApp, Instagram, Facebook e Telegram em um só lugar.",
-      "telephone": "+55-84-99695-0105",
-      "email": "contato@chatclean.com.br",
-      "taxID": "57.487.327/0001-57",
-      "address": {
-        "@type": "PostalAddress",
-        "streetAddress": "Av. Prudente de Morais, 5121",
-        "addressLocality": "Natal",
-        "addressRegion": "RN",
-        "postalCode": "59020-400",
-        "addressCountry": "BR"
-      },
-      "contactPoint": {
-        "@type": "ContactPoint",
-        "telephone": "+55-84-99695-0105",
-        "contactType": "customer service",
-        "areaServed": "BR",
-        "availableLanguage": ["Portuguese"]
-      },
-      "sameAs": []
-    }
-    </script>
+    <!-- O FAQPage mora DENTRO da região de propósito (Story 4.3): ele é
+         identidade de PÁGINA — declara que ESTA página responde estas
+         perguntas —, e sobreviver na página de um Post faria o artigo
+         reivindicar as perguntas da home. Organization e SoftwareApplication
+         ficam FORA porque são identidade do SITE, e valem em toda página.
 
-    <!-- Schema.org: SoftwareApplication -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "ChatClean",
-      "applicationCategory": "BusinessApplication",
-      "applicationSubCategory": "CRM",
-      "operatingSystem": "Web, Android, iOS",
-      "description": "CRM e ChatBot para WhatsApp com API Oficial. Atendimento omnichannel, automação com IA, gestão de leads e relatórios em uma única plataforma.",
-      "url": "https://chatclean.com.br",
-      "image": "https://chatclean.com.br/chatclean.svg",
-      "featureList": [
-        "Atendimento omnichannel WhatsApp Instagram Facebook Telegram",
-        "API Oficial do WhatsApp Business",
-        "ChatBot com Inteligencia Artificial",
-        "CRM com pipeline Kanban",
-        "Multiatendimento com varios atendentes",
-        "Campanhas automaticas",
-        "Relatorios detalhados",
-        "App Mobile"
-      ],
-      "offers": {
-        "@type": "Offer",
-        "priceCurrency": "BRL",
-        "price": "0",
-        "description": "Demonstracao gratuita personalizada"
-      },
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "5",
-        "ratingCount": "100",
-        "bestRating": "5",
-        "worstRating": "1"
-      }
-    }
-    </script>
-
+         O dado estruturado do ARTIGO é a Story 4.6; até lá, a página de um
+         Post simplesmente não traz FAQPage — que é a resposta correta. -->
     <!-- Schema.org: FAQPage (perguntas SEO da home) -->
     <script type="application/ld+json">
     {
@@ -170,6 +133,85 @@
     }
     </script>
 
+    <!-- METADADOS-DA-PAGINA:FIM
+         Os dados estruturados abaixo ficam FORA da região de propósito: eles
+         são da Story 4.6, e até lá o que a home declara continua valendo. -->
+
+    <!-- Performance: preconnect e preload -->
+    <link rel="preconnect" href="https://connect.facebook.net" />
+    <link rel="dns-prefetch" href="https://api.whatsapp.com" />
+
+    <!-- Schema.org: Organization -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "ChatClean",
+      "legalName": "ChatClean",
+      "url": "https://chatclean.com.br",
+      "logo": "https://chatclean.com.br/logotipo-chatclean.png",
+      "image": "https://chatclean.com.br/imagem-padrao-do-site.png",
+      "description": "Plataforma de CRM e ChatBot para WhatsApp com API Oficial. Centraliza WhatsApp, Instagram, Facebook e Telegram em um só lugar.",
+      "telephone": "+55-84-99695-0105",
+      "email": "contato@chatclean.com.br",
+      "taxID": "57.487.327/0001-57",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Av. Prudente de Morais, 5121",
+        "addressLocality": "Natal",
+        "addressRegion": "RN",
+        "postalCode": "59020-400",
+        "addressCountry": "BR"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "telephone": "+55-84-99695-0105",
+        "contactType": "customer service",
+        "areaServed": "BR",
+        "availableLanguage": ["Portuguese"]
+      },
+      "sameAs": []
+    }
+    </script>
+
+    <!-- Schema.org: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "ChatClean",
+      "applicationCategory": "BusinessApplication",
+      "applicationSubCategory": "CRM",
+      "operatingSystem": "Web, Android, iOS",
+      "description": "CRM e ChatBot para WhatsApp com API Oficial. Atendimento omnichannel, automação com IA, gestão de leads e relatórios em uma única plataforma.",
+      "url": "https://chatclean.com.br",
+      "image": "https://chatclean.com.br/imagem-padrao-do-site.png",
+      "featureList": [
+        "Atendimento omnichannel WhatsApp Instagram Facebook Telegram",
+        "API Oficial do WhatsApp Business",
+        "ChatBot com Inteligencia Artificial",
+        "CRM com pipeline Kanban",
+        "Multiatendimento com varios atendentes",
+        "Campanhas automaticas",
+        "Relatorios detalhados",
+        "App Mobile"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "priceCurrency": "BRL",
+        "price": "0",
+        "description": "Demonstracao gratuita personalizada"
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "5",
+        "ratingCount": "100",
+        "bestRating": "5",
+        "worstRating": "1"
+      }
+    }
+    </script>
+
     <!-- Meta Pixel Code -->
     <script>
     !function(f,b,e,v,n,t,s)
@@ -190,6 +232,16 @@
       <img height="1" width="1" style="display:none"
       src="https://www.facebook.com/tr?id=1773986837313693&ev=PageView&noscript=1"
     /></noscript>
+    <!-- CORPO-DO-ARTIGO:INICIO
+         A regiao do corpo servido (Story 4.4). Vazia aqui, e vazia em toda
+         rota que nao passa pela funcao de servidor: quem serve artigo e ela.
+
+         ELA VEM ANTES DO CONTEINER, e nao e enfeite de ordem. O corpo servido
+         existe para quem NAO executa JavaScript, e vive dentro de <noscript>:
+         com JavaScript ligado o navegador nem o coloca no layout. Duplicacao,
+         piscada e deslocamento nao sao evitados com cuidado — eles nao podem
+         acontecer. -->
+    <!-- CORPO-DO-ARTIGO:FIM -->
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

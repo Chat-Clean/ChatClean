@@ -63,11 +63,11 @@ const testimonials = [
 const faqs = [
   {
     q: "O que é a ChatClean?",
-    a: "A ChatClean é uma plataforma que organiza todo o atendimento da sua empresa pelo WhatsApp. Com ela, vários funcionários usam o mesmo número ao mesmo tempo, cada conversa fica registrada, e você pode criar respostas automáticas para as dúvidas mais comuns — tudo sem precisar de conhecimento técnico.",
+    a: "A ChatClean é uma plataforma que organiza todo o atendimento da sua empresa pelo WhatsApp. Com ela, vários funcionários usam o mesmo número ao mesmo tempo, cada conversa fica registrada, e você pode criar respostas automáticas para as dúvidas mais comuns, tudo sem precisar de conhecimento técnico.",
   },
   {
     q: "Por que a ChatClean usa o WhatsApp oficial para empresas?",
-    a: "O WhatsApp oficial para empresas é uma versão aprovada pelo próprio WhatsApp para uso comercial. Com ele, vários funcionários atendem pelo mesmo número sem risco de o número ser bloqueado. A ChatClean cuida de toda essa configuração para você — é só começar a usar.",
+    a: "O WhatsApp oficial para empresas é uma versão aprovada pelo próprio WhatsApp para uso comercial. Com ele, vários funcionários atendem pelo mesmo número sem risco de o número ser bloqueado. A ChatClean cuida de toda essa configuração para você, é só começar a usar.",
   },
   {
     q: "Existe algum custo extra por mensagem enviada?",
@@ -75,15 +75,15 @@ const faqs = [
   },
   {
     q: "Posso ter vários atendentes no mesmo número de WhatsApp?",
-    a: "Sim! Com a ChatClean, toda a sua equipe atende pelo mesmo número de WhatsApp — cada um com seu próprio acesso. Você pode criar departamentos (ex: Vendas, Suporte), transferir conversas entre atendentes e ver quem respondeu o quê, sem precisar de vários celulares ou chips.",
+    a: "Sim! Com a ChatClean, toda a sua equipe atende pelo mesmo número de WhatsApp, cada um com seu próprio acesso. Você pode criar departamentos (ex: Vendas, Suporte), transferir conversas entre atendentes e ver quem respondeu o quê, sem precisar de vários celulares ou chips.",
   },
   {
     q: "Qual a diferença do WhatsApp normal para o que a ChatClean usa?",
-    a: "O WhatsApp Business que a maioria das pessoas conhece funciona só para uso individual ou em equipes muito pequenas. Já o WhatsApp que a ChatClean usa não tem esse limite: permite que uma equipe inteira atenda, automatiza respostas e não corre risco de bloqueio — mesmo enviando muitas mensagens.",
+    a: "O WhatsApp Business que a maioria das pessoas conhece funciona só para uso individual ou em equipes muito pequenas. Já o WhatsApp que a ChatClean usa não tem esse limite: permite que uma equipe inteira atenda, automatiza respostas e não corre risco de bloqueio, mesmo enviando muitas mensagens.",
   },
   {
     q: "É difícil começar a usar a ChatClean?",
-    a: "Não! Nossa equipe cuida de tudo: configura seu WhatsApp, cria os fluxos de atendimento e treina seu time. Você começa a atender em poucos dias — sem precisar de nenhum conhecimento técnico ou contratar alguém de TI.",
+    a: "Não! Nossa equipe cuida de tudo: configura seu WhatsApp, cria os fluxos de atendimento e treina seu time. Você começa a atender em poucos dias, sem precisar de nenhum conhecimento técnico ou contratar alguém de TI.",
   },
   {
     q: "Existe prazo de fidelidade?",
@@ -107,15 +107,15 @@ const faqs = [
   },
   {
     q: "Com quais aplicativos a ChatClean se conecta?",
-    a: "Conectamos com WhatsApp, Instagram, Facebook, Telegram e o chat do seu site. Também temos integrações com plataformas como Hotmart, Asaas, Trello e muitas outras — para encaixar no jeito que sua empresa já trabalha.",
+    a: "Conectamos com WhatsApp, Instagram, Facebook, Telegram e o chat do seu site. Também temos integrações com plataformas como Hotmart, Asaas, Trello e muitas outras, para encaixar no jeito que sua empresa já trabalha.",
   },
   {
     q: "Consigo responder mensagens do Instagram e Facebook pela ChatClean?",
-    a: "Sim! Você gerencia tudo em uma única tela: WhatsApp, Instagram, Facebook e Telegram — sem precisar abrir cada aplicativo separado. Sua equipe economiza tempo e nenhum cliente fica sem resposta.",
+    a: "Sim! Você gerencia tudo em uma única tela: WhatsApp, Instagram, Facebook e Telegram, sem precisar abrir cada aplicativo separado. Sua equipe economiza tempo e nenhum cliente fica sem resposta.",
   },
   {
     q: "Por que vocês não mostram os preços no site?",
-    a: "Cada empresa tem um tamanho e uma necessidade diferente. Por isso, criamos uma proposta feita especialmente para você — assim você paga só pelo que realmente precisa, sem pagar por coisas que não vai usar.",
+    a: "Cada empresa tem um tamanho e uma necessidade diferente. Por isso, criamos uma proposta feita especialmente para você, assim você paga só pelo que realmente precisa, sem pagar por coisas que não vai usar.",
   },
 ];
 

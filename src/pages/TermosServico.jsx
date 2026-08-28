@@ -105,7 +105,7 @@ A ChatClean pode suspender ou encerrar sua conta imediatamente em caso de viola�
     titulo: "12. Contato",
     texto: `Para dúvidas sobre estes Termos de Serviço, entre em contato:
 
-ChatClean — CNPJ: 57.487.327/0001-57
+ChatClean, CNPJ: 57.487.327/0001-57
 Av. Prudente de Morais, 5121, Natal-RN, CEP 59020-400
 E-mail: contato@chatclean.com.br
 Telefone: +55 84 9695-0105`,

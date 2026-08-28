@@ -1,40 +1,296 @@
-import { useState } from "react";
+/**
+ * A listagem do Blog Público — agora lendo do Supabase (Story 2.15).
+ *
+ * ─── A VISIBILIDADE É DA POLÍTICA, E DE MAIS NADA ───────────────────────────
+ *
+ * Nenhuma consulta desta página repete o filtro de Estado. O que aparece aqui é
+ * o que a política de leitura anônima da Story 2.1 libera — publicado, ou
+ * agendado cuja hora já passou. Se algum dia esta tela precisasse repetir o
+ * filtro para estar correta, o erro estaria na política.
+ *
+ * E a leitura é pelo cliente ANÔNIMO, incondicionalmente: quem tem sessão
+ * aberta no mesmo navegador vê exatamente o que um visitante vê. A escolha do
+ * cliente é do módulo de dados, não desta tela — não há parâmetro para pedir
+ * outro.
+ *
+ * ─── UM PEDIDO SÓ, E UM EFEITO SÓ ───────────────────────────────────────────
+ *
+ * Termo, Categoria, deslocamento e tentativa vivem num ESTADO ÚNICO. Com um
+ * estado por dimensão, trocar de Categoria disparava dois pedidos — um com o
+ * deslocamento velho e outro com ele zerado —, e o segundo podia voltar antes
+ * do primeiro. Aqui cada mudança produz um pedido, e o pedido é o que o efeito
+ * observa.
+ *
+ * ─── SEIS SITUAÇÕES, E NENHUMA DELAS É PÁGINA EM BRANCO ─────────────────────
+ *
+ * Carregando, pronta, vazia, sem-resultado, falha e falha permanente. As regras
+ * e as frases moram em `blogPublico.js`, puras, para a verificação executá-las
+ * em vez de ler JSX.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
+  AlertCircle,
   ArrowRight,
   Calendar,
   Clock,
+  FileText,
   Search,
   User,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import { getPostsByCategory } from "@/lib/blogStore";
+import { buscarPostsPublicos } from "@/data/blog/posts";
+import { listarCategorias } from "@/data/blog/taxonomia";
+import {
+  CATEGORIA_TODOS,
+  ESPERA_DA_BUSCA_MS,
+  FALHA_DAS_CATEGORIAS,
+  LISTA_CARREGANDO,
+  LISTA_FALHA,
+  LISTA_FALHA_PERMANENTE,
+  LISTA_PRONTA,
+  ROTULO_DE_CARREGAR_MAIS,
+  ROTULO_DE_LIMPAR_FILTROS,
+  ROTULO_DE_RECARREGAR_A_LISTA,
+  TAMANHO_DA_PAGINA,
+  TEXTO_DE_ATUALIZANDO_A_LISTA,
+  TEXTO_DE_CARREGANDO_A_LISTA,
+  anuncioDaLista,
+  categoriasDoFiltro,
+  estaRelendo,
+  falaDaLista,
+  falhaDeExcecao,
+  haMaisParaCarregar,
+  nomeDaCategoria,
+  nomeDoAutor,
+  rotuloDoCartao,
+  situacaoDaLista,
+  textoDaData,
+  textoDoTempoDeLeitura,
+} from "./blogPublico";
 
 const WHATSAPP_LINK =
   "https://api.whatsapp.com/send?phone=5584996950105&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
 
-const categorias = ["Todos", "Tecnologia", "Estratégia", "Analytics", "Automação", "Tendências"];
+/* ─── AS CATEGORIAS VÊM DO BANCO (Story 2.14) ──────────────────────────────
+ *
+ * A constante que vivia aqui — `["Todos", "Tecnologia", "Estratégia",
+ * "Analytics", "Automação", "Tendências"]` — SAIU. Ela era a terceira cópia da
+ * lista de Categorias, e as três já divergiam entre si: esta tinha CINCO, e
+ * "Novidades" não estava nela. Um post publicado em "Novidades" não era
+ * alcançável por filtro nenhum no site, e ninguém percebeu, porque não havia um
+ * lugar só que dissesse quais Categorias existem. Agora há: a tabela.
+ *
+ * "Todos" continua fora do banco porque ele não é uma Categoria — é a ausência
+ * de filtro, e cadastrá-lo criaria uma Categoria que ninguém pode usar num
+ * post. Ele mora em `blogPublico.js`, escrito UMA vez, e o filtro por Categoria
+ * viaja por IDENTIFICADOR: casar por nome era o que o armazenamento no
+ * navegador fazia, e renomear uma Categoria deixava os posts dela inalcançáveis.
+ */
+
+/** O pedido inicial: sem termo, sem Categoria, primeira página. */
+const PEDIDO_INICIAL = Object.freeze({
+  termo: "",
+  categoriaId: null,
+  deslocamento: 0,
+  tentativa: 0,
+});
 
 export default function Blog() {
-  const [categoriaAtiva, setCategoriaAtiva] = useState("Todos");
+  /* O que está DIGITADO. O que já foi PERGUNTADO ao banco vive em `pedido`, e
+     anda atrás deste por `ESPERA_DA_BUSCA_MS`. */
   const [termoBusca, setTermoBusca] = useState("");
+  const [pedido, setPedido] = useState(PEDIDO_INICIAL);
 
-  const postsExibidos = getPostsByCategory(categoriaAtiva).filter(
-    (post) =>
-      post.titulo.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      post.resumo.toLowerCase().includes(termoBusca.toLowerCase()) ||
-      post.categoria.toLowerCase().includes(termoBusca.toLowerCase()),
+  const [categorias, setCategorias] = useState([]);
+  /* A FALHA É DITA. Ela era silenciosa: o filtro colapsava para só "Todos" e o
+     visitante concluía que o blog tem uma categoria só. */
+  const [falhouAoCarregarCategorias, setFalhouAoCarregarCategorias] =
+    useState(false);
+
+  const [posts, setPosts] = useState(null);
+  const [haMais, setHaMais] = useState(false);
+  const [erro, setErro] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      let resultado;
+      try {
+        resultado = await listarCategorias();
+      } catch {
+        resultado = { ok: false };
+      }
+      if (!vivo) return;
+      if (!resultado?.ok) {
+        setFalhouAoCarregarCategorias(true);
+        return;
+      }
+      setFalhouAoCarregarCategorias(false);
+      setCategorias(categoriasDoFiltro(resultado.dados));
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  /* A espera da digitação. O primeiro quadro não espera: o pedido já nasce com
+     o termo vazio, e o temporizador só muda algo quando alguém digita. */
+  const primeiraEspera = useRef(true);
+  useEffect(() => {
+    if (primeiraEspera.current) {
+      primeiraEspera.current = false;
+      return undefined;
+    }
+    const relogio = setTimeout(() => {
+      setPedido((p) =>
+        p.termo === termoBusca ? p : { ...p, termo: termoBusca, deslocamento: 0 },
+      );
+    }, ESPERA_DA_BUSCA_MS);
+    return () => clearTimeout(relogio);
+  }, [termoBusca]);
+
+  useEffect(() => {
+    let vivo = true;
+    setCarregando(true);
+    setErro(null);
+    (async () => {
+      /* A CAMADA DEVOLVE ERRO TIPADO E NÃO LANÇA — mas confiar nisso aqui é
+         apostar a promessa desta tela numa disciplina de outro módulo. Uma
+         rejeição sem tratamento deixaria o esqueleto girando para sempre, que é
+         a página em branco com outro nome. E o texto da exceção NÃO vira frase
+         de tela: `falhaDeExcecao` guarda o cru em `detalhe`, que ninguém
+         renderiza. */
+      let resultado;
+      try {
+        resultado = await buscarPostsPublicos({
+          termo: pedido.termo,
+          categoriaId: pedido.categoriaId,
+          limite: TAMANHO_DA_PAGINA,
+          deslocamento: pedido.deslocamento,
+        });
+      } catch (excecao) {
+        resultado = { ok: false, erro: falhaDeExcecao(excecao) };
+      }
+      if (!vivo) return;
+      if (!resultado?.ok) {
+        /* A página seguinte que falha NÃO apaga o que já está na tela: quem
+           rolou até aqui não perde a leitura por causa de um pedido a mais. */
+        if (pedido.deslocamento === 0) setPosts(null);
+        setErro(resultado?.erro ?? { tipo: "inesperado", mensagem: "" });
+        setCarregando(false);
+        return;
+      }
+      const recebidos = resultado.dados;
+      setPosts((anteriores) =>
+        pedido.deslocamento === 0
+          ? recebidos
+          : [...(anteriores ?? []), ...recebidos],
+      );
+      setHaMais(haMaisParaCarregar(recebidos));
+      setErro(null);
+      setCarregando(false);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [pedido]);
+
+  const tentarDeNovo = useCallback(
+    () =>
+      setPedido((p) => ({ ...p, deslocamento: 0, tentativa: p.tentativa + 1 })),
+    [],
   );
+  const carregarMais = useCallback(
+    () =>
+      setPedido((p) => ({ ...p, deslocamento: p.deslocamento + TAMANHO_DA_PAGINA })),
+    [],
+  );
+  const escolherCategoria = useCallback((id) => {
+    setPedido((p) => ({
+      ...p,
+      categoriaId: id === CATEGORIA_TODOS ? null : id,
+      deslocamento: 0,
+    }));
+  }, []);
+  const limparFiltros = useCallback(() => {
+    setTermoBusca("");
+    setPedido((p) => ({ ...PEDIDO_INICIAL, tentativa: p.tentativa }));
+  }, []);
 
-  const destaque = postsExibidos.find((p) => p.destaque);
-  const demais = postsExibidos.filter((p) => !p.destaque);
+  const categoriaAtiva = pedido.categoriaId ?? CATEGORIA_TODOS;
+
+  /* A situação é DERIVADA, e a derivação inteira mora no módulo puro —
+     inclusive a ORDEM dos ramos, que é regra: erro conferido depois de lista
+     vazia faria uma queda de conexão aparecer como "ainda não há artigos". */
+  const situacao = situacaoDaLista({
+    carregando,
+    erro,
+    posts,
+    termo: pedido.termo,
+    categoria: categoriaAtiva,
+  });
+  const relendo = estaRelendo({ carregando, posts });
+
+  /* A ORDEM VEM DA CAMADA — `COALESCE(publicado_em, atualizado_em)`
+     decrescente, com desempate determinístico. Nada é reordenado aqui: uma
+     segunda ordenação na tela divergiria da primeira no primeiro empate. */
+  const lista = useMemo(() => (Array.isArray(posts) ? posts : []), [posts]);
+  /* O Destaque é escolhido sobre TUDO o que já foi carregado, e não sobre a
+     primeira página: um Post destacado que só aparece na segunda página assume
+     o papel quando ela chega, em vez de nunca assumi-lo. */
+  const destaque = lista.find((p) => p.destaque === true) ?? null;
+  const demais = destaque === null ? lista : lista.filter((p) => p !== destaque);
+
+  /* ── A CAPA QUE NÃO CARREGA É CAPA AUSENTE (mesmo padrão de BlogPost.jsx,
+     Story 3.2) ── Post sem `imagem_url`, ou cuja imagem falha ao carregar,
+     cai no MESMO fallback: o card de Destaque volta ao `aurora-bg` que já
+     desenhava antes desta mudança, e o card da grade fica sem faixa de
+     imagem — nunca um `<img>` quebrado. `onError` é o único sinal que o
+     navegador dá, e ele é por ENDEREÇO: o benefício da dúvida volta a cada
+     Post, senão uma falha condenaria o card seguinte. */
+  const [capaDoDestaqueQuebrada, setCapaDoDestaqueQuebrada] = useState(false);
+  const enderecoDaCapaDoDestaque =
+    typeof destaque?.imagem_url === "string" ? destaque.imagem_url.trim() : "";
+  useEffect(() => {
+    setCapaDoDestaqueQuebrada(false);
+  }, [enderecoDaCapaDoDestaque]);
+  const mostrarCapaDoDestaque = enderecoDaCapaDoDestaque !== "" && !capaDoDestaqueQuebrada;
+
+  /* A grade tem VÁRIOS cartões, e a resposta é POR CARTÃO — a mesma regra dos
+     relacionados em `BlogPost.jsx`: um cartão com a imagem podre não pode
+     esconder a dos outros.
+     Sem efeito de reinício: o registro é chaveado por `post.id`, um
+     identificador estável, e nunca é limpo. Uma versão anterior o zerava a
+     cada mudança de `lista` — mas `lista` troca de referência a cada "carregar
+     mais" (Blog.jsx:190, `setPosts` concatenando), e zerar apagava o registro
+     dos cartões JÁ na tela, fazendo imagens já conhecidas como quebradas
+     tentarem carregar de novo. Um `id` que já falhou continua no Set para
+     sempre — inofensivo: o mesmo Post não muda de imagem sem a página
+     recarregar, e a entrada de um Post que saiu da lista só ocupa memória, não
+     desenha nada. */
+  const [capasDaGradeQuebradas, setCapasDaGradeQuebradas] = useState(() => new Set());
+  const marcarCapaDaGradeQuebrada = useCallback((id) => {
+    setCapasDaGradeQuebradas((atuais) => {
+      if (atuais.has(id)) return atuais;
+      const proximo = new Set(atuais);
+      proximo.add(id);
+      return proximo;
+    });
+  }, []);
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div
+      className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white"
+      data-tela="blog-publico"
+      data-situacao={situacao}
+      data-relendo={relendo ? "1" : "0"}
+    >
       <Navbar />
 
       {/* Hero aurora */}
@@ -82,6 +338,8 @@ export default function Blog() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 h-4 w-4" />
             <input
               type="text"
+              data-campo="busca"
+              aria-label="Buscar artigos"
               placeholder="Buscar artigos..."
               value={termoBusca}
               onChange={(e) => setTermoBusca(e.target.value)}
@@ -95,58 +353,128 @@ export default function Blog() {
       <section className="bg-white border-b border-zinc-100 sticky top-20 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex flex-wrap gap-2 justify-center">
-            {categorias.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoriaAtiva(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer ${
-                  cat === categoriaAtiva
-                    ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-                    : "bg-zinc-100 text-zinc-600 hover:bg-emerald-50 hover:text-emerald-700"
-                }`}
+            {falhouAoCarregarCategorias ? (
+              <p
+                role="status"
+                data-papel="falha-das-categorias"
+                className="w-full text-center text-sm text-zinc-500"
               >
-                {cat}
-              </button>
-            ))}
+                {FALHA_DAS_CATEGORIAS}
+              </p>
+            ) : null}
+            {[{ id: CATEGORIA_TODOS, nome: CATEGORIA_TODOS }, ...categorias].map(
+              (cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  data-categoria={cat.id}
+                  aria-pressed={cat.id === categoriaAtiva}
+                  onClick={() => escolherCategoria(cat.id)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer ${
+                    cat.id === categoriaAtiva
+                      ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-emerald-50 hover:text-emerald-700"
+                  }`}
+                >
+                  {cat.nome}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </section>
 
       <main className="max-w-7xl mx-auto px-4 py-16">
 
-        {/* Sem resultados */}
-        {postsExibidos.length === 0 && (
-          <div className="text-center py-24">
-            <p className="text-zinc-500 text-lg mb-6">Nenhum artigo encontrado.</p>
-            <Button
-              variant="outline"
-              onClick={() => { setCategoriaAtiva("Todos"); setTermoBusca(""); }}
-              className="rounded-full"
+        {/* A REGIÃO VIVA. Sem ela, quem usa leitor de tela digita na busca e a
+            grade muda em silêncio: não há foco a mover nem texto novo a
+            anunciar, e a única pista da mudança é visual. */}
+        <p role="status" aria-live="polite" data-papel="anuncio" className="sr-only">
+          {carregando
+            ? relendo
+              ? TEXTO_DE_ATUALIZANDO_A_LISTA
+              : TEXTO_DE_CARREGANDO_A_LISTA
+            : situacao === LISTA_PRONTA
+              ? anuncioDaLista(lista.length)
+              : ""}
+        </p>
+
+        {/* Carregando pela PRIMEIRA vez: esqueleto, nunca página em branco.
+            Releitura não pisca — os cartões antigos ficam. */}
+        {situacao === LISTA_CARREGANDO && (
+          <div data-papel="esqueleto" className="py-4">
+            <div
+              aria-hidden="true"
+              className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
             >
-              Limpar filtros
-            </Button>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className="h-64 rounded-3xl border border-zinc-100 bg-zinc-50 animate-pulse"
+                />
+              ))}
+            </div>
           </div>
         )}
 
+        {/* Vazio, vazio de busca e as duas falhas — cada um dizendo o que houve */}
+        {situacao !== LISTA_CARREGANDO && situacao !== LISTA_PRONTA && (
+          <SemCartoes
+            situacao={situacao}
+            aoRepetir={tentarDeNovo}
+            aoLimpar={limparFiltros}
+          />
+        )}
+
         {/* Post em destaque */}
-        {destaque && (
+        {situacao === LISTA_PRONTA && destaque && (
           <motion.div
             initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
             className="mb-16"
+            data-papel="destaque"
           >
             <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-4">
               Post em destaque
             </p>
-            <Link to={`/blog/${destaque.slug}`} className="group block">
+            <Link
+              to={`/blog/${destaque.slug}`}
+              aria-label={rotuloDoCartao(destaque)}
+              className="group block"
+            >
               <div className="rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden grid md:grid-cols-5 green-glow card-3d transition-all duration-500">
-                <div className="md:col-span-2 aurora-bg flex items-center justify-center p-12 min-h-48">
-                  <div className="text-center">
-                    <span className="inline-block px-3 py-1 rounded-full bg-white/20 border border-white/40 text-white text-xs font-bold uppercase tracking-widest mb-4">
-                      {destaque.categoria}
-                    </span>
-                    <p className="text-white/70 text-sm">{destaque.tempo} de leitura</p>
+                <div className="md:col-span-2 relative aurora-bg flex items-center justify-center p-12 min-h-48 overflow-hidden">
+                  {/* A CAPA DO DESTAQUE. Quando falta ou falha, o `aurora-bg`
+                      do próprio invólucro já é o fallback — nada a mais para
+                      desenhar. */}
+                  {mostrarCapaDoDestaque && (
+                    <img
+                      src={enderecoDaCapaDoDestaque}
+                      alt={destaque.imagem_alt ?? ""}
+                      data-papel="capa-do-destaque"
+                      referrerPolicy="no-referrer"
+                      onError={() => setCapaDoDestaqueQuebrada(true)}
+                      className="absolute inset-0 size-full object-cover"
+                    />
+                  )}
+                  <div
+                    className={`relative z-10 text-center ${
+                      mostrarCapaDoDestaque
+                        ? "rounded-2xl bg-black/40 px-4 py-3 backdrop-blur-sm"
+                        : ""
+                    }`}
+                  >
+                    {nomeDaCategoria(destaque) !== "" && (
+                      <span className="inline-block px-3 py-1 rounded-full bg-white/20 border border-white/40 text-white text-xs font-bold uppercase tracking-widest mb-4">
+                        {nomeDaCategoria(destaque)}
+                      </span>
+                    )}
+                    {textoDoTempoDeLeitura(destaque) !== "" && (
+                      <p className="text-white/70 text-sm">
+                        {textoDoTempoDeLeitura(destaque)}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="md:col-span-3 p-8 flex flex-col justify-between">
@@ -158,14 +486,18 @@ export default function Blog() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4 text-sm text-zinc-500">
-                      <span className="flex items-center gap-1">
-                        <User className="h-4 w-4" />
-                        {destaque.autor}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
-                        {destaque.data}
-                      </span>
+                      {nomeDoAutor(destaque) !== "" && (
+                        <span className="flex items-center gap-1">
+                          <User className="h-4 w-4" />
+                          {nomeDoAutor(destaque)}
+                        </span>
+                      )}
+                      {textoDaData(destaque) !== "" && (
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-4 w-4" />
+                          {textoDaData(destaque)}
+                        </span>
+                      )}
                     </div>
                     <span className="inline-flex items-center gap-1 text-emerald-600 font-bold text-sm group-hover:gap-2 transition-all">
                       Ler artigo
@@ -179,49 +511,113 @@ export default function Blog() {
         )}
 
         {/* Grid de posts */}
-        {demais.length > 0 && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
+        {situacao === LISTA_PRONTA && demais.length > 0 && (
+          <div
+            className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"
+            data-papel="cartoes"
+          >
             {demais.map((post, i) => (
               <motion.div
                 key={post.id}
+                data-post={post.id}
                 initial={{ opacity: 0, y: 32 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.6, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
               >
-                <Link to={`/blog/${post.slug}`} className="group block h-full">
-                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white p-8 flex flex-col green-glow card-3d transition-all duration-500">
-                    <div className="flex items-center justify-between mb-6">
-                      <span className="inline-block px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
-                        {post.categoria}
-                      </span>
-                      <span className="flex items-center gap-1 text-xs text-zinc-400">
-                        <Clock className="h-3.5 w-3.5" />
-                        {post.tempo}
-                      </span>
-                    </div>
+                <Link
+                  to={`/blog/${post.slug}`}
+                  aria-label={rotuloDoCartao(post)}
+                  className="group block h-full"
+                >
+                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden flex flex-col green-glow card-3d transition-all duration-500">
+                    {/* A CAPA DO CARTÃO. Post sem `imagem_url`, ou cuja imagem
+                        falha ao carregar, fica sem faixa — nunca um `<img>`
+                        quebrado. `loading="lazy"`: a grade inteira fica abaixo
+                        da dobra, e carregar toda capa de host de terceiro antes
+                        de a pessoa rolar até ela é gastar a rede por uma
+                        imagem que talvez ninguém veja. */}
+                    {typeof post.imagem_url === "string" &&
+                      post.imagem_url.trim() !== "" &&
+                      !capasDaGradeQuebradas.has(post.id) && (
+                        <img
+                          src={post.imagem_url.trim()}
+                          alt={post.imagem_alt ?? post.titulo}
+                          data-papel="capa-do-cartao"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          width={1200}
+                          height={630}
+                          onError={() => marcarCapaDaGradeQuebrada(post.id)}
+                          className="w-full h-40 object-cover"
+                        />
+                      )}
+                    <div className="p-8 flex flex-1 flex-col">
+                      <div className="flex items-center justify-between mb-6">
+                        {/* Categoria é NULÁVEL: sem ela o cartão aparece do mesmo
+                            jeito, sem pastilha — e não com uma pastilha vazia. */}
+                        {nomeDaCategoria(post) !== "" ? (
+                          <span className="inline-block px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                            {nomeDaCategoria(post)}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        {textoDoTempoDeLeitura(post) !== "" && (
+                          <span className="flex items-center gap-1 text-xs text-zinc-400">
+                            <Clock className="h-3.5 w-3.5" />
+                            {textoDoTempoDeLeitura(post)}
+                          </span>
+                        )}
+                      </div>
 
-                    <h3 className="text-lg font-black text-zinc-900 tracking-tight mb-3 group-hover:text-emerald-700 transition-colors flex-1">
-                      {post.titulo}
-                    </h3>
-                    <p className="text-zinc-500 text-sm leading-relaxed mb-6 line-clamp-3">
-                      {post.resumo}
-                    </p>
+                      <h3 className="text-lg font-black text-zinc-900 tracking-tight mb-3 group-hover:text-emerald-700 transition-colors flex-1">
+                        {post.titulo}
+                      </h3>
+                      <p className="text-zinc-500 text-sm leading-relaxed mb-6 line-clamp-3">
+                        {post.resumo}
+                      </p>
 
-                    <div className="flex items-center justify-between text-xs text-zinc-400 mt-auto pt-4 border-t border-zinc-100">
-                      <span className="flex items-center gap-1">
-                        <User className="h-3.5 w-3.5" />
-                        {post.autor}
-                      </span>
-                      <span className="flex items-center gap-1 text-emerald-600 font-semibold group-hover:gap-2 transition-all">
-                        Ler
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </span>
+                      <div className="flex items-center justify-between text-xs text-zinc-400 mt-auto pt-4 border-t border-zinc-100">
+                        {/* O Autor é NULÁVEL como a Categoria, e é condicionado do
+                            mesmo jeito: o `<span>` inteiro sai, e não só o texto
+                            dentro dele — senão sobra uma caixa vazia ocupando
+                            espaço no rodapé do cartão. */}
+                        {nomeDoAutor(post) !== "" ? (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3.5 w-3.5" />
+                            {nomeDoAutor(post)}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        <span className="flex items-center gap-1 text-emerald-600 font-semibold group-hover:gap-2 transition-all">
+                          Ler
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </Link>
               </motion.div>
             ))}
+          </div>
+        )}
+
+        {/* A PAGINAÇÃO. Sem ela o blog parava no teto da camada sem dizer nada,
+            e o artigo seguinte ficava inalcançável por caminho nenhum. */}
+        {situacao === LISTA_PRONTA && haMais && (
+          <div className="mb-16 flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              data-acao="carregar-mais"
+              disabled={carregando}
+              onClick={carregarMais}
+              className="rounded-full"
+            >
+              {ROTULO_DE_CARREGAR_MAIS}
+            </Button>
           </div>
         )}
 
@@ -258,6 +654,73 @@ export default function Blog() {
       </main>
 
       <Footer />
+    </div>
+  );
+}
+
+/**
+ * O vazio inicial, o vazio de busca e as duas falhas — cada um dizendo o que
+ * houve e o que fazer, e nenhum deles em branco.
+ *
+ * "Ainda não há artigos" convida a voltar depois; "não consegui carregar" pede
+ * outra ação e não pode sugerir que o blog está vazio; "nada corresponde" pede
+ * para trocar o termo; e a falha permanente não oferece um botão que nunca vai
+ * funcionar.
+ *
+ * **Nenhum detalhe técnico é mostrado.** O que sai é a fala da situação, escrita
+ * para quem visita o site — nunca a mensagem de uma exceção.
+ */
+function SemCartoes({ situacao, aoRepetir, aoLimpar }) {
+  const fala = falaDaLista(situacao);
+  /* As duas falhas são alerta; os dois vazios não são. Vazio não é erro — e
+     anunciá-lo como erro faria o leitor de tela interromper a leitura por uma
+     notícia que não é urgente. */
+  const alerta = situacao === LISTA_FALHA || situacao === LISTA_FALHA_PERMANENTE;
+  const Icone = alerta ? AlertCircle : FileText;
+  return (
+    <div
+      role={alerta ? "alert" : "status"}
+      data-papel="situacao"
+      className={`mx-auto max-w-xl rounded-3xl border p-10 text-center ${
+        alerta ? "border-red-200 bg-red-50" : "border-zinc-100 bg-white"
+      }`}
+    >
+      <Icone
+        aria-hidden="true"
+        className={`mx-auto h-8 w-8 ${alerta ? "text-red-600" : "text-zinc-400"}`}
+      />
+      <h2
+        data-papel="o-que-houve"
+        className="mt-4 text-xl font-black tracking-tight text-zinc-900"
+      >
+        {fala.oQueHouve}
+      </h2>
+      <p data-papel="o-que-fazer" className="mt-2 text-zinc-500">
+        {fala.oQueFazer}
+      </p>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        {fala.repetir && (
+          <Button
+            type="button"
+            data-acao="repetir"
+            onClick={() => aoRepetir?.()}
+            className="rounded-full bg-emerald-500 hover:bg-emerald-600 text-white"
+          >
+            {ROTULO_DE_RECARREGAR_A_LISTA}
+          </Button>
+        )}
+        {fala.limpar && (
+          <Button
+            type="button"
+            variant="outline"
+            data-acao="limpar"
+            onClick={() => aoLimpar?.()}
+            className="rounded-full"
+          >
+            {ROTULO_DE_LIMPAR_FILTROS}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

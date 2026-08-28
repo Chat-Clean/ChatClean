@@ -1,5 +1,19 @@
 {
+  "headers": [
+    {
+      "source": "/([aA][dD][mM][iI][nN])",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/([aA][dD][mM][iI][nN])/:caminho*",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    }
+  ],
   "rewrites": [
+    { "source": "/blog", "destination": "/api/blog" },
+    { "source": "/blog/:slug", "destination": "/api/blog?slug=:slug" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/llms.txt", "destination": "/api/llms" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

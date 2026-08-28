@@ -1,0 +1,129 @@
+/**
+ * O Editor visual do Post.
+ *
+ * O Autor escreve e vê o texto **já formatado no lugar**: sem marcação
+ * visível, sem painel de pré-visualização ao lado. A área de escrita veste a
+ * classe `.artigo` da Story 2.3 — a mesma classe global que o Blog Público e o
+ * HTML servido vão vestir —, então a aparência em que se escreve é literalmente
+ * a aparência em que se publica, e não uma imitação dela.
+ *
+ * **O que este componente NÃO faz.** Ele não grava. Toda operação de escrita
+ * passa pelo caminho único do servidor (Story 2.5), e a troca do formulário do
+ * Painel é da Story 2.6. Aqui o editor produz o documento e entrega em
+ * `aoMudar`; quem recebe decide o que fazer com ele.
+ *
+ * **Sobre validar a cada tecla.** O editor é construído a partir do MESMO
+ * schema contra o qual o documento é validado: o que ele consegue produzir já
+ * é, por construção, o que a validação aceitaria. Revalidar a cada tecla seria
+ * pagar duas vezes pela mesma garantia, justamente no caminho onde a story
+ * exige resposta abaixo de 100 ms. A validação roda onde a entrada vem de
+ * fora — no conteúdo inicial, aqui, e na escrita, na Story 2.5.
+ *
+ * **Por que a validação da entrada não é zelo excessivo.** O Tiptap constrói o
+ * documento com `Node.fromJSON`, que LANÇA `Unknown node type` diante de um nó
+ * que o schema não conhece. Um post gravado antes desta story, ou por outra
+ * via, com uma tabela dentro, não abriria: o Autor veria a tela quebrar em vez
+ * do texto. Higienizar na entrada é o que transforma "não abre" em "abre sem a
+ * tabela, e diz que a tabela saiu".
+ */
+
+import { useCallback, useState } from "react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import { AlertTriangle, X } from "lucide-react";
+
+import BarraDoEditor from "@/admin/blog/BarraDoEditor";
+import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
+import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
+import { prepararConteudo } from "@/admin/blog/conteudo";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
+export default function Editor({
+  documento,
+  aoMudar,
+  aoAvisar,
+  rotulo = "Conteúdo do post",
+  className,
+}) {
+  // O conteúdo inicial é lido UMA vez. Recarregar o documento debaixo de quem
+  // está digitando perderia o cursor e, com ele, o parágrafo em andamento;
+  // trocar de post é trocar de editor, e quem monta a tela faz isso pela
+  // `key` do componente.
+  const [inicial] = useState(() => {
+    const preparado = prepararConteudo(documento);
+    if (preparado.aviso) aoAvisar?.(preparado.aviso);
+    return preparado;
+  });
+  const [aviso, setAviso] = useState(inicial.aviso);
+
+  const editor = useEditor({
+    extensions: extensoesDoEditor(),
+    ...opcoesDoEditor({ rotulo }),
+    content: inicial.documento,
+    onUpdate: ({ editor: atual }) => {
+      // O documento estruturado, e nunca HTML: é o que a Story 2.5 grava como
+      // fonte canônica, e o que a 2.6 compara para saber se há alteração
+      // pendente. Entregar HTML aqui devolveria o projeto ao parser artesanal
+      // que o Épico 2 existe para remover.
+      aoMudar?.(atual.getJSON());
+    },
+  });
+
+  const dispensar = useCallback(() => setAviso(null), []);
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 flex-col rounded-cartao border border-border-soft bg-surface",
+        className,
+      )}
+    >
+      {aviso ? (
+        <div
+          role="alert"
+          data-gravidade={aviso.gravidade}
+          className={cn(
+            "flex items-start gap-2 border-b border-border-soft px-4 py-3 text-sm",
+            aviso.gravidade === "recusado"
+              ? "bg-destructive/10 text-ink"
+              : "bg-brand-wash text-ink",
+          )}
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <p className="flex-1">{aviso.mensagem}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Dispensar o aviso sobre o conteúdo"
+            onClick={dispensar}
+            className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0")}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </div>
+      ) : null}
+
+      <BarraDoEditor editor={editor} />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        {editor ? (
+          <EditorContent editor={editor} />
+        ) : (
+          /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
+             esqueleto acompanha a do texto pela mesma classe. */
+          <div
+            className={cn(opcoesDoEditor().editorProps.attributes.class, "space-y-3")}
+            aria-hidden="true"
+          >
+            <Skeleton className="h-7 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

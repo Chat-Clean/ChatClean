@@ -1,42 +1,77 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Plus, Pencil, Trash2, Eye, LogOut, RotateCcw,
-  Save, X, Star, StarOff,
-  ChevronLeft, Search, AlertTriangle, Check,
-  Upload, ExternalLink, FileText, Briefcase,
-  Cpu, Target, BarChart2, Bot, TrendingUp, Newspaper,
-  MapPin,
+  Plus, Pencil, Trash2, Eye, RotateCcw,
+  Save,
+  ChevronLeft, Search, Check,
+  FileText, Briefcase,
+  MapPin, Tags,
 } from "lucide-react";
 
-import { getPosts, savePost, deletePost, resetPosts } from "@/lib/blogStore";
+import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
+import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
+import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
+import EditorDePost from "@/admin/blog/EditorDePost";
+import ListaDePosts from "@/admin/blog/ListaDePosts";
+import { selecionarEstadoExclusivo } from "@/admin/blog/listagem";
+import { ENDERECO_DAS_CATEGORIAS } from "@/admin/blog/rotas";
+import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
+import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
+import { pageTransition, staggerContainer, staggerItem } from "@/lib/motion";
 
-/* ─── Senha de acesso ──────────────────────────────────────────────── */
-const ADMIN_PASSWORD = "chatclean@admin";
-const AUTH_KEY = "cc_admin_auth";
+/* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
+const ID_DO_CONTEUDO = "conteudo-do-painel";
 
-/* ─── Categorias do blog ──────────────────────────────────────────── */
-const CATEGORIAS = ["Tecnologia", "Estratégia", "Analytics", "Automação", "Tendências", "Novidades"];
-
-/* ─── Ícone por categoria ──────────────────────────────────────────── */
-const CATEGORY_ICON = {
-  Tecnologia:   { Icon: Cpu,        bg: "bg-blue-500/15",    text: "text-blue-400"    },
-  "Estratégia": { Icon: Target,     bg: "bg-purple-500/15",  text: "text-purple-400"  },
-  Analytics:    { Icon: BarChart2,  bg: "bg-amber-500/15",   text: "text-amber-400"   },
-  "Automação":  { Icon: Bot,        bg: "bg-emerald-500/15", text: "text-emerald-400" },
-  "Tendências": { Icon: TrendingUp, bg: "bg-rose-500/15",    text: "text-rose-400"    },
-  Novidades:    { Icon: Newspaper,  bg: "bg-cyan-500/15",    text: "text-cyan-400"    },
-};
-
-function CategoryThumb({ categoria }) {
-  const cfg = CATEGORY_ICON[categoria] || { Icon: Cpu, bg: "bg-zinc-700", text: "text-zinc-400" };
+/* ─── Falha de gravação: dizer o que houve, sem inventar a causa ─────────
+   O armazenamento do navegador falha por mais de um motivo, e a mensagem que
+   servia para todos ("libere espaço") só é verdadeira para um deles. Cota
+   estourada é a causa provável ao SALVAR um post com imagem embutida em
+   base64; excluir e restaurar gravam menos do que havia antes e praticamente
+   não estouram cota — quando falham, é outra coisa. Afirmar cota sempre manda
+   a pessoa limpar espaço por um defeito que espaço nenhum resolve. */
+function ehCotaEstourada(erro) {
+  if (!erro) return false;
   return (
-    <div className={`w-full h-full flex items-center justify-center rounded-xl ${cfg.bg}`}>
-      <cfg.Icon className={`w-7 h-7 ${cfg.text}`} strokeWidth={1.5} />
-    </div>
+    erro.name === "QuotaExceededError" ||
+    erro.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    erro.code === 22 ||
+    erro.code === 1014
   );
 }
+
+/** O que fazer, conforme a causa real. */
+function comoResolver(erro, acaoNoInfinitivo) {
+  return ehCotaEstourada(erro)
+    ? `O armazenamento do navegador está cheio. Libere espaço e tente ${acaoNoInfinitivo} de novo.`
+    : `Recarregue o Painel e tente ${acaoNoInfinitivo} de novo. O detalhe do erro está no console.`;
+}
+
+/* ─── Acesso ───────────────────────────────────────────────────────────
+   Esta página não decide mais nada sobre acesso. A senha em texto claro, a
+   chave gravada no armazenamento do navegador e a tela de login artesanal
+   saíram daqui: quem decide é `PortaoDeSessao`, acima da rota, contra a sessão
+   do Supabase. Se este componente está renderizando, a sessão já foi
+   verificada no servidor. */
+
+/* A lista fixa de Categorias que vivia aqui SAIU: Categoria vem de dado, não de
+   constante no código (`categorias` no Supabase), e a gaveta de metadados da
+   Story 2.6 lê a lista pela camada de dados.
+
+   O MAPA DE ÍCONE POR NOME saiu junto, na Story 2.10. Ele existia para a
+   listagem em `localStorage`, que casava o NOME da categoria com um ícone
+   escrito aqui — seis nomes fixos, e nada para uma sétima categoria criada no
+   Painel. A listagem nova mostra a capa do Post ou o monograma da Categoria
+   (`ListaDePosts.jsx`), e o monograma vem do dado, não de um mapa que precisa
+   ser editado toda vez que alguém cadastra uma categoria.
+
+   E a Story 2.14 fechou o buraco pelo lado certo: o ícone voltou, mas como
+   CHAVE de um mapa fechado (`admin/blog/iconesDeCategoria.js`) escolhida pelo
+   Autor na tela de Categorias — não como nome de categoria casado com desenho.
+   A cor entrou junto, por `style`, de um vocabulário fechado do domínio. Quem
+   cadastra, renomeia e exclui Categoria é a rota `/admin/categorias`, e não
+   uma constante neste arquivo. */
 
 /* ─── Cores disponíveis para vagas ────────────────────────────────── */
 const VAGA_COLORS = [
@@ -58,22 +93,6 @@ const NIVEL_COLORS = {
   "Sênior": "bg-purple-500/15 text-purple-400 border-purple-500/30",
 };
 
-/* ─── Post vazio ──────────────────────────────────────────────────── */
-const EMPTY_POST = {
-  id: null,
-  slug: "",
-  titulo: "",
-  resumo: "",
-  categoria: "Tecnologia",
-  autor: "",
-  data: new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }),
-  tempo: "5 min",
-  destaque: false,
-  imagem: "",
-  conteudo: "",
-  tags: [],
-};
-
 /* ─── Vaga vazia ──────────────────────────────────────────────────── */
 const EMPTY_VAGA = {
   id: null,
@@ -88,287 +107,18 @@ const EMPTY_VAGA = {
   ativa: true,
 };
 
-/* ─── Gera slug ───────────────────────────────────────────────────── */
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-}
+/* O `slugify` artesanal que vivia aqui SAIU. A geração de endereço é domínio
+   puro agora (`src/domain/blog/slug.js`), pela razão de sempre: a tela, a função
+   de escrita e a verificação precisam concordar sobre o que é um endereço
+   válido, e a única forma de garantir isso é não haver três cópias da regra. A
+   versão daqui, além do mais, deixava passar hífen no começo e no fim — o que o
+   banco recusa em `posts_slug_formato`. */
 
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  TELA DE LOGIN                                                       */
-/* ═══════════════════════════════════════════════════════════════════ */
-function LoginScreen({ onLogin }) {
-  const [pwd, setPwd] = useState("");
-  const [error, setError] = useState(false);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (pwd === ADMIN_PASSWORD) {
-      sessionStorage.setItem(AUTH_KEY, "1");
-      onLogin();
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/30">
-            <span className="text-2xl font-black text-white">CC</span>
-          </div>
-          <h1 className="text-2xl font-black text-white">Admin ChatClean</h1>
-          <p className="text-zinc-500 text-sm mt-1">Blog &amp; Carreiras</p>
-        </div>
-        <form onSubmit={handleSubmit} className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1.5">Senha</label>
-            <input
-              type="password"
-              value={pwd}
-              onChange={(e) => setPwd(e.target.value)}
-              placeholder="••••••••••••"
-              className={`w-full bg-zinc-800 border rounded-xl px-4 py-2.5 text-white outline-none transition-colors text-sm ${
-                error ? "border-red-500 focus:border-red-500" : "border-zinc-700 focus:border-emerald-500"
-              }`}
-              autoFocus
-            />
-            {error && <p className="text-red-400 text-xs mt-1.5">Senha incorreta.</p>}
-          </div>
-          <button
-            type="submit"
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-colors text-sm"
-          >
-            Entrar
-          </button>
-        </form>
-        <p className="text-center text-zinc-600 text-xs mt-4">
-          Senha padrão: <code className="text-zinc-400">chatclean@admin</code>
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  MODAL DE CONFIRMAÇÃO                                                */
-/* ═══════════════════════════════════════════════════════════════════ */
-function ConfirmModal({ title, message, onConfirm, onCancel, confirmLabel = "Excluir", confirmClass = "bg-red-500 hover:bg-red-600" }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm">
-      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-        <div className="flex items-center gap-3 mb-3">
-          <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-          <h3 className="text-white font-bold">{title}</h3>
-        </div>
-        <p className="text-zinc-400 text-sm mb-6">{message}</p>
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-2 rounded-xl border border-zinc-600 text-zinc-300 hover:border-zinc-400 transition-colors text-sm font-medium"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`flex-1 py-2 rounded-xl text-white transition-colors text-sm font-bold ${confirmClass}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════ */
-/*  FORMULÁRIO DE POST (criar / editar)                                 */
-/* ═══════════════════════════════════════════════════════════════════ */
-function PostForm({ post: initialPost, onSave, onCancel }) {
-  const [post, setPost] = useState({ ...EMPTY_POST, ...initialPost });
-  const [tagsInput, setTagsInput] = useState((initialPost?.tags || []).join(", "));
-  const [imgMode, setImgMode] = useState("url");
-  const [saved, setSaved] = useState(false);
-  const fileRef = useRef(null);
-
-  const isNew = !post.id;
-
-  const handleTituloChange = (value) => {
-    setPost((p) => ({
-      ...p,
-      titulo: value,
-      slug: isNew ? slugify(value) : p.slug,
-    }));
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPost((p) => ({ ...p, imagem: reader.result }));
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-    savePost({ ...post, tags });
-    setSaved(true);
-    setTimeout(() => { setSaved(false); onSave(); }, 800);
-  };
-
-  const field = (label, node) => (
-    <div>
-      <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">{label}</label>
-      {node}
-    </div>
-  );
-
-  const inputCls = "w-full bg-zinc-800 border border-zinc-700 focus:border-emerald-500 rounded-xl px-4 py-2.5 text-white text-sm outline-none transition-colors placeholder:text-zinc-600";
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col min-h-screen bg-zinc-950">
-      {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={onCancel} className="p-2 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h2 className="text-white font-black text-lg">{isNew ? "Novo Post" : "Editar Post"}</h2>
-            <p className="text-zinc-500 text-xs">{isNew ? "Criando um novo artigo" : `Editando: ${post.slug}`}</p>
-          </div>
-        </div>
-        <button
-          type="submit"
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-emerald-500 hover:bg-emerald-600 text-white transition-all"
-        >
-          {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-          {saved ? "Salvo!" : "Salvar"}
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 p-6 space-y-5 pb-16">
-        {field("Título *",
-          <input required className={inputCls} value={post.titulo} onChange={(e) => handleTituloChange(e.target.value)} placeholder="Título do artigo" />
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Slug (URL)",
-            <input className={inputCls} value={post.slug} onChange={(e) => setPost((p) => ({ ...p, slug: e.target.value }))} placeholder="meu-artigo-slug" />
-          )}
-          {field("Destaque",
-            <button
-              type="button"
-              onClick={() => setPost((p) => ({ ...p, destaque: !p.destaque }))}
-              className={`flex items-center gap-2 w-full px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-                post.destaque
-                  ? "bg-amber-500/10 border-amber-500/50 text-amber-400"
-                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500"
-              }`}
-            >
-              {post.destaque ? <Star className="w-4 h-4" /> : <StarOff className="w-4 h-4" />}
-              {post.destaque ? "Post em destaque" : "Marcar destaque"}
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Categoria",
-            <select className={inputCls} value={post.categoria} onChange={(e) => setPost((p) => ({ ...p, categoria: e.target.value }))}>
-              {CATEGORIAS.map((c) => <option key={c} value={c} className="bg-zinc-900">{c}</option>)}
-            </select>
-          )}
-          {field("Autor",
-            <input className={inputCls} value={post.autor} onChange={(e) => setPost((p) => ({ ...p, autor: e.target.value }))} placeholder="Nome do autor" />
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {field("Data",
-            <input className={inputCls} value={post.data} onChange={(e) => setPost((p) => ({ ...p, data: e.target.value }))} placeholder="15 Jan 2024" />
-          )}
-          {field("Tempo de leitura",
-            <input className={inputCls} value={post.tempo} onChange={(e) => setPost((p) => ({ ...p, tempo: e.target.value }))} placeholder="5 min" />
-          )}
-        </div>
-
-        {/* Imagem */}
-        <div>
-          <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-1.5">Imagem de capa</label>
-          <div className="flex gap-1 mb-3 p-1 bg-zinc-800 rounded-xl w-fit">
-            {["url", "upload"].map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setImgMode(mode)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors capitalize ${
-                  imgMode === mode ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {mode === "url" ? "URL" : "Upload"}
-              </button>
-            ))}
-          </div>
-          {imgMode === "url" ? (
-            <input className={inputCls} value={post.imagem} onChange={(e) => setPost((p) => ({ ...p, imagem: e.target.value }))} placeholder="https://exemplo.com/imagem.jpg" />
-          ) : (
-            <div>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-2 w-full border-2 border-dashed border-zinc-700 hover:border-emerald-500 rounded-xl p-4 text-zinc-400 hover:text-emerald-400 transition-colors text-sm"
-              >
-                <Upload className="w-5 h-5" />
-                Clique para selecionar uma imagem
-              </button>
-            </div>
-          )}
-          {post.imagem && (
-            <div className="mt-3 relative">
-              <img src={post.imagem} alt="Preview" className="w-full h-40 object-cover rounded-xl border border-zinc-700" onError={(e) => { e.target.style.display = "none"; }} />
-              <button type="button" onClick={() => setPost((p) => ({ ...p, imagem: "" }))} className="absolute top-2 right-2 p-1 bg-zinc-900/80 rounded-full text-zinc-400 hover:text-red-400 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {field("Resumo (meta descrição) *",
-          <textarea required className={`${inputCls} resize-none`} rows={3} value={post.resumo} onChange={(e) => setPost((p) => ({ ...p, resumo: e.target.value }))} placeholder="Breve descrição do artigo (exibida na listagem e no SEO)" />
-        )}
-
-        {field("Tags (separadas por vírgula)",
-          <input className={inputCls} value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="WhatsApp, CRM, Automação" />
-        )}
-
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Conteúdo (Markdown) *</label>
-            <span className="text-xs text-zinc-600">{post.conteudo.length} caracteres</span>
-          </div>
-          <textarea
-            required
-            className={`${inputCls} resize-y font-mono text-xs leading-relaxed`}
-            rows={20}
-            value={post.conteudo}
-            onChange={(e) => setPost((p) => ({ ...p, conteudo: e.target.value }))}
-            placeholder={`# Título do Artigo\n\nEscreva seu conteúdo em Markdown aqui...\n\n## Seção\n\nTexto com **negrito** e *itálico*.\n\n- Item 1\n- Item 2`}
-          />
-          <p className="text-zinc-600 text-xs mt-1.5">Suporte a Markdown: **negrito**, *itálico*, ## títulos, - listas, `código`</p>
-        </div>
-      </div>
-    </form>
-  );
-}
+/* O modal de confirmação artesanal que vivia aqui SAIU do repositório.
+   Era um `div` fixo sem `role`, sem armadilha de foco, sem `Esc`, sem devolver
+   o foco a quem o abriu, e com o botão destrutivo alcançável antes do Cancelar.
+   Quem confirma agora é `DialogoDeConfirmacao`, sobre o `alert-dialog` do
+   shadcn (Story 1.6). */
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /*  FORMULÁRIO DE VAGA (criar / editar)                                 */
@@ -383,10 +133,22 @@ function VagaForm({ vaga: initialVaga, onSave, onCancel }) {
     setVaga((v) => ({ ...v, accent: color.accent, bg: color.bg }));
   };
 
+  /* Mesma correção do formulário de post: sucesso declarado só depois de a
+     gravação ter acontecido de verdade. */
   const handleSubmit = (e) => {
     e.preventDefault();
-    saveVaga(vaga);
+    try {
+      saveVaga(vaga);
+    } catch (erro) {
+      console.error("[Painel] falha ao salvar vaga", erro);
+      notificarErro(
+        "Não deu para salvar a vaga",
+        comoResolver(erro, "salvar"),
+      );
+      return;
+    }
     setSaved(true);
+    notificarSucesso("Vaga salva", vaga.titulo);
     setTimeout(() => { setSaved(false); onSave(); }, 800);
   };
 
@@ -524,16 +286,36 @@ function VagaForm({ vaga: initialVaga, onSave, onCancel }) {
 /*  COMPONENTE PRINCIPAL                                                */
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function AdminBlog() {
-  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem(AUTH_KEY));
-
   /* ── Aba ativa ────────────────────────────────────────────────── */
   const [activeTab, setActiveTab] = useState("blog"); // "blog" | "carreiras"
 
-  /* ── Estado — Blog ────────────────────────────────────────────── */
-  const [posts, setPosts] = useState([]);
+  /* ── Estado — Blog ────────────────────────────────────────────────
+     A LISTA NÃO MORA MAIS AQUI. Quem carrega os Posts é `ListaDePosts`, pela
+     camada de dados, com o carregamento, o erro e o vazio dela — três telas que
+     a página não tem como orquestrar sem virar a listagem por outro nome.
+
+     O que fica aqui é só o que a PÁGINA precisa saber: quantos Posts há (a
+     contagem da aba, que a barra exibe) e quando a lista precisa recarregar.
+     `contagemDePosts` nasce `null` — "ainda não sei" — e não `0`: um zero
+     enquanto os dados vêm anuncia "nenhum post" para quem tem doze. */
+  const [contagemDePosts, setContagemDePosts] = useState(null);
+  const [versaoDaLista, setVersaoDaLista] = useState(0);
   const [blogView, setBlogView] = useState("list"); // "list" | "form"
   const [editingPost, setEditingPost] = useState(null);
-  const [blogSearch, setBlogSearch] = useState("");
+
+  /* ── O que se pede à busca ────────────────────────────────────────────
+     A página só GUARDA o pedido: o termo digitado e os Estados marcados. Quem
+     consulta é a listagem, pela camada de dados, e quem busca de verdade é o
+     Postgres — insensível a maiúsculas e a acento, sobre título, Categoria,
+     Autor e Tags. Filtrar aqui a lista já carregada é o que a Story 2.10
+     removeu de propósito: funciona enquanto há poucos Posts e passa a mentir
+     exatamente quando a busca fica necessária. */
+  const [buscaDePosts, setBuscaDePosts] = useState("");
+  const [estadosDoFiltro, setEstadosDoFiltro] = useState([]);
+  const limparBuscaDePosts = () => {
+    setBuscaDePosts("");
+    setEstadosDoFiltro([]);
+  };
 
   /* ── Estado — Carreiras ───────────────────────────────────────── */
   const [vagas, setVagas] = useState([]);
@@ -542,46 +324,130 @@ export default function AdminBlog() {
   const [vagasSearch, setVagasSearch] = useState("");
 
   /* ── Modais ────────────────────────────────────────────────────── */
-  const [deleteTarget, setDeleteTarget] = useState(null); // { type: "blog"|"vaga", item }
+  /* Só vaga: excluir Post saiu com o `blogStore` (ver acima). O campo `type`
+     continua no formato para a Story 2.12 recolocar o Post por lá, agora pelo
+     caminho único de escrita. */
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: "vaga", item }
   const [confirmReset, setConfirmReset] = useState(false);
 
-  /* Carrega dados ao autenticar */
+  /* Carrega as vagas na montagem. A página só é montada com sessão verificada —
+     o portão está acima da rota —, então não há mais condição a checar aqui.
+     Os Posts NÃO são carregados aqui: quem os lê é `ListaDePosts`, pela camada
+     de dados, e ler duas vezes em dois lugares é como o Painel chegou a mostrar
+     de uma origem e gravar noutra. */
   useEffect(() => {
-    if (authed) {
-      setPosts(getPosts());
-      setVagas(getVagas());
-    }
-  }, [authed]);
+    setVagas(getVagas());
+  }, []);
 
   /* ── Ações — Blog ─────────────────────────────────────────────── */
-  const handleSavePost = () => { setPosts(getPosts()); setBlogView("list"); setEditingPost(null); };
-  const handleDeletePost = (id) => { setPosts(deletePost(id)); setDeleteTarget(null); };
-  const handleResetPosts = () => { setPosts(resetPosts()); setConfirmReset(false); };
+  /* Salvar NÃO fecha o Editor. A regra do épico é explícita — publicar não tira
+     o Autor do Editor —, e o mesmo vale para salvar: quem acabou de gravar
+     costuma continuar escrevendo. Quem sai é o botão de voltar, e só ele.
+
+     O QUE ESTA FUNÇÃO GARANTE é que a listagem, quando o Autor voltar, já saiba
+     do que foi gravado: a versão muda, e a lista relê pela camada de dados. Sem
+     isto o Autor salva e volta para uma lista que ainda não viu o Post — que é
+     precisamente a costura que esta story fecha. */
+  const handleSavePost = () => { setVersaoDaLista((n) => n + 1); };
+
+  /* Não existe `handleDeletePost`, e a ausência é a entrega: excluir Post
+     passava por `blogStore`, que grava no armazenamento do navegador. Depois da
+     Story 2.10 a lista vem do Supabase, e apagar do `localStorage` removeria uma
+     linha que a listagem nem mostra — a aparência de ter excluído, sem excluir
+     nada. As ações por linha, com o caminho único de escrita, são da Story 2.12.
+
+     Também não existe `handleResetPosts`: Restaurar só é oferecida na aba
+     Carreiras (Story 1.5), então o caminho de restaurar posts não tem como ser
+     acionado. Deixá-lo escrito seria código morto se passando por
+     funcionalidade — e um dia alguém religaria o botão confiando num caminho que
+     ninguém exercitou. */
 
   /* ── Ações — Carreiras ────────────────────────────────────────── */
   const handleSaveVaga = () => { setVagas(getVagas()); setVagasView("list"); setEditingVaga(null); };
-  const handleDeleteVaga = (id) => { setVagas(deleteVaga(id)); setDeleteTarget(null); };
-  const handleResetVagas = () => { setVagas(resetVagas()); setConfirmReset(false); };
 
-  /* ── Logout ────────────────────────────────────────────────────── */
-  const handleLogout = () => { sessionStorage.removeItem(AUTH_KEY); setAuthed(false); };
+  const handleDeleteVaga = (id) => {
+    try {
+      setVagas(deleteVaga(id));
+      setDeleteTarget(null);
+      notificarSucesso("Vaga excluída");
+    } catch (erro) {
+      console.error("[Painel] falha ao excluir vaga", erro);
+      notificarErro("Não deu para excluir a vaga", comoResolver(erro, "excluir"));
+    }
+  };
 
-  /* ── Não autenticado ──────────────────────────────────────────── */
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
+  const handleResetVagas = () => {
+    try {
+      setVagas(resetVagas());
+      setConfirmReset(false);
+      notificarSucesso("Vagas originais restauradas");
+    } catch (erro) {
+      console.error("[Painel] falha ao restaurar vagas", erro);
+      notificarErro("Não deu para restaurar as vagas", comoResolver(erro, "restaurar"));
+    }
+  };
 
-  /* ── Formulário de post (tela cheia) ──────────────────────────── */
-  if (blogView === "form") {
-    return (
-      <PostForm
-        post={editingPost}
-        onSave={handleSavePost}
-        onCancel={() => { setBlogView("list"); setEditingPost(null); }}
-      />
-    );
-  }
+  /* ── A barra: abas e ações da aba ativa ───────────────────────── */
+
+  /* A casca não conhece Post nem Vaga (AD-15) — as abas chegam nela como dados.
+     A contagem vai formatada: número é dado, e a barra o exibe em `.dado`. */
+  const abas = [
+    {
+      id: "blog",
+      rotulo: "Blog",
+      Icone: FileText,
+      /* `null` enquanto a listagem carrega: a barra omite a contagem, em vez de
+         anunciar zero para quem tem doze posts. */
+      contagem: contagemDePosts === null ? null : formatarNumero(contagemDePosts),
+      href: "/blog",
+      rotuloDoLink: "Abrir o blog publicado em nova aba",
+    },
+    {
+      id: "carreiras",
+      rotulo: "Carreiras",
+      Icone: Briefcase,
+      contagem: formatarNumero(vagas.length),
+      href: "/carreiras",
+      rotuloDoLink: "Abrir a página de carreiras em nova aba",
+    },
+  ];
+
+  /* Restaurar é global e destrutiva, e some da aba Blog — é lá que ela nunca
+     pertenceu. Em Carreiras continua exatamente como hoje: o módulo está fora
+     de escopo e não pode regredir (AD-15). Passar a ação em vez de escrevê-la
+     na barra é o que permite as duas coisas ao mesmo tempo. */
+  const acoesDaAba =
+    activeTab === "carreiras"
+      ? [
+          {
+            id: "restaurar",
+            rotulo: "Restaurar",
+            Icone: RotateCcw,
+            aoAcionar: () => setConfirmReset(true),
+          },
+        ]
+      : [];
+
+  /* ── Editor de post (tela cheia) ──────────────────────────────────
+     O formulário de `localStorage` com campo de Autor digitável e caixa de
+     Markdown SAIU: quem edita post agora é o Editor visual da Story 2.4 com a
+     gaveta de metadados da 2.6, e quem grava é a função de servidor da 2.5. A
+     listagem SAIU na Story 2.10, e virou `ListaDePosts` — o que ficou aqui é
+     para onde "editar" e "novo" levam, e o aviso de que gravou.
+
+     A troca com a listagem NÃO É MAIS `return` condicional (item 5): um
+     `return` cedo troca a árvore inteira num quadro só, e é por isso que a
+     versão anterior não animava — não havia `AnimatePresence` para animar,
+     porque as duas telas nunca coexistiam nem por um instante. Agora as duas
+     são ramos de UM retorno só, mais abaixo. */
 
   /* ── Formulário de vaga (tela cheia) ──────────────────────────── */
-  if (vagasView === "form") {
+  /* `blogView !== "form"` é a guarda que preserva a prioridade de ANTES desta
+     mudança: o Editor de Post sempre vencia quando os dois estavam abertos.
+     Sem ela, este `return` antecipado passaria na frente do ramo do Editor
+     (mais abaixo, dentro do `AnimatePresence`) sempre que os dois Estados
+     fossem "form" ao mesmo tempo — inversão de prioridade, e não decisão. */
+  if (vagasView === "form" && blogView !== "form") {
     return (
       <VagaForm
         vaga={editingVaga}
@@ -591,17 +457,13 @@ export default function AdminBlog() {
     );
   }
 
-  /* ── Filtros ──────────────────────────────────────────────────── */
-  const search = activeTab === "blog" ? blogSearch : vagasSearch;
-  const setSearch = activeTab === "blog" ? setBlogSearch : setVagasSearch;
-
-  const filteredPosts = posts.filter(
-    (p) =>
-      p.titulo.toLowerCase().includes(blogSearch.toLowerCase()) ||
-      p.categoria.toLowerCase().includes(blogSearch.toLowerCase()) ||
-      p.autor.toLowerCase().includes(blogSearch.toLowerCase()),
-  );
-
+  /* ── Filtros ──────────────────────────────────────────────────────
+     Só Carreiras filtra aqui, sobre o que já está na memória. O Blog NÃO tem
+     equivalente nesta página, e a ausência é a entrega: a busca de Post
+     acontece no Postgres — insensível a maiúsculas e a acento, sobre título,
+     Categoria, Autor e Tags —, e um `includes` de minúsculas sobre a lista
+     carregada não é nada disso. Reintroduzi-lo aqui daria duas buscas com
+     resultados diferentes para a mesma pergunta. */
   const filteredVagas = vagas.filter(
     (v) =>
       v.titulo.toLowerCase().includes(vagasSearch.toLowerCase()) ||
@@ -609,117 +471,157 @@ export default function AdminBlog() {
       v.localizacao.toLowerCase().includes(vagasSearch.toLowerCase()),
   );
 
+  /* O rótulo do diálogo de exclusão precisa existir mesmo com ele fechado —
+     agora que a montagem é permanente, não condicional. Só há um tipo de alvo
+     desde a Story 2.10: excluir Post saiu junto com o `blogStore`. */
+  const tipoDoAlvo = "vaga";
+
   /* ── Render principal ─────────────────────────────────────────── */
+  //
+  // O Editor e a listagem são ramos do MESMO `AnimatePresence`, com
+  // `mode="wait"` — a tela que sai termina a saída antes de a que entra
+  // começar a entrar, então as duas nunca disputam a mesma área ao mesmo
+  // tempo. A chave (`key="editor"` / `key="lista"`) é o que diz ao
+  // `AnimatePresence` que são telas DIFERENTES, e não a mesma tela
+  // reordenando props — sem ela não haveria saída para animar.
   return (
-    <div className="h-screen flex flex-col bg-zinc-950 text-white overflow-hidden">
-
-      {/* ────── Topbar ─────────────────────────────────────────── */}
-      <div className="shrink-0 border-b border-zinc-800 px-6 py-3.5 flex items-center justify-between gap-4">
-
-        {/* Lado esquerdo: logo + tabs */}
-        <div className="flex items-center gap-5">
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
-              <span className="text-xs font-black text-white">CC</span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="font-black text-white text-sm leading-none">Admin ChatClean</p>
-              <p className="text-zinc-500 text-[11px] mt-0.5">
-                {activeTab === "blog"
-                  ? `${posts.length} post${posts.length !== 1 ? "s" : ""}`
-                  : `${vagas.length} vaga${vagas.length !== 1 ? "s" : ""}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Pills de aba */}
-          <div className="flex gap-1 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
-            <button
-              onClick={() => setActiveTab("blog")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "blog"
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Blog
-              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === "blog" ? "bg-emerald-500/25 text-emerald-300" : "bg-zinc-800 text-zinc-500"
-              }`}>
-                {posts.length}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("carreiras")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "carreiras"
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <Briefcase className="w-3.5 h-3.5" />
-              Carreiras
-              <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                activeTab === "carreiras" ? "bg-emerald-500/25 text-emerald-300" : "bg-zinc-800 text-zinc-500"
-              }`}>
-                {vagas.length}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Lado direito: ações */}
-        <div className="flex items-center gap-2">
-          {activeTab === "blog" ? (
-            <Link
-              to="/blog"
-              target="_blank"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ver Blog</span>
-            </Link>
-          ) : (
-            <Link
-              to="/carreiras"
-              target="_blank"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Ver Carreiras</span>
-            </Link>
-          )}
-          <button
-            onClick={() => setConfirmReset(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-amber-400 border border-zinc-700 hover:border-amber-500/50 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Restaurar</span>
-          </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-500/50 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Sair</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ────── Toolbar: busca + novo ──────────────────────────── */}
-      <div className="shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={activeTab === "blog" ? "Buscar posts..." : "Buscar vagas..."}
-            className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+    <AnimatePresence mode="wait">
+      {blogView === "form" ? (
+        <motion.div
+          key="editor"
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+          className="h-screen overflow-hidden"
+        >
+          <EditorDePost
+            postId={editingPost?.id ?? null}
+            aoSalvar={handleSavePost}
+            aoSair={() => { setBlogView("list"); setEditingPost(null); }}
           />
-        </div>
-        <button
+        </motion.div>
+      ) : (
+        <motion.div
+          key="lista"
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+          className="painel h-screen flex flex-col bg-background text-ink overflow-hidden"
+        >
+
+      {/* ────── Barra superior ─────────────────────────────────────
+          Vive na casca (`admin/shell`), não mais aqui: é compartilhada com
+          Carreiras. A página só diz quais abas existem e quais ações a aba
+          ativa oferece. */}
+      <BarraSuperior
+        titulo="Painel de conteúdo | ChatClean"
+        abas={abas}
+        abaAtiva={activeTab}
+        aoTrocarAba={setActiveTab}
+        idDoConteudo={ID_DO_CONTEUDO}
+        acoesDaAba={acoesDaAba}
+      />
+
+      {/* ────── Toolbar: busca + filtros + novo ──────────────────
+          A faixa é COMPARTILHADA com Carreiras, e a fronteira é o que não pode
+          escorregar: cada aba tem a sua busca, e a de Carreiras continua
+          filtrando o que já está na memória do navegador — módulo fora de
+          escopo, que não pode regredir. A do Blog é outra coisa: ela vai ao
+          banco, e o campo aqui só guarda o que foi digitado. */}
+      {/* A quebra de linha entra SÓ na aba Blog: ela é que ganhou quatro
+          filtros ao lado do campo. Ligá-la nas duas mudaria como a faixa de
+          Carreiras se comporta em tela estreita, e Carreiras não pode
+          regredir. */}
+      <motion.div
+        variants={staggerContainer(0.08)}
+        initial="hidden"
+        animate="visible"
+        className={`shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3 ${
+          activeTab === "blog" ? "flex-wrap" : ""
+        }`}
+      >
+        {activeTab === "blog" ? (
+          <>
+            <motion.div variants={staggerItem} className="relative flex-1 min-w-[14rem] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted" />
+              <input
+                value={buscaDePosts}
+                onChange={(e) => setBuscaDePosts(e.target.value)}
+                placeholder="Buscar por título, categoria, autor ou tag..."
+                aria-label="Buscar posts por título, categoria, autor ou tag"
+                data-busca="posts"
+                className="w-full bg-surface border border-border-soft rounded-xl pl-10 pr-4 py-2.5 text-sm text-ink outline-none focus:border-emerald-500 transition-colors placeholder:text-ink-muted"
+              />
+            </motion.div>
+            {/* Os filtros de Estado. As palavras vêm do vocabulário fechado do
+                domínio — escrevê-las aqui criaria o sinônimo que ele existe
+                para impedir —, e cada botão diz se está marcado por `aria-
+                pressed`, não só pela cor. */}
+            <motion.div
+              variants={staggerItem}
+              role="group"
+              aria-label="Filtrar posts por estado"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              {ESTADOS.map((estado) => {
+                const marcado = estadosDoFiltro.includes(estado);
+                return (
+                  <button
+                    key={estado}
+                    type="button"
+                    data-filtro-de-estado={estado}
+                    aria-pressed={marcado}
+                    onClick={() =>
+                      setEstadosDoFiltro((atuais) => selecionarEstadoExclusivo(atuais, estado))
+                    }
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                      marcado
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                        : "bg-surface border-border-soft text-ink-muted hover:text-ink hover:border-border-strong"
+                    }`}
+                  >
+                    {rotuloDoEstado(estado)}
+                  </button>
+                );
+              })}
+            </motion.div>
+            {/* O vão que empurra "Novo Post" para a borda. Ele é da aba Blog e
+                só dela: em Carreiras o botão sempre veio logo depois do campo,
+                e mover um controle de módulo fora de escopo é regressão. */}
+            <div className="flex-1" />
+            {/* A ENTRADA PARA AS CATEGORIAS (Story 2.14).
+                É um LINK para uma rota irmã, e não uma terceira aba: a faixa em
+                que ele está é um ternário de dois ramos, e uma aba a mais
+                cairia no ramo de Carreiras — ganhando o campo "Buscar vagas" e
+                o botão "Nova Vaga". Ele só existe na aba Blog, como tudo o mais
+                deste ramo.
+                `motion.div` em volta, e não `motion(Link)`: o mesmo cascata de
+                entrada que os outros controles da faixa já têm, sem criar um
+                componente novo só para isto. */}
+            <motion.div variants={staggerItem}>
+              <Link
+                to={ENDERECO_DAS_CATEGORIAS}
+                data-acao="abrir-categorias"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+              >
+                <Tags className="w-4 h-4" />
+                <span className="hidden sm:inline">Categorias</span>
+              </Link>
+            </motion.div>
+          </>
+        ) : (
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <input
+              value={vagasSearch}
+              onChange={(e) => setVagasSearch(e.target.value)}
+              placeholder="Buscar vagas..."
+              className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+            />
+          </div>
+        )}
+        <motion.button
+          variants={staggerItem}
           onClick={() => {
             if (activeTab === "blog") { setEditingPost(null); setBlogView("form"); }
             else { setEditingVaga(null); setVagasView("form"); }
@@ -730,83 +632,37 @@ export default function AdminBlog() {
           <span className="hidden sm:inline">
             {activeTab === "blog" ? "Novo Post" : "Nova Vaga"}
           </span>
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
 
-      {/* ────── Lista ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* ────── Lista ───────────────────────────────────────────
+          É o painel que as abas controlam: sem `tabpanel` associado, o
+          `role="tab"` da barra apontaria para lugar nenhum. */}
+      <div
+        id={ID_DO_CONTEUDO}
+        role="tabpanel"
+        aria-labelledby={idDaAba(activeTab)}
+        tabIndex={-1}
+        className="flex-1 overflow-y-auto p-6"
+      >
 
-        {/* ── POSTS ─────────────────────────────────────────────── */}
+        {/* ── POSTS ───────────────────────────────────────────────
+            A LISTAGEM LÊ O SUPABASE, e não mais o `localStorage`. Carregamento,
+            erro e vazio são dela: são três telas distintas, e a página não teria
+            como orquestrá-las sem virar a listagem por outro nome.
+
+            `recarregarEm` é a costura com o Editor: salvar muda a versão, a
+            lista relê, e o Autor que acabou de gravar encontra o Post. */}
         {activeTab === "blog" && (
-          filteredPosts.length === 0 ? (
-            <div className="text-center py-20 text-zinc-600">
-              <FileText className="w-12 h-12 mx-auto mb-4 opacity-25" />
-              <p className="text-base font-medium">Nenhum post encontrado</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredPosts.map((post) => (
-                <div
-                  key={post.id}
-                  className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4 hover:border-zinc-700 transition-colors group"
-                >
-                  {/* Thumb */}
-                  <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-zinc-800">
-                    {post.imagem ? (
-                      <img
-                        src={post.imagem}
-                        alt={post.titulo}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      />
-                    ) : (
-                      <CategoryThumb categoria={post.categoria} />
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-white text-sm truncate">{post.titulo}</h3>
-                      {post.destaque && <Star className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      <span className="bg-zinc-800 px-2 py-0.5 rounded-full">{post.categoria}</span>
-                      {post.autor && <span>{post.autor}</span>}
-                      <span>{post.data}</span>
-                      <span>{post.tempo}</span>
-                    </div>
-                  </div>
-
-                  {/* Ações */}
-                  <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <Link
-                      to={`/blog/${post.slug}`}
-                      target="_blank"
-                      className="p-2 rounded-xl hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-                      title="Ver post"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Link>
-                    <button
-                      onClick={() => { setEditingPost(post); setBlogView("form"); }}
-                      className="p-2 rounded-xl hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 transition-colors"
-                      title="Editar"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget({ type: "blog", item: post })}
-                      className="p-2 rounded-xl hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
+          <ListaDePosts
+            recarregarEm={versaoDaLista}
+            termo={buscaDePosts}
+            estados={estadosDoFiltro}
+            aoContar={setContagemDePosts}
+            aoAbrirPost={(post) => { setEditingPost(post); setBlogView("form"); }}
+            aoCriarPost={() => { setEditingPost(null); setBlogView("form"); }}
+            aoLimparBusca={limparBuscaDePosts}
+          />
         )}
 
         {/* ── VAGAS ─────────────────────────────────────────────── */}
@@ -883,32 +739,42 @@ export default function AdminBlog() {
         )}
       </div>
 
-      {/* ────── Modais ────────────────────────────────────────── */}
-      {deleteTarget && (
-        <ConfirmModal
-          title={`Excluir ${deleteTarget.type === "blog" ? "post" : "vaga"}?`}
-          message={`"${deleteTarget.item.titulo}" será removido permanentemente.`}
-          onConfirm={() => {
-            if (deleteTarget.type === "blog") handleDeletePost(deleteTarget.item.id);
-            else handleDeleteVaga(deleteTarget.item.id);
-          }}
-          onCancel={() => setDeleteTarget(null)}
-        />
-      )}
+      {/* ────── Diálogos ──────────────────────────────────────────
+          Montados SEMPRE, controlados por `open`. Montagem condicional
+          (`{alvo && <Dialogo …>}`) nunca transita de aberto para fechado: o
+          componente desmonta, e com ele o `onCloseAutoFocus` do Radix, que é
+          quem devolve o foco ao botão que abriu o diálogo. Quem fecha por `Esc`
+          ou por Cancelar perdia o foco no `body` e recomeçava a tabulação do
+          topo da página.
 
-      {confirmReset && (
-        <ConfirmModal
-          title={`Restaurar ${activeTab === "blog" ? "posts" : "vagas"} originais?`}
-          message={`Todas as alterações em ${activeTab === "blog" ? "posts" : "vagas"} serão perdidas e os dados padrão serão restaurados.`}
-          confirmLabel="Restaurar"
-          confirmClass="bg-amber-500 hover:bg-amber-600"
-          onConfirm={() => {
-            if (activeTab === "blog") handleResetPosts();
-            else handleResetVagas();
-          }}
-          onCancel={() => setConfirmReset(false)}
-        />
+          O rótulo do botão diz o que ele faz — "Excluir post", não
+          "Confirmar" —, e Cancelar é o foco inicial. */}
+      <DialogoDeConfirmacao
+        aberto={Boolean(deleteTarget)}
+        aoMudarAbertura={(aberto) => { if (!aberto) setDeleteTarget(null); }}
+        titulo={`Excluir ${tipoDoAlvo}?`}
+        descricao={`"${deleteTarget?.item?.titulo ?? ""}" será removido permanentemente.`}
+        rotuloDeConfirmacao={`Excluir ${tipoDoAlvo}`}
+        aoConfirmar={() => {
+          if (!deleteTarget) return;
+          handleDeleteVaga(deleteTarget.item.id);
+        }}
+      />
+
+      {/* Restaurar não é excluir. O modal artesanal distinguia — âmbar para
+          restaurar, vermelho para excluir — e a distinção de gravidade não
+          pode se perder na troca: `perigo={false}`. */}
+      <DialogoDeConfirmacao
+        aberto={confirmReset}
+        aoMudarAbertura={(aberto) => { if (!aberto) setConfirmReset(false); }}
+        titulo="Restaurar vagas originais?"
+        descricao="Todas as alterações em vagas serão perdidas e os dados padrão serão restaurados."
+        rotuloDeConfirmacao="Restaurar vagas originais"
+        perigo={false}
+        aoConfirmar={handleResetVagas}
+      />
+        </motion.div>
       )}
-    </div>
+    </AnimatePresence>
   );
 }

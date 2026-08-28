@@ -82,7 +82,7 @@ Você pode controlar o uso de cookies nas configurações do seu navegador.`,
     titulo: "9. Contato",
     texto: `Se tiver dúvidas sobre esta Política de Privacidade ou sobre o tratamento dos seus dados, entre em contato conosco:
 
-ChatClean — CNPJ: 57.487.327/0001-57
+ChatClean, CNPJ: 57.487.327/0001-57
 Av. Prudente de Morais, 5121, Natal-RN, CEP 59020-400
 E-mail: contato@chatclean.com.br
 Telefone: +55 84 9695-0105`,
@@ -137,7 +137,7 @@ export default function PoliticaPrivacidade() {
           transition={{ duration: 0.5 }}
           className="text-zinc-600 leading-relaxed mb-10 text-base border-l-4 border-emerald-500 pl-4"
         >
-          A ChatClean está comprometida com a proteção da sua privacidade. Esta política descreve como coletamos, usamos e protegemos suas informações pessoais em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).
+          A ChatClean está comprometida com a proteção da sua privacidade. Esta política descreve como coletamos, usamos e protegemos suas informações pessoais em conformidade com a Lei Geral de Proteção de Dados (LGPD, Lei nº 13.709/2018).
         </motion.p>
 
         <div className="space-y-10">

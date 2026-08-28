@@ -26,6 +26,11 @@ coverage
 *.csv
 *.dat
 *.sql
+# ...mas as migrações do Supabase são o schema versionado: sem esta exceção o
+# `*.sql` acima as deixaria fora do repositório e a auditoria de schema não
+# existiria em clone limpo.
+!supabase/migrations/*.sql
+!supabase/seed.sql
 *.sqlite
 *.sqlite3
 *.db
@@ -34,3 +39,19 @@ coverage
 *.backup
 *.log
 *.tmp
+
+# BMAD Method (local apenas - nao versionar)
+_bmad/
+_bmad-output/
+.claude/skills/
+.claude/settings.local.json
+.agents/
+skills-lock.json
+
+# Ferramental local do assistente (nao versionar, por decisao)
+CLAUDE.md
+.rtk/
+
+# Gerado por `npm run build` — o shell do build embutido nas funcoes.
+# Versionar faria a copia nascer velha no build seguinte (hashes mudam).
+api/_nucleo/shell.gerado.js
