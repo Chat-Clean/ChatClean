@@ -18,12 +18,15 @@
  */
 
 import { useId, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { useSessao } from "./useSessao";
+import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "./foco";
+import { cn } from "@/lib/utils";
 
 const ERRO_CAMPOS_VAZIOS = "Preencha o e-mail e a senha.";
 
@@ -38,9 +41,18 @@ export default function TelaDeEntrada() {
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState(erroDeAmbiente ?? erroDeSessao ?? null);
   const [enviando, setEnviando] = useState(false);
+  /* A senha nasce OCULTA — nenhuma tela do Painel abre já expondo o que
+     alguém acabou de digitar. */
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
 
   const enviar = async (evento) => {
     evento.preventDefault();
+    /* A OCULTAÇÃO VEM ANTES DE QUALQUER OUTRA COISA — inclusive da validação
+       de campo vazio logo abaixo. Apertar "Entrar" é o instante em que a
+       pessoa termina de digitar e o pedido sai para a rede; a senha ficar à
+       vista na tela por mais um segundo enquanto a resposta não chega é
+       exatamente a janela que ombro-surfando explora. */
+    setSenhaVisivel(false);
     if (enviando) return;
 
     // Validação local antes de qualquer viagem ao servidor. Sem ela, enviar em
@@ -119,19 +131,44 @@ export default function TelaDeEntrada() {
 
           <div className="space-y-2">
             <Label htmlFor={idSenha}>Senha</Label>
-            <Input
-              id={idSenha}
-              name="senha"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              aria-invalid={comErro || undefined}
-              aria-describedby={comErro ? idErro : undefined}
-              disabled={enviando}
-              className="h-11 rounded-controle"
-            />
+            <div className="relative">
+              <Input
+                id={idSenha}
+                name="senha"
+                type={senhaVisivel ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                aria-invalid={comErro || undefined}
+                aria-describedby={comErro ? idErro : undefined}
+                disabled={enviando}
+                className="h-11 rounded-controle pr-11"
+              />
+              {/* Alterna a EXIBIÇÃO, nunca o conteúdo — e não submete o
+                  formulário: `type="button"`, senão Enter dentro do campo de
+                  senha acionaria este controle em vez de "Entrar". */}
+              <button
+                type="button"
+                onClick={() => setSenhaVisivel((atual) => !atual)}
+                aria-label={senhaVisivel ? "Ocultar senha" : "Mostrar senha"}
+                aria-pressed={senhaVisivel}
+                disabled={enviando}
+                className={cn(
+                  ANEL_DE_FOCO,
+                  ALVO_DE_TOQUE,
+                  "absolute right-0.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center",
+                  "rounded-controle text-muted-foreground hover:text-foreground transition-colors",
+                  "disabled:pointer-events-none disabled:opacity-50",
+                )}
+              >
+                {senhaVisivel ? (
+                  <EyeOff aria-hidden="true" className="size-4" />
+                ) : (
+                  <Eye aria-hidden="true" className="size-4" />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Região `alert` permanente: presente desde a primeira renderização,
