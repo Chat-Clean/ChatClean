@@ -231,7 +231,7 @@ export function rotuloDeEditar(categoria) {
 export function rotuloDeExcluir(categoria) {
   const nome = nomeParaFrase(categoria);
   if (!podeExcluir(categoria)) {
-    return `Excluir a categoria ${nome} — indisponível: ${motivoDeNaoExcluir(categoria).oQueHouve}`;
+    return `Excluir a categoria ${nome}, indisponível: ${motivoDeNaoExcluir(categoria).oQueHouve}`;
   }
   return `Excluir a categoria ${nome}`;
 }

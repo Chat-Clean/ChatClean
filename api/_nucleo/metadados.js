@@ -98,7 +98,7 @@ function meta(chave, atributo, valor) {
 function doSite(raiz, caminho) {
   const imagem = enderecoDaImagemPadrao(raiz);
   return {
-    titulo: "Blog ChatClean — CRM e ChatBot para WhatsApp",
+    titulo: "Blog ChatClean | CRM e ChatBot para WhatsApp",
     descricao:
       "Artigos sobre atendimento no WhatsApp, automação com IA e gestão de " +
       "clientes, pela equipe da ChatClean.",

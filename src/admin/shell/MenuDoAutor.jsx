@@ -61,7 +61,7 @@ export default function MenuDoAutor({ className }) {
       <DropdownMenuTrigger
         // Nome acessível explícito: concatenar um texto oculto ao nome visível
         // faria o leitor anunciar "Fulano de Tal Abrir menu da conta".
-        aria-label={`Conta de ${rotulo} — abrir menu`}
+        aria-label={`Abrir menu da conta de ${rotulo}`}
         className={cn(
           "flex items-center gap-2 min-h-10 px-3 py-2 rounded-controle text-xs font-semibold",
           "text-primary-foreground/80 hover:text-primary-foreground",

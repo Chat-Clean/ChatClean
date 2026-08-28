@@ -114,7 +114,7 @@ const VERBOS_DA_OPERACAO = Object.freeze({
        sobre uma ação que a pessoa não pediu, num campo que ela não tocou. */
     conflito:
       "Alguma coisa ainda depende deste post, então ele não pode sair agora. Recarregue o Painel e tente excluir de novo.",
-    ausente: "Este post já não está no Painel — alguém pode tê-lo excluído antes.",
+    ausente: "Este post já não está no Painel, alguém pode tê-lo excluído antes.",
   }),
   [OPERACAO_DESTACAR]: Object.freeze({
     fazer: "mudar o destaque do post",
@@ -136,7 +136,7 @@ const VERBOS_DA_OPERACAO = Object.freeze({
     fazer: "excluir a categoria",
     tentar: "tente excluir de novo",
     conflito: "Há posts usando esta categoria. Mude a categoria desses posts antes de excluí-la.",
-    ausente: "Esta categoria já não está no Painel — alguém pode tê-la excluído antes.",
+    ausente: "Esta categoria já não está no Painel, alguém pode tê-la excluído antes.",
   }),
 });
 

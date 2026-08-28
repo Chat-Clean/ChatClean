@@ -226,7 +226,7 @@ export function extensaoDaEspecie(tipo) {
  */
 export function formatarTamanho(bytes) {
   const n = Number(bytes);
-  if (!Number.isFinite(n) || n < 0) return "—";
+  if (!Number.isFinite(n) || n < 0) return "tamanho desconhecido";
   if (n < 1024) return `${Math.round(n)} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} kB`;
   const mb = n / (1024 * 1024);
@@ -480,17 +480,17 @@ export const RECUSA_DE_ENDERECO_LONGO =
 
 /** Tem caractere fora do vocabulário: acento, espaço, aspas, sinal de marcação. */
 export const RECUSA_DE_ENDERECO_COM_CARACTERE =
-  "O endereço da imagem tem caracteres que não valem num endereço — acento, espaço ou aspas. " +
+  "O endereço da imagem tem caracteres que não valem num endereço: acento, espaço ou aspas. " +
   "Copie o endereço direto da barra do navegador, que já vem codificado.";
 
 /** Não começa com `https://` — é onde mora o risco executável. */
 export const RECUSA_DE_ENDERECO_SEM_ESQUEMA =
-  "O endereço da imagem precisa ser um endereço completo começando com https:// — " +
+  "O endereço da imagem precisa ser um endereço completo começando com https://, " +
   "cole o link da imagem, e não o conteúdo dela.";
 
 /** Começa certo, mas o que vem depois não é um site alcançável. */
 export const RECUSA_DE_ENDERECO_SEM_SITE =
-  "Depois do https:// falta um site válido. Confira o endereço — ele não pode ter " +
+  "Depois do https:// falta um site válido. Confira o endereço: ele não pode ter " +
   "usuário e senha nem porta fora de faixa.";
 
 /**

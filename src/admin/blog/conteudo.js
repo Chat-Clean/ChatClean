@@ -59,7 +59,7 @@ export function prepararConteudo(documento) {
         gravidade: "recusado",
         mensagem:
           "Não conseguimos ler o conteúdo gravado deste post, então o Editor abriu vazio. " +
-          "Salvar agora substitui o conteúdo original — se ele importa, saia sem salvar e avise quem cuida dos dados.",
+          "Salvar agora substitui o conteúdo original: se ele importa, saia sem salvar e avise quem cuida dos dados.",
         detalhe: resultado.erro.detalhe,
       },
     };

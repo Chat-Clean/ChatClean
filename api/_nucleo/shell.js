@@ -50,7 +50,7 @@ export async function lerShell({ importar = () => import("./shell.gerado.js") } 
 export const DEFEITO_SEM_MARCADORES =
   "O shell embutido não traz os marcadores da região de metadados " +
   "(`METADADOS-DA-PAGINA:INICIO` e `:FIM`), ou os traz repetidos. Servir o " +
-  "shell intacto entregaria os metadados da HOME em todo Post, em silêncio — " +
+  "shell intacto entregaria os metadados da HOME em todo Post, em silêncio, " +
   "e é justamente o defeito que a Story 4.3 conserta.";
 
 /**

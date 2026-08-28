@@ -47,7 +47,7 @@ import { ehEstado, ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
  */
 export const TITULO_DO_VAZIO = "Nenhum post ainda";
 export const DESCRICAO_DO_VAZIO =
-  "Quando você escrever o primeiro post, ele aparece aqui — com o estado, a " +
+  "Quando você escrever o primeiro post, ele aparece aqui, com o estado, a " +
   "categoria e a data de publicação.";
 export const ROTULO_DO_PRIMEIRO_POST = "Escrever o primeiro post";
 

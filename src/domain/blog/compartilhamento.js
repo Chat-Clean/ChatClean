@@ -95,7 +95,7 @@ export const IMAGEM_PADRAO_DO_SITE = Object.freeze({
    * compara os dois: duas frases descrevendo a mesma imagem divergiriam, e a
    * que o leitor de tela recebe seria a que ninguém revisou.
    */
-  alternativo: "Logo da ChatClean — Plataforma de CRM e ChatBot para WhatsApp",
+  alternativo: "Logo da ChatClean, Plataforma de CRM e ChatBot para WhatsApp",
 });
 
 /**
@@ -215,7 +215,7 @@ export function tipoDaImagem(endereco) {
  */
 export const DEFEITO_DE_DOMINIO_AUSENTE =
   "A imagem de compartilhamento não pôde ser resolvida: o Domínio Canônico não chegou. " +
-  "É defeito de montagem — a variável de ambiente VITE_DOMINIO_DO_SITE não foi lida.";
+  "É defeito de montagem: a variável de ambiente VITE_DOMINIO_DO_SITE não foi lida.";
 
 /**
  * A raiz absoluta do site, sem barra no fim — ou lança.
@@ -523,7 +523,7 @@ const CAMPOS_NA_ORDEM = Object.freeze([
 export const RECUSA_DE_ESPECIE_NA_PREVIA =
   `A prévia de link só mostra ${ROTULOS_DE_IMAGEM.filter((r) => r !== "WebP").join(" e ")}. ` +
   "Endereço sem extensão conhecida, vetor ou formato fora dessa lista não aparece no WhatsApp " +
-  "nem no Facebook — o link cai na imagem padrão do site.";
+  "nem no Facebook: o link cai na imagem padrão do site.";
 
 /** A recusa por esquema: o site é seguro e a imagem não seria alcançada. */
 export const RECUSA_DE_ENDERECO_INALCANCAVEL =

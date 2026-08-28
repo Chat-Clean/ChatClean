@@ -177,7 +177,7 @@ export function rotuloDeVer(post) {
   const titulo = tituloParaFrase(post);
   const destino = destinoDeVer(post);
   if (destino === null) {
-    return `Ver o post ${titulo} — indisponível: ${motivoDeNaoVer(post).oQueHouve}`;
+    return `Ver o post ${titulo}, indisponível: ${motivoDeNaoVer(post).oQueHouve}`;
   }
   return destino.tipo === DESTINO_SITE
     ? `Ver o post ${titulo} no site, em nova aba`

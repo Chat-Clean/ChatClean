@@ -320,7 +320,7 @@ export function rotuloDaCapaDegradada({
 export function falaDaImagemQuebrada(nome = NOME_DA_CAPA) {
   return (
     `A ${String(nome ?? NOME_DA_CAPA).trim().toLowerCase()} não carregou. ` +
-    "Ela pode ter sido removida do servidor — envie outra ou tire a imagem antes de salvar."
+    "Ela pode ter sido removida do servidor, envie outra ou tire a imagem antes de salvar."
   );
 }
 

@@ -62,7 +62,7 @@ export default function ApiOficialWhatsApp() {
       "@context": "https://schema.org",
       "@type": "Article",
       headline:
-        "API Oficial do WhatsApp Business no Brasil — Guia Completo",
+        "API Oficial do WhatsApp Business no Brasil: Guia Completo",
       description:
         "Guia completo da API Oficial do WhatsApp Business: o que e, como funciona, quanto custa e como ativar com a ChatClean.",
       author: { "@type": "Organization", name: "ChatClean" },
@@ -110,7 +110,7 @@ export default function ApiOficialWhatsApp() {
     {
       icon: Shield,
       title: "Zero risco de banimento",
-      desc: "API homologada pela Meta — adeus aos chips bloqueados e clones do WhatsApp Web.",
+      desc: "API homologada pela Meta: adeus aos chips bloqueados e clones do WhatsApp Web.",
     },
     {
       icon: Zap,
@@ -198,7 +198,7 @@ export default function ApiOficialWhatsApp() {
             A ChatClean é integrada nativamente à{" "}
             <strong>API Oficial do WhatsApp</strong> (Cloud API da Meta).
             Tenha multiatendimento real, ChatBot com IA, CRM e relatórios em
-            uma única plataforma — sem risco de banimento e com suporte 100%
+            uma única plataforma, sem risco de banimento e com suporte 100%
             em português.
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
@@ -236,8 +236,8 @@ export default function ApiOficialWhatsApp() {
               O que é a API Oficial do WhatsApp?
             </h2>
             <p className="text-gray-700 leading-relaxed mb-4">
-              A API Oficial do WhatsApp Business — também chamada de{" "}
-              <strong>WhatsApp Cloud API</strong> — é a versão homologada
+              A API Oficial do WhatsApp Business (também chamada de{" "}
+              <strong>WhatsApp Cloud API</strong>) é a versão homologada
               pela Meta para empresas que precisam atender em escala. Ela
               permite que vários atendentes usem o mesmo número, conecta o
               WhatsApp ao seu CRM e libera recursos de automação que o app
@@ -250,7 +250,7 @@ export default function ApiOficialWhatsApp() {
               banidos pela Meta.
             </p>
             <p className="text-gray-700 leading-relaxed">
-              Na ChatClean, cuidamos de toda a ativação para você — da
+              Na ChatClean, cuidamos de toda a ativação para você, da
               homologação na Meta até o treinamento do time.
             </p>
           </div>

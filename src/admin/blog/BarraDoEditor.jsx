@@ -206,7 +206,7 @@ export default function BarraDoEditor({ editor, className }) {
           const dica = [
             controle.rotulo,
             controle.atalhoLegivel ? ` (${controle.atalhoLegivel})` : "",
-            " — ",
+            ": ",
             controle.descricao,
           ].join("");
 

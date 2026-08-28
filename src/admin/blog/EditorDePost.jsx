@@ -687,7 +687,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
     if (subindo.length > 0) {
       notificarErro(
         "Uma imagem ainda está subindo",
-        "Espere o envio terminar e salve de novo — assim o post já nasce com ela.",
+        "Espere o envio terminar e salve de novo, assim o post já nasce com ela.",
       );
       return;
     }
@@ -1369,7 +1369,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                 alguém de agendar 00h30 achando que agendou no fuso do
                 próprio navegador. */}
             <p id={`${idDoAgendamento}-ajuda`} className="text-xs text-ink-muted">
-              Horário de Brasília{" "}
+              Horário de Brasília:{" "}
               <span className="dado" data-papel="data-em-sao-paulo">
                 {textoDaDataDoCampo(rascunhoDeData)}
               </span>

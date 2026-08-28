@@ -513,7 +513,7 @@ export default function AdminBlog() {
           Carreiras. A página só diz quais abas existem e quais ações a aba
           ativa oferece. */}
       <BarraSuperior
-        titulo="Painel de conteúdo — ChatClean"
+        titulo="Painel de conteúdo | ChatClean"
         abas={abas}
         abaAtiva={activeTab}
         aoTrocarAba={setActiveTab}

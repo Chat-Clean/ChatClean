@@ -112,7 +112,7 @@ export const FRASES_DE_FALTA = Object.freeze({
      não existia: quem usa leitor de tela ouvia o campo ser inválido e não
      recebia motivo nenhum. */
   publicado_em:
-    "Para agendar, informe o dia e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
+    "Para agendar, informe o dia e a hora em que o post deve ir ao ar, o horário é o de Brasília.",
   /* Story 3.1. A frase é a MESMA de `problemaNoTextoAlternativo`, e a
      verificação compara as duas: duas grafias seriam duas explicações para a
      mesma recusa, uma na gaveta e outra na notificação. */
@@ -225,7 +225,7 @@ export function corpoDoPedido({
       ok: false,
       campo: "publicado_em",
       motivo:
-        "A data de publicação não é um momento válido. Informe dia e hora — o horário é o de Brasília.",
+        "A data de publicação não é um momento válido. Informe dia e hora, o horário é o de Brasília.",
       detalhe: String(erro?.message ?? erro),
     };
   }
@@ -387,9 +387,9 @@ export function confirmacaoDoAgendamento(post, titulo = "") {
  * enquanto a pessoa digita — vira uma frase, nunca uma exceção.
  */
 export function textoDaDataDoCampo(valorDoCampo) {
-  if (!valorDoCampo) return "— sem data de publicação";
+  if (!valorDoCampo) return "sem data de publicação";
   const casou = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(valorDoCampo));
-  if (!casou) return "— data incompleta";
+  if (!casou) return "data incompleta";
   const [, ano, mes, dia, hora, minuto] = casou;
   return `${dia}/${mes}/${ano} ${hora}:${minuto}`;
 }

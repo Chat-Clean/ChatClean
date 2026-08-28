@@ -466,7 +466,7 @@ export async function excluirCategoria({ token, corpo, acesso }) {
     if (!atual.ok) return falhaDaEscrita(atual, "leitura da categoria");
     if (atual.dados === null) {
       return falha(ERRO_NAO_ENCONTRADO, {
-        mensagem: "Esta categoria já não está no Painel — alguém pode tê-la excluído antes.",
+        mensagem: "Esta categoria já não está no Painel, alguém pode tê-la excluído antes.",
         detalhe: `nenhuma categoria com id ${alvo.id} para excluir`,
       });
     }
@@ -508,7 +508,7 @@ export async function excluirCategoria({ token, corpo, acesso }) {
     }
     if (apagada.dados === null) {
       return falha(ERRO_NAO_ENCONTRADO, {
-        mensagem: "Esta categoria já não está no Painel — alguém pode tê-la excluído antes.",
+        mensagem: "Esta categoria já não está no Painel, alguém pode tê-la excluído antes.",
         detalhe: `nenhuma categoria com id ${alvo.id} para excluir`,
       });
     }

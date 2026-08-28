@@ -100,7 +100,7 @@ export function avisoDeComprimento(campo, valor) {
   if (!acimaDoUsual(campo, valor)) return null;
   const usual = COMPRIMENTO_USUAL_DE_SEO[campo];
   return (
-    `Acima dos ${usual} caracteres que os buscadores costumam exibir — o texto ` +
+    `Acima dos ${usual} caracteres que os buscadores costumam exibir, o texto ` +
     "aparece cortado no resultado. Dá para salvar assim mesmo."
   );
 }
@@ -344,7 +344,7 @@ const AUSENCIA_NO_CARTAO = Object.freeze({
   seo_titulo:
     "Ausente: o post ainda não tem título nenhum, e o link vai aparecer sem um.",
   seo_descricao:
-    "Ausente: o post não tem Resumo, e nada é inventado no lugar — o link aparece só com o título.",
+    "Ausente: o post não tem Resumo, e nada é inventado no lugar, o link aparece só com o título.",
 });
 
 /* A COBERTURA É CONFERIDA NO CARREGAMENTO, e LANÇA. Um terceiro campo de texto
@@ -388,7 +388,7 @@ export function falaDaAusenciaNoCartao(campo) {
  */
 export const DEFEITO_SEM_HERANCA =
   "O cartão não pôde ser montado: a herança não chegou à Prévia. " +
-  "É defeito de montagem — quem desenha o cartão precisa receber a decisão do domínio.";
+  "É defeito de montagem: quem desenha o cartão precisa receber a decisão do domínio.";
 
 /**
  * O nome de gente de cada campo que a cadeia pode recusar.

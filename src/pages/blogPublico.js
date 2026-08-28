@@ -269,7 +269,7 @@ const FALAS_DA_LISTA = Object.freeze({
   [LISTA_FALHA_PERMANENTE]: Object.freeze({
     oQueHouve: "Os artigos não puderam ser carregados",
     oQueFazer:
-      "Não é a sua conexão, e tentar de novo não resolve. Volte mais tarde — já estamos sabendo.",
+      "Não é a sua conexão, e tentar de novo não resolve. Volte mais tarde, já estamos sabendo.",
     repetir: false,
     limpar: false,
   }),
@@ -323,7 +323,7 @@ export const ROTULO_DE_CARREGAR_MAIS = "Carregar mais artigos";
 /** O aviso de que o filtro por Categoria não pôde ser montado. */
 export const FALHA_DAS_CATEGORIAS =
   "Não deu para carregar as categorias. Recarregue a página para filtrar por " +
-  "categoria — a busca por texto continua funcionando.";
+  "categoria, a busca por texto continua funcionando.";
 
 /* ─── As situações do artigo ─────────────────────────────────────────────── */
 

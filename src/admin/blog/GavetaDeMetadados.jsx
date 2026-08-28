@@ -466,8 +466,8 @@ export default function GavetaDeMetadados({
             {falta("slug") ? FRASES_DE_FALTA.slug : problemaNoEndereco}
           </Recusa>
           <p id={idDaAjuda("slug")} className="text-xs text-ink-muted">
-            Gerado do título quando o post nasce. Depois disso ele não muda sozinho
-            — quem já tem o link continua chegando aqui.
+            Gerado do título quando o post nasce. Depois disso ele não muda sozinho,
+            quem já tem o link continua chegando aqui.
           </p>
         </div>
 
@@ -1246,7 +1246,7 @@ function CampoDeImagem({
           </Recusa>
           <p id={idDaAjuda(campo)} className="text-xs text-ink-muted">
             {ROTULO_DO_ENDERECO_DA_CAPA}: o link direto de uma imagem já
-            publicada em outro lugar. Ela não é copiada — o post passa a
+            publicada em outro lugar. Ela não é copiada, o post passa a
             apontar para lá.
           </p>
         </>

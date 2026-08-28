@@ -52,7 +52,7 @@ export default class LimiteDeErro extends Component {
             Esta tela do Painel parou
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
-            O erro foi registrado. Recarregue o Painel para voltar ao trabalho —
+            O erro foi registrado. Recarregue o Painel para voltar ao trabalho,
             o conteúdo já salvo continua onde estava.
           </p>
 

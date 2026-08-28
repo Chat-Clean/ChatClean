@@ -110,7 +110,7 @@ export default function BentoFeatures() {
           </h2>
           <p className="text-zinc-600 text-lg mt-6 leading-relaxed">
             Ferramentas simples de usar que ajudam sua equipe a
-            atender melhor e vender mais — sem precisar de conhecimento técnico.
+            atender melhor e vender mais, sem precisar de conhecimento técnico.
           </p>
         </motion.div>
 
@@ -119,7 +119,7 @@ export default function BentoFeatures() {
           {/* Linha 1 */}
           <BentoCard
             title="Tudo em Um Só Lugar"
-            description="Seus clientes falam por WhatsApp, Instagram, Facebook ou Telegram? Sua equipe responde tudo numa única tela — sem precisar trocar de aplicativo."
+            description="Seus clientes falam por WhatsApp, Instagram, Facebook ou Telegram? Sua equipe responde tudo numa única tela, sem precisar trocar de aplicativo."
             colSpan="md:col-span-2"
             delay={0.05}
             icon={MessageCircle}
@@ -240,7 +240,7 @@ export default function BentoFeatures() {
           {/* Linha 3 */}
           <BentoCard
             title="Envio em Massa"
-            description="Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo — de forma rápida e pelo WhatsApp oficial."
+            description="Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo, de forma rápida e pelo WhatsApp oficial."
             delay={0.25}
             icon={CheckCircle}
             accent="from-indigo-500 to-purple-600"
@@ -249,7 +249,7 @@ export default function BentoFeatures() {
 
           <BentoCard
             title="Organização da Equipe"
-            description="Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê — em tempo real."
+            description="Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê, em tempo real."
             delay={0.3}
             icon={Clock}
             accent="from-red-500 to-rose-600"
@@ -258,7 +258,7 @@ export default function BentoFeatures() {
 
           <BentoCard
             title="Atenda pelo Celular"
-            description="Atenda seus clientes de onde estiver — pelo celular, tablet ou computador. Disponível para iPhone e Android."
+            description="Atenda seus clientes de onde estiver: pelo celular, tablet ou computador. Disponível para iPhone e Android."
             delay={0.35}
             icon={Smartphone}
             accent="from-pink-500 to-fuchsia-600"

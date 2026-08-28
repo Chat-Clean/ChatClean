@@ -206,7 +206,7 @@ const MENSAGENS = Object.freeze({
   [ERRO_CONFIGURACAO]:
     "O servidor de gravação está sem configuração. Avise quem cuida da publicação.",
   [ERRO_INESPERADO]:
-    "Algo saiu do previsto ao salvar. O conteúdo continua aqui — tente de novo.",
+    "Algo saiu do previsto ao salvar. O conteúdo continua aqui, tente de novo.",
   [ERRO_DADOS_INVALIDOS]:
     "Não conseguimos salvar com o que foi enviado. Confira os campos e tente de novo.",
   [ERRO_CONFLITO]:
@@ -766,7 +766,7 @@ export function lerCorpo(corpo, { criando }) {
       const instante = comoInstante(corpo.publicado_em);
       if (instante === null) {
         problemas.push(
-          "A data de publicação não é um momento válido. Informe dia e hora — o horário é o de Brasília.",
+          "A data de publicação não é um momento válido. Informe dia e hora, o horário é o de Brasília.",
         );
         detalhes.push(
           `publicado_em não é instante: ${JSON.stringify(String(corpo.publicado_em).slice(0, 60))}`,
@@ -1706,7 +1706,7 @@ function resolverTransicao({ estadoAtual, campos, dataAtual, agora = Date.now() 
       ok: false,
       recusa: falha(ERRO_DADOS_INVALIDOS, {
         mensagem:
-          "Para agendar, informe a data e a hora em que o post deve ir ao ar — o horário é o de Brasília.",
+          "Para agendar, informe a data e a hora em que o post deve ir ao ar, o horário é o de Brasília.",
         detalhe: `transição para ${alvo} sem publicado_em, no pedido e no que está gravado`,
         faltando: ["publicado_em"],
       }),

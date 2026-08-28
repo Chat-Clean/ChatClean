@@ -159,7 +159,7 @@ export function problemaNoSlug(valor) {
   if (!FORMATO_DE_SLUG.test(limpo)) {
     return (
       "O endereço aceita apenas letras minúsculas sem acento, números e hífen " +
-      "entre palavras — sem espaço, sem acento e sem hífen no começo ou no fim."
+      "entre palavras, sem espaço, sem acento e sem hífen no começo ou no fim."
     );
   }
   return null;

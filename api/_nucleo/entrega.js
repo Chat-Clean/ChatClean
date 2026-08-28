@@ -33,7 +33,7 @@ export const VARIAVEL_DO_DOMINIO = "VITE_DOMINIO_DO_SITE";
 
 export const DEFEITO_SEM_DOMINIO =
   `O Domínio Canônico não foi declarado: defina \`${VARIAVEL_DO_DOMINIO}\` no ambiente. ` +
-  "Ele não é derivado da requisição — numa rota reescrita o caminho que chega é o da função.";
+  "Ele não é derivado da requisição: numa rota reescrita o caminho que chega é o da função.";
 
 /** `{ok:true, raiz}` ou `{ok:false, defeito}`. Nunca lança, nunca adivinha. */
 export function dominioDoAmbiente(ambiente = process.env) {

@@ -189,10 +189,10 @@ export const ELEMENTOS = Object.freeze([
          o problema é o lugar manda o Autor consertar o que não está quebrado. */
       recusaDeFormato: (valor) =>
         `Não reconhecemos "${valor}" como endereço. Use um endereço que comece com ` +
-        `https://, com uma barra (/blog) ou com # — e sem barra invertida.`,
+        `https://, com uma barra (/blog) ou com #. Não use barra invertida.`,
       recusaDeContexto:
         "Não dá para aplicar link aqui. Bloco de código e linha divisória não " +
-        "aceitam link — posicione o cursor num parágrafo, título ou item de lista.",
+        "aceitam link: posicione o cursor num parágrafo, título ou item de lista.",
     }),
     atalho: null,
   }),

@@ -4700,6 +4700,509 @@ secao("(m) a herança de metadado: uma função, um lugar, nenhuma segunda opini
   }
 }
 
+secao("(n) travessão (—) fora de texto de prosa em comentário");
+
+/**
+ * Diretórios-raiz da varredura de travessão visível: TODO `src/` e `api/`, o
+ * mesmo par que o spec descreve ("varre `src/` e `api/`") — não uma lista
+ * fixa de arquivo. Um arquivo novo (ou um arquivo antigo que a investigação
+ * original nunca olhou, como `src/pages/ApiOficialWhatsApp.jsx`) entra
+ * sozinho na próxima execução, sem exigir atualização manual desta seção.
+ * `scripts/`, `_bmad-output/`, `_bmad/`, `node_modules` e `dist/` ficam de
+ * fora — nem são varridos por não estarem sob `src/`/`api/`, exceto
+ * `node_modules`/`dist`, que a varredura pula explicitamente por segurança
+ * caso um dia apareçam ali.
+ */
+const DIRETORIOS_VARRIDOS_POR_TRAVESSAO = Object.freeze(["src", "api"]);
+
+/** Extensão de arquivo de código que entra na varredura de travessão. */
+const EXTENSOES_VARRIDAS_POR_TRAVESSAO = Object.freeze([".js", ".jsx"]);
+
+/**
+ * Artefato de build, nunca fonte — `npm run build` regenera este arquivo a
+ * partir de `src/domain/blog/compartilhamento.js`, e editá-lo direto seria
+ * descartado na próxima build, mascarando qualquer regressão na fonte real.
+ * Caminho relativo à raiz do repo, mesma convenção do resto desta seção.
+ */
+const ARQUIVOS_GERADOS_FORA_DA_VARREDURA = new Set(["api/_nucleo/shell.gerado.js"]);
+
+/**
+ * Lista, recursivamente, todo arquivo `.js`/`.jsx` sob `diretorioRelativo`
+ * (relativo à raiz do repo), pulando `node_modules`/`dist` e o que está em
+ * `ARQUIVOS_GERADOS_FORA_DA_VARREDURA`. Devolve caminho relativo com `/`
+ * (nunca `\`), para o mesmo formato que o resto da seção já usa.
+ */
+function listarArquivosDeCodigo(diretorioRelativo) {
+  const completo = path.join(raiz, diretorioRelativo);
+  if (!existsSync(completo)) return [];
+  const resultado = [];
+  const pilha = [completo];
+  while (pilha.length > 0) {
+    const atual = pilha.pop();
+    const entradas = readdirSync(atual, { withFileTypes: true });
+    for (const entrada of entradas) {
+      if (entrada.name === "node_modules" || entrada.name === "dist") continue;
+      const caminhoCompleto = path.join(atual, entrada.name);
+      if (entrada.isDirectory()) {
+        pilha.push(caminhoCompleto);
+        continue;
+      }
+      if (!entrada.isFile()) continue;
+      if (!EXTENSOES_VARRIDAS_POR_TRAVESSAO.includes(path.extname(entrada.name))) continue;
+      const relativo = path.relative(raiz, caminhoCompleto).split(path.sep).join("/");
+      if (ARQUIVOS_GERADOS_FORA_DA_VARREDURA.has(relativo)) continue;
+      resultado.push(relativo);
+    }
+  }
+  return resultado;
+}
+
+/**
+ * Todo arquivo `.js`/`.jsx` de `src/` e `api/`, ordenado para saída estável.
+ * Comentário de código continua livre: o projeto usa "—" como estilo
+ * deliberado de prosa em milhares deles, e essa não é a superfície que a
+ * pessoa que usa o site ou o Painel enxerga.
+ */
+const ARQUIVOS_SEM_TRAVESSAO_VISIVEL = Object.freeze(
+  DIRETORIOS_VARRIDOS_POR_TRAVESSAO.flatMap((dir) => listarArquivosDeCodigo(dir)).sort(),
+);
+
+/**
+ * O que pode vir imediatamente ANTES de uma barra que começa uma expressão
+ * regular. Depois de um valor (nome, número, `)`, `]`) a barra é divisão. Quase
+ * o mesmo conjunto que `mascararComentariosJs` declara em
+ * `verificar-editor.mjs`, com UMA remoção deliberada: `<`.
+ *
+ * **Por que `<` sai da lista, e o resto fica.** `mascararComentariosJs` foi
+ * provado contra `domain/blog/schema.js`, um `.js` sem JSX. Neste conjunto de
+ * arquivos há `.jsx`, e `<` antes de `/` aí quase sempre é fechamento de
+ * elemento (`</motion.div>`), nunca literal de regex — o oposto do `.js` puro,
+ * onde `<` antes de `/` seria comparação seguida de regex, quase inédito.
+ * Sem a remoção, `</motion.div>` era lido como ABERTURA de regex, e a "regex"
+ * corria até a próxima barra do arquivo — inclusive a de um `/**` de
+ * comentário de verdade alguns elementos depois, que entrava DENTRO do regex
+ * falso e saía sem ser mascarado. Provado em `BentoFeatures.jsx`: sem esta
+ * remoção, o comentário do JSDoc da linha 84 vazava inteiro para fora de
+ * comentário.
+ *
+ * **`}` FICA no conjunto** — de propósito, ao contrário de `<`. Um bloco que
+ * fecha (`function f() {}`) pode ser seguido por um regex de verdade na
+ * PRÓXIMA instrução (`/padrão/.test(x)`), e tirar `}` daqui cegaria esse caso
+ * legítimo. A ambiguidade real de `}` é só JSX (`style={{...}} />` e
+ * `{largura}/{altura}`), e tem guarda PRÓPRIA, dedicada, logo abaixo — não
+ * apagar `}` do conjunto inteiro.
+ */
+const ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO = new Set([
+  ..."(,=:[!&|?{};+-*%~^>",
+  "\n",
+  "\r",
+  "\t",
+  " ",
+  "",
+]);
+const PALAVRA_ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO =
+  /(^|[^\w$.])(return|typeof|instanceof|in|of|new|delete|void|throw|do|else|case|yield|await)$/;
+
+/**
+ * Mascara comentário de JS/JSX ciente de literal de expressão regular.
+ *
+ * **Por que não reaproveitar `semComentarios` (o mascarador desta mesma
+ * ferramenta, usado nas seções (a)-(m) acima) por cima?** Ele não distingue
+ * divisão de literal de regex, e um regex como `/^https:\/\//i` — o que
+ * `domain/blog/arquivos.js` usa para validar esquema de endereço — termina em
+ * `\/` seguido do `/` de fechamento: sem o contexto de regex, esse par lê como
+ * abertura de comentário de linha, e o restante da linha desaparece da
+ * varredura em silêncio. Provado ao vivo: rodar esta seção com o mascarador
+ * simples acusava travessão dentro de comentário genuíno em `arquivos.js`,
+ * `schema.js`, `GavetaDeMetadados.jsx` e outros arquivos do Code Map — falso
+ * positivo por vacuidade, o mesmo defeito que o comentário de `semComentarios`
+ * describe para `accept="image/*"`.
+ *
+ * A correção é a MESMA heurística que `mascararComentariosJs`
+ * (`verificar-editor.mjs`) já usa e já tem autoteste: o último caractere
+ * significativo decide se a barra abre regex ou divide. Import direto não dá
+ * — `verificar-editor.mjs` é um script de nível superior, sem guarda de ponto
+ * de entrada, e importar o módulo executaria a suíte inteira dele como efeito
+ * colateral só para pegar uma função. Portar a MESMA heurística para uma
+ * função só desta seção evita esse efeito colateral e evita tocar em
+ * `semComentarios`, que as seções (a)-(m) já usam e já confiam sem esta
+ * distinção — mudar o comportamento dela para corrigir isto teria alcance
+ * maior do que esta correção pede.
+ */
+function mascararComentarioCienteDeRegex(fonte) {
+  let saida = "";
+  let i = 0;
+  let contexto = null; // "linha" | "bloco" | "aspas" | "modelo" | "regex"
+  let aspa = "";
+  let emClasse = false;
+  let significativo = "";
+
+  const podeSerRegex = () =>
+    ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO.has(significativo) ||
+    PALAVRA_ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO.test(saida.replace(/\s+$/u, ""));
+
+  while (i < fonte.length) {
+    const ch = fonte[i];
+    const proximo = fonte[i + 1];
+
+    if (contexto === "linha") {
+      if (ch === "\n") {
+        contexto = null;
+        saida += ch;
+      }
+      i += 1;
+      continue;
+    }
+    if (contexto === "bloco") {
+      if (ch === "*" && proximo === "/") {
+        contexto = null;
+        i += 2;
+        continue;
+      }
+      if (ch === "\n") saida += ch;
+      i += 1;
+      continue;
+    }
+    if (contexto === "aspas" || contexto === "modelo") {
+      saida += ch;
+      if (ch === "\\") {
+        saida += fonte[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (ch === aspa) {
+        contexto = null;
+        significativo = ch;
+      }
+      i += 1;
+      continue;
+    }
+    if (contexto === "regex") {
+      saida += ch;
+      if (ch === "\\") {
+        saida += fonte[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (ch === "[") emClasse = true;
+      else if (ch === "]") emClasse = false;
+      else if (ch === "/" && !emClasse) {
+        contexto = null;
+        significativo = "/";
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "/" && proximo === "/") {
+      contexto = "linha";
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && proximo === "*") {
+      contexto = "bloco";
+      i += 2;
+      continue;
+    }
+    /* GUARDA ESTREITO para a única ambiguidade real de `}`: uma barra que vem
+       LOGO depois de `}` (nada além de espaço entre eles) e é seguida de `>`
+       ou `{` é sempre JSX — fim de elemento auto-fechado (`style={{...}} />`)
+       ou nova interpolação logo em seguida (`{largura}/{altura}` como texto).
+       Nunca abre regex nesses dois casos, mesmo com `}` no conjunto acima.
+       Fora deles — `}` seguido de espaço/quebra de linha e DEPOIS um regex de
+       verdade, como uma instrução nova após `function f() {}` — `}` continua
+       valendo normalmente pelo `podeSerRegex()` abaixo.
+       **Por que o guarda anterior (incondicional para todo `/>`) foi trocado
+       por este.** Aquele guarda intercedia mesmo quando a barra ERA a
+       abertura de um regex de verdade, como `.replace(/>/g, ...)` — usado em
+       `api/_nucleo/paginasDoSite.js` para escapar XML. Ali a barra de ABERTURA
+       do regex tem `proximo === ">"` (o conteúdo do regex é só `>`), o guarda
+       incondicional a tratava como fim de JSX, e a "regex" nunca abria de
+       verdade — a busca por fechamento corria a partir da barra seguinte, e
+       engolia um `/**` de comentário real duas dúzias de linhas depois (as
+       linhas 71 e 90 do arquivo, um travessão de PROSA de comentário, acusado
+       por engano). Restringir o guarda a `significativo === "}"` resolve as
+       DUAS pontas: `style={{...}} />` continua protegido (`significativo` é
+       `}` ali), e `.replace(/>/g, ...)` deixa de ser interceptado (`significativo`
+       é `(`, não `}`, quando a barra de abertura do regex é vista). */
+    if (ch === "/" && significativo === "}" && (proximo === ">" || proximo === "{")) {
+      saida += ch;
+      significativo = "/";
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && podeSerRegex()) {
+      contexto = "regex";
+      emClasse = false;
+      saida += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      contexto = ch === "`" ? "modelo" : "aspas";
+      aspa = ch;
+      saida += ch;
+      i += 1;
+      continue;
+    }
+    saida += ch;
+    if (!/\s/u.test(ch)) significativo = ch;
+    i += 1;
+  }
+  return saida;
+}
+
+/**
+ * As linhas (1-based) de `fonte` em que sobra um travessão fora de comentário.
+ */
+function linhasComTravessaoForaDeComentario(fonte) {
+  return mascararComentarioCienteDeRegex(fonte)
+    .split("\n")
+    .reduce((achadas, linha, indice) => {
+      if (linha.includes("—")) achadas.push(indice + 1);
+      return achadas;
+    }, []);
+}
+
+/**
+ * As linhas do Code Map deliberadamente FORA de escopo, com a razão de cada
+ * uma — o mesmo que o "Fora de escopo, já investigado e descartado" do spec
+ * descreve em prosa, aqui em forma que a asserção lê. Nenhuma é rótulo,
+ * `aria-label`, `placeholder`, mensagem de recusa, texto de ajuda ou copy de
+ * página: são `detalhe`/`motivo` de diagnóstico que o próprio invólucro
+ * documenta como NUNCA devolvido, um `motivo` que viaja na resposta mas que
+ * NENHUMA tela lê, ou `throw` de estado fora do vocabulário fechado que nunca
+ * alcança o fluxo normal. Uma linha travessão-livre sobrando aqui não quebra
+ * nada: só significa que a exceção não é mais necessária.
+ */
+const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
+  "api/_nucleo/salvarPost.js": Object.freeze({
+    253: "detalhe de `falha()`: o próprio invólucro diz que registra e NÃO devolve",
+    1612: "motivo do resíduo da capa: viaja na resposta, mas só `residuo.arquivo` é lido — `falaDoResiduo`, em `admin/blog/capa.js`, nunca lê `.motivo`",
+  }),
+  "src/domain/blog/compartilhamento.js": Object.freeze({
+    145: "motivo de `ESPECIES_FORA_DA_PREVIA`: documentação de por que o WebP é excluído, para quem lê o código — nenhuma tela nem resposta o expõe",
+  }),
+  "src/pages/blogPublico.js": Object.freeze({
+    287: "throw de situação de listagem fora do vocabulário fechado: erro de programação, nunca alcança o fluxo normal",
+    427: "throw de situação de artigo fora do vocabulário fechado: erro de programação, nunca alcança o fluxo normal",
+  }),
+  "src/domain/blog/transicoes.js": Object.freeze({
+    237: "throw de Estado fora do vocabulário fechado: erro de programação, nunca alcança o fluxo normal",
+  }),
+  "api/_nucleo/operacoesDaCategoria.js": Object.freeze({
+    502: "detalhe de `falha()`: a mesma casa e a mesma garantia de `salvarPost.js:253`",
+  }),
+  /* ── Achadas pela varredura de árvore inteira (spec original só olhou o
+     Code Map de 29 arquivos; `src/`+`api/` completos revelam o resto). Cada
+     uma foi verificada por leitura do consumidor real antes de entrar aqui —
+     não por semelhança de padrão. */
+  "api/_nucleo/artigo.js": Object.freeze({
+    126: "defeito de `conferirConteudo()`: sobe como `corpo.defeito` até `responderDocumento()` (api/blog.js), que só o repassa a `registrarEvento()` — console.warn/console.error, nunca o corpo nem cabeçalho da resposta (api/_nucleo/entrega.js, api/_nucleo/diagnostico.js)",
+  }),
+  "api/_nucleo/cache.js": Object.freeze({
+    52: "throw de invariante conferida na CARGA do módulo (a política cobre todo `STATUS_EMITIDOS`): só dispara se o próprio código do módulo divergir de si mesmo, o que impediria o servidor de subir — nunca alcança uma requisição normal",
+  }),
+  "api/_nucleo/leitura.js": Object.freeze({
+    37: "`DEFEITO_SEM_AMBIENTE`: vira `defeito`/`detalhe` que só chega a `registrarEvento()` via `responderDocumento()` (api/blog.js:140) — o corpo enviado nesse caminho é o shell fixo, nunca o texto do defeito",
+  }),
+  "api/posts.js": Object.freeze({
+    226: "dentro de um `console.error()` direto — o comentário duas linhas acima já diz: \"o que falta é dito no LOG, com nome. Na resposta, não\"",
+    302: "dentro de um `console.error()` direto do resíduo de Storage — o comentário logo abaixo confirma: \"o que sai na resposta é só o arquivo\", motivo interno fica só no log",
+  }),
+  "src/admin/blog/PilulaDeEstado.jsx": Object.freeze({
+    37: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
+  }),
+  "src/admin/blog/configuracao.js": Object.freeze({
+    98: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
+  }),
+  "src/admin/blog/previa.js": Object.freeze({
+    164: "throw de `falaDaSituacao()`: o único chamador (`PreVisualizacaoDePost.jsx`) só passa o valor de `situacaoDaTela()`, que devolve exclusivamente as quatro situações fechadas já cobertas em `FALAS` — situação fora da lista é erro de programação, nunca alcança o fluxo normal",
+  }),
+  "src/data/blog/comum.js": Object.freeze({
+    183: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesma regra do módulo (ver `resultado.js`) — só `.mensagem` chega a `notificarErro()`, nunca `.detalhe`",
+    225: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesmo caso da linha 183, do lado da gravação",
+  }),
+  "src/data/blog/resultado.js": Object.freeze({
+    160: "detalhe de `falha()` para tipo de erro inválido: o próprio módulo documenta (L22-23) que \"o detalhe existe para diagnosticar, não para ser mostrado como está\" — confirmado por grep: todo `notificarErro()` na Tela usa `.erro.mensagem`, nunca `.erro.detalhe`",
+    341: "detalhe de `consultar()` quando a resposta não tem `data`: mesma regra da linha 160, mesmo módulo",
+  }),
+  "src/data/blog/taxonomia.js": Object.freeze({
+    236: "mensagem de `problemaNaTagDoPost()`: vira `detalhe` de `falha(ERRO_INESPERADO, …)` via `exigirLista()` (resultado.js) — mesma regra: só `.mensagem` (fixa, genérica) chega à tela",
+  }),
+  "src/domain/blog/categorias.js": Object.freeze({
+    124: "throw de `aparenciaDaCor()`: o único chamador (`TelaDeCategorias.jsx:852`) itera sobre `CORES_DE_CATEGORIA`, o próprio vocabulário fechado — cor fora da lista é erro de programação, nunca alcança o fluxo normal",
+  }),
+  "src/domain/blog/estados.js": Object.freeze({
+    88: "throw de `aparenciaDoEstado()`: os dois chamadores (`PilulaDeEstado.jsx`, guardado por `ehEstado()` antes de chamar; `AdminBlog.jsx`, que itera sobre `ESTADOS`) só passam valor já validado contra o vocabulário fechado — mesma garantia de `transicoes.js:237`",
+  }),
+});
+
+for (const caminhoRelativo of ARQUIVOS_SEM_TRAVESSAO_VISIVEL) {
+  const fonte = lerOuFalhar(caminhoRelativo);
+  if (fonte === null) continue;
+  const permitidas = TRAVESSAO_FORA_DE_ESCOPO[caminhoRelativo] ?? {};
+  const linhas = linhasComTravessaoForaDeComentario(fonte).filter(
+    (linha) => !Object.hasOwn(permitidas, linha),
+  );
+  afirmar(
+    `${caminhoRelativo} não tem travessão (—) fora de comentário, fora das exceções já investigadas`,
+    linhas.length === 0,
+    `linha(s): ${linhas.join(", ")}`,
+  );
+}
+
+/* ── SABOTAGEM: o detector precisa acusar quando o travessão volta ───────
+   Uma asserção que só é vista passando nunca foi vista falhando, e é
+   exatamente o modo de falha que a cultura deste projeto proíbe (ver
+   CLAUDE.md, "asserção que não pode falhar não vale nada"). As duas provas
+   abaixo reintroduzem o travessão de propósito: uma fora de comentário, que
+   TEM de acusar; outra só dentro de comentário, que TEM de ser absolvida —
+   senão a asserção de cima passaria por vacuidade, olhando para comentário
+   mascarado em vez de para o texto que a pessoa lê. */
+afirmar(
+  "o detector ACUSA um travessão reintroduzido fora de comentário",
+  linhasComTravessaoForaDeComentario(
+    'const aviso = "Algo saiu do previsto — tente de novo.";',
+  ).join(",") === "1",
+);
+afirmar(
+  "o detector ABSOLVE o travessão que mora só em comentário de prosa",
+  linhasComTravessaoForaDeComentario(
+    "// nota de prosa — comentário, nunca lido pela pessoa\nconst alvo = 1;",
+  ).join(",") === "",
+);
+afirmar(
+  "o detector aponta a LINHA certa, não só que existe algum travessão no arquivo",
+  linhasComTravessaoForaDeComentario(
+    'const a = "sem travessão";\nconst b = "com — travessão";',
+  ).join(",") === "2",
+);
+
+/* ── SABOTAGEM: o detector precisa sobreviver a JSX de verdade ───────────
+   `BentoFeatures.jsx`, `AdminBlog.jsx` e `GavetaDeMetadados.jsx` só ficaram
+   limpos depois de excluir `<` de `ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO` e
+   de guardar `/>` explicitamente — sem isso, `</motion.div>` e `style={{}} />`
+   abriam "regex" que corria até a próxima barra do arquivo, e um comentário de
+   verdade nesse meio (um JSDoc real, medido em `BentoFeatures.jsx:84`) saía
+   sem ser mascarado. As duas provas abaixo fixam esse comportamento: um
+   comentário depois de uma tag de fechamento, e um depois de um elemento
+   auto-fechado com `}}` bem antes da barra — o caso exato que vazava. */
+afirmar(
+  "o detector ABSOLVE um comentário real que vem depois de uma tag de fechamento JSX",
+  linhasComTravessaoForaDeComentario(
+    "const x = <div></div>;\n// nota de prosa — comentário, não código\nconst alvo = 1;",
+  ).join(",") === "",
+);
+afirmar(
+  "o detector ABSOLVE um comentário real que vem depois de um elemento auto-fechado com `}} />`",
+  linhasComTravessaoForaDeComentario(
+    'const x = <div style={{ a: 1 }} />;\n/* nota de prosa — comentário, não código */\nconst alvo = 1;',
+  ).join(",") === "",
+);
+
+/* ── SABOTAGEM: o bug de verdade achado na varredura de árvore inteira ───
+   `api/_nucleo/paginasDoSite.js:63` usa `.replace(/>/g, "&gt;")` — um regex
+   de verdade cujo CONTEÚDO é só `>`, então a barra de ABERTURA desse regex
+   tem `proximo === ">"`. O guarda incondicional que existia antes para `/>`
+   (tratar TODO par como fim de elemento JSX auto-fechado, ANTES de checar se
+   a barra abria regex) interceptava essa abertura por engano, e a "regex"
+   nunca fechava de verdade — a busca pelo próximo `/` corria e engolia um
+   `/**` de comentário de verdade um pouco depois, o mesmo defeito por
+   vacuidade que motivou este mascarador em primeiro lugar. A prova abaixo
+   reproduz exatamente essa forma (`.replace(/>/g, ...)` seguido de um
+   comentário de bloco de verdade) e confirma que o travessão de PROSA do
+   comentário continua absolvido. */
+afirmar(
+  "o detector ABSOLVE um comentário real que vem depois de um regex cujo conteúdo é só `>` (`/>/g`)",
+  linhasComTravessaoForaDeComentario(
+    'export function escaparXml(t){ return String(t).replace(/>/g, "&gt;"); }\n/**\n * nota — travessão de prosa, comentário real\n */\nfunction g(){}',
+  ).join(",") === "",
+);
+
+/* ── SABOTAGEM: `}` continua podendo abrir regex, e tem guarda PRÓPRIA ───
+   `}` NÃO saiu de `ANTES_DE_REGEX_NO_DETECTOR_DE_TRAVESSAO` (ao contrário de
+   `<`): um bloco que fecha pode ser seguido por um regex de verdade na
+   PRÓXIMA instrução, e apagar `}` do conjunto inteiro cegaria esse caso
+   legítimo. A ambiguidade real de `}` é só duas formas de JSX — fim de
+   elemento auto-fechado (`}} />`, já coberta acima) e nova interpolação logo
+   em seguida (`{largura}/{altura}` como texto) — e por isso o guarda é
+   ESTREITO: só dispara quando a barra vem logo depois de `}` E é seguida de
+   `>` ou `{`. A primeira prova mostra a ambiguidade JSX sendo resolvida
+   corretamente (sem o guarda, a barra abriria "regex", pediria o próximo `/`
+   para fechar, e comeria o primeiro caractere do comentário `//` real que vem
+   a seguir — a prova FALHA sem o guarda, confirmado nesta revisão). A segunda
+   mostra que um regex de verdade logo depois de um `}` de bloco (nada além de
+   espaço entre eles) continua abrindo normalmente. */
+afirmar(
+  "o detector NÃO abre regex em `}/{` (interpolação JSX) — comentário real logo depois continua absolvido",
+  linhasComTravessaoForaDeComentario(
+    "const x = {largura}/{altura};\n// nota — comentário, deve ser absolvido\nconst alvo = 1;",
+  ).join(",") === "",
+);
+afirmar(
+  "o detector ACUSA um regex de verdade logo após um `}` de bloco fechado (`function f() {}` seguido de regex)",
+  linhasComTravessaoForaDeComentario(
+    'function f() {}\n/^abc$/.test(x); const nota = "trecho — visível";',
+  ).join(",") === "2",
+);
+
+/* ── SABOTAGEM: regex terminado em barra escapada colada no fechamento ───
+   O caso exato que motivou trocar `semComentarios` por este mascarador
+   próprio (ver o comentário de `mascararComentarioCienteDeRegex` acima):
+   `/^https:\/\//i` — usado em `domain/blog/arquivos.js` — tem a barra
+   ESCAPADA do meio (`\/`) imediatamente colada na barra de FECHAMENTO do
+   regex, formando um `//` cru se ninguém tratar o escape como uma unidade só.
+   Sem o tratamento de escape dentro do contexto "regex", esse par leria como
+   abertura de comentário de linha, e o resto engoliria em silêncio — inclusive
+   um travessão de código de verdade, ou o comentário real que vem depois.
+   As quatro provas cobrem as duas formas (comentário absolvido, código
+   acusado) tanto logo após um `}` de bloco (o caso mais adversarial: precisa
+   1) reconhecer `}` como abertura de regex E 2) navegar o escape colado) como
+   isolado (só o escape). */
+afirmar(
+  "o detector ABSOLVE um comentário real depois de um regex `\\/\\/` colado, logo após um `}` de bloco",
+  linhasComTravessaoForaDeComentario(
+    'function f() {}\n/^https:\\/\\//i.test(x); // nota — comentário, absolvido',
+  ).join(",") === "",
+);
+afirmar(
+  "o detector ACUSA travessão em código real depois de um regex `\\/\\/` colado, logo após um `}` de bloco",
+  linhasComTravessaoForaDeComentario(
+    'function f() {}\n/^https:\\/\\//i.test(x); const nota = "trecho — visível";',
+  ).join(",") === "2",
+);
+afirmar(
+  "o detector ABSOLVE um comentário real depois de um regex `\\/\\/` colado (sem `}` antes)",
+  linhasComTravessaoForaDeComentario(
+    'const r = /^https:\\/\\//i; // nota — comentário, absolvido',
+  ).join(",") === "",
+);
+afirmar(
+  "o detector ACUSA travessão em código real depois de um regex `\\/\\/` colado (sem `}` antes)",
+  linhasComTravessaoForaDeComentario(
+    'const r = /^https:\\/\\//i; const nota = "trecho — visível";',
+  ).join(",") === "1",
+);
+
+/* ── SABOTAGEM: a lista de exceções não pode virar buraco negro ──────────
+   `TRAVESSAO_FORA_DE_ESCOPO` existe para NÃO reescrever `detalhe`/`motivo` de
+   diagnóstico e `throw` de estado impossível — os mesmos já descartados no
+   "Fora de escopo" do spec. A prova de baixo garante que ela FILTRA
+   exatamente a exceção declarada e continua acusando qualquer travessão NOVO
+   na mesma linha de código: uma lista de exceção que absolve o arquivo
+   inteiro por engano nunca seria vista falhando de novo. */
+afirmar(
+  "a lista de exceções perdoa só a linha declarada, e nada além dela",
+  (() => {
+    const permitidas = { 2: "exceção de teste" };
+    const linhas = linhasComTravessaoForaDeComentario(
+      'const a = "sem travessão";\nconst b = "com — travessão permitido";\nconst c = "com — travessão novo";',
+    ).filter((linha) => !Object.hasOwn(permitidas, linha));
+    return linhas.join(",") === "3";
+  })(),
+);
+
 /* ─── Veredito ───────────────────────────────────────────────────────── */
 
 console.log("");

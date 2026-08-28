@@ -278,7 +278,7 @@ export function motivoDaRecusa(de, para) {
   }
   if (de === "publicado") {
     return (
-      "Um post publicado não volta a rascunho nem a agendado — quem já tem o link " +
+      "Um post publicado não volta a rascunho nem a agendado, quem já tem o link " +
       "continuaria com ele. Para tirá-lo do ar preservando o registro, arquive."
     );
   }

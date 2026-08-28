@@ -35,7 +35,7 @@ export const TITULO_DA_TROCA_DE_ENDERECO = "Trocar o endereço deste post?";
 export function descricaoDaTrocaDeEndereco({ de, para } = {}) {
   return (
     `Este post já esteve no ar em /blog/${de}. Trocando para /blog/${para}, ` +
-    "o endereço antigo passa a redirecionar para o novo — nada se perde, mas " +
+    "o endereço antigo passa a redirecionar para o novo, nada se perde, mas " +
     "os links já compartilhados vão dar um pulo antes de abrir, e o endereço " +
     "antigo fica reservado para sempre."
   );
