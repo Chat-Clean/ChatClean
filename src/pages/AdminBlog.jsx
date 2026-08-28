@@ -19,7 +19,7 @@ import { ENDERECO_DAS_CATEGORIAS } from "@/admin/blog/rotas";
 import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
 import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
-import { pageTransition } from "@/lib/motion";
+import { pageTransition, staggerContainer, staggerItem } from "@/lib/motion";
 
 /* O `id` do painel de conteúdo, apontado pelo `aria-controls` das abas. */
 const ID_DO_CONTEUDO = "conteudo-do-painel";
@@ -492,6 +492,7 @@ export default function AdminBlog() {
           initial={pageTransition.initial}
           animate={pageTransition.animate}
           exit={pageTransition.exit}
+          className="h-screen overflow-hidden"
         >
           <EditorDePost
             postId={editingPost?.id ?? null}
@@ -531,29 +532,33 @@ export default function AdminBlog() {
           filtros ao lado do campo. Ligá-la nas duas mudaria como a faixa de
           Carreiras se comporta em tela estreita, e Carreiras não pode
           regredir. */}
-      <div
+      <motion.div
+        variants={staggerContainer(0.08)}
+        initial="hidden"
+        animate="visible"
         className={`shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3 ${
           activeTab === "blog" ? "flex-wrap" : ""
         }`}
       >
         {activeTab === "blog" ? (
           <>
-            <div className="relative flex-1 min-w-[14rem] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <motion.div variants={staggerItem} className="relative flex-1 min-w-[14rem] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted" />
               <input
                 value={buscaDePosts}
                 onChange={(e) => setBuscaDePosts(e.target.value)}
                 placeholder="Buscar por título, categoria, autor ou tag..."
                 aria-label="Buscar posts por título, categoria, autor ou tag"
                 data-busca="posts"
-                className="w-full bg-zinc-800/60 border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+                className="w-full bg-surface border border-border-soft rounded-xl pl-10 pr-4 py-2.5 text-sm text-ink outline-none focus:border-emerald-500 transition-colors placeholder:text-ink-muted"
               />
-            </div>
+            </motion.div>
             {/* Os filtros de Estado. As palavras vêm do vocabulário fechado do
                 domínio — escrevê-las aqui criaria o sinônimo que ele existe
                 para impedir —, e cada botão diz se está marcado por `aria-
                 pressed`, não só pela cor. */}
-            <div
+            <motion.div
+              variants={staggerItem}
               role="group"
               aria-label="Filtrar posts por estado"
               className="flex flex-wrap items-center gap-1.5"
@@ -571,15 +576,15 @@ export default function AdminBlog() {
                     }
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
                       marcado
-                        ? "bg-emerald-500/15 border-emerald-500 text-emerald-300"
-                        : "bg-zinc-800/60 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                        : "bg-surface border-border-soft text-ink-muted hover:text-ink hover:border-border-strong"
                     }`}
                   >
                     {rotuloDoEstado(estado)}
                   </button>
                 );
               })}
-            </div>
+            </motion.div>
             {/* O vão que empurra "Novo Post" para a borda. Ele é da aba Blog e
                 só dela: em Carreiras o botão sempre veio logo depois do campo,
                 e mover um controle de módulo fora de escopo é regressão. */}
@@ -589,15 +594,20 @@ export default function AdminBlog() {
                 que ele está é um ternário de dois ramos, e uma aba a mais
                 cairia no ramo de Carreiras — ganhando o campo "Buscar vagas" e
                 o botão "Nova Vaga". Ele só existe na aba Blog, como tudo o mais
-                deste ramo. */}
-            <Link
-              to={ENDERECO_DAS_CATEGORIAS}
-              data-acao="abrir-categorias"
-              className="flex items-center gap-2 border border-zinc-700 hover:border-zinc-600 text-zinc-300 hover:text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
-            >
-              <Tags className="w-4 h-4" />
-              <span className="hidden sm:inline">Categorias</span>
-            </Link>
+                deste ramo.
+                `motion.div` em volta, e não `motion(Link)`: o mesmo cascata de
+                entrada que os outros controles da faixa já têm, sem criar um
+                componente novo só para isto. */}
+            <motion.div variants={staggerItem}>
+              <Link
+                to={ENDERECO_DAS_CATEGORIAS}
+                data-acao="abrir-categorias"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+              >
+                <Tags className="w-4 h-4" />
+                <span className="hidden sm:inline">Categorias</span>
+              </Link>
+            </motion.div>
           </>
         ) : (
           <div className="relative flex-1 max-w-sm">
@@ -610,7 +620,8 @@ export default function AdminBlog() {
             />
           </div>
         )}
-        <button
+        <motion.button
+          variants={staggerItem}
           onClick={() => {
             if (activeTab === "blog") { setEditingPost(null); setBlogView("form"); }
             else { setEditingVaga(null); setVagasView("form"); }
@@ -621,8 +632,8 @@ export default function AdminBlog() {
           <span className="hidden sm:inline">
             {activeTab === "blog" ? "Novo Post" : "Nova Vaga"}
           </span>
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
 
       {/* ────── Lista ───────────────────────────────────────────
           É o painel que as abas controlam: sem `tabpanel` associado, o

@@ -39,6 +39,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   ChevronLeft,
@@ -107,6 +108,7 @@ import {
 } from "@/domain/blog/operacoes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { pageTransition } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /** Quantas linhas fantasma o esqueleto desenha enquanto os dados vêm. */
@@ -356,7 +358,12 @@ export default function TelaDeCategorias() {
   }, [categorias, emCurso, emEdicao, valores.nome]);
 
   return (
-    <div className="painel min-h-screen bg-background" data-tela="categorias">
+    <motion.div
+      initial={pageTransition.initial}
+      animate={pageTransition.animate}
+      className="painel min-h-screen bg-background"
+      data-tela="categorias"
+    >
       <header className="border-b border-border-soft bg-surface">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-6 py-4">
           <Link
@@ -528,7 +535,7 @@ export default function TelaDeCategorias() {
           if (paraExcluir !== null) excluir(paraExcluir);
         }}
       />
-    </div>
+    </motion.div>
   );
 }
 

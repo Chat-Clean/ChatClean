@@ -1195,7 +1195,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
       }
     >
       {carregando ? (
-        <div className="flex flex-1 gap-4 p-4" aria-hidden="true">
+        <div className="flex min-h-0 flex-1 gap-4 p-4" aria-hidden="true">
           <div className="flex-1 space-y-3">
             <Skeleton className="h-8 w-2/3" />
             <Skeleton className="h-4 w-full" />
@@ -1402,6 +1402,30 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
 
 /** A casca da tela: voltar, título e a ação da direita. */
 function Moldura({ aoSair, titulo, subtitulo, acao = null, children }) {
+  /* ─── A JANELA NÃO ROLA ENQUANTO O EDITOR ESTÁ ABERTO ───────────────────
+     A moldura é `h-screen overflow-hidden` e cada painel interno (Editor e
+     Gaveta) tem a própria rolagem: nada DAQUI PARA DENTRO transborda. Só que
+     `overflow-hidden` governa apenas os descendentes — se qualquer coisa
+     ACIMA na árvore empurrar a altura do documento (um portal que não fechou,
+     um irmão da casca, um resíduo de transição de rota), quem rola é a
+     janela, e o Autor vê a tela inteira deslizar sobre um vazio branco.
+
+     Travar a rolagem do documento é a garantia que NÃO depende de descobrir
+     quem empurrou: enquanto o Editor está montado, a janela não rola, venha o
+     empurrão de onde vier.
+
+     O valor anterior é restaurado na saída, e isso não é zelo: as outras
+     telas do Painel — Categorias e a pré-visualização — rolam de propósito,
+     e deixar `hidden` para trás quebraria as duas sem deixar rastro de onde
+     veio. */
+  useEffect(() => {
+    const anterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = anterior;
+    };
+  }, []);
+
   return (
     <div
       /* `overflow-hidden`: sem ele, `h-screen` fixa a ALTURA da moldura, mas

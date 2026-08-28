@@ -125,6 +125,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
   ImagePlus,
@@ -266,6 +267,12 @@ export default function GavetaDeMetadados({
   const idDoErro = (campo) => `${base}-${campo}-erro`;
   const idDaAjuda = (campo) => `${base}-${campo}-ajuda`;
 
+  /* Quem pediu para o sistema parar de animar não recebe o pulo do controle.
+     A regra global de `index.css` zera DURAÇÃO de transição e de animação CSS,
+     e não alcança mola de Framer Motion — que é JavaScript, e continuaria
+     pulando com a preferência ligada. */
+  const semMovimento = useReducedMotion();
+
   const falta = (campo) => faltando.includes(campo);
 
   /** O que todo campo da gaveta carrega, montado uma vez por campo. */
@@ -396,28 +403,61 @@ export default function GavetaDeMetadados({
       className={cn(
         "flex min-h-0 flex-col rounded-cartao",
         "border border-border-soft bg-surface",
-        aberta ? "gap-4 p-4" : "gap-2 py-2",
+        /* O PADDING VERTICAL É O MESMO NOS DOIS ESTADOS, e isso não é gosto:
+           era `p-4` aberta e `py-2` recolhida, então o controle de recolher
+           subia 8px no instante em que a gaveta fechava. O ícone é o MESMO
+           alvo antes e depois — quem acabou de clicar nele precisa encontrá-lo
+           onde clicou, para reabrir sem procurar. Só o padding HORIZONTAL
+           muda, porque recolhida a gaveta é um trilho de 46px e 16px de cada
+           lado não caberiam. */
+        aberta ? "gap-4 p-4" : "gap-2 py-4",
         className,
       )}
     >
-      {/* ── O controle de recolher e reabrir ───────────────────────────── */}
+      {/* ── O controle de recolher e reabrir ─────────────────────────────
+          O PULO É DA MOLA, e não de uma sequência de quadros escrita à mão:
+          `whileTap` afunda o alvo enquanto o dedo está nele, e a mola de
+          volta — amortecimento baixo de propósito — passa do ponto e assenta.
+          É esse passar do ponto que se lê como bounce.
+
+          `motion.div` em volta, e não `motion(Button)`: o `Button` é o
+          componente do sistema, e envolvê-lo mantém variante, tamanho, foco e
+          alvo de toque exatamente como estão em todo o resto do Painel. */}
       <div className={cn("flex shrink-0", aberta ? "justify-end" : "justify-center")}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => aoAlternar?.()}
-          aria-label={rotuloDoControle(aberta)}
-          aria-expanded={aberta}
-          aria-controls={idDosCampos}
-          className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0 text-ink-secondary")}
+        <motion.div
+          whileTap={semMovimento ? undefined : { scale: 0.82 }}
+          transition={{ type: "spring", stiffness: 520, damping: 11 }}
+          className="shrink-0"
         >
-          {aberta ? (
-            <PanelRightClose aria-hidden="true" />
-          ) : (
-            <PanelRightOpen aria-hidden="true" />
-          )}
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => aoAlternar?.()}
+            aria-label={rotuloDoControle(aberta)}
+            aria-expanded={aberta}
+            aria-controls={idDosCampos}
+            className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0 text-ink-secondary")}
+          >
+            {/* O ícone TROCA quando o estado vira, e a `key` é o que faz a
+                mola rodar de novo a cada troca: sem ela o React reaproveita o
+                mesmo nó, o desenho muda no meio do movimento e não há entrada
+                nenhuma para animar. */}
+            <motion.span
+              key={aberta ? "aberta" : "recolhida"}
+              initial={semMovimento ? false : { scale: 0.5 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 620, damping: 12 }}
+              className="inline-flex"
+            >
+              {aberta ? (
+                <PanelRightClose aria-hidden="true" />
+              ) : (
+                <PanelRightOpen aria-hidden="true" />
+              )}
+            </motion.span>
+          </Button>
+        </motion.div>
       </div>
 
       <div
