@@ -34,6 +34,7 @@
 import {
   BUCKET_DAS_IMAGENS,
   ehCaminhoDeCapa,
+  ehCaminhoDoCorpo,
 } from "../../src/domain/blog/arquivos.js";
 /* E os campos de SEO vêm do MESMO lugar de onde a porta os aceita — a lista é
    uma, e não uma por camada. */
@@ -863,6 +864,42 @@ export function criarAcesso({
           codigo: "CaminhoInvalido",
           mensagem:
             "remoção recusada no transporte: o caminho não é o de uma capa deste bucket",
+          dados: null,
+        };
+      }
+      const resposta = await pedir(
+        `/storage/v1/object/${BUCKET_DAS_IMAGENS}/${alvo
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
+        { metodo: "DELETE", cabecalhos: comServico() },
+      );
+      if (!resposta.ok && ehArquivoAusente(resposta)) {
+        return { ...resposta, ok: true, dados: null, codigo: "", mensagem: "" };
+      }
+      return resposta;
+    },
+
+    /**
+     * Remove um arquivo do bucket das imagens — a imagem INLINE do corpo do
+     * Post (Editor avançado), não a capa.
+     *
+     * Espelha `removerArquivoDaCapa` inteiro, trocando só a guarda:
+     * `ehCaminhoDoCorpo` em vez de `ehCaminhoDeCapa`. A guarda continua sendo
+     * o que importa — isto roda com a chave de serviço, que ignora política,
+     * e o caminho vem de um endereço GRAVADO no documento do Post, então um
+     * caminho fora da pasta `corpo/` não pode virar tentativa de remoção.
+     */
+    async removerArquivoDoCorpo(caminho) {
+      const alvo = typeof caminho === "string" ? caminho.trim() : "";
+      if (!ehCaminhoDoCorpo(alvo)) {
+        return {
+          ok: false,
+          status: 0,
+          faixa: "",
+          codigo: "CaminhoInvalido",
+          mensagem:
+            "remoção recusada no transporte: o caminho não é o de uma imagem do corpo deste bucket",
           dados: null,
         };
       }

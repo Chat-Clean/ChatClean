@@ -19,6 +19,8 @@
 
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
+import Image from "@tiptap/extension-image";
+import Highlight from "@tiptap/extension-highlight";
 
 /* Caminho relativo com extensão, e não o apelido `@/`: é o que a camada de
    dados já faz, e é o que permite ao Node importar este módulo sem o
@@ -27,6 +29,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import {
   ALINHAMENTOS_DE_TEXTO,
   ALTERNA,
+  CORES_DE_DESTAQUE,
   ELEMENTOS,
   MARCAS_PERMITIDAS,
   NIVEIS_DE_TITULO,
@@ -172,6 +175,48 @@ export function extensoesDoEditor() {
       types: ["heading", "paragraph"],
       alignments: [...ALINHAMENTOS_DE_TEXTO],
       defaultAlignment: "left",
+    }),
+    /* `inline: false`: a imagem é um nó de BLOCO, o mesmo nível de
+       `horizontalRule` — é a forma que `NOS.image`/`BLOCOS`, em
+       `domain/blog/schema.js`, esperam. `allowBase64: false` recusa
+       `<img src="data:...">` colado: o vocabulário de `src` é
+       `enderecoDeImagemPermitido`, que já não aceita `data:` — desligar o
+       base64 aqui evita que o Tiptap sequer TENTE analisar um `src` que a
+       validação ia derrubar de qualquer forma. Sem `HTMLAttributes` extra:
+       o único CSS que estiliza a imagem é `.artigo img`, global. */
+    Image.configure({
+      inline: false,
+      allowBase64: false,
+      HTMLAttributes: {},
+    }),
+    /* O destaque de cor. A extensão nasce com `color` como nome de atributo
+       e o renderiza como `data-color` MAIS `style="background-color: …"` —
+       e este projeto nunca emite `style` livre em atributo nenhum
+       (`render/blog/paraHtml.js`). `addAttributes` é reescrito por inteiro
+       (sem `this.parent()`, de propósito) para trocar `color` por `cor` — o
+       MESMO nome que `MARCAS.highlight` declara — e para renderizar só
+       `data-cor`: a aparência de cada cor mora em CSS
+       (`.artigo mark[data-cor="…"]`), nunca no documento. `cor` só aceita o
+       vocabulário fechado de `CORES_DE_DESTAQUE`; um valor fora dele não
+       sobrevive à validação do documento (`validarDocumento`), mas a
+       extensão não IMPEDE o Autor de tentar — é a mesma disciplina de
+       `TextAlign`, que também confia na higienização como piso.
+       `multicolor: true` é o que liga o vocabulário de atributo da
+       extensão-base; sem ele `addAttributes` do pacote devolve `{}` e
+       nenhuma cor sobrevive nem antes da reescrita. */
+    Highlight.configure({ multicolor: true, HTMLAttributes: {} }).extend({
+      addAttributes() {
+        return {
+          cor: {
+            default: null,
+            parseHTML: (elemento) => elemento.getAttribute("data-cor"),
+            renderHTML: (atributos) =>
+              CORES_DE_DESTAQUE.includes(atributos.cor)
+                ? { "data-cor": atributos.cor }
+                : {},
+          },
+        };
+      },
     }),
   ];
 }

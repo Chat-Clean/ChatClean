@@ -33,6 +33,7 @@ import { AlertTriangle, X } from "lucide-react";
 
 import BarraDoEditor from "@/admin/blog/BarraDoEditor";
 import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
+import { ExtensaoDeUploadDeImagem } from "@/admin/blog/extensaoDeUploadDeImagem";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { prepararConteudo } from "@/admin/blog/conteudo";
 import { Button } from "@/components/ui/button";
@@ -58,7 +59,14 @@ export default function Editor({
   const [aviso, setAviso] = useState(inicial.aviso);
 
   const editor = useEditor({
-    extensions: extensoesDoEditor(),
+    /* `ExtensaoDeUploadDeImagem` entra AQUI, e não dentro de
+       `extensoesDoEditor()`: o widget de upload tem um NodeView em React
+       (`extensaoDeUploadDeImagem.jsx`), e `configuracao.js` precisa continuar
+       Node-executável, sem JSX, para a verificação derivar a barra sem
+       montar navegador (ver o cabeçalho daquele arquivo). O widget é
+       EFÊMERO — nunca aparece em `NOS_PERMITIDOS` — então ele não precisa
+       estar na lista que a verificação cruza contra o schema. */
+    extensions: [...extensoesDoEditor(), ExtensaoDeUploadDeImagem],
     ...opcoesDoEditor({ rotulo }),
     content: inicial.documento,
     onUpdate: ({ editor: atual }) => {

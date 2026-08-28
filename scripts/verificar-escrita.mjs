@@ -458,6 +458,22 @@ const DOCUMENTO_COMPLETO = Object.freeze({
       attrs: { level: 3, textAlign: "center" },
       content: [{ type: "text", text: "título centralizado" }],
     },
+    /* Editor Tiptap avançado: imagem inline e destaque de cor. Sem estes
+       dois, "os nomes declarados são EXATAMENTE os emitidos" (mais abaixo)
+       teria `img`/`mark`/`src`/`alt`/`data-cor` declarados e este documento
+       nunca os produzindo — a MESMA razão pela qual os três de alinhamento
+       estão logo acima. */
+    {
+      type: "image",
+      attrs: {
+        src: "https://rkoxomfgkloukitqizma.supabase.co/storage/v1/object/public/imagens-do-blog/corpo/prova.png",
+        alt: "descrição da imagem",
+      },
+    },
+    {
+      type: "paragraph",
+      content: [{ type: "text", marks: [{ type: "highlight", attrs: { cor: "amarelo" } }], text: "destacado" }],
+    },
   ],
 });
 
@@ -473,10 +489,17 @@ const DOCUMENTO_HOSTIL = Object.freeze({
         { type: "text", text: "<script>alert(1)</script> e <iframe src=x> e onerror=y" },
       ],
     },
-    // Nó fora do schema, nas três formas que a matriz nomeia.
+    // Nó fora do schema, nas três formas que a matriz nomeia. `image` SAIU
+    // desta lista (Editor avançado: entrou no vocabulário) — `video` ocupa o
+    // lugar dela como nó que continua fora.
     { type: "table", content: [{ type: "paragraph", content: [{ type: "text", text: "tabela" }] }] },
-    { type: "image", attrs: { src: "https://exemplo/x.png" } },
+    { type: "video", attrs: { src: "https://exemplo/x.mp4" } },
     { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "titulo um" }] },
+    // Imagem com endereço EXECUTÁVEL: o nó está no schema agora, mas o `src`
+    // não passa em `enderecoDeImagemPermitido` — o nó inteiro cai (uma
+    // imagem sem `src` aceitável não é imagem), igual a um link sem `href`
+    // aceitável.
+    { type: "image", attrs: { src: "javascript:alert(1)" } },
     // Marca fora do schema: cai, o texto fica.
     {
       type: "paragraph",
@@ -528,7 +551,10 @@ const RECUSAS_DE_HTML = Object.freeze([
   { chave: "iframe", descricao: "etiqueta iframe", html: '<p>ok</p><iframe src="https://mau"></iframe>' },
   { chave: "evento", descricao: "atributo de evento", html: '<p>ok</p><a href="/x" onclick="mau()">z</a>' },
   { chave: "executavel", descricao: "endereço executável", html: '<p>ok</p><a href="javascript:alert(1)">z</a>' },
-  { chave: "etiqueta", descricao: "etiqueta fora do vocabulário", html: '<p>ok</p><img src="x" alt="y">' },
+  /* `img` entrou no vocabulário (Editor avançado: imagem inline) — `figure`
+     continua fora dele: o schema não tem esse nó, e por isso ele continua
+     provando "etiqueta fora do vocabulário" depois da mudança. */
+  { chave: "etiqueta", descricao: "etiqueta fora do vocabulário", html: '<p>ok</p><figure>y</figure>' },
   { chave: "comentario", descricao: "comentário de HTML", html: "<!-- <script>x</script> -->" },
   { chave: "barra", descricao: "EVASÃO barra como separador de atributo", html: '<a/onclick="alert(1)">x</a>' },
   { chave: "semespaco", descricao: "EVASÃO sem espaço antes do nome do atributo", html: '<a title="x"href="javascript:alert(1)">x</a>' },
@@ -2941,10 +2967,15 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          equivalente à do `DELETE` sem filtro: `ehCaminhoDeCapa`, lista de
          PERMISSÃO do domínio, porque o caminho vem de um endereço gravado e um
          caminho torto apagaria coisa que ninguém pediu. */
+      /* Editor Tiptap avançado: `removerArquivoDoCorpo` é a QUINTA — a MESMA
+         forma de `removerArquivoDaCapa`, guarda trocada (`ehCaminhoDoCorpo`
+         em vez de `ehCaminhoDeCapa`), porque a imagem INLINE do corpo do Post
+         vive numa pasta própria do mesmo bucket (`corpo/`, não `capas/`). */
       "api/_nucleo/acesso.js": [
         "excluirPost",
         "excluirCategoria",
         "removerArquivoDaCapa",
+        "removerArquivoDoCorpo",
       ],
       /* E o núcleo passou a ter remoção: `removerCapaAnterior` decide QUAL
          arquivo sai e QUANDO — sempre depois de a linha ser gravada ou
@@ -2956,10 +2987,18 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          `seo_imagem_url`: abrir uma porta de escrita para um arquivo sem abrir
          junto o caminho que o remove é criar um vazamento com data marcada.
          Ela entra NESTA lista, e não passa despercebida, que é o ponto. */
+      /* Editor Tiptap avançado: `removerImagensDoCorpoAnteriores` é a SEXTA —
+         irmã de `removerImagensAnteriores`, mas compara o CONTEÚDO do
+         documento (todo `src` de nó `image`) entre a linha anterior e a
+         atual, em vez de coluna contra coluna. Ela chama
+         `acesso.removerArquivoDoCorpo` — daí o nome também aparecer nesta
+         lista, ainda que a função em si esteja em `acesso.js`. */
       "api/_nucleo/salvarPost.js": [
         "removerImagensAnteriores",
+        "removerImagensDoCorpoAnteriores",
         "removerCapaAnterior",
         "removerArquivoDaCapa",
+        "removerArquivoDoCorpo",
       ],
     });
 
@@ -8626,13 +8665,21 @@ if (!temToken) {
           }
           afirmar(
             "nó e marca fora do schema não ficaram no documento gravado",
-            !/"table"|"image"|"strike"|"level":\s*1/.test(String(gravada.conteudo)),
+            !/"table"|"video"|"strike"|"level":\s*1/.test(String(gravada.conteudo)),
+            String(gravada.conteudo).slice(0, 200),
+          );
+          afirmar(
+            /* A imagem de `src` executável (Editor avançado) é o mesmo caso —
+               nó DENTRO do schema, atributo obrigatório que não passa — então
+               ela cai por inteiro, e `"image"` também não sobrevive. */
+            "a imagem com endereço executável não sobreviveu (nó inteiro caiu)",
+            !/"image"/.test(String(gravada.conteudo)),
             String(gravada.conteudo).slice(0, 200),
           );
           afirmar(
             "nenhum endereço executável ficou no documento gravado",
-            !/"href"\s*:\s*"[^"]*(javascript|vbscript|data)\s*:/i.test(String(gravada.conteudo)),
-            (/"href"\s*:\s*"[^"]*"/i.exec(String(gravada.conteudo)) ?? [])[0] ?? "",
+            !/"(href|src)"\s*:\s*"[^"]*(javascript|vbscript|data)\s*:/i.test(String(gravada.conteudo)),
+            (/"(href|src)"\s*:\s*"[^"]*"/i.exec(String(gravada.conteudo)) ?? [])[0] ?? "",
           );
           afirmar(
             "e o texto legítimo do Post hostil sobreviveu",
@@ -12921,22 +12968,44 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       "acusou os dois",
     );
 
-    /* ── E NENHUMA IMAGEM NO CORPO SERVIDO ──────────────────────────────── */
+    /* ── TODA IMAGEM DO CORPO SERVIDO CARREGA `alt` (Editor avançado) ─────── */
     //
-    // O critério pede alternativo em toda imagem exibida. No corpo servido não
-    // há nenhuma — `img` está fora do vocabulário —, e isso é MEDIDO, e não
-    // deduzido: se `img` entrasse na lista um dia, esta asserção acusaria antes
-    // de a primeira imagem sem alternativo ser servida.
-
+    // `img` entrou no vocabulário do renderizador — imagem inline não está
+    // mais fora do v1. O critério pede alternativo em toda imagem EXIBIDA, e a
+    // garantia mudou de forma: não é mais "não há `<img>` no corpo servido" —
+    // é "todo `<img>` que o renderizador único produz carrega o atributo
+    // `alt`, mesmo vazio (decorativa), nunca AUSENTE". Medido no
+    // renderizador, que é o único caminho de documento → HTML fora do
+    // Editor: se ele um dia voltasse a omitir `alt` quando o Autor não
+    // escreve nada, um `<img>` sem NENHUM atributo de alternativo chegaria
+    // ao corpo servido, e é exatamente isso que a asserção abaixo mede.
     afirmar(
-      "`img` está fora do vocabulário do renderizador — o corpo servido não pode ter imagem sem alternativo porque não pode ter imagem",
-      !render46.ETIQUETAS_EMITIDAS.includes("img"),
+      "`img` está no vocabulário do renderizador — imagem inline não está mais fora do v1",
+      render46.ETIQUETAS_EMITIDAS.includes("img"),
       render46.ETIQUETAS_EMITIDAS.join(", "),
     );
+    const imagemSemAlt = render46.htmlDoDocumento({
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "https://exemplo/x.png" } }],
+    });
     afirmar(
-      "e o corpo servido de fato não traz nenhuma `<img>`",
-      !/<img[\s>]/i.test(doArtigo.html),
-      (doArtigo.html.match(/<img[\s>]/gi) ?? []).join(" ") || "nenhuma",
+      "uma imagem sem `alt` escrito pelo Autor ainda sai com o atributo — vazio, nunca ausente",
+      /<img[^>]* alt="[^>]*>/.test(imagemSemAlt),
+      imagemSemAlt,
+    );
+    const imagemComAlt = render46.htmlDoDocumento({
+      type: "doc",
+      content: [{ type: "image", attrs: { src: "https://exemplo/x.png", alt: "descrição" } }],
+    });
+    afirmar(
+      "e uma imagem COM `alt` escrito pelo Autor preserva o texto",
+      imagemComAlt.includes('alt="descrição"'),
+      imagemComAlt,
+    );
+    afirmar(
+      "se o corpo servido de fato traz uma `<img>`, ela carrega `alt` — nunca a etiqueta crua sem o atributo",
+      !/<img(?![^>]*\balt=)[^>]*>/i.test(doArtigo.html),
+      (doArtigo.html.match(/<img[^>]*>/gi) ?? []).join(" ") || "nenhuma no corpo desta prova",
     );
   }
 
