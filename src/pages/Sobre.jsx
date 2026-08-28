@@ -19,7 +19,7 @@ import consultoria5 from "@/assets/consultoria-5.jpg";
 import consultoria6 from "@/assets/consultoria-6.jpg";
 
 const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
 
 const pilares = [
   {

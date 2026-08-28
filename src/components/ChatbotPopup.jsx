@@ -5,7 +5,7 @@ import avatarImg from "../assets/perfil.jpg";
 
 const N8N_WEBHOOK_URL =
   "https://teste-n8n.pxohxs.easypanel.host/webhook/15cc67a0-4f72-4f22-b8b0-7852b78384d0";
-const WHATSAPP_NUMBER = "558499358786";
+const WHATSAPP_NUMBER = "5584998900718";
 
 const INITIAL_MESSAGES = [
   { sender: "bot", text: "Olá! Sou Jéssica, assistente virtual da ChatClean! 👋" },

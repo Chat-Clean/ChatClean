@@ -13,7 +13,7 @@ import grupoDuraMais from "../../assets/grupo-duramais.jpg";
 import heroDashboard from "../../assets/hero-dashboard-2.jpg";
 
 const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584996950105&text=Ol%C3%A1%2C+eu+vim+pelo+site";
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
 
 /**
  * Botão magnético — segue o cursor com força configurável.
