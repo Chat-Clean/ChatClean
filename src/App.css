@@ -372,6 +372,21 @@
   text-align: right;
 }
 
+/* A IMAGEM ALINHA POR MARGEM, e não por `text-align`.
+   `.artigo img` é `display: block`: `text-align` alinha o conteúdo EM LINHA
+   de um bloco, e não o bloco em si — numa imagem de bloco ele não faz nada.
+   O que a move é a margem automática do lado oposto. Esquerda continua sem
+   regra, como no texto: bloco já nasce encostado à esquerda, e o
+   renderizador nem emite o atributo nesse caso. */
+.artigo img[data-alinhamento="center"] {
+  margin-inline: auto;
+}
+
+.artigo img[data-alinhamento="right"] {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
+
 .artigo strong {
   color: var(--ink);
   font-weight: 700;

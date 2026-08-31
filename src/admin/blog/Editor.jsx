@@ -185,6 +185,7 @@ export default function Editor({
           desta mesma caixa a recorta. */}
       <div
         ref={caixaQueRola}
+        data-papel="caixa-que-rola"
         className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
       >
         {editor ? (

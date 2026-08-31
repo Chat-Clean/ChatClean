@@ -512,6 +512,11 @@ export const NOS = Object.freeze({
          ao navegador que a estique. O piso de 80 é o menor tamanho em que
          uma imagem ainda é imagem, e não um ponto na tela. */
       width: larguraDaImagem,
+      /* O ALINHAMENTO DA IMAGEM, pela MESMA lista fechada e o MESMO validador
+         que valem para parágrafo e título — não uma segunda regra. É o que
+         faz os três botões de alinhamento agirem sobre a imagem selecionada,
+         e o que leva a escolha até o artigo publicado. */
+      textAlign: alinhamentoDeTexto,
     }),
     atributosObrigatorios: Object.freeze(["src"]),
     filhos: null,

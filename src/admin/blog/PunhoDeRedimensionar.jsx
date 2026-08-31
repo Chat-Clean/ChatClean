@@ -61,7 +61,23 @@ export default function PunhoDeRedimensionar({ editor }) {
 
     const caixa = elemento.getBoundingClientRect();
     if (caixa.width < 1) return null;
-    return { topo: caixa.top, direita: caixa.right, largura: caixa.width };
+
+    /* A MEDIDA É RELATIVA À CAIXA QUE ROLA, e não à janela. Em coordenada de
+       janela (`position: fixed`) o punho passava por cima da barra de
+       formatação e continuava desenhado até fora do editor — nada o
+       recortava, porque `fixed` ignora o `overflow` de qualquer ancestral.
+       Em coordenada da caixa, ele é `absolute` dentro dela: o
+       `overflow-y-auto` o recorta, e ele acompanha a rolagem sozinho, sem
+       precisar de ouvinte de rolagem para se reposicionar. */
+    const pai = elemento.closest("[data-papel='caixa-que-rola']");
+    if (pai === null) return null;
+    const caixaDoPai = pai.getBoundingClientRect();
+
+    return {
+      topo: caixa.top - caixaDoPai.top + pai.scrollTop,
+      direita: caixa.right - caixaDoPai.left + pai.scrollLeft,
+      largura: caixa.width,
+    };
   }, [editor]);
 
   useEffect(() => {
@@ -138,7 +154,10 @@ export default function PunhoDeRedimensionar({ editor }) {
         document.body.setAttribute("data-redimensionando-imagem", "true");
       }}
       style={{
-        position: "fixed",
+        /* `absolute`, e não `fixed`: é o que faz o `overflow` da caixa que
+           rola recortar o punho — e o que o mantém colado à imagem enquanto
+           o texto rola, sem ouvinte nenhum. */
+        position: "absolute",
         /* Centrada NA QUINA: metade do diâmetro para fora nos dois eixos, de
            modo que a bolinha fique montada sobre a borda, e não ao lado dela. */
         top: medida.topo - DIAMETRO / 2,
@@ -151,7 +170,11 @@ export default function PunhoDeRedimensionar({ editor }) {
         boxShadow: "0 1px 4px rgba(15, 23, 42, 0.35)",
         cursor: "ew-resize",
         padding: 0,
-        zIndex: 55,
+        /* Baixo de propósito: o punho fica acima da imagem, e abaixo de
+           qualquer coisa que o editor sobreponha. Era 55 quando ele era
+           `fixed` e disputava com a barra de formatação; dentro da caixa que
+           rola, não há mais com quem disputar. */
+        zIndex: 2,
         touchAction: "none",
       }}
     />

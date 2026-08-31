@@ -235,6 +235,10 @@ const NOS = Object.freeze({
     if (Number.isInteger(attrs.width) && attrs.width >= 80 && attrs.width <= 1600) {
       tag += atributo("width", String(attrs.width));
     }
+    /* O ALINHAMENTO, pelo MESMO caminho de parágrafo e título:
+       `alinhamentoEmitido` decide, e `left` não sai — é o padrão, e um
+       atributo que repete o padrão só engorda o HTML de todo artigo. */
+    tag += alinhamentoEmitido(attrs.textAlign);
     return `${tag}>`;
   },
 });
