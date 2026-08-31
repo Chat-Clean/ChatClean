@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
  * `capas/`). Este componente não valida nada por conta própria: a recusa que
  * ele mostra é a MESMA frase que o domínio produz.
  */
-function ImageUploadNodeView({ editor, getPos, node, deleteNode }) {
+function ImageUploadNodeView({ editor, getPos, node, deleteNode, selected }) {
   const [estado, setEstado] = useState("ocioso");
   const [mensagem, setMensagem] = useState("");
   // O endereço já subido, enquanto o widget está em "revisando" — a imagem
@@ -124,7 +124,24 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode }) {
   return (
     <NodeViewWrapper
       data-papel="envio-de-imagem"
-      className="my-3"
+      /* O NÓ NASCE SELECIONADO — é o comportamento padrão do ProseMirror ao
+         inserir um nó atômico — e a SELEÇÃO DE NÓ é implementada com a mesma
+         API de seleção de TEXTO do navegador. `::selection` de `index.css`
+         (fundo verde, texto branco — pensado para o site público) passava a
+         valer aqui por tabela: o texto do widget nascia branco, e só ficava
+         preto de novo quando o Autor clicava fora. `selection:text-inherit
+         selection:bg-transparent` neutraliza isso NESTE elemento e nos
+         filhos — o texto não muda de cor nunca, seja qual for o estado de
+         seleção nativa.
+
+         O indicador de seleção de verdade é outro: um anel visível quando
+         `selected` (a prop que `ReactNodeViewRenderer` passa quando este é o
+         nó atualmente selecionado), no mesmo tom do anel de foco do resto do
+         Painel — cor, não texto invertido. */
+      className={cn(
+        "my-3 rounded-cartao selection:bg-transparent selection:text-inherit",
+        selected && "ring-2 ring-brand-action ring-offset-2 ring-offset-surface",
+      )}
       tabIndex={0}
       onKeyDown={(evento) => {
         if (
