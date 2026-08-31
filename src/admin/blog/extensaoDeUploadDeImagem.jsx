@@ -129,17 +129,20 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode, selected }) {
          API de seleção de TEXTO do navegador. `::selection` de `index.css`
          (fundo verde, texto branco — pensado para o site público) passava a
          valer aqui por tabela: o texto do widget nascia branco, e só ficava
-         preto de novo quando o Autor clicava fora. `selection:text-inherit
-         selection:bg-transparent` neutraliza isso NESTE elemento e nos
-         filhos — o texto não muda de cor nunca, seja qual for o estado de
-         seleção nativa.
+         preto de novo quando o Autor clicava fora. A neutralização mora em
+         `index.css`, por `[data-papel="envio-de-imagem"]` (o atributo logo
+         acima) — e não como utilitária `selection:*` do Tailwind: aquela
+         classe cai dentro de uma `@layer`, e o `::selection` global não está
+         em camada nenhuma. Estilo sem camada sempre vence estilo em camada,
+         e a utilitária perdia sempre, mesmo parecendo certa no CSS
+         compilado.
 
          O indicador de seleção de verdade é outro: um anel visível quando
          `selected` (a prop que `ReactNodeViewRenderer` passa quando este é o
          nó atualmente selecionado), no mesmo tom do anel de foco do resto do
          Painel — cor, não texto invertido. */
       className={cn(
-        "my-3 rounded-cartao selection:bg-transparent selection:text-inherit",
+        "my-3 rounded-cartao",
         selected && "ring-2 ring-brand-action ring-offset-2 ring-offset-surface",
       )}
       tabIndex={0}

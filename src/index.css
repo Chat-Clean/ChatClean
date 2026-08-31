@@ -23,6 +23,26 @@ body {
   color: #fff;
 }
 
+/* O widget de upload de imagem do Editor (Painel) nasce SELECIONADO — é o
+   comportamento padrão do ProseMirror ao inserir um nó atômico, e a seleção
+   de nó usa a mesma API de seleção de TEXTO do navegador. Sem esta regra, o
+   `::selection` acima (pensado para o site público) pinta o texto do widget
+   de branco sobre um fundo claro — ilegível.
+
+   NÃO é uma utilitária Tailwind (`selection:text-inherit` não funciona
+   aqui): a regra acima não está dentro de `@layer` nenhuma, e estilo SEM
+   camada sempre vence estilo COM camada, não importa a especificidade — é
+   assim que a especificação de CSS Cascade Layers define a ordem. Toda
+   classe `selection:*` que o Tailwind gera cai dentro de uma `@layer`, e por
+   isso perdia sempre, mesmo parecendo correta no CSS compilado. Esta regra,
+   escrita à mão e também SEM camada, compete em pé de igualdade — e vence
+   por ser mais específica (seletor de atributo + pseudo-elemento). */
+[data-papel="envio-de-imagem"] ::selection,
+[data-papel="envio-de-imagem"]::selection {
+  background: transparent;
+  color: inherit;
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;
