@@ -148,6 +148,23 @@ export function configuracaoDoKit() {
     };
   }
 
+  /* A LINHA QUE PREVÊ ONDE O BLOCO ARRASTADO VAI CAIR, no verde da marca.
+     O padrão do `prosemirror-dropcursor` é um traço preto, e preto não é cor
+     desta interface — o Painel sinaliza com `--brand-action` em todo o resto.
+
+     A cor vai como `var(...)`, e não como o hexadecimal copiado: a extensão
+     escreve o valor em `background-color` inline, e variável de CSS resolve
+     ali normalmente, porque o traço nasce dentro do Painel. Assim o token
+     continua sendo a fonte única — trocar a cor da marca troca esta também.
+     O hexadecimal fica só como reserva, para a linha nunca sumir se a
+     variável não resolver. */
+  if (configuracao.dropcursor !== false) {
+    configuracao.dropcursor = {
+      color: "var(--brand-action, #007a2a)",
+      width: 2,
+    };
+  }
+
   return configuracao;
 }
 
