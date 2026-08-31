@@ -34,6 +34,7 @@ import { AlertTriangle, X } from "lucide-react";
 import BarraDoEditor from "@/admin/blog/BarraDoEditor";
 import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
 import { ExtensaoDeUploadDeImagem } from "@/admin/blog/extensaoDeUploadDeImagem";
+import PreviaDeArrasto from "@/admin/blog/PreviaDeArrasto";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { prepararConteudo } from "@/admin/blog/conteudo";
 import { Button } from "@/components/ui/button";
@@ -117,7 +118,16 @@ export default function Editor({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {editor ? (
-          <EditorContent editor={editor} />
+          <>
+            <EditorContent editor={editor} />
+            {/* A prévia do arrasto de imagem. Fica AQUI, e não dentro de
+                `configuracao.js`, pela mesma razão do widget de upload:
+                aquele arquivo precisa continuar Node-executável, sem React.
+                Ela se desenha em `position: fixed`, então o lugar na árvore
+                não afeta onde ela aparece — o que importa é estar montada
+                enquanto o editor estiver. */}
+            <PreviaDeArrasto />
+          </>
         ) : (
           /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
              esqueleto acompanha a do texto pela mesma classe. */

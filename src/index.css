@@ -83,6 +83,33 @@ img.ProseMirror-selectednode {
   outline-offset: 2px;
 }
 
+/* A IMAGEM SOME DO LUGAR DE ORIGEM ENQUANTO É ARRASTADA -------------------
+   E some COM ANIMAÇÃO: encolhe e desvanece, em vez de piscar para fora. A
+   marca `data-arrastando-imagem` é posta em `document.body` pelo gancho de
+   `dragstart` (`admin/blog/configuracao.js`) e retirada no `dragend` — que
+   dispara em qualquer desfecho, inclusive soltar fora ou cancelar com
+   Escape. Por isso a volta é de graça: sem a marca, a transição roda ao
+   contrário sozinha.
+
+   A marca vive no `body`, e NÃO num atributo da própria imagem, de
+   propósito: mexer em atributo de um elemento que o ProseMirror gerencia
+   dentro do `contenteditable` faz o observador dele reagir como se o
+   documento tivesse mudado. O `body` está fora do alcance dele.
+
+   Quem é a imagem arrastada: a que está com seleção de nó — arrastar uma
+   imagem no ProseMirror a seleciona. É a mesma classe que ganha o contorno
+   verde acima. */
+img.ProseMirror-selectednode {
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+
+body[data-arrastando-imagem="true"] img.ProseMirror-selectednode {
+  opacity: 0.25;
+  transform: scale(0.94);
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;

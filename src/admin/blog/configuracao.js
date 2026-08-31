@@ -268,19 +268,27 @@ export function opcoesDoEditor({ rotulo = "Conteúdo do post" } = {}) {
       },
       /* ─── O RETRATO DO ARRASTO DA IMAGEM ───────────────────────────────
          Arrastando uma imagem para reposicioná-la, o navegador desenha por
-         conta própria um retrato TRANSLÚCIDO do elemento inteiro, em tamanho
-         real — atrapalha justamente na hora de mirar onde soltar. Aqui esse
-         retrato é trocado por uma cópia OPACA e reduzida.
+         conta própria um retrato do elemento inteiro, em tamanho real e
+         TRANSLÚCIDO — e essa transparência é do sistema operacional, não uma
+         propriedade de CSS: `opacity: 1` na cópia não a alcança. A única
+         saída é não deixar o navegador desenhar nada.
+
+         É o que acontece aqui: o retrato nativo vira um pixel invisível, e
+         quem desenha a prévia passa a ser React (`PreviaDeArrasto`, montada
+         em `Editor.jsx`), que a anima com Motion e a mantém opaca. Este
+         gancho só AVISA — o evento leva o endereço da imagem e a medida —, e
+         a marca em `document.body` é o que o CSS usa para sumir com a origem.
+
+         Por que avisar por evento, e não por chamada direta: este arquivo
+         precisa continuar Node-executável, sem React e sem JSX, para a
+         verificação derivar a barra sem montar navegador. Um `CustomEvent`
+         atravessa essa fronteira sem quebrá-la.
 
          `handleDOMEvents`, e não `handleDrop`/`handlePaste`: estes dois
          continuam sem manipulador próprio (o editor não intercepta colagem
          nem soltura — há asserção sobre isso em `verificar:editor`). Este
-         daqui só troca a FIGURA do arrasto e devolve `false`, então o
-         ProseMirror segue tratando o arrasto inteiro como sempre tratou.
-
-         A cópia precisa estar no documento no instante da chamada — é
-         exigência de `setDragImage` —, então ela nasce fora da tela e sai no
-         tique seguinte, depois de o navegador já ter tirado o retrato. */
+         devolve `false`, então o ProseMirror segue tratando o arrasto inteiro
+         como sempre tratou — inclusive a LINHA que prevê onde a imagem cai. */
       handleDOMEvents: {
         dragstart: (_visao, evento) => {
           const alvo = evento?.target;
@@ -295,27 +303,41 @@ export function opcoesDoEditor({ rotulo = "Conteúdo do post" } = {}) {
           }
 
           const medida = alvo.getBoundingClientRect();
-          if (medida.width < 1) return false;
-          /* Um terço da largura, com teto: imagem grande vira miniatura, e
-             imagem já pequena não cresce. */
-          const largura = Math.max(48, Math.min(180, Math.round(medida.width / 3)));
 
-          const retrato = alvo.cloneNode(true);
-          retrato.style.width = `${largura}px`;
-          retrato.style.height = "auto";
-          retrato.style.opacity = "1";
-          retrato.style.position = "fixed";
-          retrato.style.top = "-10000px";
-          retrato.style.left = "-10000px";
-          retrato.style.pointerEvents = "none";
-          retrato.style.borderRadius = "8px";
-          document.body.appendChild(retrato);
+          /* O retrato do navegador vira um pixel invisível. Ele PRECISA estar
+             no documento no instante da chamada — exigência de
+             `setDragImage` —, e sai no tique seguinte, depois de o navegador
+             já ter tirado a foto. */
+          const invisivel = document.createElement("div");
+          invisivel.style.width = "1px";
+          invisivel.style.height = "1px";
+          invisivel.style.position = "fixed";
+          invisivel.style.top = "-10000px";
+          invisivel.style.left = "-10000px";
+          document.body.appendChild(invisivel);
+          transferencia.setDragImage(invisivel, 0, 0);
+          setTimeout(() => invisivel.remove(), 0);
 
-          /* O ponto de pega vai no meio da largura e perto do topo: o cursor
-             segura a miniatura como quem segura uma foto pela borda de cima,
-             sem cobrir o que está sendo mirado logo abaixo dele. */
-          transferencia.setDragImage(retrato, largura / 2, 12);
-          setTimeout(() => retrato.remove(), 0);
+          document.body.setAttribute("data-arrastando-imagem", "true");
+          document.dispatchEvent(
+            new CustomEvent("painel:arrasto-de-imagem", {
+              detail: {
+                endereco: alvo.currentSrc || alvo.src || "",
+                proporcao: medida.height > 0 ? medida.width / medida.height : 1,
+              },
+            }),
+          );
+
+          /* A limpeza vive no MESMO lugar que a marcação, e não espalhada por
+             quem escuta: `dragend` sempre dispara na origem — soltando dentro,
+             fora, ou cancelando com Escape —, então é ele que garante que a
+             imagem volte a aparecer em qualquer desfecho. */
+          const encerrar = () => {
+            document.body.removeAttribute("data-arrastando-imagem");
+            document.dispatchEvent(new CustomEvent("painel:arrasto-de-imagem-fim"));
+            alvo.removeEventListener("dragend", encerrar);
+          };
+          alvo.addEventListener("dragend", encerrar);
 
           return false;
         },
