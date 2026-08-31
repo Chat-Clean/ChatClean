@@ -462,12 +462,18 @@ const DOCUMENTO_COMPLETO = Object.freeze({
        dois, "os nomes declarados são EXATAMENTE os emitidos" (mais abaixo)
        teria `img`/`mark`/`src`/`alt`/`data-cor` declarados e este documento
        nunca os produzindo — a MESMA razão pela qual os três de alinhamento
-       estão logo acima. */
+       estão logo acima.
+
+       `width` entrou pela MESMA razão, quando o punho de redimensionar passou
+       a gravá-la: sem uma imagem redimensionada aqui, o atributo ficaria
+       declarado e nunca emitido, e a asserção acusaria — como de fato acusou
+       quando ele foi declarado sem este valor. */
     {
       type: "image",
       attrs: {
         src: "https://rkoxomfgkloukitqizma.supabase.co/storage/v1/object/public/imagens-do-blog/corpo/prova.png",
         alt: "descrição da imagem",
+        width: 640,
       },
     },
     {

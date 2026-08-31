@@ -189,7 +189,12 @@ export function extensoesDoEditor() {
        cópia que divirja dela. `defaultAlignment: "left"` é o que faz todo
        parágrafo nascer alinhado à esquerda, sem que o Autor precise clicar. */
     TextAlign.configure({
-      types: ["heading", "paragraph"],
+      /* `image` entra junto: os três botões de alinhamento passam a agir
+         sobre a imagem selecionada, e `NOS.image` declara `textAlign` pelo
+         MESMO validador de parágrafo e título. Sem o nó aqui, o comando não
+         alcançaria a imagem; sem o atributo no schema, o alinhamento
+         escolhido morreria na higienização, ao salvar. */
+      types: ["heading", "paragraph", "image"],
       alignments: [...ALINHAMENTOS_DE_TEXTO],
       defaultAlignment: "left",
     }),

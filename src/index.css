@@ -110,6 +110,49 @@ body[data-arrastando-imagem="true"] img.ProseMirror-selectednode {
   transform: scale(0.94);
 }
 
+/* DUAS LINHAS APARECIAM, E SÓ UMA É NOSSA ---------------------------------
+   A verde é a do `prosemirror-dropcursor`, que prevê onde o bloco cai. A
+   outra é o CURSOR DE TEXTO do próprio navegador, que ele desenha no ponto
+   de soltura dentro de um `contenteditable` — e que não tem nada a dizer
+   quando o que se arrasta é uma imagem inteira. `caret-color: transparent`
+   apaga a dele e deixa só a que informa. Vale só durante o arrasto: fora
+   dele, o cursor de texto é justamente o que a pessoa precisa ver. */
+body[data-arrastando-imagem="true"] .ProseMirror {
+  caret-color: transparent;
+}
+
+/* O TETO DE ALTURA DA IMAGEM DENTRO DO EDITOR -----------------------------
+   `max-width: 100%` (em `.artigo img`) limita a largura e nada mais: uma
+   imagem alta entrava com milhares de pixels de altura e dominava a tela.
+   `max-height` fecha o outro lado — e, como as duas medidas são `auto`, o
+   navegador preserva a proporção sozinho ao caber a imagem nos dois limites.
+
+   Fica FORA de `.artigo`, e não é descuido: `.artigo` é o estilo canônico
+   compartilhado com o site publicado, e recortar altura lá mudaria o artigo
+   do leitor. Aqui a regra vale só onde o ProseMirror monta — o Editor. */
+/* `:not([width])` NÃO é detalhe — é o que impede a imagem de esticar.
+   `max-height` junto de uma largura EXPLÍCITA distorce: o navegador aperta a
+   altura e mantém a largura declarada, e a proporção morre ali. Com as duas
+   medidas livres (imagem recém-inserida, sem largura escolhida), ele encaixa
+   a imagem nos dois limites preservando a proporção sozinho.
+
+   Ou seja: imagem que ninguém dimensionou ganha o teto de segurança; imagem
+   que o Autor dimensionou obedece ao Autor, e a proporção vem de
+   `height: auto` em `.artigo img`. */
+.ProseMirror img:not([width]) {
+  max-height: 60vh;
+}
+
+/* ENQUANTO SE REDIMENSIONA, NADA DE SELECIONAR TEXTO ----------------------
+   O punho é arrastado por ponteiro, e sem isto o navegador entende o gesto
+   como "selecionar o texto daqui até ali" e pinta meio artigo de verde no
+   meio do redimensionamento. */
+body[data-redimensionando-imagem="true"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: ew-resize;
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;

@@ -36,6 +36,7 @@ import { deslocamentoDoArrasto } from "@/admin/blog/arrasto";
 import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
 import { ExtensaoDeUploadDeImagem } from "@/admin/blog/extensaoDeUploadDeImagem";
 import PreviaDeArrasto from "@/admin/blog/PreviaDeArrasto";
+import PunhoDeRedimensionar from "@/admin/blog/PunhoDeRedimensionar";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { prepararConteudo } from "@/admin/blog/conteudo";
 import { Button } from "@/components/ui/button";
@@ -174,7 +175,19 @@ export default function Editor({
 
       <BarraDoEditor editor={editor} />
 
-      <div ref={caixaQueRola} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      {/* `relative` NÃO é enfeite: é o que prende a linha de previsão dentro
+          do editor. O `prosemirror-dropcursor` anexa a linha ao `offsetParent`
+          do editor e a posiciona em relação a ele — e sem posicionamento aqui,
+          o `offsetParent` virava o `<body>` (que é `position: relative` por
+          causa do `index.css`). A linha nascia filha do body, em coordenada de
+          página e sem nada que a recortasse: aparecia fora dos limites do
+          editor. Com `relative`, ela nasce aqui dentro e o `overflow-y-auto`
+          desta mesma caixa a recorta. */}
+      <div
+        ref={caixaQueRola}
+        data-papel="caixa-que-rola"
+        className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+      >
         {editor ? (
           <>
             <EditorContent editor={editor} />
@@ -185,6 +198,10 @@ export default function Editor({
                 não afeta onde ela aparece — o que importa é estar montada
                 enquanto o editor estiver. */}
             <PreviaDeArrasto />
+            {/* O punho de redimensionar. Mesma razão de estar aqui: ele se
+                desenha em `position: fixed` sobre a imagem selecionada, então
+                o lugar na árvore não decide onde ele aparece. */}
+            <PunhoDeRedimensionar editor={editor} />
           </>
         ) : (
           /* Esqueleto em todo carregamento, nunca tela em branco. A medida do

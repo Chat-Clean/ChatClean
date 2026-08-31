@@ -2538,14 +2538,21 @@ if (editor && schema) {
 
       const revalidado2 = validar(colado2);
       const noImagemRevalidado = acharNo(revalidado2.documento, (n) => n.type === "image");
+      /* `width` DEIXOU DE SER DESCARTADA: ela entrou em `NOS.image` quando o
+         punho de redimensionar passou a gravá-la (migração
+         20260901120000). `height` continua fora, e continua caindo — a
+         proporção é do CSS, e guardar as duas medidas abriria a porta para um
+         par inconsistente. Colada de fora sem largura declarada, o Tiptap
+         ainda assim declara as duas como `null`: `width: null` sobrevive
+         (largura ausente é legítima) e só `height` some. */
       afirmar(
-        "colagem: a imagem sobrevive à revalidação do domínio, só perdendo `width`/`height` — atributos que o Tiptap sempre declara e que não existem em `NOS.image`",
+        "colagem: a imagem sobrevive à revalidação do domínio, e o que cai é `height` — a altura não existe em `NOS.image`, porque a proporção é do CSS",
         revalidado2.ok === true &&
           noImagemRevalidado !== null &&
           noImagemRevalidado.attrs?.src === "https://chatclean.com.br/blog/foto.png" &&
           noImagemRevalidado.attrs?.alt === "foto" &&
           revalidado2.descartados.every(
-            (d) => d.especie === "atributo" && (d.nome === "width" || d.nome === "height"),
+            (d) => d.especie === "atributo" && d.nome === "height",
           ) &&
           revalidado2.descartados.length > 0,
         JSON.stringify(revalidado2.descartados),
