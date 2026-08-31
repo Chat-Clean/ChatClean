@@ -51,7 +51,7 @@ import { useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Ban, Highlighter, ImagePlus, Redo2, Undo2 } from "lucide-react";
 
-import { controlesDaBarra } from "@/admin/blog/configuracao";
+import { aBarraFlutuanteAparece, controlesDaBarra } from "@/admin/blog/configuracao";
 import { ICONES } from "@/admin/blog/icones";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { CORES_DE_DESTAQUE } from "@/domain/blog/schema";
@@ -343,10 +343,18 @@ function PopoverDeLink({ editor, controle }) {
 /**
  * A barra flutuante que aparece sobre uma seleção de texto — H2/H3/negrito/
  * itálico (os MESMOS controles da barra fixa, filtrados por chave) mais o
- * Popover de destaque e o Popover de link. `<BubbleMenu>` já não aparece
- * sobre seleção vazia — é o comportamento padrão de `shouldShow` da
- * extensão (`@tiptap/extension-bubble-menu`), e é exatamente o que a story
- * pede: nada de reimplementar aqui o que a biblioteca já garante.
+ * Popover de destaque e o Popover de link.
+ *
+ * ─── ELA É PARA TEXTO, E SÓ ─────────────────────────────────────────────────
+ *
+ * O `shouldShow` padrão da extensão só exige que a seleção não esteja VAZIA —
+ * e seleção de NÓ (a imagem, a linha divisória, o widget de envio) não está
+ * vazia. A barra aparecia sobre elas oferecendo negrito, título e link para
+ * coisas que não têm texto: comandos que ou não fazem nada, ou fazem algo que
+ * ninguém pediu.
+ *
+ * `deveAparecer`, abaixo, fecha isso pelos dois lados: recusa seleção de nó, e
+ * exige que exista TEXTO de verdade no trecho — não só um intervalo não-vazio.
  */
 function BarraFlutuante({ editor, controles, situacoes }) {
   const simples = useMemo(
@@ -366,6 +374,10 @@ function BarraFlutuante({ editor, controles, situacoes }) {
   return (
     <BubbleMenu
       editor={editor}
+      /* A REGRA MORA EM MÓDULO PRÓPRIO, e é executável fora do navegador:
+         `aBarraFlutuanteAparece` decide sobre o estado, não sobre o DOM, e a
+         verificação a exercita com seleções montadas à mão. */
+      shouldShow={({ state }) => aBarraFlutuanteAparece(state)}
       className="flex items-center gap-1 rounded-cartao border border-border-soft bg-surface p-1 shadow-md"
     >
       {simples.map(({ controle, indice }) => {

@@ -273,6 +273,40 @@ export default function GavetaDeMetadados({
      pulando com a preferência ligada. */
   const semMovimento = useReducedMotion();
 
+  /* ─── O QUIQUE MUDOU DE LUGAR: DO BOTÃO PARA O CARTÃO INTEIRO ────────────
+     Antes era `whileTap` no botão — reação ao toque, não ao efeito. Agora é
+     o CARTÃO inteiro que quica quando `aberta` VIRA, e não quando alguém
+     aperta.
+
+     É CSS PURO — `@keyframes` em `index.css`, não mola de Framer Motion. A
+     primeira versão usava `useAnimationControls` (o motor de animação por
+     JavaScript do Framer Motion, movido a `requestAnimationFrame`), e a
+     verificação do Editor PASSAVA — mas o processo do Node não terminava
+     sozinho depois: o motor por JS deixa um relógio pendurado no `jsdom`
+     quando a janela de teste nunca é fechada de verdade, e como o gatilho
+     agora é uma MUDANÇA DE ESTADO (não um gesto), ele dispara de verdade a
+     cada clique do teste — ao contrário do `whileTap` de antes, que nunca
+     chegava a rodar sob um clique sintético. Uma animação CSS não tem esse
+     problema: não existe relógio de JavaScript para ficar pendurado.
+
+     `quicando` liga a classe por 430ms e desliga sozinho — o mesmo tempo da
+     animação declarada em `index.css`. A LARGURA não é tocada por ela:
+     `style={{ width }}`, no `<aside>` abaixo, continua sendo o VALOR que a
+     verificação lê (documentado em `gaveta.js`), e a classe anima só
+     `transform`, que não mexe em layout nem em `style.width`. */
+  const [quicando, setQuicando] = useState(false);
+  const primeiraRenderizacao = useRef(true);
+  useEffect(() => {
+    if (primeiraRenderizacao.current) {
+      primeiraRenderizacao.current = false;
+      return;
+    }
+    if (semMovimento) return;
+    setQuicando(true);
+    const relogio = setTimeout(() => setQuicando(false), 430);
+    return () => clearTimeout(relogio);
+  }, [aberta, semMovimento]);
+
   const falta = (campo) => faltando.includes(campo);
 
   /** O que todo campo da gaveta carrega, montado uma vez por campo. */
@@ -398,11 +432,14 @@ export default function GavetaDeMetadados({
       aria-label="Metadados do post"
       data-aberta={aberta ? "true" : "false"}
       /* A largura é VALOR, e não classe utilitária: é ela que a verificação lê
-         no elemento, do mesmo jeito que o navegador. Ver `gaveta.js`. */
+         no elemento, do mesmo jeito que o navegador. Ver `gaveta.js`. Fica de
+         fora do quique de propósito: a classe abaixo anima só `transform`, e a
+         largura pula de um valor para o outro sem transição, como sempre foi. */
       style={{ width: larguraDaGaveta(aberta) }}
       className={cn(
         "flex min-h-0 flex-col rounded-cartao",
         "border border-border-soft bg-surface",
+        quicando && "quique-do-cartao",
         /* O PADDING VERTICAL É O MESMO NOS DOIS ESTADOS, e isso não é gosto:
            era `p-4` aberta e `py-2` recolhida, então o controle de recolher
            subia 8px no instante em que a gaveta fechava. O ícone é o MESMO
@@ -415,49 +452,39 @@ export default function GavetaDeMetadados({
       )}
     >
       {/* ── O controle de recolher e reabrir ─────────────────────────────
-          O PULO É DA MOLA, e não de uma sequência de quadros escrita à mão:
-          `whileTap` afunda o alvo enquanto o dedo está nele, e a mola de
-          volta — amortecimento baixo de propósito — passa do ponto e assenta.
-          É esse passar do ponto que se lê como bounce.
-
-          `motion.div` em volta, e não `motion(Button)`: o `Button` é o
-          componente do sistema, e envolvê-lo mantém variante, tamanho, foco e
-          alvo de toque exatamente como estão em todo o resto do Painel. */}
+          O quique SAIU daqui — agora é o `<aside>` inteiro que reage à troca
+          de `aberta` (ver `quicando`, acima). O que resta aqui é só a troca
+          do ÍCONE, uma animação diferente: entrada em mola a
+          cada troca de desenho, não um pulo de toque. */}
       <div className={cn("flex shrink-0", aberta ? "justify-end" : "justify-center")}>
-        <motion.div
-          whileTap={semMovimento ? undefined : { scale: 0.82 }}
-          transition={{ type: "spring", stiffness: 520, damping: 11 }}
-          className="shrink-0"
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => aoAlternar?.()}
+          aria-label={rotuloDoControle(aberta)}
+          aria-expanded={aberta}
+          aria-controls={idDosCampos}
+          className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0 text-ink-secondary")}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => aoAlternar?.()}
-            aria-label={rotuloDoControle(aberta)}
-            aria-expanded={aberta}
-            aria-controls={idDosCampos}
-            className={cn(ALVO_DE_TOQUE, ANEL_DE_FOCO, "shrink-0 text-ink-secondary")}
+          {/* O ícone TROCA quando o estado vira, e a `key` é o que faz a
+              mola rodar de novo a cada troca: sem ela o React reaproveita o
+              mesmo nó, o desenho muda no meio do movimento e não há entrada
+              nenhuma para animar. */}
+          <motion.span
+            key={aberta ? "aberta" : "recolhida"}
+            initial={semMovimento ? false : { scale: 0.5 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 620, damping: 12 }}
+            className="inline-flex"
           >
-            {/* O ícone TROCA quando o estado vira, e a `key` é o que faz a
-                mola rodar de novo a cada troca: sem ela o React reaproveita o
-                mesmo nó, o desenho muda no meio do movimento e não há entrada
-                nenhuma para animar. */}
-            <motion.span
-              key={aberta ? "aberta" : "recolhida"}
-              initial={semMovimento ? false : { scale: 0.5 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 620, damping: 12 }}
-              className="inline-flex"
-            >
-              {aberta ? (
-                <PanelRightClose aria-hidden="true" />
-              ) : (
-                <PanelRightOpen aria-hidden="true" />
-              )}
-            </motion.span>
-          </Button>
-        </motion.div>
+            {aberta ? (
+              <PanelRightClose aria-hidden="true" />
+            ) : (
+              <PanelRightOpen aria-hidden="true" />
+            )}
+          </motion.span>
+        </Button>
       </div>
 
       <div

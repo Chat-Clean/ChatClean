@@ -299,6 +299,61 @@ export const RECUSA_DE_ARQUIVO_VAZIO =
  * é o caminho do SERVIDOR, que não tem o arquivo em mãos. A tela sempre
  * informa, e é por isso que a extensão trocada morre lá, antes da rede.
  */
+/* ─── A IMAGEM DO CORPO TEM OUTRO TETO, E POR OUTRO MOTIVO ────────────────
+ *
+ * O 1 MB da capa existe por causa dos geradores de prévia de link (ver o
+ * cabeçalho). Imagem no meio do artigo NUNCA vira prévia de link — aquele
+ * argumento não se aplica a ela, e o teto apertado só atrapalhava quem quer
+ * ilustrar um post com uma foto de câmera.
+ *
+ * Este número é o teto do que se pode ESCOLHER do disco, e não o do que é
+ * ARMAZENADO: `enviarImagemDoCorpo` reduz e converte para WebP antes de
+ * subir, e o que chega ao bucket continua pequeno — bem abaixo do limite que
+ * o próprio bucket impõe, que segue sendo o da capa e não muda.
+ */
+export const TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO = 10 * 1024 * 1024;
+
+/**
+ * A maior largura que uma imagem do corpo pode ter depois de otimizada.
+ *
+ * A coluna do artigo mede 68ch — perto de 640px na tipografia do `.artigo`.
+ * 1600 dá folga para tela de alta densidade (2x e um pouco) sem guardar os
+ * 6000px que uma câmera moderna entrega e que ninguém jamais veria.
+ */
+export const LARGURA_MAXIMA_DA_IMAGEM_DO_CORPO = 1600;
+
+/** A qualidade da conversão para WebP. */
+export const QUALIDADE_DO_WEBP = 0.82;
+
+/**
+ * O problema deste arquivo para o CORPO do post, ou `null` quando ele serve.
+ *
+ * Mesma disciplina de `problemaNoArquivo` — inclusive a decisão por
+ * assinatura de bytes, que é o que faz a extensão trocada morrer aqui —, com
+ * o teto do corpo no lugar do teto da capa.
+ */
+export function problemaNoArquivoDoCorpo({ tamanho, tipo, assinatura } = {}) {
+  const n = Number(tamanho);
+  if (!Number.isFinite(n) || n <= 0) return RECUSA_DE_ARQUIVO_VAZIO;
+  if (n > TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO) {
+    return (
+      `Esta imagem tem ${formatarTamanho(n)} e o limite é ` +
+      `${formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO)}. ` +
+      `Reduza o arquivo e envie de novo.`
+    );
+  }
+
+  const declarada = especieDeclarada(tipo);
+  if (declarada === null) return recusaDeEspecie();
+
+  if (assinatura !== undefined && assinatura !== null) {
+    const real = especiePelosBytes(assinatura);
+    if (real === null || real !== declarada) return recusaDeEspecie();
+  }
+
+  return null;
+}
+
 export function problemaNoArquivo({ tamanho, tipo, assinatura } = {}) {
   const n = Number(tamanho);
   if (!Number.isFinite(n) || n <= 0) return RECUSA_DE_ARQUIVO_VAZIO;

@@ -25,7 +25,8 @@ import { Check, ImageIcon, Loader2, UploadCloud, X } from "lucide-react";
 
 import {
   ACEITO_NO_SELETOR,
-  TAMANHO_MAXIMO_DA_IMAGEM,
+  TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO,
+  formatarTamanho,
 } from "@/domain/blog/arquivos";
 import { enviarImagemDoCorpo } from "@/data/blog/arquivos";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
@@ -42,7 +43,7 @@ import { cn } from "@/lib/utils";
  * `capas/`). Este componente não valida nada por conta própria: a recusa que
  * ele mostra é a MESMA frase que o domínio produz.
  */
-function ImageUploadNodeView({ editor, getPos, node, deleteNode }) {
+function ImageUploadNodeView({ editor, getPos, node, deleteNode, selected }) {
   const [estado, setEstado] = useState("ocioso");
   const [mensagem, setMensagem] = useState("");
   // O endereço já subido, enquanto o widget está em "revisando" — a imagem
@@ -124,7 +125,27 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode }) {
   return (
     <NodeViewWrapper
       data-papel="envio-de-imagem"
-      className="my-3"
+      /* O NÓ NASCE SELECIONADO — é o comportamento padrão do ProseMirror ao
+         inserir um nó atômico — e a SELEÇÃO DE NÓ é implementada com a mesma
+         API de seleção de TEXTO do navegador. `::selection` de `index.css`
+         (fundo verde, texto branco — pensado para o site público) passava a
+         valer aqui por tabela: o texto do widget nascia branco, e só ficava
+         preto de novo quando o Autor clicava fora. A neutralização mora em
+         `index.css`, por `[data-papel="envio-de-imagem"]` (o atributo logo
+         acima) — e não como utilitária `selection:*` do Tailwind: aquela
+         classe cai dentro de uma `@layer`, e o `::selection` global não está
+         em camada nenhuma. Estilo sem camada sempre vence estilo em camada,
+         e a utilitária perdia sempre, mesmo parecendo certa no CSS
+         compilado.
+
+         O indicador de seleção de verdade é outro: um anel visível quando
+         `selected` (a prop que `ReactNodeViewRenderer` passa quando este é o
+         nó atualmente selecionado), no mesmo tom do anel de foco do resto do
+         Painel — cor, não texto invertido. */
+      className={cn(
+        "my-3 rounded-cartao",
+        selected && "ring-2 ring-brand-action ring-offset-2 ring-offset-surface",
+      )}
       tabIndex={0}
       onKeyDown={(evento) => {
         if (
@@ -224,8 +245,13 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode }) {
               <span className="text-ink">
                 Clique para enviar uma imagem, ou arraste-a até aqui
               </span>
+              {/* O NÚMERO VEM DA CONSTANTE, e não escrito à mão: era "até 1
+                  MB" fixo no texto, e ficou mentindo no dia em que o teto do
+                  corpo passou a ser outro. */}
               <span className="text-xs text-ink-muted">
-                JPEG, PNG ou WebP, até 1 MB
+                JPEG, PNG ou WebP, até{" "}
+                {formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO)} — a imagem
+                é otimizada antes de subir
               </span>
             </>
           )}
@@ -292,7 +318,7 @@ export const ExtensaoDeUploadDeImagem = Node.create({
   addOptions() {
     return {
       accept: ACEITO_NO_SELETOR,
-      maxSize: TAMANHO_MAXIMO_DA_IMAGEM,
+      maxSize: TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO,
     };
   },
 

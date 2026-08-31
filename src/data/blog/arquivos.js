@@ -44,6 +44,9 @@ import {
   caminhoDoCorpoNoEndereco,
   especieDeclarada,
   problemaNoArquivo,
+  problemaNoArquivoDoCorpo,
+  LARGURA_MAXIMA_DA_IMAGEM_DO_CORPO,
+  QUALIDADE_DO_WEBP,
 } from "../../domain/blog/arquivos.js";
 import { clienteDoPainelOuFalha } from "./comum.js";
 import { urlDoProjeto } from "../supabase/clientes.js";
@@ -338,12 +341,84 @@ export async function enviarImagemDeCapa(
 }
 
 /**
+ * Reduz e converte a imagem para WebP, no navegador, antes de qualquer rede.
+ *
+ * NÃO é exportada de propósito: é etapa interna de `enviarImagemDoCorpo`, e
+ * exportá-la a colocaria na lista de funções de escrita que `verificar:dados`
+ * cobra usarem o cliente de sessão — esta não fala com rede nenhuma.
+ *
+ * ─── POR QUE A CONVERSÃO EXISTE ─────────────────────────────────────────
+ *
+ * É ela que permite o teto GENEROSO de entrada (10 MB) sem afrouxar nada do
+ * lado do armazenamento: uma foto de câmera de 8 MB vira algo na casa das
+ * centenas de kB, e o bucket — que continua com o limite da capa — nunca
+ * chega perto de ser incomodado. O leitor do blog também ganha: WebP no
+ * lugar de JPEG de câmera é a diferença entre um artigo que abre e um que
+ * arrasta no celular.
+ *
+ * ─── E POR QUE ELA NUNCA DERRUBA O ENVIO ────────────────────────────────
+ *
+ * Navegador sem `toBlob`, sem WebP, ou imagem que o decodificador recusa:
+ * qualquer um desses devolve `null`, e quem chama sobe o arquivo ORIGINAL.
+ * Otimização é ganho, não requisito — e falhar a inserção da imagem porque a
+ * compressão não rolou seria trocar um benefício por um defeito.
+ */
+async function otimizarParaWebp(arquivo) {
+  if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
+    return null;
+  }
+
+  let desenho = null;
+  try {
+    desenho = await createImageBitmap(arquivo);
+
+    const escala = Math.min(1, LARGURA_MAXIMA_DA_IMAGEM_DO_CORPO / desenho.width);
+    const largura = Math.max(1, Math.round(desenho.width * escala));
+    const altura = Math.max(1, Math.round(desenho.height * escala));
+
+    const tela = document.createElement("canvas");
+    tela.width = largura;
+    tela.height = altura;
+    const pincel = tela.getContext("2d");
+    if (pincel === null) return null;
+    pincel.drawImage(desenho, 0, 0, largura, altura);
+
+    const convertido = await new Promise((resolver) => {
+      if (typeof tela.toBlob !== "function") {
+        resolver(null);
+        return;
+      }
+      tela.toBlob((blob) => resolver(blob), "image/webp", QUALIDADE_DO_WEBP);
+    });
+
+    /* `toBlob` devolve PNG quando o navegador não sabe fazer WebP — conferir
+       o tipo é o que impede subir um PNG gigante achando que é um WebP
+       pequeno. E se o resultado ficou MAIOR que a entrada (acontece com
+       imagem já otimizada, ou com PNG de poucas cores), o original vence:
+       converter para piorar não é otimizar. */
+    if (convertido === null || convertido.type !== "image/webp") return null;
+    if (convertido.size >= arquivo.size && escala === 1) return null;
+
+    return convertido;
+  } catch {
+    return null;
+  } finally {
+    desenho?.close?.();
+  }
+}
+
+/**
  * Envia uma imagem INLINE do corpo do Post e devolve o **endereço público
- * absoluto** — espelho de `enviarImagemDeCapa`, acima, trocando só a pasta
- * do bucket (`caminhoDoCorpo`, em vez de `caminhoDaCapa`) e a mensagem que
- * nomeia o que falhou. MESMO bucket (`imagens-do-blog`), MESMA validação de
- * espécie e tamanho (`problemaNoArquivo`, do domínio), MESMO desenho de
- * nome de arquivo (identificador novo, nunca o nome escolhido pelo Autor).
+ * absoluto** — espelho de `enviarImagemDeCapa`, acima, trocando a pasta do
+ * bucket (`caminhoDoCorpo`, em vez de `caminhoDaCapa`), a mensagem que nomeia
+ * o que falhou e o TETO DE ENTRADA, que aqui é o do corpo (10 MB) e não o da
+ * capa (1 MB) — ver `domain/blog/arquivos.js` para o porquê de serem
+ * diferentes. MESMO bucket (`imagens-do-blog`), MESMO desenho de nome de
+ * arquivo (identificador novo, nunca o nome escolhido pelo Autor).
+ *
+ * A imagem é REDUZIDA E CONVERTIDA para WebP antes de subir. O teto maior de
+ * entrada e a conversão são a mesma decisão: aceitar o arquivo grande que a
+ * pessoa tem em mãos, e guardar o pequeno que o leitor vai baixar.
  *
  * É a função que `ImageUploadNode.configure({ upload })` injeta no editor
  * (`admin/blog/BarraDoEditor.jsx`): o Tiptap chama `upload(arquivo)`, esta
@@ -371,7 +446,9 @@ export async function enviarImagemDoCorpo(
   }
 
   const assinatura = await lerAssinatura(arquivo);
-  const problema = problemaNoArquivo({
+  /* O TETO DO CORPO, e não o da capa. A conferência de espécie continua sendo
+     pelos BYTES — a extensão trocada morre aqui, antes da rede, como na capa. */
+  const problema = problemaNoArquivoDoCorpo({
     tamanho: arquivo.size,
     tipo: arquivo.type,
     assinatura,
@@ -386,7 +463,20 @@ export async function enviarImagemDoCorpo(
     });
   }
 
-  const caminho = caminhoDoCorpo(especieDeclarada(arquivo.type), novoIdentificador());
+  /* A OTIMIZAÇÃO ACONTECE DEPOIS DA RECUSA E ANTES DA REDE. Depois, porque
+     converter um arquivo que vai ser recusado é trabalho jogado fora — e
+     porque a conferência de espécie precisa ver os bytes ORIGINAIS, não os
+     que o canvas produziu. Antes da rede, porque o ponto todo é o bucket
+     receber o arquivo pequeno.
+
+     Falhou a conversão? `otimizarParaWebp` devolve `null` e o ORIGINAL sobe —
+     ver o comentário dela. Por isso `paraEnviar` e `especie` andam juntos: o
+     caminho no bucket leva a extensão do que realmente vai subir. */
+  const otimizado = await otimizarParaWebp(arquivo);
+  const paraEnviar = otimizado ?? arquivo;
+  const especie = otimizado === null ? especieDeclarada(arquivo.type) : "image/webp";
+
+  const caminho = caminhoDoCorpo(especie, novoIdentificador());
   if (caminho === null) {
     return falha(ERRO_INESPERADO, {
       operacao,
@@ -399,11 +489,13 @@ export async function enviarImagemDoCorpo(
 
   let resposta;
   try {
-    resposta = await cliente.dados.storage.from(BUCKET_DAS_IMAGENS).upload(caminho, arquivo, {
+    resposta = await cliente.dados.storage.from(BUCKET_DAS_IMAGENS).upload(caminho, paraEnviar, {
       // NUNCA sobrescreve — mesmo motivo de `enviarImagemDeCapa`: cada envio
       // nasce com nome próprio.
       upsert: false,
-      contentType: especieDeclarada(arquivo.type),
+      // A espécie do que REALMENTE sobe: `image/webp` quando a conversão deu
+      // certo, a original quando ela não deu. É a mesma que nomeou o caminho.
+      contentType: especie,
       cacheControl: String(CACHE_DA_CAPA_EM_SEGUNDOS),
     });
   } catch (excecao) {

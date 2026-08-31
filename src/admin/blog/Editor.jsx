@@ -27,13 +27,15 @@
  * tabela, e diz que a tabela saiu".
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { AlertTriangle, X } from "lucide-react";
 
 import BarraDoEditor from "@/admin/blog/BarraDoEditor";
+import { deslocamentoDoArrasto } from "@/admin/blog/arrasto";
 import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
 import { ExtensaoDeUploadDeImagem } from "@/admin/blog/extensaoDeUploadDeImagem";
+import PreviaDeArrasto from "@/admin/blog/PreviaDeArrasto";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { prepararConteudo } from "@/admin/blog/conteudo";
 import { Button } from "@/components/ui/button";
@@ -80,6 +82,63 @@ export default function Editor({
 
   const dispensar = useCallback(() => setAviso(null), []);
 
+  /* ─── ROLAR ENQUANTO ARRASTA ─────────────────────────────────────────────
+     Arrastando uma imagem para um ponto fora da parte visível não havia como
+     chegar lá: o arrasto de HTML5 não rola nada sozinho, e soltar para rolar
+     perde o arrasto. Encostar o cursor perto da borda de cima ou de baixo da
+     caixa que rola o texto agora rola na direção certa.
+
+     O laço é de QUADRO, e não de evento: `dragover` só dispara quando o
+     ponteiro se MEXE, e a rolagem precisa continuar com ele parado na borda —
+     que é justamente como se segura para esperar o documento chegar.
+
+     E o laço só se reagenda quando há deslocamento. Com o cursor no meio da
+     caixa, nenhum quadro é pedido: um laço que gira o arrasto inteiro à toa
+     é o tipo de coisa que fica presa quando o arrasto termina de um jeito que
+     ninguém previu. */
+  const caixaQueRola = useRef(null);
+  useEffect(() => {
+    let ondeEsta = null;
+    let quadro = null;
+
+    const passo = () => {
+      quadro = null;
+      const caixa = caixaQueRola.current;
+      if (caixa === null || ondeEsta === null) return;
+
+      const medida = caixa.getBoundingClientRect();
+      const deslocamento = deslocamentoDoArrasto({
+        y: ondeEsta,
+        topo: medida.top,
+        base: medida.bottom,
+      });
+      if (deslocamento === 0) return;
+
+      caixa.scrollTop += deslocamento;
+      quadro = requestAnimationFrame(passo);
+    };
+
+    const aoArrastar = (evento) => {
+      ondeEsta = evento.clientY;
+      if (quadro === null) quadro = requestAnimationFrame(passo);
+    };
+    const parar = () => {
+      ondeEsta = null;
+      if (quadro !== null) cancelAnimationFrame(quadro);
+      quadro = null;
+    };
+
+    document.addEventListener("dragover", aoArrastar);
+    document.addEventListener("drop", parar);
+    document.addEventListener("dragend", parar);
+    return () => {
+      parar();
+      document.removeEventListener("dragover", aoArrastar);
+      document.removeEventListener("drop", parar);
+      document.removeEventListener("dragend", parar);
+    };
+  }, []);
+
   return (
     <div
       className={cn(
@@ -115,9 +174,18 @@ export default function Editor({
 
       <BarraDoEditor editor={editor} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      <div ref={caixaQueRola} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {editor ? (
-          <EditorContent editor={editor} />
+          <>
+            <EditorContent editor={editor} />
+            {/* A prévia do arrasto de imagem. Fica AQUI, e não dentro de
+                `configuracao.js`, pela mesma razão do widget de upload:
+                aquele arquivo precisa continuar Node-executável, sem React.
+                Ela se desenha em `position: fixed`, então o lugar na árvore
+                não afeta onde ela aparece — o que importa é estar montada
+                enquanto o editor estiver. */}
+            <PreviaDeArrasto />
+          </>
         ) : (
           /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
              esqueleto acompanha a do texto pela mesma classe. */

@@ -23,6 +23,93 @@ body {
   color: #fff;
 }
 
+/* O widget de upload de imagem do Editor (Painel) nasce SELECIONADO — é o
+   comportamento padrão do ProseMirror ao inserir um nó atômico, e a seleção
+   de nó usa a mesma API de seleção de TEXTO do navegador. Sem esta regra, o
+   `::selection` acima (pensado para o site público) pinta o texto do widget
+   de branco sobre um fundo claro — ilegível.
+
+   NÃO é uma utilitária Tailwind (`selection:text-inherit` não funciona
+   aqui): a regra acima não está dentro de `@layer` nenhuma, e estilo SEM
+   camada sempre vence estilo COM camada, não importa a especificidade — é
+   assim que a especificação de CSS Cascade Layers define a ordem. Toda
+   classe `selection:*` que o Tailwind gera cai dentro de uma `@layer`, e por
+   isso perdia sempre, mesmo parecendo correta no CSS compilado. Esta regra,
+   escrita à mão e também SEM camada, compete em pé de igualdade — e vence
+   por ser mais específica (seletor de atributo + pseudo-elemento).
+
+   O CONSERTO DE VERDADE É `user-select`, e não o `::selection`. O widget é
+   CHROME DE INTERFACE — zona de soltar, botões, ícones —, não texto do
+   artigo: não há nada ali que faça sentido selecionar. Com `user-select:
+   none` o navegador simplesmente não pinta seleção nenhuma por cima dele, e
+   a cor do texto nunca é trocada. O `::selection` abaixo fica como segunda
+   linha de defesa, agora com COR CONCRETA: a primeira tentativa usava
+   `color: inherit`, que o Chrome descarta dentro de `::selection` — o
+   `background: transparent` pegava (o verde sumia) e o `color` caía de volta
+   no `#fff` da regra global, que é exatamente o texto branco invisível que
+   isto existe para consertar. */
+[data-papel="envio-de-imagem"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* O campo de descrição é a exceção: ali se digita e se seleciona de verdade. */
+[data-papel="envio-de-imagem"] input,
+[data-papel="envio-de-imagem"] textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-papel="envio-de-imagem"] ::selection,
+[data-papel="envio-de-imagem"]::selection {
+  background: transparent;
+  color: var(--ink, #0f172a);
+}
+
+/* A IMAGEM SELECIONADA DENTRO DO EDITOR ---------------------------------
+   `ProseMirror-selectednode` é a classe que o ProseMirror põe no nó
+   selecionado. Ela sempre existiu no DOM — o que faltava era estilo: o CSS
+   padrão do `prosemirror-view` (que traz um contorno azul) NÃO é importado
+   por este projeto, entao a imagem selecionada nao mostrava nada.
+
+   NÃO ancorado em `.artigo`, de propósito: um seletor como
+   `.artigo img.ProseMirror-selectednode` exigiria uma `class` no HTML do
+   artigo, e `verificar:artigo` recusa isso por regra — o renderizador nunca
+   emite `class`, e classe em tempo de execução não chega ao compilador do
+   Tailwind. Esta classe só existe dentro do editor, entao o seletor sem
+   `.artigo` já é naturalmente restrito a ele. */
+img.ProseMirror-selectednode {
+  outline: 2px solid var(--brand-action, #007a2a);
+  outline-offset: 2px;
+}
+
+/* A IMAGEM SOME DO LUGAR DE ORIGEM ENQUANTO É ARRASTADA -------------------
+   E some COM ANIMAÇÃO: encolhe e desvanece, em vez de piscar para fora. A
+   marca `data-arrastando-imagem` é posta em `document.body` pelo gancho de
+   `dragstart` (`admin/blog/configuracao.js`) e retirada no `dragend` — que
+   dispara em qualquer desfecho, inclusive soltar fora ou cancelar com
+   Escape. Por isso a volta é de graça: sem a marca, a transição roda ao
+   contrário sozinha.
+
+   A marca vive no `body`, e NÃO num atributo da própria imagem, de
+   propósito: mexer em atributo de um elemento que o ProseMirror gerencia
+   dentro do `contenteditable` faz o observador dele reagir como se o
+   documento tivesse mudado. O `body` está fora do alcance dele.
+
+   Quem é a imagem arrastada: a que está com seleção de nó — arrastar uma
+   imagem no ProseMirror a seleciona. É a mesma classe que ganha o contorno
+   verde acima. */
+img.ProseMirror-selectednode {
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out;
+}
+
+body[data-arrastando-imagem="true"] img.ProseMirror-selectednode {
+  opacity: 0.25;
+  transform: scale(0.94);
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;
@@ -244,6 +331,29 @@ body {
   100% {
     transform: scale(1.6);
     opacity: 0;
+  }
+}
+
+/* --- Quique do cartão (Gaveta de metadados do Painel) -------------------
+   CSS puro, de propósito: nada de motor de animação por JavaScript aqui.
+   `@media (prefers-reduced-motion: reduce)` no alto deste arquivo já zera a
+   duração de toda animação/transição CSS — inclusive esta — sem precisar de
+   nenhuma condição a mais. */
+.quique-do-cartao {
+  animation: quique-do-cartao 0.43s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes quique-do-cartao {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.035);
+  }
+  75% {
+    transform: scale(0.985);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 

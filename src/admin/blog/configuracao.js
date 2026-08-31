@@ -148,6 +148,23 @@ export function configuracaoDoKit() {
     };
   }
 
+  /* A LINHA QUE PREVÊ ONDE O BLOCO ARRASTADO VAI CAIR, no verde da marca.
+     O padrão do `prosemirror-dropcursor` é um traço preto, e preto não é cor
+     desta interface — o Painel sinaliza com `--brand-action` em todo o resto.
+
+     A cor vai como `var(...)`, e não como o hexadecimal copiado: a extensão
+     escreve o valor em `background-color` inline, e variável de CSS resolve
+     ali normalmente, porque o traço nasce dentro do Painel. Assim o token
+     continua sendo a fonte única — trocar a cor da marca troca esta também.
+     O hexadecimal fica só como reserva, para a linha nunca sumir se a
+     variável não resolver. */
+  if (configuracao.dropcursor !== false) {
+    configuracao.dropcursor = {
+      color: "var(--brand-action, #007a2a)",
+      width: 2,
+    };
+  }
+
   return configuracao;
 }
 
@@ -249,8 +266,117 @@ export function opcoesDoEditor({ rotulo = "Conteúdo do post" } = {}) {
         "aria-multiline": "true",
         "aria-label": rotulo,
       },
+      /* ─── O RETRATO DO ARRASTO DA IMAGEM ───────────────────────────────
+         Arrastando uma imagem para reposicioná-la, o navegador desenha por
+         conta própria um retrato do elemento inteiro, em tamanho real e
+         TRANSLÚCIDO — e essa transparência é do sistema operacional, não uma
+         propriedade de CSS: `opacity: 1` na cópia não a alcança. A única
+         saída é não deixar o navegador desenhar nada.
+
+         É o que acontece aqui: o retrato nativo vira um pixel invisível, e
+         quem desenha a prévia passa a ser React (`PreviaDeArrasto`, montada
+         em `Editor.jsx`), que a anima com Motion e a mantém opaca. Este
+         gancho só AVISA — o evento leva o endereço da imagem e a medida —, e
+         a marca em `document.body` é o que o CSS usa para sumir com a origem.
+
+         Por que avisar por evento, e não por chamada direta: este arquivo
+         precisa continuar Node-executável, sem React e sem JSX, para a
+         verificação derivar a barra sem montar navegador. Um `CustomEvent`
+         atravessa essa fronteira sem quebrá-la.
+
+         `handleDOMEvents`, e não `handleDrop`/`handlePaste`: estes dois
+         continuam sem manipulador próprio (o editor não intercepta colagem
+         nem soltura — há asserção sobre isso em `verificar:editor`). Este
+         devolve `false`, então o ProseMirror segue tratando o arrasto inteiro
+         como sempre tratou — inclusive a LINHA que prevê onde a imagem cai. */
+      handleDOMEvents: {
+        dragstart: (_visao, evento) => {
+          const alvo = evento?.target;
+          const transferencia = evento?.dataTransfer;
+          if (
+            !alvo ||
+            alvo.tagName !== "IMG" ||
+            !transferencia ||
+            typeof transferencia.setDragImage !== "function"
+          ) {
+            return false;
+          }
+
+          const medida = alvo.getBoundingClientRect();
+
+          /* O retrato do navegador vira um pixel invisível. Ele PRECISA estar
+             no documento no instante da chamada — exigência de
+             `setDragImage` —, e sai no tique seguinte, depois de o navegador
+             já ter tirado a foto. */
+          const invisivel = document.createElement("div");
+          invisivel.style.width = "1px";
+          invisivel.style.height = "1px";
+          invisivel.style.position = "fixed";
+          invisivel.style.top = "-10000px";
+          invisivel.style.left = "-10000px";
+          document.body.appendChild(invisivel);
+          transferencia.setDragImage(invisivel, 0, 0);
+          setTimeout(() => invisivel.remove(), 0);
+
+          document.body.setAttribute("data-arrastando-imagem", "true");
+          document.dispatchEvent(
+            new CustomEvent("painel:arrasto-de-imagem", {
+              detail: {
+                endereco: alvo.currentSrc || alvo.src || "",
+                proporcao: medida.height > 0 ? medida.width / medida.height : 1,
+              },
+            }),
+          );
+
+          /* A limpeza vive no MESMO lugar que a marcação, e não espalhada por
+             quem escuta: `dragend` sempre dispara na origem — soltando dentro,
+             fora, ou cancelando com Escape —, então é ele que garante que a
+             imagem volte a aparecer em qualquer desfecho. */
+          const encerrar = () => {
+            document.body.removeAttribute("data-arrastando-imagem");
+            document.dispatchEvent(new CustomEvent("painel:arrasto-de-imagem-fim"));
+            alvo.removeEventListener("dragend", encerrar);
+          };
+          alvo.addEventListener("dragend", encerrar);
+
+          return false;
+        },
+      },
     },
   };
+}
+
+/**
+ * A barra flutuante deve aparecer para esta seleção?
+ *
+ * Só para TEXTO. O `shouldShow` padrão da extensão pergunta apenas se a
+ * seleção está vazia — e seleção de NÓ (imagem, linha divisória, o widget de
+ * envio) não está vazia. A barra aparecia sobre elas oferecendo negrito,
+ * título e link para coisas que não têm texto.
+ *
+ * As duas conferências são diferentes e as duas são necessárias:
+ *
+ *   - `selection.node` existe apenas em `NodeSelection` — é o jeito de
+ *     reconhecê-la sem importar a classe do ProseMirror, e recusa a imagem
+ *     selecionada mesmo quando há texto em volta;
+ *   - `textBetween` recusa o intervalo que não tem texto NENHUM dentro, que é
+ *     o caso de arrastar a seleção por cima de uma linha divisória sozinha.
+ *
+ * Pura e exportada de propósito: a verificação a executa com seleções
+ * montadas à mão, em vez de procurar o comportamento no JSX da barra.
+ */
+export function aBarraFlutuanteAparece(estado) {
+  const selecao = estado?.selection;
+  if (!selecao || selecao.empty) return false;
+  // `NodeSelection` carrega o nó escolhido; as de texto, não.
+  if (selecao.node !== undefined && selecao.node !== null) return false;
+
+  const de = selecao.from;
+  const ate = selecao.to;
+  if (!(ate > de)) return false;
+
+  const texto = estado?.doc?.textBetween?.(de, ate, " ", " ") ?? "";
+  return texto.trim().length > 0;
 }
 
 /* ─── A barra, derivada ──────────────────────────────────────────────────── */
