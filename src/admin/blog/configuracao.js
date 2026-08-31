@@ -249,6 +249,60 @@ export function opcoesDoEditor({ rotulo = "Conteúdo do post" } = {}) {
         "aria-multiline": "true",
         "aria-label": rotulo,
       },
+      /* ─── O RETRATO DO ARRASTO DA IMAGEM ───────────────────────────────
+         Arrastando uma imagem para reposicioná-la, o navegador desenha por
+         conta própria um retrato TRANSLÚCIDO do elemento inteiro, em tamanho
+         real — atrapalha justamente na hora de mirar onde soltar. Aqui esse
+         retrato é trocado por uma cópia OPACA e reduzida.
+
+         `handleDOMEvents`, e não `handleDrop`/`handlePaste`: estes dois
+         continuam sem manipulador próprio (o editor não intercepta colagem
+         nem soltura — há asserção sobre isso em `verificar:editor`). Este
+         daqui só troca a FIGURA do arrasto e devolve `false`, então o
+         ProseMirror segue tratando o arrasto inteiro como sempre tratou.
+
+         A cópia precisa estar no documento no instante da chamada — é
+         exigência de `setDragImage` —, então ela nasce fora da tela e sai no
+         tique seguinte, depois de o navegador já ter tirado o retrato. */
+      handleDOMEvents: {
+        dragstart: (_visao, evento) => {
+          const alvo = evento?.target;
+          const transferencia = evento?.dataTransfer;
+          if (
+            !alvo ||
+            alvo.tagName !== "IMG" ||
+            !transferencia ||
+            typeof transferencia.setDragImage !== "function"
+          ) {
+            return false;
+          }
+
+          const medida = alvo.getBoundingClientRect();
+          if (medida.width < 1) return false;
+          /* Um terço da largura, com teto: imagem grande vira miniatura, e
+             imagem já pequena não cresce. */
+          const largura = Math.max(48, Math.min(180, Math.round(medida.width / 3)));
+
+          const retrato = alvo.cloneNode(true);
+          retrato.style.width = `${largura}px`;
+          retrato.style.height = "auto";
+          retrato.style.opacity = "1";
+          retrato.style.position = "fixed";
+          retrato.style.top = "-10000px";
+          retrato.style.left = "-10000px";
+          retrato.style.pointerEvents = "none";
+          retrato.style.borderRadius = "8px";
+          document.body.appendChild(retrato);
+
+          /* O ponto de pega vai no meio da largura e perto do topo: o cursor
+             segura a miniatura como quem segura uma foto pela borda de cima,
+             sem cobrir o que está sendo mirado logo abaixo dele. */
+          transferencia.setDragImage(retrato, largura / 2, 12);
+          setTimeout(() => retrato.remove(), 0);
+
+          return false;
+        },
+      },
     },
   };
 }

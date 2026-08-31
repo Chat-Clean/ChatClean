@@ -66,6 +66,23 @@ body {
   color: var(--ink, #0f172a);
 }
 
+/* A IMAGEM SELECIONADA DENTRO DO EDITOR ---------------------------------
+   `ProseMirror-selectednode` é a classe que o ProseMirror põe no nó
+   selecionado. Ela sempre existiu no DOM — o que faltava era estilo: o CSS
+   padrão do `prosemirror-view` (que traz um contorno azul) NÃO é importado
+   por este projeto, entao a imagem selecionada nao mostrava nada.
+
+   NÃO ancorado em `.artigo`, de propósito: um seletor como
+   `.artigo img.ProseMirror-selectednode` exigiria uma `class` no HTML do
+   artigo, e `verificar:artigo` recusa isso por regra — o renderizador nunca
+   emite `class`, e classe em tempo de execução não chega ao compilador do
+   Tailwind. Esta classe só existe dentro do editor, entao o seletor sem
+   `.artigo` já é naturalmente restrito a ele. */
+img.ProseMirror-selectednode {
+  outline: 2px solid var(--brand-action, #007a2a);
+  outline-offset: 2px;
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;
