@@ -25,7 +25,8 @@ import { Check, ImageIcon, Loader2, UploadCloud, X } from "lucide-react";
 
 import {
   ACEITO_NO_SELETOR,
-  TAMANHO_MAXIMO_DA_IMAGEM,
+  TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO,
+  formatarTamanho,
 } from "@/domain/blog/arquivos";
 import { enviarImagemDoCorpo } from "@/data/blog/arquivos";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
@@ -244,8 +245,13 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode, selected }) {
               <span className="text-ink">
                 Clique para enviar uma imagem, ou arraste-a até aqui
               </span>
+              {/* O NÚMERO VEM DA CONSTANTE, e não escrito à mão: era "até 1
+                  MB" fixo no texto, e ficou mentindo no dia em que o teto do
+                  corpo passou a ser outro. */}
               <span className="text-xs text-ink-muted">
-                JPEG, PNG ou WebP, até 1 MB
+                JPEG, PNG ou WebP, até{" "}
+                {formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO)} — a imagem
+                é otimizada antes de subir
               </span>
             </>
           )}
@@ -312,7 +318,7 @@ export const ExtensaoDeUploadDeImagem = Node.create({
   addOptions() {
     return {
       accept: ACEITO_NO_SELETOR,
-      maxSize: TAMANHO_MAXIMO_DA_IMAGEM,
+      maxSize: TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO,
     };
   },
 
