@@ -346,6 +346,39 @@ export function opcoesDoEditor({ rotulo = "Conteúdo do post" } = {}) {
   };
 }
 
+/**
+ * A barra flutuante deve aparecer para esta seleção?
+ *
+ * Só para TEXTO. O `shouldShow` padrão da extensão pergunta apenas se a
+ * seleção está vazia — e seleção de NÓ (imagem, linha divisória, o widget de
+ * envio) não está vazia. A barra aparecia sobre elas oferecendo negrito,
+ * título e link para coisas que não têm texto.
+ *
+ * As duas conferências são diferentes e as duas são necessárias:
+ *
+ *   - `selection.node` existe apenas em `NodeSelection` — é o jeito de
+ *     reconhecê-la sem importar a classe do ProseMirror, e recusa a imagem
+ *     selecionada mesmo quando há texto em volta;
+ *   - `textBetween` recusa o intervalo que não tem texto NENHUM dentro, que é
+ *     o caso de arrastar a seleção por cima de uma linha divisória sozinha.
+ *
+ * Pura e exportada de propósito: a verificação a executa com seleções
+ * montadas à mão, em vez de procurar o comportamento no JSX da barra.
+ */
+export function aBarraFlutuanteAparece(estado) {
+  const selecao = estado?.selection;
+  if (!selecao || selecao.empty) return false;
+  // `NodeSelection` carrega o nó escolhido; as de texto, não.
+  if (selecao.node !== undefined && selecao.node !== null) return false;
+
+  const de = selecao.from;
+  const ate = selecao.to;
+  if (!(ate > de)) return false;
+
+  const texto = estado?.doc?.textBetween?.(de, ate, " ", " ") ?? "";
+  return texto.trim().length > 0;
+}
+
 /* ─── A barra, derivada ──────────────────────────────────────────────────── */
 
 /**
