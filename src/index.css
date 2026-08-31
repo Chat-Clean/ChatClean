@@ -36,11 +36,34 @@ body {
    classe `selection:*` que o Tailwind gera cai dentro de uma `@layer`, e por
    isso perdia sempre, mesmo parecendo correta no CSS compilado. Esta regra,
    escrita à mão e também SEM camada, compete em pé de igualdade — e vence
-   por ser mais específica (seletor de atributo + pseudo-elemento). */
+   por ser mais específica (seletor de atributo + pseudo-elemento).
+
+   O CONSERTO DE VERDADE É `user-select`, e não o `::selection`. O widget é
+   CHROME DE INTERFACE — zona de soltar, botões, ícones —, não texto do
+   artigo: não há nada ali que faça sentido selecionar. Com `user-select:
+   none` o navegador simplesmente não pinta seleção nenhuma por cima dele, e
+   a cor do texto nunca é trocada. O `::selection` abaixo fica como segunda
+   linha de defesa, agora com COR CONCRETA: a primeira tentativa usava
+   `color: inherit`, que o Chrome descarta dentro de `::selection` — o
+   `background: transparent` pegava (o verde sumia) e o `color` caía de volta
+   no `#fff` da regra global, que é exatamente o texto branco invisível que
+   isto existe para consertar. */
+[data-papel="envio-de-imagem"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* O campo de descrição é a exceção: ali se digita e se seleciona de verdade. */
+[data-papel="envio-de-imagem"] input,
+[data-papel="envio-de-imagem"] textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 [data-papel="envio-de-imagem"] ::selection,
 [data-papel="envio-de-imagem"]::selection {
   background: transparent;
-  color: inherit;
+  color: var(--ink, #0f172a);
 }
 
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
