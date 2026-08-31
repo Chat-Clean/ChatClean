@@ -506,7 +506,11 @@ export default function BarraDoEditor({ editor, className }) {
   );
 
   return (
-    <div className={cn("border-b border-border-soft", className)}>
+    /* `shrink-0`: a barra é CHROME, e chrome não encolhe. Sem isto ela é um
+       item de flex com encolhimento padrão, e conteúdo alto o bastante na
+       caixa de texto ao lado a espremia até sumir — os botões de formatação
+       desapareciam da tela em vez de o texto rolar. */
+    <div className={cn("shrink-0 border-b border-border-soft", className)}>
       <div
         role="toolbar"
         aria-label="Formatação do texto"

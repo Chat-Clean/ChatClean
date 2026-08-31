@@ -174,7 +174,18 @@ export default function Editor({
 
       <BarraDoEditor editor={editor} />
 
-      <div ref={caixaQueRola} className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      {/* `relative` NÃO é enfeite: é o que prende a linha de previsão dentro
+          do editor. O `prosemirror-dropcursor` anexa a linha ao `offsetParent`
+          do editor e a posiciona em relação a ele — e sem posicionamento aqui,
+          o `offsetParent` virava o `<body>` (que é `position: relative` por
+          causa do `index.css`). A linha nascia filha do body, em coordenada de
+          página e sem nada que a recortasse: aparecia fora dos limites do
+          editor. Com `relative`, ela nasce aqui dentro e o `overflow-y-auto`
+          desta mesma caixa a recorta. */}
+      <div
+        ref={caixaQueRola}
+        className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+      >
         {editor ? (
           <>
             <EditorContent editor={editor} />

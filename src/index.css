@@ -110,6 +110,30 @@ body[data-arrastando-imagem="true"] img.ProseMirror-selectednode {
   transform: scale(0.94);
 }
 
+/* DUAS LINHAS APARECIAM, E SÓ UMA É NOSSA ---------------------------------
+   A verde é a do `prosemirror-dropcursor`, que prevê onde o bloco cai. A
+   outra é o CURSOR DE TEXTO do próprio navegador, que ele desenha no ponto
+   de soltura dentro de um `contenteditable` — e que não tem nada a dizer
+   quando o que se arrasta é uma imagem inteira. `caret-color: transparent`
+   apaga a dele e deixa só a que informa. Vale só durante o arrasto: fora
+   dele, o cursor de texto é justamente o que a pessoa precisa ver. */
+body[data-arrastando-imagem="true"] .ProseMirror {
+  caret-color: transparent;
+}
+
+/* O TETO DE ALTURA DA IMAGEM DENTRO DO EDITOR -----------------------------
+   `max-width: 100%` (em `.artigo img`) limita a largura e nada mais: uma
+   imagem alta entrava com milhares de pixels de altura e dominava a tela.
+   `max-height` fecha o outro lado — e, como as duas medidas são `auto`, o
+   navegador preserva a proporção sozinho ao caber a imagem nos dois limites.
+
+   Fica FORA de `.artigo`, e não é descuido: `.artigo` é o estilo canônico
+   compartilhado com o site publicado, e recortar altura lá mudaria o artigo
+   do leitor. Aqui a regra vale só onde o ProseMirror monta — o Editor. */
+.ProseMirror img {
+  max-height: 60vh;
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;
