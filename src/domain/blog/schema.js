@@ -386,6 +386,24 @@ function textoOuNulo(valor) {
 }
 
 /**
+ * A largura escolhida para uma imagem, em pixels — ou `null`.
+ *
+ * AUSENTE É LEGÍTIMO, e é por isso que esta função existe em vez de um
+ * `inteiroEntre(80, 1600)` seco: imagem que ninguém redimensionou não tem
+ * largura, e o Tiptap declara `width: null` em toda imagem que ele analisa.
+ * Com o `inteiroEntre` sozinho, esse `null` era DESCARTADO — e descarte é
+ * registrado, então colar uma imagem de fora passava a acusar perda de
+ * conteúdo que não houve. Mesma disciplina de `textoOuNulo`, acima.
+ *
+ * Valor fora da faixa continua sumindo: é a diferença entre "não escolheram
+ * largura" e "escolheram uma que o vocabulário não aceita".
+ */
+function larguraDaImagem(valor) {
+  if (valor === null || valor === undefined) return null;
+  return Number.isInteger(valor) && valor >= 80 && valor <= 1600 ? valor : undefined;
+}
+
+/**
  * A forma de cada nó: que atributos aceita, que filhos aceita, e se sobrevive
  * ficando vazio.
  *
@@ -479,6 +497,21 @@ export const NOS = Object.freeze({
       src: enderecoDeImagemDoDocumento,
       alt: textoOuNulo,
       title: textoOuNulo,
+      /* A LARGURA ESCOLHIDA PELO AUTOR, em pixels — o que o punho de
+         redimensionar grava. Sem ela no vocabulário, redimensionar seria um
+         efeito de tela: a higienização descartaria o atributo e a imagem
+         voltaria ao tamanho cheio no próximo carregamento.
+
+         Só a LARGURA, e não a altura: a proporção é preservada pelo CSS
+         (`height: auto`), e guardar as duas abriria a porta para um par
+         inconsistente — uma imagem gravada esticada, que nenhum arrasto
+         proporcional consegue produzir.
+
+         O teto é `LARGURA_MAXIMA_DA_IMAGEM_DO_CORPO`, o mesmo da otimização:
+         guardar largura maior que a imagem que existe no bucket seria pedir
+         ao navegador que a estique. O piso de 80 é o menor tamanho em que
+         uma imagem ainda é imagem, e não um ponto na tela. */
+      width: larguraDaImagem,
     }),
     atributosObrigatorios: Object.freeze(["src"]),
     filhos: null,

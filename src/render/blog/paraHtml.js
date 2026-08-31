@@ -222,6 +222,19 @@ const NOS = Object.freeze({
     if (typeof attrs.title === "string" && attrs.title !== "") {
       tag += atributo("title", attrs.title);
     }
+    /* A LARGURA SAI COMO ATRIBUTO `width`, e nunca como `style`: atributo de
+       estilo não existe no vocabulário emitido por este arquivo, e abrir
+       exceção para ele aqui abriria para todo o resto. `width` é atributo de
+       HTML de verdade, e o CSS (`height: auto` em `.artigo img`) preserva a
+       proporção sozinho a partir dele.
+
+       A conferência é repetida — como em `src` e em `highlight` — porque
+       `htmlDoDocumento` é exportado e pode receber documento que não passou
+       pela validação. Largura fora da faixa simplesmente não sai, e a imagem
+       volta a ocupar a medida do texto. */
+    if (Number.isInteger(attrs.width) && attrs.width >= 80 && attrs.width <= 1600) {
+      tag += atributo("width", String(attrs.width));
+    }
     return `${tag}>`;
   },
 });
@@ -362,6 +375,7 @@ export const ATRIBUTOS_EMITIDOS = Object.freeze([
   "src",
   "alt",
   "data-cor",
+  "width",
 ]);
 
 /**

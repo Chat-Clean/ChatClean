@@ -134,6 +134,16 @@ body[data-arrastando-imagem="true"] .ProseMirror {
   max-height: 60vh;
 }
 
+/* ENQUANTO SE REDIMENSIONA, NADA DE SELECIONAR TEXTO ----------------------
+   O punho é arrastado por ponteiro, e sem isto o navegador entende o gesto
+   como "selecionar o texto daqui até ali" e pinta meio artigo de verde no
+   meio do redimensionamento. */
+body[data-redimensionando-imagem="true"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: ew-resize;
+}
+
 /* ----- Scrollbar customizada (estilo Linear/Vercel) -------------- */
 ::-webkit-scrollbar {
   width: 12px;

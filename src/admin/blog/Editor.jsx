@@ -36,6 +36,7 @@ import { deslocamentoDoArrasto } from "@/admin/blog/arrasto";
 import { extensoesDoEditor, opcoesDoEditor } from "@/admin/blog/configuracao";
 import { ExtensaoDeUploadDeImagem } from "@/admin/blog/extensaoDeUploadDeImagem";
 import PreviaDeArrasto from "@/admin/blog/PreviaDeArrasto";
+import PunhoDeRedimensionar from "@/admin/blog/PunhoDeRedimensionar";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { prepararConteudo } from "@/admin/blog/conteudo";
 import { Button } from "@/components/ui/button";
@@ -196,6 +197,10 @@ export default function Editor({
                 não afeta onde ela aparece — o que importa é estar montada
                 enquanto o editor estiver. */}
             <PreviaDeArrasto />
+            {/* O punho de redimensionar. Mesma razão de estar aqui: ele se
+                desenha em `position: fixed` sobre a imagem selecionada, então
+                o lugar na árvore não decide onde ele aparece. */}
+            <PunhoDeRedimensionar editor={editor} />
           </>
         ) : (
           /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
