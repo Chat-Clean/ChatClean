@@ -250,7 +250,7 @@ function ImageUploadNodeView({ editor, getPos, node, deleteNode, selected }) {
                   corpo passou a ser outro. */}
               <span className="text-xs text-ink-muted">
                 JPEG, PNG ou WebP, até{" "}
-                {formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO)} — a imagem
+                {formatarTamanho(TAMANHO_MAXIMO_DA_IMAGEM_DO_CORPO)}. A imagem
                 é otimizada antes de subir
               </span>
             </>
