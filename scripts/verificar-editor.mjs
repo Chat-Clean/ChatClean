@@ -2151,15 +2151,32 @@ if (editor && schema && configuracao) {
     `classe: ${classeDaArea}`,
   );
 
-  /* E não redeclara a medida: 68ch já vive em `.artigo`. Duas fontes para a
-     mesma medida divergem, e a esquecida é a que ganha. */
+  /* E não redeclara a medida: 68ch já vive em `.artigo`, sozinho. Duas fontes
+     para a MESMA medida divergem, e a esquecida é a que ganha — um
+     `max-width` de ANCESTRAL mais estreito que 68ch venceria de verdade,
+     porque a caixa nunca fica mais larga que o menor teto da cadeia.
+
+     A ÚNICA exceção é o cartão de página: um contêiner mais LARGO que a
+     área de escrita, `data-papel="pagina-do-editor"` em Editor.jsx, que
+     existe para dar um limite visual num monitor largo — sem tocar a
+     medida de leitura. Ele é seguro por ser mais largo que qualquer 68ch
+     plausível: um teto mais largo nunca vence, o filho mais estreito
+     sempre governa. É por isso que a exceção é travada por IGUALDADE a um
+     valor nomeado, e não por padrão frouxo — outro `max-w-` qualquer,
+     inclusive um segundo, continua proibido nos dois arquivos. */
   const declarada = configuracao.CLASSE_DA_AREA_DE_ESCRITA;
+  const LARGURA_DA_PAGINA_PERMITIDA = "max-w-4xl";
+  const maxWDoEditor =
+    mascararComentariosJs(ler(CAMINHO_EDITOR)).match(
+      /\bmax-w-[\w-]+|\bmax-width\s*:|\bw-\[[^\]]*\]/g,
+    ) ?? [];
   afirmar(
     "a área de escrita NÃO redeclara a medida do texto",
     !/\bmax-w-|\bw-\[|\bmax-width|ch\]/.test(declarada) &&
-      !/\bmax-w-|\bmax-width/.test(mascararComentariosJs(ler(CAMINHO_EDITOR))) &&
+      maxWDoEditor.length === 1 &&
+      maxWDoEditor[0] === LARGURA_DA_PAGINA_PERMITIDA &&
       !/\bmax-w-|\bmax-width/.test(mascararComentariosJs(ler(CAMINHO_BARRA))),
-    `classe declarada: ${declarada}`,
+    `classe declarada: ${declarada} | max-w em Editor.jsx: ${maxWDoEditor.join(", ") || "nenhum"}`,
   );
 
   {

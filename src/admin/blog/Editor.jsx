@@ -186,36 +186,51 @@ export default function Editor({
       <div
         ref={caixaQueRola}
         data-papel="caixa-que-rola"
-        className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"
+        className="relative min-h-0 flex-1 overflow-y-auto bg-background px-4 py-8 sm:px-6 sm:py-10"
       >
-        {editor ? (
-          <>
-            <EditorContent editor={editor} />
-            {/* A prévia do arrasto de imagem. Fica AQUI, e não dentro de
-                `configuracao.js`, pela mesma razão do widget de upload:
-                aquele arquivo precisa continuar Node-executável, sem React.
-                Ela se desenha em `position: fixed`, então o lugar na árvore
-                não afeta onde ela aparece — o que importa é estar montada
-                enquanto o editor estiver. */}
-            <PreviaDeArrasto />
-            {/* O punho de redimensionar. Mesma razão de estar aqui: ele se
-                desenha em `position: fixed` sobre a imagem selecionada, então
-                o lugar na árvore não decide onde ele aparece. */}
-            <PunhoDeRedimensionar editor={editor} />
-          </>
-        ) : (
-          /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
-             esqueleto acompanha a do texto pela mesma classe. */
-          <div
-            className={cn(opcoesDoEditor().editorProps.attributes.class, "space-y-3")}
-            aria-hidden="true"
-          >
-            <Skeleton className="h-7 w-2/3" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-          </div>
-        )}
+        {/* A PÁGINA. `.artigo`, dentro, continua travada em 68ch — a MESMA
+            medida do blog publicado; nada aqui muda isso. O que este cartão
+            resolve é outra coisa: numa tela larga, a coluna de texto sozinha
+            sobre o fundo do Painel deixa metros de vazio dos dois lados, e
+            digitar ali parece começar do nada. Um contorno visível — fundo
+            branco, borda, sombra — dá à área de escrita um limite que o olho
+            reconhece, do jeito que uma folha de papel tem borda antes mesmo
+            de ter texto. A largura do CARTÃO é maior que a do TEXTO de
+            propósito: é a margem da folha, não a medida de leitura — mexer
+            nela nunca é mexer em quantos caracteres cabem numa linha. */}
+        <div
+          data-papel="pagina-do-editor"
+          className="mx-auto max-w-4xl rounded-cartao border border-border-soft bg-surface px-5 py-8 shadow-sm sm:px-12 sm:py-12"
+        >
+          {editor ? (
+            <>
+              <EditorContent editor={editor} />
+              {/* A prévia do arrasto de imagem. Fica AQUI, e não dentro de
+                  `configuracao.js`, pela mesma razão do widget de upload:
+                  aquele arquivo precisa continuar Node-executável, sem React.
+                  Ela se desenha em `position: fixed`, então o lugar na árvore
+                  não afeta onde ela aparece — o que importa é estar montada
+                  enquanto o editor estiver. */}
+              <PreviaDeArrasto />
+              {/* O punho de redimensionar. Mesma razão de estar aqui: ele se
+                  desenha em `position: fixed` sobre a imagem selecionada, então
+                  o lugar na árvore não decide onde ele aparece. */}
+              <PunhoDeRedimensionar editor={editor} />
+            </>
+          ) : (
+            /* Esqueleto em todo carregamento, nunca tela em branco. A medida do
+               esqueleto acompanha a do texto pela mesma classe. */
+            <div
+              className={cn(opcoesDoEditor().editorProps.attributes.class, "space-y-3")}
+              aria-hidden="true"
+            >
+              <Skeleton className="h-7 w-2/3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
