@@ -11,6 +11,7 @@
  */
 
 import { ehEstado } from "../../domain/blog/estados.js";
+import { ehDataCivil, normalizarPeriodo, PERIODO_VAZIO } from "../../domain/blog/periodo.js";
 import { clienteAutenticado, clientePublico } from "../supabase/clientes.js";
 import { deExcecao, ERRO_PERMISSAO, falha, sucesso } from "./resultado.js";
 
@@ -130,6 +131,38 @@ export function separarEstados(valor) {
     }
   }
   return { pedidos, recusados };
+}
+
+/**
+ * Separa o Período pedido entre o que é dia do calendário e o que não é.
+ *
+ * Irmã de `separarEstados`, e pela mesma razão: valor fora do formato é
+ * **recusado, não ignorado**. Descartar em silêncio a ponta torta faria a
+ * listagem mostrar uma faixa mais larga do que o controle na tela diz — o Autor
+ * pediria "a partir de 31/02" e receberia a lista inteira, achando que aquilo é
+ * o recorte.
+ *
+ * Ausência é estado normal: filtro de data é opcional, e as duas pontas são
+ * independentes (só "de" é "a partir de", só "até" é "até"). O que volta em
+ * `pedido` já vem na forma canônica — dia válido, e nunca de trás para frente.
+ */
+export function separarPeriodo(valor) {
+  if (valor === null || valor === undefined) {
+    return { pedido: { ...PERIODO_VAZIO }, recusados: [] };
+  }
+  const recusados = [];
+  const limpar = (campo) => {
+    const bruto = valor?.[campo];
+    if (bruto === null || bruto === undefined || bruto === "") return null;
+    if (!ehDataCivil(bruto)) {
+      recusados.push(`${campo}: ${JSON.stringify(bruto)}`);
+      return null;
+    }
+    return String(bruto).trim();
+  };
+  const de = limpar("de");
+  const ate = limpar("ate");
+  return { pedido: normalizarPeriodo({ de, ate }), recusados };
 }
 
 /* ─── Clientes ───────────────────────────────────────────────────────────── */

@@ -14,9 +14,11 @@ import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";
 import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import EditorDePost from "@/admin/blog/EditorDePost";
 import ListaDePosts from "@/admin/blog/ListaDePosts";
+import FiltroDeData from "@/admin/blog/FiltroDeData";
 import { selecionarEstadoExclusivo } from "@/admin/blog/listagem";
 import { ENDERECO_DAS_CATEGORIAS } from "@/admin/blog/rotas";
 import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
+import { PERIODO_VAZIO } from "@/domain/blog/periodo";
 import { formatarNumero } from "@/domain/blog/formato";
 import { getVagas, saveVaga, deleteVaga, resetVagas } from "@/lib/vagasStore";
 import { pageTransition, staggerContainer, staggerItem } from "@/lib/motion";
@@ -312,9 +314,19 @@ export default function AdminBlog() {
      exatamente quando a busca fica necessária. */
   const [buscaDePosts, setBuscaDePosts] = useState("");
   const [estadosDoFiltro, setEstadosDoFiltro] = useState([]);
+  /* A FAIXA DE DATAS é pedido, como o termo e os Estados: a página só a guarda,
+     e quem recorta é o Postgres. `PERIODO_VAZIO` é "sem filtro", que é diferente
+     de "nenhum dia" — a distinção mora no domínio, não aqui. */
+  const [periodoDoFiltro, setPeriodoDoFiltro] = useState(PERIODO_VAZIO);
+  /* A abertura do painel de data é da PÁGINA porque "limpar a busca" precisa
+     fechá-lo: sem isso, quem limpou pelo vazio de busca continuaria com o
+     painel aberto sobre uma lista que já mudou. */
+  const [filtroDeDataAberto, setFiltroDeDataAberto] = useState(false);
   const limparBuscaDePosts = () => {
     setBuscaDePosts("");
     setEstadosDoFiltro([]);
+    setPeriodoDoFiltro(PERIODO_VAZIO);
+    setFiltroDeDataAberto(false);
   };
 
   /* ── Estado — Carreiras ───────────────────────────────────────── */
@@ -585,6 +597,18 @@ export default function AdminBlog() {
                 );
               })}
             </motion.div>
+            {/* O FILTRO DE DATA, ao lado dos de Estado e antes dos botões: ele é
+                da mesma família — recorta o que a lista mostra — e a família
+                fica junta. A faixa escolhida vive na página, como o termo e os
+                Estados; quem sabe o que é uma data é o domínio. */}
+            <motion.div variants={staggerItem}>
+              <FiltroDeData
+                periodo={periodoDoFiltro}
+                aoMudar={setPeriodoDoFiltro}
+                aberto={filtroDeDataAberto}
+                aoMudarAbertura={setFiltroDeDataAberto}
+              />
+            </motion.div>
             {/* O vão que empurra "Novo Post" para a borda. Ele é da aba Blog e
                 só dela: em Carreiras o botão sempre veio logo depois do campo,
                 e mover um controle de módulo fora de escopo é regressão. */}
@@ -658,6 +682,7 @@ export default function AdminBlog() {
             recarregarEm={versaoDaLista}
             termo={buscaDePosts}
             estados={estadosDoFiltro}
+            periodo={periodoDoFiltro}
             aoContar={setContagemDePosts}
             aoAbrirPost={(post) => { setEditingPost(post); setBlogView("form"); }}
             aoCriarPost={() => { setEditingPost(null); setBlogView("form"); }}

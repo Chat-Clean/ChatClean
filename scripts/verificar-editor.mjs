@@ -37,6 +37,7 @@
  * Saída: uma linha por asserção; código 0 se todas passarem, 1 caso contrário.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -86,6 +87,11 @@ const CAMINHO_ESTADOS = "src/domain/blog/estados.js";
 /* A listagem da Story 2.10 e as regras puras dela. */
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 const CAMINHO_MODULO_DA_LISTAGEM = "src/admin/blog/listagem.js";
+/* O filtro de data: o vocabulário do Período é DOMÍNIO — a camada de dados o
+   converte em instantes para consultar, e a tela o desenha. Um segundo "que dia
+   é hoje" em qualquer um dos três divergiria no fuso, que é o defeito que este
+   módulo existe para impedir. */
+const CAMINHO_PERIODO = "src/domain/blog/periodo.js";
 /* As regras puras das ações por linha (Story 2.12). Módulo próprio pela mesma
    razão que `listagem.js`: função pura em arquivo de componente quebra a
    recarga rápida — e, aqui, tornaria "a confirmação nomeia o Post" uma frase
@@ -13985,6 +13991,475 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
   } finally {
     try {
       rmSync(pastaBusca, { recursive: true, force: true });
+    } catch {
+      /* fica para a próxima execução varrer */
+    }
+  }
+}
+
+secao("(j) o filtro de DATA: a faixa que o Autor escolhe, do domínio até a lista");
+{
+  /* O filtro de data é onde o fuso cobra a fatura: o Autor escolhe um DIA, o
+     banco guarda INSTANTE, e a tradução errada — `new Date("2026-09-02")`, que
+     é 21h do dia anterior em São Paulo — produz uma lista plausível e errada,
+     deslocada em um dia. Nada aqui é lido: o domínio é EXECUTADO (inclusive sob
+     outros fusos de máquina, em subprocesso), a expressão que vai ao servidor é
+     produzida de verdade contra uma consulta de mentira que a registra, e a
+     tela é montada e clicada. */
+  const pastaData = criarPastaDeCompilacao("verificar-editor-data-");
+  const arquivoDosPostsData = `${pastaData}/dublê-posts.js`;
+  writeFileSync(
+    arquivoDosPostsData,
+    `
+export const controle = { pedidos: [] };
+/* Meio-dia em UTC de propósito: é 9h em São Paulo, então o dia civil é o mesmo
+   dos dois lados e o dublê pode comparar por texto sem reimplementar fuso. */
+const POSTS = [
+  { id: "1", slug: "a", titulo: "Post de janeiro", autor_nome: "Fulano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "publicado", publicado_em: "2027-01-01T12:00:00Z", atualizado_em: "2027-01-01T12:00:00Z" },
+  { id: "2", slug: "b", titulo: "Post do dia cinco", autor_nome: "Ciclano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "publicado", publicado_em: "2027-01-05T12:00:00Z", atualizado_em: "2027-01-05T12:00:00Z" },
+  { id: "3", slug: "c", titulo: "Rascunho do dia nove", autor_nome: "Beltrano", categoria: null, imagem_url: null, destaque: false, tempo_leitura: 0, estado: "rascunho", publicado_em: null, atualizado_em: "2027-01-09T12:00:00Z" },
+];
+const diaDe = (p) => String(p.publicado_em ?? p.atualizado_em).slice(0, 10);
+export async function listarPostsDoPainel(pedido) {
+  controle.pedidos.push(pedido ?? null);
+  const de = pedido?.periodo?.de ?? null;
+  const ate = pedido?.periodo?.ate ?? null;
+  let dados = POSTS;
+  if (de !== null) dados = dados.filter((p) => diaDe(p) >= de);
+  if (ate !== null) dados = dados.filter((p) => diaDe(p) <= ate);
+  return { ok: true, dados };
+}
+export function ordenarListagem(posts) { return posts; }
+`,
+  );
+  const arquivoDaEscritaData = `${pastaData}/dublê-escrita.js`;
+  writeFileSync(
+    arquivoDaEscritaData,
+    `
+export async function definirDestaque() { return { ok: true, dados: {} }; }
+export async function excluirPost() { return { ok: true, dados: {} }; }
+`,
+  );
+  const arquivoDoEditorData = `${pastaData}/dublê-editor.jsx`;
+  writeFileSync(
+    arquivoDoEditorData,
+    `export default function EditorDePostDublê() { return null; }\n`,
+  );
+
+  const fonteData =
+    `export { default as AdminBlog } from ${caminhoDeModulo("src/pages/AdminBlog.jsx")};\n` +
+    `export { default as SessaoProvider } from ${caminhoDeModulo("src/admin/shell/SessaoProvider.jsx")};\n` +
+    `export { controle } from ${comoModulo(arquivoDosPostsData)};\n` +
+    `export * as periodo from ${caminhoDeModulo(CAMINHO_PERIODO)};\n` +
+    `export * as formato from ${caminhoDeModulo("src/domain/blog/formato.js")};\n` +
+    `export * as comum from ${caminhoDeModulo("src/data/blog/comum.js")};\n` +
+    /* A camada de dados VERDADEIRA — é a expressão dela que vai ao servidor. O
+       dublê acima troca só o que a TELA chama. */
+    `export * as postsReal from ${caminhoDeModulo(CAMINHO_POSTS)};\n` +
+    `export * as regras from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n`;
+
+  const { arquivo: arquivoCompiladoData } = await compilarParaNode({
+    pasta: pastaData,
+    fonte: fonteData,
+    alias: {
+      "@/data/blog/posts": arquivoDosPostsData,
+      "@/data/blog/escrita": arquivoDaEscritaData,
+      "@/admin/blog/EditorDePost": arquivoDoEditorData,
+    },
+  });
+
+  try {
+    const janelaData = montarNavegador({ url: "https://painel.local/admin" });
+    const moduloData = await import(pathToFileURL(arquivoCompiladoData).href);
+    const ReactData = (await import("react")).default;
+    const { createRoot: criarRaizData } = await import("react-dom/client");
+    const { act: atoData } = await import("react");
+    const { MemoryRouter: RoteadorDeMemoriaData } = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+
+    const dominio = moduloData.periodo;
+    const formato = moduloData.formato;
+
+    /* ── O domínio: que dia é, e que instantes ele significa ─────────── */
+
+    afirmar(
+      "dia que não existe no calendário é recusado — o padrão sozinho aceitaria 31 de fevereiro",
+      dominio.ehDataCivil("2026-09-02") === true &&
+        dominio.ehDataCivil("2026-02-31") === false &&
+        dominio.ehDataCivil("2026-13-01") === false &&
+        dominio.ehDataCivil("02/09/2026") === false &&
+        dominio.ehDataCivil("") === false,
+      `31/02: ${dominio.ehDataCivil("2026-02-31")}`,
+    );
+    afirmar(
+      "faixa invertida é TROCADA, não descartada — quem digitou fora de ordem pediu esses dias mesmo",
+      igual(dominio.normalizarPeriodo({ de: "2026-09-05", ate: "2026-09-01" }), {
+        de: "2026-09-01",
+        ate: "2026-09-05",
+      }),
+      JSON.stringify(dominio.normalizarPeriodo({ de: "2026-09-05", ate: "2026-09-01" })),
+    );
+    afirmar(
+      "data torta vira ausência na normalização — e não uma ponta inventada",
+      igual(dominio.normalizarPeriodo({ de: "2026-02-31", ate: null }), {
+        de: null,
+        ate: null,
+      }),
+      JSON.stringify(dominio.normalizarPeriodo({ de: "2026-02-31", ate: null })),
+    );
+
+    const faixaDeUmDia = dominio.faixaDeInstantes({ de: "2026-09-02", ate: "2026-09-02" });
+    afirmar(
+      "a faixa começa à MEIA-NOITE DE SÃO PAULO do dia pedido — não à meia-noite em UTC, que é 21h do dia anterior",
+      formato.formatarDataEHora(faixaDeUmDia.desde) === "02/09/2026 00:00",
+      `${faixaDeUmDia.desde} → ${formato.formatarDataEHora(faixaDeUmDia.desde)}`,
+    );
+    afirmar(
+      "e termina no COMEÇO DO DIA SEGUINTE, exclusive — terminar em 23:59:59 perderia o post publicado no último segundo",
+      formato.formatarDataEHora(faixaDeUmDia.ateExclusivo) === "03/09/2026 00:00",
+      `${faixaDeUmDia.ateExclusivo} → ${formato.formatarDataEHora(faixaDeUmDia.ateExclusivo)}`,
+    );
+    afirmar(
+      "ponta ausente é ausência de limite daquele lado — só “de” é “a partir de”, e não uma faixa de um dia",
+      dominio.faixaDeInstantes({ de: "2026-09-02", ate: null }).ateExclusivo === null &&
+        dominio.faixaDeInstantes({ de: null, ate: "2026-09-02" }).desde === null &&
+        igual(dominio.faixaDeInstantes({}), { desde: null, ateExclusivo: null }),
+    );
+
+    /* ── Os atalhos, ancorados num instante DADO ─────────────────────── */
+    const meioDia = new Date("2026-09-02T12:00:00Z"); // 9h em São Paulo
+    afirmar(
+      "“Hoje”, “7 dias”, “30 dias” e “este mês” são contados a partir do dia pedido — a janela inclui hoje",
+      igual(dominio.faixaDoAtalho("hoje", meioDia), { de: "2026-09-02", ate: "2026-09-02" }) &&
+        igual(dominio.faixaDoAtalho("sete-dias", meioDia), {
+          de: "2026-08-27",
+          ate: "2026-09-02",
+        }) &&
+        igual(dominio.faixaDoAtalho("trinta-dias", meioDia), {
+          de: "2026-08-04",
+          ate: "2026-09-02",
+        }) &&
+        igual(dominio.faixaDoAtalho("mes", meioDia), {
+          de: "2026-09-01",
+          ate: "2026-09-02",
+        }),
+      JSON.stringify(dominio.faixaDoAtalho("sete-dias", meioDia)),
+    );
+    afirmar(
+      "às 23h de São Paulo o “hoje” ainda é HOJE — em UTC já seria o dia seguinte",
+      igual(dominio.faixaDoAtalho("hoje", new Date("2026-09-03T02:00:00Z")), {
+        de: "2026-09-02",
+        ate: "2026-09-02",
+      }),
+      JSON.stringify(dominio.faixaDoAtalho("hoje", new Date("2026-09-03T02:00:00Z"))),
+    );
+    afirmar(
+      "atalho fora do vocabulário devolve Período VAZIO — nunca uma faixa inventada",
+      igual(dominio.faixaDoAtalho("ontem", meioDia), { de: null, ate: null }) &&
+        dominio.ehAtalhoDePeriodo("hoje") === true &&
+        dominio.ehAtalhoDePeriodo("ontem") === false,
+    );
+
+    /* ── E o fuso da MÁQUINA não muda nada disso ─────────────────────── */
+    {
+      const roteiro =
+        `import * as p from ${JSON.stringify(urlDe(CAMINHO_PERIODO))};\n` +
+        'const agora = new Date("2026-09-03T02:00:00Z");\n' +
+        "process.stdout.write(JSON.stringify([\n" +
+        "  p.diaCivilDoInstante(agora),\n" +
+        '  p.faixaDoAtalho("hoje", agora),\n' +
+        '  p.faixaDeInstantes({ de: "2026-09-02", ate: "2026-09-02" }),\n' +
+        "]));\n";
+      const noFusoLocal = JSON.stringify([
+        dominio.diaCivilDoInstante(new Date("2026-09-03T02:00:00Z")),
+        dominio.faixaDoAtalho("hoje", new Date("2026-09-03T02:00:00Z")),
+        dominio.faixaDeInstantes({ de: "2026-09-02", ate: "2026-09-02" }),
+      ]);
+      for (const fusoDaMaquina of ["UTC", "Asia/Tokyo", "Pacific/Kiritimati"]) {
+        let saida = null;
+        try {
+          saida = execFileSync(process.execPath, ["--input-type=module", "-e", roteiro], {
+            env: { ...process.env, TZ: fusoDaMaquina },
+            encoding: "utf8",
+            timeout: 20000,
+          });
+        } catch (erro) {
+          saida = `erro: ${erro.message}`;
+        }
+        afirmar(
+          `o fuso da máquina de quem filtra não muda a faixa (TZ=${fusoDaMaquina})`,
+          saida === noFusoLocal,
+          `esperado ${noFusoLocal}, veio ${saida}`,
+        );
+      }
+    }
+
+    /* ── A fronteira de dados: o que é recusado, e o que vai ao servidor ─ */
+
+    const comum = moduloData.comum;
+    afirmar(
+      "dia inexistente é RECUSADO na fronteira de dados — ignorá-lo mostraria uma faixa mais larga do que o controle diz",
+      comum.separarPeriodo({ de: "2026-02-31", ate: null }).recusados.length === 1 &&
+        comum.separarPeriodo({ de: "2026-09-01", ate: "2026-09-05" }).recusados.length === 0 &&
+        comum.separarPeriodo(null).recusados.length === 0 &&
+        igual(comum.separarPeriodo(null).pedido, { de: null, ate: null }),
+      JSON.stringify(comum.separarPeriodo({ de: "2026-02-31", ate: null })),
+    );
+
+    {
+      /* A consulta de mentira REGISTRA a expressão em vez de ir à rede. O
+         detector é exercitado antes de julgar: sem Período, ele precisa
+         registrar zero — um dublê que sempre acusa não prova nada. */
+      const consultaDeMentira = () => {
+        const registro = { ors: [] };
+        const encadeada = {
+          or(expressao) {
+            registro.ors.push(expressao);
+            return encadeada;
+          },
+          registro,
+        };
+        return encadeada;
+      };
+      const recortar = moduloData.postsReal.recortarPorPeriodo;
+      const semNada = recortar(consultaDeMentira(), { de: null, ate: null });
+      afirmar(
+        "sem Período nenhum, a consulta sai INTACTA — filtro que não foi pedido não se aplica",
+        semNada.registro.ors.length === 0,
+        JSON.stringify(semNada.registro.ors),
+      );
+
+      const comFaixa = recortar(consultaDeMentira(), { de: "2026-09-02", ate: "2026-09-02" });
+      const expressao = comFaixa.registro.ors[0] ?? "";
+      afirmar(
+        "com faixa, sai UMA expressão só, e ela carrega os dois limites em cada ramo",
+        comFaixa.registro.ors.length === 1 &&
+          expressao.includes(`publicado_em.gte.${faixaDeUmDia.desde}`) &&
+          expressao.includes(`publicado_em.lt.${faixaDeUmDia.ateExclusivo}`),
+        expressao,
+      );
+      afirmar(
+        "o RASCUNHO tem ramo próprio, por `atualizado_em` — um filtro só sobre `publicado_em` faria todo rascunho sumir sem explicação",
+        expressao.includes("publicado_em.is.null") &&
+          expressao.includes(`atualizado_em.gte.${faixaDeUmDia.desde}`) &&
+          expressao.includes(`atualizado_em.lt.${faixaDeUmDia.ateExclusivo}`),
+        expressao,
+      );
+      afirmar(
+        "o fim é EXCLUSIVO (`lt`), nunca `lte` — a faixa termina no começo do dia seguinte",
+        !/\.lte\./.test(expressao),
+        expressao,
+      );
+      const soDe = recortar(consultaDeMentira(), { de: "2026-09-02", ate: null }).registro.ors[0];
+      afirmar(
+        "com só uma ponta, só um limite viaja — “a partir de” não vira faixa fechada",
+        soDe.includes("publicado_em.gte.") && !soDe.includes(".lt."),
+        soDe,
+      );
+    }
+
+    /* ── As regras puras da tela ─────────────────────────────────────── */
+
+    const regras = moduloData.regras;
+    afirmar(
+      "o Período conta como busca em curso — sem isso, filtrar por data cairia no vazio INICIAL, que convida a escrever o primeiro post",
+      regras.haBuscaAtiva({ periodo: { de: "2026-09-02", ate: null } }) === true &&
+        regras.haBuscaAtiva({ periodo: { de: null, ate: null } }) === false &&
+        regras.haBuscaAtiva({ periodo: { de: "2026-02-31", ate: null } }) === false,
+      `com data torta: ${regras.haBuscaAtiva({ periodo: { de: "2026-02-31", ate: null } })}`,
+    );
+    afirmar(
+      "a frase do vazio de busca NOMEIA a data pedida, e muda quando ela muda",
+      regras
+        .descricaoDoVazioDeBusca({ periodo: { de: "2026-09-02", ate: "2026-09-02" } })
+        .includes("02/09/2026") &&
+        regras
+          .descricaoDoVazioDeBusca({
+            termo: "automação",
+            periodo: { de: "2026-09-01", ate: "2026-09-05" },
+          })
+          .includes("01/09/2026") &&
+        regras.descricaoDoVazioDeBusca({ termo: "automação" }) !==
+          regras.descricaoDoVazioDeBusca({
+            termo: "automação",
+            periodo: { de: "2026-09-01", ate: "2026-09-05" },
+          }),
+      regras.descricaoDoVazioDeBusca({ periodo: { de: "2026-09-02", ate: "2026-09-02" } }),
+    );
+    afirmar(
+      "o nome acessível do controle diz a faixa que está valendo — e não o mesmo texto ligado ou desligado",
+      regras.rotuloDoFiltroDeData({ de: null, ate: null }) !==
+        regras.rotuloDoFiltroDeData({ de: "2026-09-02", ate: "2026-09-02" }) &&
+        regras
+          .rotuloDoFiltroDeData({ de: "2026-09-02", ate: "2026-09-02" })
+          .includes("02/09/2026"),
+      regras.rotuloDoFiltroDeData({ de: "2026-09-02", ate: "2026-09-02" }),
+    );
+
+    /* ── A fiação, na tela de verdade ────────────────────────────────── */
+
+    const alvoData = janelaData.document.createElement("div");
+    janelaData.document.body.appendChild(alvoData);
+    const raizData = criarRaizData(alvoData);
+
+    const assentar = async (ms = 80) => {
+      await atoData(async () => {
+        await new Promise((resolver) => setTimeout(resolver, ms));
+      });
+    };
+    const clicar = async (elemento) => {
+      await atoData(async () => {
+        elemento.dispatchEvent(
+          new janelaData.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+        );
+        elemento.dispatchEvent(
+          new janelaData.MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+        );
+        elemento.dispatchEvent(
+          new janelaData.MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+    };
+    const setterDeValor = Object.getOwnPropertyDescriptor(
+      janelaData.HTMLInputElement.prototype,
+      "value",
+    ).set;
+    const preencher = async (campo, valor) => {
+      await atoData(async () => {
+        setterDeValor.call(campo, valor);
+        campo.dispatchEvent(new janelaData.Event("input", { bubbles: true }));
+      });
+    };
+
+    /* O gatilho fica na faixa de filtros; o painel nasce em PORTAL, preso ao
+       `body` — buscá-lo dentro do alvo daria "não existe" para algo que está
+       na tela. */
+    const gatilho = () => alvoData.querySelector('[data-filtro-de-data="gatilho"]');
+    const painel = () =>
+      janelaData.document.body.querySelector('[data-filtro-de-data="painel"]');
+    const campoDe = () =>
+      janelaData.document.body.querySelector('[data-campo-de-periodo="de"]');
+    const campoAte = () =>
+      janelaData.document.body.querySelector('[data-campo-de-periodo="ate"]');
+    const botaoDeLimparData = () =>
+      janelaData.document.body.querySelector('[data-filtro-de-data="limpar"]');
+    const linha = (id) => alvoData.querySelector(`[data-abrir="${id}"]`);
+    const ultimoPedido = () => moduloData.controle.pedidos.at(-1);
+
+    await atoData(async () => {
+      raizData.render(
+        ReactData.createElement(
+          RoteadorDeMemoriaData,
+          { initialEntries: ["/admin"] },
+          ReactData.createElement(
+            moduloData.SessaoProvider,
+            null,
+            ReactData.createElement(moduloData.AdminBlog),
+          ),
+        ),
+      );
+    });
+    await assentar();
+
+    afirmar(
+      "o controle de data existe na faixa de filtros, e nasce DESMARCADO",
+      gatilho() !== null && gatilho()?.getAttribute("aria-pressed") === "false",
+      gatilho()?.getAttribute("aria-pressed"),
+    );
+    afirmar(
+      "a primeira leitura não pede faixa nenhuma — filtro que ninguém escolheu não recorta",
+      ultimoPedido()?.periodo?.de === null && ultimoPedido()?.periodo?.ate === null,
+      JSON.stringify(ultimoPedido()?.periodo),
+    );
+
+    await clicar(gatilho());
+    await assentar();
+    afirmar(
+      "clicar abre o painel de escolha, com os quatro atalhos e as duas pontas",
+      painel() !== null &&
+        janelaData.document.body.querySelectorAll("[data-atalho-de-periodo]").length === 4 &&
+        campoDe() !== null &&
+        campoAte() !== null,
+      `painel: ${painel() !== null}`,
+    );
+
+    await preencher(campoDe(), "2027-01-01");
+    await preencher(campoAte(), "2027-01-01");
+    await assentar(150);
+    afirmar(
+      "escolher um dia vira PEDIDO à camada — a tela não filtra em memória o que já carregou",
+      igual(ultimoPedido()?.periodo, { de: "2027-01-01", ate: "2027-01-01" }),
+      JSON.stringify(ultimoPedido()?.periodo),
+    );
+    afirmar(
+      "e a lista responde: fica o post daquele dia, somem os outros",
+      linha("1") !== null && linha("2") === null && linha("3") === null,
+      alvoData.querySelector("[data-estado-da-lista]")?.getAttribute("data-estado-da-lista"),
+    );
+    afirmar(
+      "o controle passa a MOSTRAR a faixa em vigor, e a anunciar por `aria-pressed` — cor não é o único portador",
+      gatilho()?.getAttribute("aria-pressed") === "true" &&
+        (gatilho()?.textContent ?? "").includes("01/01/2027"),
+      `${gatilho()?.getAttribute("aria-pressed")} | ${gatilho()?.textContent}`,
+    );
+
+    /* ── Pontas invertidas: a tela mostra o que foi APLICADO ─────────── */
+    await preencher(campoDe(), "2027-01-09");
+    await assentar(150);
+    afirmar(
+      "digitar as pontas fora de ordem não devolve lista vazia — a faixa é trocada, e os CAMPOS passam a mostrar o que está valendo",
+      igual(ultimoPedido()?.periodo, { de: "2027-01-01", ate: "2027-01-09" }) &&
+        campoDe()?.value === "2027-01-01" &&
+        campoAte()?.value === "2027-01-09",
+      `${campoDe()?.value} → ${campoAte()?.value} | ${JSON.stringify(ultimoPedido()?.periodo)}`,
+    );
+    afirmar(
+      "e os três posts cabem nessa faixa, rascunho incluído — a data do rascunho é a de atualização, que é a que a linha mostra",
+      linha("1") !== null && linha("2") !== null && linha("3") !== null,
+    );
+
+    /* ── Faixa sem post nenhum: o vazio DE BUSCA, não o inicial ────────
+       O "até" vai PRIMEIRO, e a ordem é consequência do comportamento provado
+       logo acima: com a faixa em 01/01–09/01, mover só o "de" para junho o
+       deixaria depois do "até", a troca entraria em ação (corretamente) e a
+       faixa resultante seria 09/01–01/06 — que TEM post. Preencher na ordem
+       inversa passa por faixas sempre válidas e chega ao dia único de junho. */
+    await preencher(campoAte(), "2027-06-01");
+    await preencher(campoDe(), "2027-06-01");
+    await assentar(150);
+    {
+      const regiao = alvoData.querySelector("[data-estado-da-lista]");
+      afirmar(
+        "faixa sem post cai no vazio DE BUSCA — o vazio inicial convidaria a escrever o primeiro post para quem tem três",
+        regiao?.getAttribute("data-estado-da-lista") === "vazio-de-busca" &&
+          (regiao?.textContent ?? "").includes("01/06/2027"),
+        `${regiao?.getAttribute("data-estado-da-lista")} | ${regiao?.textContent?.slice(0, 120)}`,
+      );
+    }
+
+    /* ── Limpar: o desfazer da única escolha que alguém causou ───────── */
+    await clicar(botaoDeLimparData());
+    await assentar(150);
+    afirmar(
+      "limpar a data refaz o pedido SEM faixa, devolve os três posts e fecha o painel",
+      ultimoPedido()?.periodo?.de === null &&
+        ultimoPedido()?.periodo?.ate === null &&
+        linha("1") !== null &&
+        linha("3") !== null &&
+        gatilho()?.getAttribute("aria-pressed") === "false" &&
+        painel() === null,
+      `${JSON.stringify(ultimoPedido()?.periodo)} | painel aberto: ${painel() !== null}`,
+    );
+
+    await atoData(async () => raizData.unmount());
+    alvoData.remove();
+  } finally {
+    try {
+      rmSync(pastaData, { recursive: true, force: true });
     } catch {
       /* fica para a próxima execução varrer */
     }

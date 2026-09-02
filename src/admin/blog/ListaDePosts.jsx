@@ -39,6 +39,10 @@
  * e passaria a mentir exatamente quando a busca ficasse necessária. O termo
  * chega por propriedade e sai por argumento; quem tira acento e caixa é o banco.
  *
+ * Vale igual para o FILTRO DE DATA: a faixa escolhida chega por propriedade e
+ * viaja como argumento. Quem a converte em instantes — no fuso do negócio, e
+ * comparando a mesma expressão que ordena a lista — é a camada de dados.
+ *
  * E digitação é RAJADA: uma consulta por tecla castiga o banco e faz respostas
  * chegarem fora de ordem. O termo espera a digitação parar, e toda resposta
  * carrega o número do pedido — a que chega tarde é descartada em vez de
@@ -159,6 +163,7 @@ import { definirDestaque, excluirPost } from "@/data/blog/escrita";
 import { listarPostsDoPainel, ordenarListagem } from "@/data/blog/posts";
 import { ERRO_NAO_ENCONTRADO } from "@/data/blog/resultado";
 import { OPERACAO_DESTACAR, OPERACAO_EXCLUIR } from "@/domain/blog/operacoes";
+import { normalizarPeriodo } from "@/domain/blog/periodo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -207,6 +212,7 @@ export default function ListaDePosts({
   aoLimparBusca,
   termo = "",
   estados = [],
+  periodo = null,
   recarregarEm = 0,
 }) {
   const [carregando, setCarregando] = useState(true);
@@ -232,6 +238,17 @@ export default function ListaDePosts({
     () => (chaveDosEstados === "" ? [] : chaveDosEstados.split(",")),
     [chaveDosEstados],
   );
+
+  /* O PERÍODO, pela mesma razão e pelo mesmo caminho: um objeto novo a cada
+     renderização da página faria o efeito rodar em laço. A chave é o dado —
+     as duas pontas já em forma canônica, para que "05/09 até 01/09" e
+     "01/09 até 05/09" sejam o MESMO pedido e não duas leituras. */
+  const canonico = normalizarPeriodo(periodo);
+  const chaveDoPeriodo = `${canonico.de ?? ""}|${canonico.ate ?? ""}`;
+  const periodoAplicado = useMemo(() => {
+    const [de, ate] = chaveDoPeriodo.split("|");
+    return { de: de === "" ? null : de, ate: ate === "" ? null : ate };
+  }, [chaveDoPeriodo]);
 
   /* `aoContar` viaja por referência para ficar FORA das dependências do efeito.
      Uma função recriada a cada renderização da página — que é o caso normal —
@@ -277,23 +294,31 @@ export default function ListaDePosts({
        carregamento INICIAL (`posts` ainda vazio) e depois de um erro
        anterior: nos dois casos não há o que preservar na tela. */
     const anterior = cicloAnterior.current;
-    const soOFiltroDeEstadoMudou =
+    const soOFiltroMudou =
       anterior !== null &&
       posts.length > 0 &&
       erro === null &&
       anterior.termoAplicado === termoAplicado &&
       anterior.recarregarEm === recarregarEm &&
       anterior.tentativa === tentativa &&
-      anterior.chaveDosEstados !== chaveDosEstados;
-    cicloAnterior.current = { termoAplicado, chaveDosEstados, recarregarEm, tentativa };
+      (anterior.chaveDosEstados !== chaveDosEstados ||
+        anterior.chaveDoPeriodo !== chaveDoPeriodo);
+    cicloAnterior.current = {
+      termoAplicado,
+      chaveDosEstados,
+      chaveDoPeriodo,
+      recarregarEm,
+      tentativa,
+    };
 
-    if (!soOFiltroDeEstadoMudou) setCarregando(true);
+    if (!soOFiltroMudou) setCarregando(true);
     setErro(null);
 
     (async () => {
       const resultado = await listarPostsDoPainel({
         termo: termoAplicado,
         estados: estadosAplicados,
+        periodo: periodoAplicado,
       });
       if (ultimoPedido.current !== pedido) return;
 
@@ -313,7 +338,13 @@ export default function ListaDePosts({
       /* A contagem da aba é quantos Posts EXISTEM, não quantos sobraram do
          filtro. Anunciar o recorte faria a aba dizer "3" para quem tem doze — e
          o número mudaria a cada tecla, sem que nada tivesse sido apagado. */
-      if (!haBuscaAtiva({ termo: termoAplicado, estados: estadosAplicados })) {
+      if (
+        !haBuscaAtiva({
+          termo: termoAplicado,
+          estados: estadosAplicados,
+          periodo: periodoAplicado,
+        })
+      ) {
         totalConhecido.current = ordenados.length;
         contar.current?.(ordenados.length);
       }
@@ -322,13 +353,13 @@ export default function ListaDePosts({
     return () => {
       ultimoPedido.current += 1;
     };
-    /* `posts.length`, `erro` e `chaveDosEstados` são lidos só para DECIDIR se
-       este ciclo mostra esqueleto — não para disparar o efeito de novo.
-       Listá-los faria o efeito rodar a cada linha que sai da lista e a cada
-       erro que a PRÓPRIA leitura produz, num laço que não tem a ver com "o
+    /* `posts.length`, `erro`, `chaveDosEstados` e `chaveDoPeriodo` são lidos só
+       para DECIDIR se este ciclo mostra esqueleto — não para disparar o efeito
+       de novo. Listá-los faria o efeito rodar a cada linha que sai da lista e a
+       cada erro que a PRÓPRIA leitura produz, num laço que não tem a ver com "o
        que foi pedido" mudar. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recarregarEm, tentativa, termoAplicado, estadosAplicados]);
+  }, [recarregarEm, tentativa, termoAplicado, estadosAplicados, periodoAplicado]);
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
 
@@ -510,6 +541,7 @@ export default function ListaDePosts({
   const buscando = haBuscaAtiva({
     termo: termoAplicado,
     estados: estadosAplicados,
+    periodo: periodoAplicado,
   });
 
   /* ── Carregando ────────────────────────────────────────────────────────
@@ -584,6 +616,7 @@ export default function ListaDePosts({
           {descricaoDoVazioDeBusca({
             termo: termoAplicado,
             estados: estadosAplicados,
+            periodo: periodoAplicado,
           })}
         </p>
         <Button
