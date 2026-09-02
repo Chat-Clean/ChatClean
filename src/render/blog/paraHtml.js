@@ -219,6 +219,24 @@ const NOS = Object.freeze({
        tem algo a dizer, porque a ausência dele não confunde ninguém. */
     let tag = `<img${atributo("src", String(attrs.src).trim())}`;
     tag += atributo("alt", typeof attrs.alt === "string" ? attrs.alt : "");
+    /* `loading="lazy"` SAI SEMPRE, e não é atributo de documento: não existe em
+       `NOS.image`, ninguém o edita no Painel e ele não sobrevive a uma volta
+       pelo editor. É decisão de ENTREGA, e por isso mora aqui — o único lugar
+       que transforma documento em HTML do site.
+
+       ─── POR QUE TODA IMAGEM DO CORPO, SEM EXCEÇÃO ───────────────────────
+
+       A regra que se costuma citar contra o `lazy` universal é a da imagem
+       de maior pintura (LCP): adiar a imagem que abre a página piora a medida
+       que se queria melhorar. Ela não se aplica a NENHUMA imagem daqui — a
+       que abre a página do Post é a CAPA, e a capa é emitida por
+       `src/pages/BlogPost.jsx`, sem `loading`, de propósito. O que este
+       arquivo emite é o corpo do artigo, que começa depois do título, do
+       resumo e da capa: imagem de corpo está abaixo da dobra por construção.
+
+       Se um dia a capa passar a ser emitida por aqui, esta linha deixa de
+       estar certa — e é ESSE o gatilho para revisitá-la. */
+    tag += atributo("loading", "lazy");
     if (typeof attrs.title === "string" && attrs.title !== "") {
       tag += atributo("title", attrs.title);
     }
@@ -380,6 +398,7 @@ export const ATRIBUTOS_EMITIDOS = Object.freeze([
   "alt",
   "data-cor",
   "width",
+  "loading",
 ]);
 
 /**
