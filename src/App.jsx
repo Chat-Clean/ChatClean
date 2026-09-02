@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 import "./App.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import Planos from "@/components/Planos";
 import ChatbotPopup from "@/components/ChatbotPopup";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
@@ -114,8 +115,12 @@ const faqs = [
     a: "Sim! Você gerencia tudo em uma única tela: WhatsApp, Instagram, Facebook e Telegram, sem precisar abrir cada aplicativo separado. Sua equipe economiza tempo e nenhum cliente fica sem resposta.",
   },
   {
-    q: "Por que vocês não mostram os preços no site?",
-    a: "Cada empresa tem um tamanho e uma necessidade diferente. Por isso, criamos uma proposta feita especialmente para você, assim você paga só pelo que realmente precisa, sem pagar por coisas que não vai usar.",
+    q: "Como funciona a cobrança dos planos?",
+    a: "A cobrança é mensal, por atendente que usa a plataforma. Cada plano tem uma quantidade mínima de atendentes, e o valor acompanha o tamanho da sua equipe: se ela crescer, você adiciona atendentes quando precisar. Não cobramos taxa de implantação.",
+  },
+  {
+    q: "Posso mudar de plano depois?",
+    a: "Pode, a qualquer momento. Se a sua operação precisar de mais canais, automações ou integrações, você sobe de plano e passa a usar os novos recursos na hora. Descer de plano também é possível, sem multa.",
   },
 ];
 
@@ -224,6 +229,9 @@ function App() {
           </StaggerGroup>
         </div>
       </section>
+
+      {/* 4. Planos — depois da prova social, antes das dúvidas */}
+      <Planos />
 
       {/* FAQ */}
       <section id="faq" className="py-24 md:py-32 aurora-bg aurora-beams relative overflow-hidden">

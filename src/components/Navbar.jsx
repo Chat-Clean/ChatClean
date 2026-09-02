@@ -10,6 +10,7 @@ import chatcleanLogoGreen from "/chatclean.svg";
 const NAV_ITEMS = [
   { name: "Home",           type: "anchor", anchor: "#home" },
   { name: "Funcionalidades",type: "anchor", anchor: "#funcionalidades" },
+  { name: "Planos",         type: "anchor", anchor: "#planos" },
   { name: "Sobre",          type: "link",   href: "/sobre" },
   { name: "Blog",           type: "link",   href: "/blog" },
   { name: "Carreiras",      type: "link",   href: "/carreiras" },
