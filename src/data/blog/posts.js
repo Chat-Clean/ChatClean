@@ -21,6 +21,7 @@
  */
 
 import { ehEstado, ESTADOS } from "../../domain/blog/estados.js";
+import { faixaDeInstantes } from "../../domain/blog/periodo.js";
 import {
   clienteDoPainelOuFalha,
   clientePublicoOuFalha,
@@ -29,6 +30,7 @@ import {
   ehUuid,
   limiteValido,
   separarEstados,
+  separarPeriodo,
   termoValido,
 } from "./comum.js";
 import {
@@ -175,6 +177,66 @@ function ordenarNoServidor(consulta) {
   return consulta
     .order("publicado_em", { ascending: false, nullsFirst: false })
     .order("atualizado_em", { ascending: false });
+}
+
+/* ─── O recorte por data ─────────────────────────────────────────────────── */
+
+/**
+ * Aplica o Período **no servidor**, sobre a mesma expressão que ordena a lista:
+ * `COALESCE(publicado_em, atualizado_em)`.
+ *
+ * ─── POR QUE NÃO BASTA FILTRAR `publicado_em` ──────────────────────────────
+ *
+ * Rascunho não tem `publicado_em`, e a listagem do Painel mostra `atualizado_em`
+ * para ele — é a data que a linha exibe e a chave pela qual ela é ordenada. Um
+ * filtro só sobre `publicado_em` faria TODO rascunho sumir assim que alguém
+ * escolhesse uma data, sem nada na tela explicando por quê: o filtro diz
+ * "setembro", e some o rascunho que foi editado em setembro. Por isso a
+ * condição tem dois ramos — o Post com data de publicação é comparado por ela;
+ * o que não tem, por `atualizado_em`. A coluna comparada é a mesma que a linha
+ * mostra, sempre.
+ *
+ * ─── POR QUE UMA CHAMADA SÓ, COM OS RAMOS COMPLETOS ────────────────────────
+ *
+ * Seria mais curto empilhar dois filtros — um para o começo, outro para o fim —
+ * e confiar que o PostgREST os combina com "e". Aqui os dois limites viajam
+ * DENTRO de cada ramo (`and(...)`), numa expressão só: assim a condição é
+ * exatamente a que está escrita, sem depender de como o servidor combina
+ * parâmetros repetidos.
+ *
+ * ─── O VALOR NÃO PRECISA SER ESCAPADO, E ISSO É PROVADO ANTES ──────────────
+ *
+ * Vírgula e parêntese são metacaracteres desta expressão. O que entra aqui não
+ * vem da tela: vem de `faixaDeInstantes`, que só produz instante ISO a partir de
+ * um dia do calendário — e o que não é dia do calendário foi recusado em
+ * `separarPeriodo` antes de qualquer rede. Nenhum texto do Autor chega a esta
+ * linha.
+ *
+ * Exportada porque a verificação a EXECUTA contra o PostgREST de verdade: a
+ * expressão só prova que está certa quando o servidor a aceita e devolve o
+ * recorte prometido — lê-la no arquivo prova apenas que ela foi escrita.
+ */
+export function recortarPorPeriodo(consulta, periodo) {
+  const { desde, ateExclusivo } = faixaDeInstantes(periodo);
+  if (desde === null && ateExclusivo === null) return consulta;
+
+  const limitesDe = (coluna) => {
+    const partes = [];
+    if (desde !== null) partes.push(`${coluna}.gte.${desde}`);
+    if (ateExclusivo !== null) partes.push(`${coluna}.lt.${ateExclusivo}`);
+    return partes;
+  };
+  /* Uma condição só não se envolve em `and(...)`: a forma mais simples é a que
+     menos depende do dialeto de quem lê do outro lado. */
+  const juntar = (partes) =>
+    partes.length === 1 ? partes[0] : `and(${partes.join(",")})`;
+
+  const comPublicacao = juntar(limitesDe("publicado_em"));
+  const semPublicacao = juntar([
+    "publicado_em.is.null",
+    ...limitesDe("atualizado_em"),
+  ]);
+  return consulta.or(`${comPublicacao},${semPublicacao}`);
 }
 
 /**
@@ -471,12 +533,19 @@ export const FUNCAO_DE_BUSCA = "buscar_posts_do_painel";
  * Antes de qualquer rede. Ignorar em silêncio mostraria uma lista mais larga
  * do que o filtro na tela diz — e o banco recusa outra vez, na conversão para
  * o enum, porque o que vem da tela chega à consulta.
+ *
+ * ─── E O PERÍODO É RECUSADO PELA MESMA REGRA ───────────────────────────────
+ *
+ * Data que não é dia do calendário não vira consulta. O recorte que ela pediria
+ * é aplicado no servidor, sobre a mesma expressão que ordena a lista — ver
+ * `recortarPorPeriodo`.
  */
 export async function listarPostsDoPainel({
   limite,
   deslocamento,
   termo,
   estados,
+  periodo,
 } = {}) {
   const operacao = "listarPostsDoPainel";
 
@@ -492,6 +561,16 @@ export async function listarPostsDoPainel({
     });
   }
 
+  const faixa = separarPeriodo(periodo);
+  if (faixa.recusados.length > 0) {
+    return falha(ERRO_INESPERADO, {
+      operacao,
+      mensagem:
+        "O filtro de data recebeu um dia que não existe. Escolha a data de novo no Painel.",
+      detalhe: `fora do formato AAAA-MM-DD, ou dia inexistente: ${faixa.recusados.join(", ")}`,
+    });
+  }
+
   const cliente = await clienteDoPainelOuFalha(operacao);
   if (!cliente.ok) return cliente;
 
@@ -503,12 +582,15 @@ export async function listarPostsDoPainel({
     operacao,
     await consultar(operacao, () =>
       ordenarNoServidor(
-        cliente.dados
-          .rpc(FUNCAO_DE_BUSCA, {
-            p_termo: busca === "" ? null : busca,
-            p_estados: pedidos.length === 0 ? null : pedidos,
-          })
-          .select(SELECAO_DA_LISTAGEM),
+        recortarPorPeriodo(
+          cliente.dados
+            .rpc(FUNCAO_DE_BUSCA, {
+              p_termo: busca === "" ? null : busca,
+              p_estados: pedidos.length === 0 ? null : pedidos,
+            })
+            .select(SELECAO_DA_LISTAGEM),
+          faixa.pedido,
+        ),
       )
         .range(inicio, inicio + tamanho - 1)
         .abortSignal(sinalDePrazo()),

@@ -35,6 +35,14 @@ import {
   formatarNumero,
 } from "@/domain/blog/formato";
 import { ehEstado, ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
+/* O Período é DOMÍNIO, e não uma regra desta tela: a camada de dados converte a
+   mesma faixa em instantes para consultar, e duas noções de "o que foi pedido"
+   divergiriam na primeira ponta ausente. */
+import {
+  haPeriodo,
+  textoDoPeriodo,
+  textoDoPeriodoEmFrase,
+} from "@/domain/blog/periodo";
 
 /* ─── A voz das duas telas sem linha ─────────────────────────────────────── */
 
@@ -95,19 +103,26 @@ export function palavrasDosEstados(estados) {
  * O termo aparece entre aspas para que espaço no fim e caractere estranho
  * fiquem visíveis — é assim que a pessoa descobre que colou algo a mais.
  */
-export function descricaoDoVazioDeBusca({ termo = "", estados = [] } = {}) {
+export function descricaoDoVazioDeBusca({ termo = "", estados = [], periodo = null } = {}) {
   const alvo = typeof termo === "string" ? termo.trim() : "";
   const palavras = palavrasDosEstados(estados);
   const onde = "no título, na categoria, no autor ou nas tags";
+  /* A DATA ENTRA NA FRASE, e não só no controle. Sem isto, quem esqueceu um
+     filtro de data numa aba anterior lê "nenhum post tem 'automação'" e conclui
+     que o Post sumiu — quando ele só está fora da faixa escolhida. */
+  const quando = haPeriodo(periodo) ? ` ${textoDoPeriodoEmFrase(periodo)}` : "";
 
   if (alvo !== "" && palavras !== "") {
-    return `Nenhum post em ${palavras} tem “${alvo}” ${onde}.`;
+    return `Nenhum post em ${palavras} tem “${alvo}” ${onde}${quando}.`;
   }
   if (alvo !== "") {
-    return `Nenhum post tem “${alvo}” ${onde}.`;
+    return `Nenhum post tem “${alvo}” ${onde}${quando}.`;
   }
   if (palavras !== "") {
-    return `Nenhum post está em ${palavras}.`;
+    return `Nenhum post está em ${palavras}${quando}.`;
+  }
+  if (quando !== "") {
+    return `Nenhum post${quando}.`;
   }
   return "Nenhum post atende ao que foi pedido.";
 }
@@ -119,10 +134,14 @@ export function descricaoDoVazioDeBusca({ termo = "", estados = [] } = {}) {
  * pergunta precisa ser feita sobre o que foi PEDIDO, não sobre o que voltou:
  * uma lista de tamanho zero é a mesma lista nos dois casos.
  */
-export function haBuscaAtiva({ termo = "", estados = [] } = {}) {
+export function haBuscaAtiva({ termo = "", estados = [], periodo = null } = {}) {
   const alvo = typeof termo === "string" ? termo.trim() : "";
   const marcados = Array.isArray(estados) ? estados : [];
-  return alvo !== "" || marcados.some((e) => ehEstado(e));
+  /* O PERÍODO CONTA COMO BUSCA. Sem ele nesta pergunta, escolher uma data que
+     não devolve nada cairia no vazio INICIAL — o convite a escrever o primeiro
+     post, para quem tem doze — e a aba passaria a anunciar o tamanho do recorte
+     como se fosse o total. */
+  return alvo !== "" || marcados.some((e) => ehEstado(e)) || haPeriodo(periodo);
 }
 
 /**
@@ -172,6 +191,24 @@ export function selecionarEstadoExclusivo(estados, estado) {
   const marcados = Array.isArray(estados) ? estados.filter(ehEstado) : [];
   if (!ehEstado(estado)) return ESTADOS.filter((e) => marcados.includes(e));
   return marcados.includes(estado) ? [] : [estado];
+}
+
+/* ─── O filtro de data ───────────────────────────────────────────────────── */
+
+/** O que o controle de data diz quando não há faixa escolhida. */
+export const ROTULO_SEM_PERIODO = "Data";
+
+/**
+ * O nome acessível do controle de data — ele NOMEIA a faixa que está valendo.
+ *
+ * "Filtrar por data" sozinho é o mesmo texto com e sem filtro ligado: quem ouve
+ * a tela não teria como saber que a lista está recortada, que é exatamente a
+ * pergunta de quem voltou de outra aba e encontrou menos posts do que deixou.
+ */
+export function rotuloDoFiltroDeData(periodo) {
+  return haPeriodo(periodo)
+    ? `Filtrar por data — mostrando ${textoDoPeriodo(periodo)}`
+    : "Filtrar por data";
 }
 
 /* ─── Categoria ──────────────────────────────────────────────────────────── */
