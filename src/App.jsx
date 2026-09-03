@@ -16,6 +16,7 @@ import "./App.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Planos from "@/components/Planos";
+import ChamadaApiOficial from "@/components/ChamadaApiOficial";
 import ChatbotPopup from "@/components/ChatbotPopup";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
@@ -287,6 +288,9 @@ function App() {
           </div>
         </div>
       </section>
+
+      {/* 5. A última chamada, para quem leu o FAQ e não clicou em nada */}
+      <ChamadaApiOficial />
 
       <Footer />
       <ChatbotPopup />

@@ -24,6 +24,7 @@ import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
 import Assinar from "./pages/Assinar.jsx";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
+import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -39,6 +40,9 @@ createRoot(document.getElementById("root")).render(
         <Route path="/carreiras" element={<Carreiras />} />
         <Route path="/sobre" element={<Sobre />} />
         <Route path="/api-oficial-whatsapp" element={<ApiOficialWhatsApp />} />
+        {/* A landing de captação. Endereço curto porque é ele que vai em
+            anúncio; a página institucional continua na rota longa. */}
+        <Route path="/api-oficial" element={<GarantirApiOficial />} />
         {/* A contratação. O dimensionamento chega pela querystring, escolhido
             na seção de planos — sem plano válido, a página manda de volta para
             lá em vez de adivinhar um. */}
