@@ -21,11 +21,22 @@ import { fileURLToPath } from "node:url";
  * `SUPABASE_PROJECT_NOME` permitem apontar para outro (staging, projeto de
  * outro dev) sem editar código — sem isso, um clone limpo só saberia falar
  * com um projeto específico.
+ *
+ * ─── POR QUE O PADRÃO MUDOU ──────────────────────────────────────────────
+ *
+ * Era `rkoxomfgkloukitqizma` (blog-chatclean). O site em execução aponta para
+ * `Website-db` desde antes disso, e a diferença passou despercebida porque as
+ * duas metades funcionavam sozinhas: o aplicador criava tabela num projeto e a
+ * função de servidor lia de outro. O sintoma só apareceu quando uma tabela
+ * nova foi criada e o site respondeu que ela não existia.
+ *
+ * O padrão agora é o projeto que o site usa. Quando os dois discordam, quem
+ * está certo é o `.env` — é ele que atende requisição de verdade.
  */
 export const REF_PROJETO =
-  (process.env.SUPABASE_PROJECT_REF ?? "").trim() || "rkoxomfgkloukitqizma";
+  (process.env.SUPABASE_PROJECT_REF ?? "").trim() || "wvuaztlzifukmybtdbfh";
 export const NOME_PROJETO =
-  (process.env.SUPABASE_PROJECT_NOME ?? "").trim() || "blog-chatclean";
+  (process.env.SUPABASE_PROJECT_NOME ?? "").trim() || "Website-db";
 export const URL_PROJETO = `https://${REF_PROJETO}.supabase.co`;
 export const API = "https://api.supabase.com/v1";
 

@@ -69,3 +69,5 @@ CLAUDE.md
 # Gerado por `npm run build` — o shell do build embutido nas funcoes.
 # Versionar faria a copia nascer velha no build seguinte (hashes mudam).
 api/_nucleo/shell.gerado.js
+.vercel
+.env*

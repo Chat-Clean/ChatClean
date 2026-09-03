@@ -9,7 +9,6 @@ import Carreiras from "./pages/Carreiras.jsx";
 import Sobre from "./pages/Sobre.jsx";
 import ApiOficialWhatsApp from "./pages/ApiOficialWhatsApp.jsx";
 import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
-import ScrollToTop from "./components/ScrollToTop.jsx";
 import AdminBlog from "./pages/AdminBlog.jsx";
 import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
 import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
@@ -29,7 +28,9 @@ import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <Router>
-      <ScrollToTop />
+      {/* A rolagem entre rotas é do <AnimatedRoutes>: ele é quem sabe quando a
+          página que sai deixou a tela. Um <ScrollToTop> solto rolava a página
+          antiga na frente da pessoa, antes de a nova entrar. */}
       {/* Fora do <AnimatedRoutes> de propósito: a faixa não pertence a rota
           nenhuma, e é ela que decide se o Meta Pixel chega a carregar. */}
       <AvisoDeCookies />

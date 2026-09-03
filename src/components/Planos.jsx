@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Minus, Plus, Sparkles } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
+import SeletorDeQuantidade from "@/components/SeletorDeQuantidade";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
 import { EASE } from "@/lib/motion";
@@ -41,58 +42,6 @@ const CONTADORES = [
   },
 ];
 
-/** Um contador de quantidade livre: digita ou usa os botões. */
-const Contador = ({ rotulo, ajuda, valor, faixa, aoMudar }) => {
-  const idCampo = `dimensao-${rotulo.toLowerCase()}`;
-  const passo = (delta) =>
-    aoMudar(Math.min(faixa.maximo, Math.max(faixa.minimo, valor + delta)));
-
-  return (
-    <div className="flex flex-col gap-2">
-      <label
-        htmlFor={idCampo}
-        className="text-xs font-bold uppercase tracking-widest text-zinc-500"
-      >
-        {rotulo}
-      </label>
-      <div className="flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 p-1">
-        <button
-          type="button"
-          onClick={() => passo(-1)}
-          disabled={valor <= faixa.minimo}
-          aria-label={`Menos um: ${rotulo.toLowerCase()}`}
-          className="grid h-9 w-9 place-items-center rounded-full text-zinc-600 transition-colors hover:bg-white hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-        >
-          <Minus className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <input
-          id={idCampo}
-          type="number"
-          inputMode="numeric"
-          min={faixa.minimo}
-          max={faixa.maximo}
-          value={valor}
-          onChange={(evento) => {
-            const digitado = Number(evento.target.value);
-            if (!Number.isInteger(digitado)) return;
-            aoMudar(Math.min(faixa.maximo, Math.max(faixa.minimo, digitado)));
-          }}
-          className="w-16 border-none bg-transparent text-center text-lg font-black tabular-nums text-zinc-900 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <button
-          type="button"
-          onClick={() => passo(1)}
-          disabled={valor >= faixa.maximo}
-          aria-label={`Mais um: ${rotulo.toLowerCase()}`}
-          className="grid h-9 w-9 place-items-center rounded-full text-zinc-600 transition-colors hover:bg-white hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
-      <span className="text-[11px] leading-tight text-zinc-500">{ajuda}</span>
-    </div>
-  );
-};
 
 const CartaoDePlano = ({ plano, dimensao }) => {
   const reduzirMovimento = useReducedMotion();
@@ -279,7 +228,7 @@ export default function Planos() {
         <Reveal className="mb-14 flex justify-center">
           <div className="flex flex-wrap items-start justify-center gap-x-10 gap-y-6 rounded-3xl border border-zinc-200 bg-white px-8 py-6 shadow-sm">
             {CONTADORES.map(({ campo, rotulo, ajuda, faixa }) => (
-              <Contador
+              <SeletorDeQuantidade
                 key={campo}
                 rotulo={rotulo}
                 ajuda={ajuda}

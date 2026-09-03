@@ -118,9 +118,8 @@ const Campo = ({ definicao, valor, erro, aoMudar }) => {
           const bruto = evento.target.value;
           aoMudar(definicao.formatar ? definicao.formatar(bruto) : bruto);
         }}
-        className={`rounded-xl border bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
-          erro ? "border-red-400" : "border-zinc-200"
-        }`}
+        className={`rounded-xl border bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${erro ? "border-red-400" : "border-zinc-200"
+          }`}
       />
       {erro ? (
         <span
@@ -199,7 +198,7 @@ export default function GarantirApiOficial() {
         if (dados.erros) setErros(dados.erros);
         setFalha(
           dados.mensagem ??
-            "Não conseguimos registrar seu pedido agora. Tente de novo em instantes.",
+          "Não conseguimos registrar seu pedido agora. Tente de novo em instantes.",
         );
         return;
       }
@@ -350,11 +349,10 @@ export default function GarantirApiOficial() {
                           onClick={() =>
                             mudar("atendentes", ativo ? "" : faixa.id)
                           }
-                          className={`rounded-full px-4 py-2 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
-                            ativo
+                          className={`rounded-full px-4 py-2 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${ativo
                               ? "bg-emerald-600 text-white"
                               : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                          }`}
+                            }`}
                         >
                           {faixa.rotulo}
                         </button>
@@ -430,7 +428,7 @@ export default function GarantirApiOficial() {
               </button>
 
               <p className="mt-3 text-center text-[12px] text-zinc-500">
-                Sem compromisso. Você fala com gente de verdade, não com robô.
+
               </p>
             </form>
           </div>
