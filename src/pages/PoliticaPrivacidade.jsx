@@ -61,14 +61,17 @@ Para exercer esses direitos, entre em contato pelo e-mail: contato@chatclean.com
   },
   {
     titulo: "6. Cookies e Tecnologias de Rastreamento",
-    texto: `Utilizamos cookies e tecnologias similares para melhorar sua experiência, analisar o tráfego e personalizar conteúdo. Os tipos de cookies que utilizamos incluem:
+    texto: `Na sua primeira visita, o site pergunta o que você aceita. Nada opcional é carregado antes da sua resposta, e fechar o aviso sem responder mantém tudo o que é opcional desligado.
 
-• Cookies essenciais: necessários para o funcionamento básico do site;
-• Cookies de desempenho: coletam informações anônimas sobre como o site é usado;
-• Cookies de funcionalidade: permitem que o site lembre suas preferências;
-• Cookies de marketing: usados para exibir anúncios relevantes.
+São três grupos, e esta lista descreve exatamente o que existe hoje:
 
-Você pode controlar o uso de cookies nas configurações do seu navegador.`,
+• Essenciais: guardam a sua própria escolha de cookies e mantêm a sessão de quem acessa o Painel. São necessários para o site funcionar e não dependem de consentimento.
+• Preferências: lembram o que você já preencheu, como o rascunho do formulário de contratação e o dimensionamento escolhido na seção de planos. Ficam apenas no seu navegador.
+• Marketing: o Meta Pixel, da Meta Platforms, que mede se um anúncio trouxe você até aqui. É o único rastreador de terceiro do site, e grava os cookies _fbp e _fbc.
+
+Não utilizamos ferramentas de análise de tráfego. Se isso mudar, este texto muda junto e você será perguntado de novo.
+
+Você pode revisar ou retirar a sua escolha a qualquer momento em "Preferências de cookies", no rodapé de qualquer página. Ao retirar o consentimento de marketing, paramos de enviar eventos e apagamos os cookies gravados no nosso domínio; os cookies gravados pelo domínio da Meta só podem ser removidos pelas configurações do seu navegador.`,
   },
   {
     titulo: "7. Retenção de Dados",

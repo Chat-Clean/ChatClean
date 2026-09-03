@@ -205,26 +205,14 @@
     }
     </script>
 
-    <!-- Meta Pixel Code -->
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1773986837313693');
-    fbq('track', 'PageView');
-    </script>
-    <!-- End Meta Pixel Code -->
+    <!-- O Meta Pixel NAO carrega aqui.
+         Ele carregava neste ponto, em toda visita, antes de qualquer pergunta.
+         Rastreamento de marketing depende de consentimento PREVIO: o carregador
+         mudou para `src/lib/consentimento.js` e so roda depois do "aceito".
+         O `<noscript>` com a imagem de rastreio saiu pelo mesmo motivo — ela
+         dispara sem JavaScript, e portanto sem chance de consentir. -->
   </head>
   <body>
-    <noscript>
-      <img height="1" width="1" style="display:none"
-      src="https://www.facebook.com/tr?id=1773986837313693&ev=PageView&noscript=1"
-    /></noscript>
     <!-- CORPO-DO-ARTIGO:INICIO
          A regiao do corpo servido (Story 4.4). Vazia aqui, e vazia em toda
          rota que nao passa pela funcao de servidor: quem serve artigo e ela.

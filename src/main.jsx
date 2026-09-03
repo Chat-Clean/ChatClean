@@ -23,11 +23,15 @@ import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
 import Assinar from "./pages/Assinar.jsx";
+import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <Router>
       <ScrollToTop />
+      {/* Fora do <AnimatedRoutes> de propósito: a faixa não pertence a rota
+          nenhuma, e é ela que decide se o Meta Pixel chega a carregar. */}
+      <AvisoDeCookies />
       <AnimatedRoutes>
         <Route path="/" element={<App />} />
         <Route path="/blog" element={<Blog />} />
