@@ -22,6 +22,7 @@ import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
+import Assinar from "./pages/Assinar.jsx";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -34,6 +35,10 @@ createRoot(document.getElementById("root")).render(
         <Route path="/carreiras" element={<Carreiras />} />
         <Route path="/sobre" element={<Sobre />} />
         <Route path="/api-oficial-whatsapp" element={<ApiOficialWhatsApp />} />
+        {/* A contratação. O dimensionamento chega pela querystring, escolhido
+            na seção de planos — sem plano válido, a página manda de volta para
+            lá em vez de adivinhar um. */}
+        <Route path="/assinar" element={<Assinar />} />
         {/* O portão envolve a rota, não vive dentro da página: assim o Painel
             só é montado se a sessão existir. Decidir lá dentro reproduziria o
             defeito antigo — um estado local que a própria página respeita.
