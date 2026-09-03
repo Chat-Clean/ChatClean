@@ -287,10 +287,23 @@ export function dataDoAsaas(data) {
  * coisa no Asaas, consultamos por ela. O Asaas não tem cabeçalho de
  * idempotência — a documentação deles manda consultar antes de repetir, e esta
  * é a chave da consulta.
+ *
+ * A forma é a MESMA da coluna gerada `referencia_externa` na migração
+ * 20260903120000. Quem grava é o banco; esta função existe para quem só tem o
+ * identificador em mãos, e as duas precisam concordar.
  */
 export function referenciaExterna(pedidoId) {
   return `chatclean:pedido:${pedidoId}`;
 }
+
+/**
+ * A versão do texto dos termos que está no ar.
+ *
+ * Vai gravada junto com o aceite. Sem ela o consentimento não prova nada: o
+ * texto muda, e um registro que diz apenas "aceitou" não diz o que foi aceito.
+ * Mudar o texto dos termos é mudar esta constante na mesma alteração.
+ */
+export const VERSAO_DOS_TERMOS = "2026-09-03";
 
 /** A descrição que o cliente lê na fatura e no extrato. */
 export function descricaoDaAssinatura(plano, { usuarios, conexoes }) {
