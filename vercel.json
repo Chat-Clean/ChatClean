@@ -17,6 +17,12 @@
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     }
   ],
+  "crons": [
+    {
+      "path": "/api/manter-acordado",
+      "schedule": "17 9 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/blog", "destination": "/api/blog" },
     { "source": "/blog/:slug", "destination": "/api/blog?slug=:slug" },

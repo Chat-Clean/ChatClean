@@ -16,7 +16,7 @@
     "entrega:monitorar-pausa": "node scripts/monitorar-pausa.mjs",
     "asaas:simular-pagamento": "node scripts/simular-pagamento.mjs",
     "provisionamento": "node scripts/provisionamento.mjs",
-    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita && npm run verificar:assinatura && npm run verificar:checkout",
+    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita && npm run verificar:assinatura && npm run verificar:checkout && npm run verificar:entrega",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:artigo": "node scripts/verificar-artigo.mjs",
     "verificar:supabase": "node scripts/verificar-supabase.mjs",
@@ -26,7 +26,8 @@
     "verificar:editor": "node scripts/verificar-editor.mjs",
     "verificar:escrita": "node scripts/verificar-escrita.mjs",
     "verificar:assinatura": "node scripts/verificar-assinatura.mjs",
-    "verificar:checkout": "node scripts/verificar-checkout.mjs"
+    "verificar:checkout": "node scripts/verificar-checkout.mjs",
+    "verificar:entrega": "node scripts/verificar-entrega.mjs"
   },
   "engines": {
     "node": ">=22"
