@@ -36,6 +36,13 @@ import {
   TODOS_OS_ESTADOS,
 } from "../src/domain/assinatura/pedido.js";
 import { identificadorDoPedido, leituraPublica } from "../api/pedido.js";
+import consultarCnpj, { IDENTIFICACAO } from "../api/cnpj.js";
+import {
+  RAZAO_SOCIAL_MAXIMA,
+  podePreencher,
+  razaoSocialDaResposta,
+  valeConsultar,
+} from "../src/domain/assinatura/consultaDeCnpj.js";
 import { criarAsaas, lerAmbienteDoAsaas } from "../api/_nucleo/asaas.js";
 import {
   aplicarNoProcesso,
@@ -388,6 +395,187 @@ afirmar(
     ASAAS_TOKEN_DO_WEBHOOK: lido.ASAAS_TOKEN_DO_WEBHOOK,
   }).ok === false,
 );
+
+/* ─── (g) A consulta de CNPJ peneira a resposta ──────────────────────────── */
+
+console.log("\n(g) A consulta de CNPJ devolve um campo, e nunca o quadro de sócios\n");
+
+/*
+ * A fonte pública devolve dezenas de campos, e entre eles o `qsa`: nome e CPF
+ * parcial de pessoas físicas que não são o cliente. A garantia é NEGATIVA, do
+ * mesmo tipo da leitura pública do pedido, e é afirmada das duas maneiras:
+ * pelas chaves do objeto e pelos VALORES no JSON serializado.
+ */
+
+const RESPOSTA_DA_FONTE = Object.freeze({
+  cnpj: "33000167000101",
+  razao_social: "  PETROLEO BRASILEIRO   S A  PETROBRAS ",
+  nome_fantasia: "PETROBRAS",
+  email: "contato@exemplo.com.br",
+  ddd_telefone_1: "2132242040",
+  cep: "20031912",
+  logradouro: "AVENIDA REPUBLICA DO CHILE",
+  qsa: [
+    { nome_socio: "FULANO DE TAL SOCIO", cnpj_cpf_do_socio: "***456789**" },
+    { nome_socio: "BELTRANA DE TAL SOCIA", cnpj_cpf_do_socio: "***987654**" },
+  ],
+});
+
+afirmar(
+  "colapsa o espaço e apara as pontas da razão social",
+  razaoSocialDaResposta(RESPOSTA_DA_FONTE) === "PETROLEO BRASILEIRO S A PETROBRAS",
+);
+afirmar(
+  "aplica o mesmo teto da coluna, para não recusar no envio o que preencheu na tela",
+  razaoSocialDaResposta({ razao_social: "A".repeat(500) }).length ===
+    RAZAO_SOCIAL_MAXIMA,
+);
+afirmar(
+  "resposta sem razão social, vazia ou fora de forma devolve null",
+  razaoSocialDaResposta({}) === null &&
+    razaoSocialDaResposta({ razao_social: "   " }) === null &&
+    razaoSocialDaResposta({ razao_social: 42 }) === null &&
+    razaoSocialDaResposta(null) === null &&
+    razaoSocialDaResposta("texto") === null,
+);
+
+afirmar(
+  "só consulta com os catorze dígitos e o verificador conferindo",
+  valeConsultar("33.000.167/0001-01") &&
+    valeConsultar("33000167000101") &&
+    !valeConsultar("3300016700010") &&
+    !valeConsultar("33000167000102") &&
+    !valeConsultar("11111111111111") &&
+    !valeConsultar(""),
+);
+
+afirmar(
+  "campo vazio pode ser preenchido",
+  podePreencher({ atual: "", ultimaSugerida: null }) &&
+    podePreencher({ atual: "   ", ultimaSugerida: "QUALQUER" }),
+);
+afirmar(
+  "o que NÓS sugerimos pode ser substituído por outra sugestão",
+  podePreencher({ atual: "EMPRESA A LTDA", ultimaSugerida: "EMPRESA A LTDA" }),
+);
+afirmar(
+  "o que a PESSOA digitou nunca é sobrescrito",
+  !podePreencher({ atual: "Nome que eu corrigi", ultimaSugerida: "EMPRESA A LTDA" }) &&
+    !podePreencher({ atual: "Digitei antes de consultar", ultimaSugerida: null }),
+);
+
+/* A porta, exercitada com um `res` de mentira. */
+
+function respostaDeMentira() {
+  const estado = { status: null, corpo: null, cabecalhos: {} };
+  const res = {
+    setHeader(nome, valor) {
+      estado.cabecalhos[nome] = valor;
+    },
+    status(codigo) {
+      estado.status = codigo;
+      return res;
+    },
+    json(corpo) {
+      estado.corpo = corpo;
+      return res;
+    },
+  };
+  return { estado, res };
+}
+
+function fonteDeMentira(resultado) {
+  const chamadas = [];
+  const buscar = async (url, opcoes) => {
+    chamadas.push({ url, opcoes });
+    if (resultado instanceof Error) throw resultado;
+    return new Response(
+      resultado.corpo === null ? "" : JSON.stringify(resultado.corpo),
+      { status: resultado.status, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  return { chamadas, buscar };
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira({ status: 200, corpo: RESPOSTA_DA_FONTE });
+  await consultarCnpj({ method: "GET", url: "/api/cnpj?cnpj=33.000.167/0001-01" }, res, fonte.buscar);
+
+  const serializada = JSON.stringify(estado.corpo);
+  afirmar("CNPJ com máscara é aceito e normalizado", estado.status === 200);
+  afirmar(
+    "a resposta tem uma chave só",
+    Object.keys(estado.corpo ?? {}).join(",") === "razaoSocial",
+  );
+  for (const vazamento of [
+    "FULANO DE TAL SOCIO",
+    "BELTRANA DE TAL SOCIA",
+    "***456789**",
+    "contato@exemplo.com.br",
+    "2132242040",
+    "AVENIDA REPUBLICA DO CHILE",
+  ]) {
+    afirmar(
+      `o corpo serializado não contém "${vazamento}"`,
+      !serializada.includes(vazamento),
+    );
+  }
+  afirmar(
+    "e a fonte foi chamada com os dígitos, sem a máscara",
+    fonte.chamadas[0]?.url?.endsWith("/33000167000101") === true,
+  );
+  // A fonte responde 403 sem `User-Agent`, e o `fetch` do Node não manda um
+  // sozinho. Sem esta asserção, a consulta volta a falhar inteira em silêncio.
+  afirmar(
+    "a chamada se identifica com User-Agent, que a fonte exige",
+    fonte.chamadas[0]?.opcoes?.headers?.["User-Agent"] === IDENTIFICACAO,
+  );
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira({ status: 200, corpo: RESPOSTA_DA_FONTE });
+  await consultarCnpj({ method: "GET", url: "/api/cnpj?cnpj=11111111111111" }, res, fonte.buscar);
+  afirmar(
+    "CNPJ inválido é recusado com 400 e a fonte NÃO é chamada",
+    estado.status === 400 && fonte.chamadas.length === 0,
+  );
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira({ status: 404, corpo: { message: "não existe" } });
+  await consultarCnpj({ method: "GET", url: "/api/cnpj?cnpj=33000167000101" }, res, fonte.buscar);
+  afirmar("CNPJ que não existe no registro vira 404", estado.status === 404);
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira(new Error("rede caiu"));
+  await consultarCnpj({ method: "GET", url: "/api/cnpj?cnpj=33000167000101" }, res, fonte.buscar);
+  afirmar(
+    "fonte fora do ar vira 503, e não derruba a tela",
+    estado.status === 503,
+  );
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira({ status: 200, corpo: { cnpj: "33000167000101" } });
+  await consultarCnpj({ method: "GET", url: "/api/cnpj?cnpj=33000167000101" }, res, fonte.buscar);
+  afirmar("resposta sem razão social vira 502", estado.status === 502);
+}
+
+{
+  const { estado, res } = respostaDeMentira();
+  const fonte = fonteDeMentira({ status: 200, corpo: RESPOSTA_DA_FONTE });
+  await consultarCnpj({ method: "POST", url: "/api/cnpj?cnpj=33000167000101" }, res, fonte.buscar);
+  afirmar(
+    "POST é recusado com 405, e a fonte não é chamada",
+    estado.status === 405 && fonte.chamadas.length === 0,
+  );
+}
 
 /* ─── Fecho ──────────────────────────────────────────────────────────────── */
 

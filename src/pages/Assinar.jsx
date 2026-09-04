@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Check, Loader2, Lock } from "lucide-react";
 import Navbar from "@/components/Navbar";
@@ -20,8 +20,13 @@ import {
   formatarCnpj,
   formatarTelefone,
   primeiroVencimento,
+  somenteDigitos,
   validarPedido,
 } from "@/domain/assinatura/pedido";
+import {
+  podePreencher,
+  valeConsultar,
+} from "@/domain/assinatura/consultaDeCnpj";
 
 /**
  * A página de contratação.
@@ -92,7 +97,7 @@ const VAZIO = Object.freeze({
   razaoSocial: "",
 });
 
-const Campo = ({ definicao, valor, erro, aoMudar }) => {
+const Campo = ({ definicao, valor, erro, aoMudar, ajuda }) => {
   const id = `campo-${definicao.campo}`;
   return (
     <div className="flex flex-col gap-1.5">
@@ -124,7 +129,7 @@ const Campo = ({ definicao, valor, erro, aoMudar }) => {
         </span>
       ) : (
         <span id={`${id}-ajuda`} className="text-[13px] text-zinc-500">
-          {definicao.ajuda}
+          {ajuda ?? definicao.ajuda}
         </span>
       )}
     </div>
@@ -164,6 +169,14 @@ export default function Assinar() {
   const [erros, setErros] = useState({});
   const [enviando, setEnviando] = useState(false);
   const [falha, setFalha] = useState("");
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
+
+  /* A última razão social que NÓS escrevemos no campo.
+   *
+   * Num `ref`, e não num `useState`: ela é lida de dentro do atualizador do
+   * formulário, onde um valor de estado chegaria velho, e mudá-la não deve
+   * redesenhar nada. */
+  const razaoSugerida = useRef(null);
 
   // O rascunho volta para quem fechou a aba no meio. Só os campos digitados —
   // o aceite dos termos NÃO é restaurado: consentimento se dá agora, não numa
@@ -191,6 +204,77 @@ export default function Assinar() {
       conexoes,
     });
   }, [formulario, diaDeVencimento, plano, usuarios, conexoes]);
+
+  /* ─── A razão social vem do CNPJ ────────────────────────────────────────
+   *
+   * Só depois dos catorze dígitos com verificador válido, e com um respiro de
+   * 400 ms: consultar a cada tecla mandaria treze requisições inúteis, e a
+   * décima quarta é a única que pode responder alguma coisa.
+   *
+   * A requisição anterior é ABORTADA quando o CNPJ muda. Sem isso, uma
+   * resposta lenta do CNPJ antigo chegaria depois da rápida do novo e
+   * escreveria a empresa errada no campo, que é o pior desfecho possível num
+   * formulário de contratação.
+   *
+   * Falha é silêncio. Isto é conveniência: fonte fora do ar ou CNPJ que não
+   * existe não podem virar mensagem de erro numa tela de compra. */
+  useEffect(() => {
+    if (!valeConsultar(formulario.cnpj)) {
+      setConsultandoCnpj(false);
+      return undefined;
+    }
+
+    const controle = new AbortController();
+    const digitos = somenteDigitos(formulario.cnpj);
+
+    const temporizador = window.setTimeout(async () => {
+      setConsultandoCnpj(true);
+      try {
+        const resposta = await fetch(`/api/cnpj?cnpj=${digitos}`, {
+          signal: controle.signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!resposta.ok) return;
+
+        const corpo = await resposta.json().catch(() => ({}));
+        const razao =
+          typeof corpo.razaoSocial === "string" ? corpo.razaoSocial : "";
+        if (razao === "") return;
+
+        setFormulario((atual) => {
+          // O que a pessoa digitou vence o que nós adivinhamos.
+          if (
+            !podePreencher({
+              atual: atual.razaoSocial,
+              ultimaSugerida: razaoSugerida.current,
+            })
+          ) {
+            return atual;
+          }
+          razaoSugerida.current = razao;
+          return { ...atual, razaoSocial: razao };
+        });
+
+        // A recusa que a pessoa viu antes deixou de valer no instante em que o
+        // campo foi preenchido. Só esta: as outras continuam de pé.
+        setErros((atuais) => {
+          if (!atuais.razaoSocial) return atuais;
+          const resto = { ...atuais };
+          delete resto.razaoSocial;
+          return resto;
+        });
+      } catch {
+        // Abortada ou sem rede. Nos dois casos a pessoa digita, como sempre.
+      } finally {
+        setConsultandoCnpj(false);
+      }
+    }, 400);
+
+    return () => {
+      controle.abort();
+      window.clearTimeout(temporizador);
+    };
+  }, [formulario.cnpj]);
 
   const preco = useMemo(
     () => (plano ? precoMensal(plano, { usuarios, conexoes }) : null),
@@ -323,6 +407,11 @@ export default function Assinar() {
                     definicao={definicao}
                     valor={formulario[definicao.campo]}
                     erro={erros[definicao.campo]}
+                    ajuda={
+                      definicao.campo === "razaoSocial" && consultandoCnpj
+                        ? "buscando pelo CNPJ..."
+                        : undefined
+                    }
                     aoMudar={(valor) =>
                       setFormulario((atual) => ({
                         ...atual,
