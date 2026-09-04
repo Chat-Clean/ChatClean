@@ -152,7 +152,7 @@ export default function ModernHero() {
 
       {/* Blobs de cor adicionais */}
       <div className="absolute top-1/4 -right-32 w-96 h-96 bg-emerald-300/30 rounded-full blur-[120px] mix-blend-screen pointer-events-none" />
-      <div className="absolute bottom-1/4 -left-32 w-[500px] h-[500px] bg-cyan-300/25 rounded-full blur-[140px] mix-blend-screen pointer-events-none" />
+      <div className="absolute bottom-1/4 -left-32 w-[500px] h-[500px] bg-emerald-400/25 rounded-full blur-[140px] mix-blend-screen pointer-events-none" />
 
       <div className="relative z-10 w-full mx-auto px-4 sm:px-20 grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
         {/* Coluna texto */}
@@ -201,7 +201,7 @@ export default function ModernHero() {
               </motion.span>{" "}
               <motion.span
                 variants={wordVariants}
-                className="inline-block bg-gradient-to-r from-yellow-200 via-white to-cyan-100 bg-clip-text text-transparent"
+                className="inline-block text-yellow-300"
               >
                 WhatsApp
               </motion.span>

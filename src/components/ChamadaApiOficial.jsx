@@ -34,7 +34,7 @@ export default function ChamadaApiOficial() {
 
         <h2 className="mt-6 text-4xl font-black leading-[1.08] tracking-tighter text-zinc-900 md:text-5xl">
           Ainda atende por chip{" "}
-          <span className="text-gradient-green">que pode ser bloqueado?</span>
+          <span className="text-brand-chrome">que pode ser bloqueado?</span>
         </h2>
 
         <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-zinc-600">

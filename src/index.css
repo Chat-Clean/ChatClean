@@ -590,7 +590,7 @@ body[data-redimensionando-imagem="true"] {
    ICON BOUNCE / WIGGLE no hover
    =========================================================== */
 .icon-wiggle {
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .group:hover .icon-wiggle {
   animation: wiggle 0.6s ease-in-out;

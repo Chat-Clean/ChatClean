@@ -670,7 +670,7 @@
   opacity: 1 !important;
   margin: 0 3.5rem;
   height: 4.5rem; /* Aumentado levemente para destaque */
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .logos-container img:hover {

@@ -15,8 +15,6 @@ const stats = [
     suffix: "+",
     label: "Empresas atendidas",
     description: "Pequenas, médias e grandes empresas no Brasil",
-    accent: "from-emerald-500 to-green-600",
-    bg: "bg-emerald-50",
   },
   {
     icon: MessageSquare,
@@ -24,8 +22,6 @@ const stats = [
     suffix: "M+",
     label: "Mensagens trocadas",
     description: "Por mês, em todos os aplicativos conectados",
-    accent: "from-blue-500 to-cyan-600",
-    bg: "bg-blue-50",
   },
   {
     icon: Clock,
@@ -33,8 +29,6 @@ const stats = [
     suffix: "%",
     label: "Mais rápido para responder",
     description: "Média dos clientes nos primeiros 90 dias",
-    accent: "from-yellow-500 to-orange-500",
-    bg: "bg-yellow-50",
   },
   {
     icon: Bot,
@@ -42,8 +36,6 @@ const stats = [
     suffix: "/7",
     label: "Atendimento automático",
     description: "Robô ativo dia e noite, sem pausas",
-    accent: "from-purple-500 to-fuchsia-600",
-    bg: "bg-purple-50",
   },
 ];
 
@@ -63,7 +55,7 @@ export default function StatsSection() {
           </span>
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-900 tracking-tighter leading-[1.05] mb-6">
             Resultados reais de <br />
-            <span className="text-gradient-green">quem já usa</span>
+            <span className="text-brand-chrome">quem já usa</span>
           </h2>
           <p className="text-zinc-600 text-lg leading-relaxed">
             Empresas que usam a ChatClean atendem mais rápido, vendem mais
@@ -85,12 +77,11 @@ export default function StatsSection() {
               }}
               className="group relative bg-white rounded-3xl p-6 md:p-8 border border-zinc-100 hover:border-zinc-200 green-glow card-3d"
             >
-              {/* Ícone com gradient */}
-              <div
-                className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stat.accent} flex items-center justify-center text-white shadow-lg shadow-zinc-200 mb-6 group-hover:scale-110 group-hover:rotate-6 transition-transform duration-500`}
-              >
-                <stat.icon className="w-7 h-7 icon-wiggle" />
-              </div>
+              <stat.icon
+                className="w-9 h-9 text-brand-action icon-wiggle mb-6 transition-transform duration-500 group-hover:scale-110"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
 
               {/* Número gigante */}
               <div className="font-black text-5xl md:text-6xl text-zinc-900 tracking-tighter mb-2 tabular-nums">
