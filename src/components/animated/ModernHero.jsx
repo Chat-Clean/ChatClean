@@ -12,8 +12,15 @@ import wishBones from "../../assets/wish-bones.jpg";
 import grupoDuraMais from "../../assets/grupo-duramais.jpg";
 import heroDashboard from "../../assets/hero-dashboard-2.jpg";
 
-const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
+/**
+ * A demonstração em vídeo.
+ *
+ * O botão principal da home apontava para o WhatsApp, o que pedia uma conversa
+ * de quem só queria VER o produto antes de falar com alguém. O vídeo responde
+ * essa pergunta sem custo de atendimento, e quem quiser conversar depois tem o
+ * WhatsApp em toda outra seção da página.
+ */
+const VSL_LINK = "https://links.chatclean.com.br/vsl";
 
 /**
  * Botão magnético — segue o cursor com força configurável.
@@ -222,7 +229,7 @@ export default function ModernHero() {
             transition={{ delay: 0.85, duration: 0.6 }}
             className="flex flex-col sm:flex-row gap-4"
           >
-            <MagneticButton href={WHATSAPP_LINK} variant="primary">
+            <MagneticButton href={VSL_LINK} variant="primary">
               <Play className="w-5 h-5 fill-current" />
               Ver Demo
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />

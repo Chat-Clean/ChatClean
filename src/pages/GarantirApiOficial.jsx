@@ -3,9 +3,9 @@ import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   AlertCircle,
-  ArrowLeft,
   BadgeCheck,
   Check,
+  Info,
   Loader2,
   MessageCircle,
   ShieldCheck,
@@ -242,7 +242,10 @@ export default function GarantirApiOficial() {
             to="/api-oficial-whatsapp"
             className="flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-900"
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            {/* Não é uma volta: este link vai para a página institucional, que
+                a pessoa provavelmente ainda não viu. A seta para a esquerda
+                prometia desfazer um passo que não existe. */}
+            <Info className="h-4 w-4" aria-hidden="true" />
             Como funciona
           </Link>
         </div>
