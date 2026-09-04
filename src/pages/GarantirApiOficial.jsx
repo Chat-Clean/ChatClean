@@ -325,11 +325,9 @@ export default function GarantirApiOficial() {
               className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl shadow-zinc-200/60 md:p-8"
             >
               <h2 className="text-xl font-black tracking-tight text-zinc-900">
-                Fale com um especialista
+                Preencha para garantir sua API Oficial
               </h2>
-              <p className="mt-1.5 text-sm text-zinc-500">
-                Preencha e a conversa continua no WhatsApp, agora.
-              </p>
+
 
               <div className="mt-6 flex flex-col gap-4">
                 {CAMPOS.map((definicao) => (
@@ -358,8 +356,8 @@ export default function GarantirApiOficial() {
                             mudar("atendentes", ativo ? "" : faixa.id)
                           }
                           className={`rounded-full px-4 py-2 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${ativo
-                              ? "bg-emerald-600 text-white"
-                              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                             }`}
                         >
                           {faixa.rotulo}
