@@ -9,6 +9,8 @@ const SECTIONS = [
     titulo: "1. Informações que Coletamos",
     texto: `Coletamos informações que você nos fornece diretamente ao criar uma conta, preencher formulários ou entrar em contato conosco, incluindo: nome completo, e-mail, telefone/WhatsApp, nome da empresa, cargo e outras informações de perfil.
 
+No formulário de contratação coletamos também o CNPJ e a razão social da empresa, porque são exigidos para emitir a cobrança. No pedido de contato da API Oficial coletamos nome, e-mail, telefone, empresa e, opcionalmente, o tamanho da equipe de atendimento. Nos dois casos guardamos a versão do texto que você aceitou, a data e o endereço IP de origem, que é a prova de consentimento que a LGPD exige que possamos demonstrar.
+
 Também coletamos automaticamente dados de uso da plataforma, como endereço IP, tipo de navegador, páginas acessadas, data e hora de acesso, e informações do dispositivo utilizado.`,
   },
   {
@@ -29,7 +31,7 @@ Também coletamos automaticamente dados de uso da plataforma, como endereço IP,
 
 Podemos compartilhar suas informações nas seguintes situações:
 
-• Com prestadores de serviços que nos auxiliam na operação da plataforma (ex: infraestrutura de nuvem, processamento de pagamentos), sempre sob acordos de confidencialidade;
+• Com prestadores de serviços que nos auxiliam na operação da plataforma, sempre sob acordos de confidencialidade. Hoje são a Asaas, que processa as cobranças e recebe nome, e-mail, telefone, CNPJ e razão social de quem contrata, e a nossa infraestrutura de nuvem e de banco de dados;
 • Quando exigido por lei, ordem judicial ou autoridade competente;
 • Para proteger os direitos, propriedade ou segurança da ChatClean, nossos clientes ou terceiros;
 • Em caso de fusão, aquisição ou venda de ativos, mediante aviso prévio.`,

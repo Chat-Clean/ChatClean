@@ -303,7 +303,7 @@ export function referenciaExterna(pedidoId) {
  * texto muda, e um registro que diz apenas "aceitou" não diz o que foi aceito.
  * Mudar o texto dos termos é mudar esta constante na mesma alteração.
  */
-export const VERSAO_DOS_TERMOS = "2026-09-03";
+export const VERSAO_DOS_TERMOS = "2026-09-04";
 
 /** A descrição que o cliente lê na fatura e no extrato. */
 export function descricaoDaAssinatura(plano, { usuarios, conexoes }) {
