@@ -76,7 +76,7 @@ Se o pagamento for confirmado e a conta não for liberada por falha nossa, o ped
 
 Para exercer, basta pedir por qualquer canal de contato listado na seção 13. Não pedimos justificativa.
 
-O estorno é feito pelo mesmo meio usado no pagamento, em até 10 (dez) dias úteis contados do pedido de desistência. Valores que a Meta já tenha cobrado pelo uso da API Oficial do WhatsApp no período não são estornados por nós, porque não são cobrados por nós.`,
+O estorno é feito pelo mesmo meio usado no pagamento, em até 7 (sete) dias contados do pedido de desistência. Valores que a Meta já tenha cobrado pelo uso da API Oficial do WhatsApp no período não são estornados por nós, porque não são cobrados por nós.`,
   },
   {
     titulo: "7. Propriedade Intelectual",
@@ -107,7 +107,7 @@ Nossa responsabilidade total não excederá o valor pago pelo cliente nos últim
   },
   {
     titulo: "10. Rescisão",
-    texto: `Você pode cancelar sua assinatura a qualquer momento pelo painel de controle ou entrando em contato com o suporte. O acesso permanecerá ativo até o fim do período pago.
+    texto: `Você pode cancelar sua assinatura a qualquer momento entrando em contato com a gente, por qualquer um dos canais da seção 13. Não há multa nem prazo de fidelidade, e o acesso permanece ativo até o fim do período já pago.
 
 A ChatClean pode suspender ou encerrar sua conta imediatamente em caso de violação destes Termos, uso fraudulento ou inadimplência recorrente, com ou sem aviso prévio dependendo da gravidade.`,
   },
