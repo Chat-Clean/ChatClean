@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Mail, MapPin, Phone } from "lucide-react";
 import chatcleanLogoWhite from "/chatclean-white.svg";
+import { abrirPreferenciasDeCookies } from "@/lib/consentimento";
 
 const WHATSAPP_LINK =
   "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
@@ -126,6 +127,17 @@ export default function Footer() {
               <Link to="/termos-de-servico" className="hover:text-emerald-400 transition-colors">
                 Termos de Serviço
               </Link>
+            </li>
+            {/* Retirar o consentimento tem que ser tão fácil quanto dar. Sem
+                uma porta permanente, o "aceitar" da faixa seria definitivo. */}
+            <li>
+              <button
+                type="button"
+                onClick={abrirPreferenciasDeCookies}
+                className="hover:text-emerald-400 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+              >
+                Preferências de cookies
+              </button>
             </li>
           </ul>
         </div>

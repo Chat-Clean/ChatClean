@@ -9,6 +9,8 @@ const SECTIONS = [
     titulo: "1. Informações que Coletamos",
     texto: `Coletamos informações que você nos fornece diretamente ao criar uma conta, preencher formulários ou entrar em contato conosco, incluindo: nome completo, e-mail, telefone/WhatsApp, nome da empresa, cargo e outras informações de perfil.
 
+No formulário de contratação coletamos também o CNPJ e a razão social da empresa, porque são exigidos para emitir a cobrança. No pedido de contato da API Oficial coletamos nome, e-mail, telefone, empresa e, opcionalmente, o tamanho da equipe de atendimento. Nos dois casos guardamos a versão do texto que você aceitou, a data e o endereço IP de origem, que é a prova de consentimento que a LGPD exige que possamos demonstrar.
+
 Também coletamos automaticamente dados de uso da plataforma, como endereço IP, tipo de navegador, páginas acessadas, data e hora de acesso, e informações do dispositivo utilizado.`,
   },
   {
@@ -29,7 +31,7 @@ Também coletamos automaticamente dados de uso da plataforma, como endereço IP,
 
 Podemos compartilhar suas informações nas seguintes situações:
 
-• Com prestadores de serviços que nos auxiliam na operação da plataforma (ex: infraestrutura de nuvem, processamento de pagamentos), sempre sob acordos de confidencialidade;
+• Com prestadores de serviços que nos auxiliam na operação da plataforma, sempre sob acordos de confidencialidade. Hoje são a Asaas, que processa as cobranças e recebe nome, e-mail, telefone, CNPJ e razão social de quem contrata, e a nossa infraestrutura de nuvem e de banco de dados;
 • Quando exigido por lei, ordem judicial ou autoridade competente;
 • Para proteger os direitos, propriedade ou segurança da ChatClean, nossos clientes ou terceiros;
 • Em caso de fusão, aquisição ou venda de ativos, mediante aviso prévio.`,
@@ -61,14 +63,17 @@ Para exercer esses direitos, entre em contato pelo e-mail: contato@chatclean.com
   },
   {
     titulo: "6. Cookies e Tecnologias de Rastreamento",
-    texto: `Utilizamos cookies e tecnologias similares para melhorar sua experiência, analisar o tráfego e personalizar conteúdo. Os tipos de cookies que utilizamos incluem:
+    texto: `Na sua primeira visita, o site pergunta o que você aceita. Nada opcional é carregado antes da sua resposta, e fechar o aviso sem responder mantém tudo o que é opcional desligado.
 
-• Cookies essenciais: necessários para o funcionamento básico do site;
-• Cookies de desempenho: coletam informações anônimas sobre como o site é usado;
-• Cookies de funcionalidade: permitem que o site lembre suas preferências;
-• Cookies de marketing: usados para exibir anúncios relevantes.
+São três grupos, e esta lista descreve exatamente o que existe hoje:
 
-Você pode controlar o uso de cookies nas configurações do seu navegador.`,
+• Essenciais: guardam a sua própria escolha de cookies e mantêm a sessão de quem acessa o Painel. São necessários para o site funcionar e não dependem de consentimento.
+• Preferências: lembram o que você já preencheu, como o rascunho do formulário de contratação e o dimensionamento escolhido na seção de planos. Ficam apenas no seu navegador.
+• Marketing: o Meta Pixel, da Meta Platforms, que mede se um anúncio trouxe você até aqui. É o único rastreador de terceiro do site, e grava os cookies _fbp e _fbc. Nesta categoria também guardamos, por até 90 dias no seu navegador, de onde você veio na primeira visita: os parâmetros de campanha do link e o site que indicou. Serve para sabermos qual anúncio funcionou quando você entra em contato dias depois; não guardamos o endereço completo de origem, só o domínio.
+
+Não utilizamos ferramentas de análise de tráfego. Se isso mudar, este texto muda junto e você será perguntado de novo.
+
+Você pode revisar ou retirar a sua escolha a qualquer momento em "Preferências de cookies", no rodapé de qualquer página. Ao retirar o consentimento de marketing, paramos de enviar eventos e apagamos os cookies gravados no nosso domínio; os cookies gravados pelo domínio da Meta só podem ser removidos pelas configurações do seu navegador.`,
   },
   {
     titulo: "7. Retenção de Dados",

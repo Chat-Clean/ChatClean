@@ -14,7 +14,9 @@
     "conta:remover": "node scripts/criar-conta.mjs --remover",
     "ativo:imagem-padrao": "node scripts/gerar-imagem-padrao.mjs",
     "entrega:monitorar-pausa": "node scripts/monitorar-pausa.mjs",
-    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita",
+    "asaas:simular-pagamento": "node scripts/simular-pagamento.mjs",
+    "provisionamento": "node scripts/provisionamento.mjs",
+    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita && npm run verificar:assinatura && npm run verificar:checkout",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:artigo": "node scripts/verificar-artigo.mjs",
     "verificar:supabase": "node scripts/verificar-supabase.mjs",
@@ -22,7 +24,9 @@
     "verificar:acesso": "node scripts/verificar-acesso.mjs",
     "verificar:interface": "node scripts/verificar-interface.mjs",
     "verificar:editor": "node scripts/verificar-editor.mjs",
-    "verificar:escrita": "node scripts/verificar-escrita.mjs"
+    "verificar:escrita": "node scripts/verificar-escrita.mjs",
+    "verificar:assinatura": "node scripts/verificar-assinatura.mjs",
+    "verificar:checkout": "node scripts/verificar-checkout.mjs"
   },
   "engines": {
     "node": ">=22"

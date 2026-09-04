@@ -881,16 +881,60 @@ if (temCss && temBaselineCss) {
       for (const v of variaveisOrfas) console.log(`          ${v}`);
     }
 
-    // A camada base é o vetor de regressão: aplica borda e contorno a tudo.
-    const regraCoringa = (css) =>
-      regras(css)
-        .filter(({ prelude }) => prelude === "*" || /^\*\s*,/.test(prelude))
-        .map(({ prelude, corpo }) => `${prelude}{${corpo.trim()}}`)
-        .join("\n");
-    const baseAntes = regraCoringa(baselineCss);
+    /* A camada base é o vetor de regressão: aplica borda e contorno a tudo.
+     *
+     * ─── POR QUE NÃO É MAIS IGUALDADE ───────────────────────────────────
+     *
+     * Era igualdade, e virou uma falha que não é falha. O Tailwind REGISTRA
+     * na regra universal um valor padrão por utilitário usado: bastou a
+     * página de contratação usar `divide-y` para `--tw-divide-y-reverse:0`
+     * aparecer ali, sem nada ter mudado no que a regra faz. A igualdade
+     * acusava isso como regressão, e asserção que acusa trabalho normal
+     * treina a pessoa a ignorar o que ela diz.
+     *
+     * A garantia que importa continua inteira, e é a mesma da asserção irmã
+     * logo acima: nenhuma declaração do baseline pode SUMIR nem MUDAR DE
+     * VALOR. Acrescentar, pode. Some a borda de tudo, ou muda o contorno, e
+     * esta asserção acusa como antes.
+     */
+    const declaracoesCoringa = (css) => {
+      const porPrelude = new Map();
+      for (const { prelude, corpo } of regras(css)) {
+        if (prelude !== "*" && !/^\*\s*,/.test(prelude)) continue;
+        const mapa = porPrelude.get(prelude) ?? new Map();
+        for (const decl of corpo.split(";")) {
+          const limpo = decl.trim();
+          if (limpo === "") continue;
+          const corte = limpo.indexOf(":");
+          if (corte === -1) continue;
+          mapa.set(limpo.slice(0, corte).trim(), limpo.slice(corte + 1).trim());
+        }
+        porPrelude.set(prelude, mapa);
+      }
+      return porPrelude;
+    };
+
+    const coringaAntes = declaracoesCoringa(baselineCss);
+    const coringaDepois = declaracoesCoringa(cssCompilado);
+    const coringaPerdidas = [];
+    for (const [prelude, mapa] of coringaAntes) {
+      const agora = coringaDepois.get(prelude);
+      if (!agora) {
+        coringaPerdidas.push(`${prelude} { a regra inteira sumiu }`);
+        continue;
+      }
+      for (const [nome, valor] of mapa) {
+        if (agora.get(nome) !== valor) {
+          coringaPerdidas.push(
+            `${prelude} { ${nome}: ${valor} -> ${agora.get(nome) ?? "ausente"} }`,
+          );
+        }
+      }
+    }
     afirmar(
-      "regras de `@layer base` sobre `*` idênticas ao baseline",
-      baseAntes !== "" && baseAntes === regraCoringa(cssCompilado),
+      "nenhuma regra de `@layer base` sobre `*` perdeu ou mudou declaração do baseline",
+      coringaAntes.size > 0 && coringaPerdidas.length === 0,
+      coringaPerdidas.slice(0, 6).join(" | "),
     );
 
     const rootAntes = declaracoesDe(baselineCss, ":root");

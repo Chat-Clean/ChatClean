@@ -137,8 +137,12 @@
          Os dados estruturados abaixo ficam FORA da região de propósito: eles
          são da Story 4.6, e até lá o que a home declara continua valendo. -->
 
-    <!-- Performance: preconnect e preload -->
-    <link rel="preconnect" href="https://connect.facebook.net" />
+    <!-- Performance: preconnect e preload.
+         O preconnect para connect.facebook.net saiu junto com o Pixel: ele
+         abre a conexao TLS com a Meta antes de qualquer pergunta, e uma
+         conexao aberta ja entrega o IP de quem visita. Guardar o consentimento
+         no JavaScript e anunciar o visitante no <head> seria consentimento de
+         fachada. Quem aceitar paga o custo da conexao na hora, e tudo bem. -->
     <link rel="dns-prefetch" href="https://api.whatsapp.com" />
 
     <!-- Schema.org: Organization -->
@@ -205,26 +209,14 @@
     }
     </script>
 
-    <!-- Meta Pixel Code -->
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1773986837313693');
-    fbq('track', 'PageView');
-    </script>
-    <!-- End Meta Pixel Code -->
+    <!-- O Meta Pixel NAO carrega aqui.
+         Ele carregava neste ponto, em toda visita, antes de qualquer pergunta.
+         Rastreamento de marketing depende de consentimento PREVIO: o carregador
+         mudou para `src/lib/consentimento.js` e so roda depois do "aceito".
+         O `<noscript>` com a imagem de rastreio saiu pelo mesmo motivo — ela
+         dispara sem JavaScript, e portanto sem chance de consentir. -->
   </head>
   <body>
-    <noscript>
-      <img height="1" width="1" style="display:none"
-      src="https://www.facebook.com/tr?id=1773986837313693&ev=PageView&noscript=1"
-    /></noscript>
     <!-- CORPO-DO-ARTIGO:INICIO
          A regiao do corpo servido (Story 4.4). Vazia aqui, e vazia em toda
          rota que nao passa pela funcao de servidor: quem serve artigo e ela.

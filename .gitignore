@@ -3,6 +3,20 @@ dist
 build
 coverage
 .env
+# DUAS regras, porque `.env` sozinha nao alcanca nome nenhum alem dele mesmo.
+#
+#   `*.env`   pega o que TERMINA em .env   -> env_atual.env, supabase.env
+#   `.env.*`  pega o que COMECA com .env.  -> .env.local, .env.migracao
+#
+# A segunda entrou depois de `.env.migracao` -- com um token dentro -- ter
+# passado batido pela primeira: `*.env` casa o FIM do nome, e aquele arquivo
+# termina em `.migracao`. Um arquivo de segredo que o .gitignore quase deixa
+# passar e o tipo de coisa que so aparece no commit errado.
+#
+# `.env.example` e versionado de proposito, e nao tem segredo dentro.
+*.env
+.env.*
+!.env.example
 .DS_Store
 *.log
 .idea
@@ -55,3 +69,5 @@ CLAUDE.md
 # Gerado por `npm run build` — o shell do build embutido nas funcoes.
 # Versionar faria a copia nascer velha no build seguinte (hashes mudam).
 api/_nucleo/shell.gerado.js
+.vercel
+.env*

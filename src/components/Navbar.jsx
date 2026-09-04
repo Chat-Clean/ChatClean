@@ -4,12 +4,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import { EASE } from "@/lib/motion";
+import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import chatcleanLogoWhite from "/chatclean-white.svg";
 import chatcleanLogoGreen from "/chatclean.svg";
 
+/* O atalho de Planos aponta para uma âncora que só existe quando a seção
+   existe. Com o checkout desligado ele sai da lista, em vez de virar um link
+   que rola para lugar nenhum. */
 const NAV_ITEMS = [
   { name: "Home",           type: "anchor", anchor: "#home" },
   { name: "Funcionalidades",type: "anchor", anchor: "#funcionalidades" },
+  ...(CHECKOUT_ATIVO
+    ? [{ name: "Planos", type: "anchor", anchor: "#planos" }]
+    : []),
   { name: "Sobre",          type: "link",   href: "/sobre" },
   { name: "Blog",           type: "link",   href: "/blog" },
   { name: "Carreiras",      type: "link",   href: "/carreiras" },

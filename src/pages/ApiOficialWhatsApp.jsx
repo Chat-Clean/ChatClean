@@ -401,19 +401,18 @@ export default function ApiOficialWhatsApp() {
             ChatClean e como sua operação vai ficar com a API Oficial.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a
-              href="https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            {/* Passa pela landing em vez de abrir o WhatsApp direto: assim o
+                lead fica registrado antes da conversa começar, e o comercial
+                abre o atendimento já sabendo quem é e de onde veio. */}
+            <Link to="/api-oficial">
               <Button
                 size="lg"
                 className="bg-white text-green-600 hover:bg-gray-100"
               >
                 <Phone className="h-5 w-5 mr-2" />
-                Falar com Especialista
+                Garanta sua API Oficial agora
               </Button>
-            </a>
+            </Link>
             <Link to="/">
               <Button
                 size="lg"
