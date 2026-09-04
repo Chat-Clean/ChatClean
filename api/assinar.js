@@ -28,6 +28,7 @@
  */
 
 import { asaasDoAmbiente } from "./_nucleo/asaas.js";
+import { dominioDoAmbiente } from "./_nucleo/entrega.js";
 import { bancoDoAmbiente } from "./_nucleo/bancoDaAssinatura.js";
 import {
   TIPOS,
@@ -106,11 +107,21 @@ export default async function handler(req, res) {
     });
   }
 
+  // O Domínio Canônico é o que transforma o retorno do Asaas num endereço
+  // absoluto. Ele não é obrigatório: sem ele a cobrança é criada do mesmo
+  // jeito, e o que se perde é a volta automática depois do pagamento. Falhar
+  // aqui trocaria uma venda por uma tela de erro.
+  const dominio = dominioDoAmbiente(process.env);
+  if (!dominio.ok) {
+    console.error(`[assinar] sem retorno: ${dominio.defeito}`);
+  }
+
   const resultado = await criarPedidoDeAssinatura({
     corpo: corpoComoObjeto(req.body),
     banco: banco.banco,
     asaas: asaas.asaas,
     ip: ipDoPedido(req.headers),
+    dominio: dominio.ok ? dominio.raiz : null,
   });
 
   if (!resultado.ok) {

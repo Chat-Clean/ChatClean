@@ -22,6 +22,7 @@ import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
 import Assinar from "./pages/Assinar.jsx";
+import AssinaturaRecebida from "./pages/AssinaturaRecebida.jsx";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
 
@@ -48,6 +49,12 @@ createRoot(document.getElementById("root")).render(
             na seção de planos — sem plano válido, a página manda de volta para
             lá em vez de adivinhar um. */}
         <Route path="/assinar" element={<Assinar />} />
+        {/* Para onde o Asaas devolve quem pagou. O pedido viaja na querystring,
+            e a tela só LÊ o Estado: quem confirma pagamento é o webhook. */}
+        <Route
+          path="/assinatura/recebido"
+          element={<AssinaturaRecebida />}
+        />
         {/* O portão envolve a rota, não vive dentro da página: assim o Painel
             só é montado se a sessão existir. Decidir lá dentro reproduziria o
             defeito antigo — um estado local que a própria página respeita.

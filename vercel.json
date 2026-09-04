@@ -11,6 +11,10 @@
     {
       "source": "/assinar",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/assinatura/recebido",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     }
   ],
   "rewrites": [

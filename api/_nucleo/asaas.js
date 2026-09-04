@@ -86,7 +86,7 @@ export function lerAmbienteDoAsaas(ambiente = {}) {
       ok: false,
       faltando: [],
       invalidas: [
-        `${VARIAVEIS_DO_ASAAS.chave}: prefixo desconhecido — esperado $aact_hmlg_ (sandbox) ou $aact_prod_ (produção)`,
+        `${VARIAVEIS_DO_ASAAS.chave}: prefixo desconhecido: esperado $aact_hmlg_ (sandbox) ou $aact_prod_ (produção)`,
       ],
     };
   }
@@ -318,6 +318,17 @@ export function criarAsaas({
      * o pagador escolhe na fatura, entre os meios habilitados na conta. Não
      * existe forma de criar uma cobrança com dois `billingType` fixos ao mesmo
      * tempo — `UNDEFINED` é o mecanismo previsto para essa escolha.
+     *
+     * ─── O RETORNO ────────────────────────────────────────────────────────
+     *
+     * `callback.successUrl` é para onde o Asaas devolve quem pagou, e
+     * `autoRedirect` faz a volta acontecer sozinha. Sem isso, o cliente termina
+     * o pagamento numa página que não é nossa e nunca mais volta — nem para
+     * saber que a conta está sendo criada.
+     *
+     * O campo só é enviado quando há endereço: mandar `callback` vazio ou com
+     * caminho relativo é recusado pelo Asaas, e derrubaria a criação inteira da
+     * assinatura por causa de um ambiente sem Domínio Canônico declarado.
      */
     async criarAssinatura({
       clienteId,
@@ -325,7 +336,13 @@ export function criarAsaas({
       primeiroVencimento,
       descricao,
       referenciaExterna,
+      retornoUrl = null,
     }) {
+      const retorno =
+        typeof retornoUrl === "string" && retornoUrl.trim() !== ""
+          ? { callback: { successUrl: retornoUrl.trim(), autoRedirect: true } }
+          : {};
+
       return pedir("/subscriptions", {
         metodo: "POST",
         corpo: {
@@ -336,6 +353,7 @@ export function criarAsaas({
           cycle: "MONTHLY",
           description: descricao,
           externalReference: referenciaExterna,
+          ...retorno,
         },
       });
     },

@@ -43,6 +43,7 @@ import {
   validarPedido,
 } from "../../src/domain/assinatura/pedido.js";
 import { planoPorId, precoMensal } from "../../src/domain/assinatura/planos.js";
+import { enderecoDeRetorno } from "../../src/domain/assinatura/retorno.js";
 
 /* ─── Tipos de erro ────────────────────────────────────────────────────────
  *
@@ -128,6 +129,7 @@ export async function criarPedidoDeAssinatura({
   banco,
   asaas,
   ip = null,
+  dominio = null,
   agora = () => new Date(),
 }) {
   /* ─── 1. O formulário ─────────────────────────────────────────────────── */
@@ -282,6 +284,10 @@ export async function criarPedidoDeAssinatura({
         primeiroVencimento: vencimento,
         descricao: descricaoDaAssinatura(plano, pedido),
         referenciaExterna: referencia,
+        // Para onde o Asaas devolve quem pagou. `null` sem Domínio Canônico
+        // declarado, e nesse caso a assinatura é criada sem retorno em vez de
+        // falhar: um ambiente de prévia sem domínio ainda precisa vender.
+        retornoUrl: enderecoDeRetorno(dominio, linha.id),
       });
       if (!criada.ok) return falhaDoAsaas(criada);
       assinaturaId = criada.dados?.id ?? null;
