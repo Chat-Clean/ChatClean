@@ -341,7 +341,7 @@ export default function Assinar() {
             </h2>
             <p className="mb-4 text-[13px] text-zinc-500">
               A cobrança do mês cai sempre neste dia. A primeira vence em{" "}
-              {vencimento.split("-").reverse().join("/")} — e você pode pagar
+              {vencimento.split("-").reverse().join("/")}, e você pode pagar
               antes disso, no Pix, para liberar a conta na hora.
             </p>
 

@@ -199,7 +199,7 @@ export function validarPedido(bruto = {}) {
     erros.telefone = "Informe DDD e número, com 10 ou 11 dígitos";
 
   const cnpj = somenteDigitos(bruto.cnpj);
-  if (!cnpjEhValido(cnpj)) erros.cnpj = "Este CNPJ não existe — confira os números";
+  if (!cnpjEhValido(cnpj)) erros.cnpj = "Este CNPJ não existe. Confira os números";
 
   const razaoSocial = texto(bruto.razaoSocial);
   if (razaoSocial.length < 3) erros.razaoSocial = "Informe a razão social da empresa";

@@ -171,7 +171,7 @@ export default function AvisoDeCookies() {
               </h2>
               <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">
                 Os essenciais mantêm o site funcionando. Os outros só entram se
-                você deixar — e você pode mudar de ideia quando quiser.{" "}
+                você deixar, e você pode mudar de ideia quando quiser.{" "}
                 <Link
                   to="/politica-de-privacidade"
                   className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300"

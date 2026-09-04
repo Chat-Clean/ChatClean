@@ -39,7 +39,7 @@ export default function ChamadaApiOficial() {
 
         <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-zinc-600">
           Com a API Oficial, o número fica no nome da sua empresa e toda a equipe
-          atende junto — sem clone do WhatsApp Web e sem sustos. A gente cuida da
+          atende junto, sem clone do WhatsApp Web e sem sustos. A gente cuida da
           homologação com a Meta e devolve pronto para usar.
         </p>
 

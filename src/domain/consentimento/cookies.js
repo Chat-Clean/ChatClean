@@ -51,7 +51,7 @@ export const CATEGORIAS = Object.freeze([
     id: "marketing",
     nome: "Marketing",
     resumo:
-      "Meta Pixel, o único rastreador de terceiro do site, e a lembrança de qual anúncio trouxe você — guardada por até 90 dias, no seu navegador.",
+      "Meta Pixel, o único rastreador de terceiro do site, e a lembrança de qual anúncio trouxe você, guardada por até 90 dias no seu navegador.",
     obrigatoria: false,
   },
 ]);

@@ -5047,8 +5047,8 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
     164: "throw de `falaDaSituacao()`: o único chamador (`PreVisualizacaoDePost.jsx`) só passa o valor de `situacaoDaTela()`, que devolve exclusivamente as quatro situações fechadas já cobertas em `FALAS` — situação fora da lista é erro de programação, nunca alcança o fluxo normal",
   }),
   "src/data/blog/comum.js": Object.freeze({
-    183: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesma regra do módulo (ver `resultado.js`) — só `.mensagem` chega a `notificarErro()`, nunca `.detalhe`",
-    225: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesmo caso da linha 183, do lado da gravação",
+    216: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesma regra do módulo (ver `resultado.js`) — só `.mensagem` chega a `notificarErro()`, nunca `.detalhe`",
+    258: "detalhe de `falha(ERRO_PERMISSAO, …)`: mesmo caso da linha 216, do lado da gravação",
   }),
   "src/data/blog/resultado.js": Object.freeze({
     160: "detalhe de `falha()` para tipo de erro inválido: o próprio módulo documenta (L22-23) que \"o detalhe existe para diagnosticar, não para ser mostrado como está\" — confirmado por grep: todo `notificarErro()` na Tela usa `.erro.mensagem`, nunca `.erro.detalhe`",

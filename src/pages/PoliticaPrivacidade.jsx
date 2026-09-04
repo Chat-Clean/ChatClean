@@ -67,7 +67,7 @@ São três grupos, e esta lista descreve exatamente o que existe hoje:
 
 • Essenciais: guardam a sua própria escolha de cookies e mantêm a sessão de quem acessa o Painel. São necessários para o site funcionar e não dependem de consentimento.
 • Preferências: lembram o que você já preencheu, como o rascunho do formulário de contratação e o dimensionamento escolhido na seção de planos. Ficam apenas no seu navegador.
-• Marketing: o Meta Pixel, da Meta Platforms, que mede se um anúncio trouxe você até aqui. É o único rastreador de terceiro do site, e grava os cookies _fbp e _fbc. Nesta categoria também guardamos, por até 90 dias no seu navegador, de onde você veio na primeira visita — os parâmetros de campanha do link e o site que indicou. Serve para sabermos qual anúncio funcionou quando você entra em contato dias depois; não guardamos o endereço completo de origem, só o domínio.
+• Marketing: o Meta Pixel, da Meta Platforms, que mede se um anúncio trouxe você até aqui. É o único rastreador de terceiro do site, e grava os cookies _fbp e _fbc. Nesta categoria também guardamos, por até 90 dias no seu navegador, de onde você veio na primeira visita: os parâmetros de campanha do link e o site que indicou. Serve para sabermos qual anúncio funcionou quando você entra em contato dias depois; não guardamos o endereço completo de origem, só o domínio.
 
 Não utilizamos ferramentas de análise de tráfego. Se isso mudar, este texto muda junto e você será perguntado de novo.
 

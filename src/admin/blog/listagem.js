@@ -207,7 +207,7 @@ export const ROTULO_SEM_PERIODO = "Data";
  */
 export function rotuloDoFiltroDeData(periodo) {
   return haPeriodo(periodo)
-    ? `Filtrar por data — mostrando ${textoDoPeriodo(periodo)}`
+    ? `Filtrar por data, mostrando ${textoDoPeriodo(periodo)}`
     : "Filtrar por data";
 }
 
