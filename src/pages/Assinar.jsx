@@ -97,28 +97,74 @@ const VAZIO = Object.freeze({
   razaoSocial: "",
 });
 
-const Campo = ({ definicao, valor, erro, aoMudar, ajuda }) => {
+/**
+ * O giro que aparece no canto do campo enquanto a razão social é buscada.
+ *
+ * Um anel fraco por baixo e um arco sólido girando por cima, os dois na cor da
+ * marca por `currentColor`. É mais discreto que um ícone de carregamento
+ * cheio, e some sem deixar buraco: o espaço dele é reservado por um
+ * preenchimento à direita que só existe enquanto ele existe.
+ *
+ * Quem pediu menos movimento vê o anel PARADO, e não nada: sinal que some por
+ * completo deixaria essa pessoa sem saber que o campo está esperando alguma
+ * coisa. A garantia está em dois lugares, de propósito: `src/index.css` já
+ * mata animação no site inteiro sob `prefers-reduced-motion`, e a classe aqui
+ * diz isso no ponto de uso, para o anel parado ser decisão e não acidente.
+ */
+const GiroDeBusca = () => (
+  <svg
+    className="h-4 w-4 animate-spin text-emerald-500 motion-reduce:animate-none"
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+  >
+    <circle
+      cx="8"
+      cy="8"
+      r="6.5"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      opacity="0.2"
+    />
+    <path
+      d="M14.5 8A6.5 6.5 0 0 0 8 1.5"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const Campo = ({ definicao, valor, erro, aoMudar, ajuda, ocupado = false }) => {
   const id = `campo-${definicao.campo}`;
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-sm font-bold text-zinc-800">
         {definicao.rotulo}
       </label>
-      <input
-        id={id}
-        type={definicao.tipo}
-        autoComplete={definicao.autoComplete}
-        value={valor}
-        aria-invalid={erro ? "true" : undefined}
-        aria-describedby={erro ? `${id}-erro` : `${id}-ajuda`}
-        onChange={(evento) => {
-          const bruto = evento.target.value;
-          aoMudar(definicao.formatar ? definicao.formatar(bruto) : bruto);
-        }}
-        className={`rounded-xl border bg-white px-4 py-3 text-[15px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
-          erro ? "border-red-400" : "border-zinc-200"
-        }`}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          type={definicao.tipo}
+          autoComplete={definicao.autoComplete}
+          value={valor}
+          aria-invalid={erro ? "true" : undefined}
+          aria-busy={ocupado ? "true" : undefined}
+          aria-describedby={erro ? `${id}-erro` : `${id}-ajuda`}
+          onChange={(evento) => {
+            const bruto = evento.target.value;
+            aoMudar(definicao.formatar ? definicao.formatar(bruto) : bruto);
+          }}
+          className={`w-full rounded-xl border bg-white py-3 pl-4 text-[15px] text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 ${
+            ocupado ? "pr-11" : "pr-4"
+          } ${erro ? "border-red-400" : "border-zinc-200"}`}
+        />
+        {ocupado && (
+          <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 animate-in fade-in duration-200">
+            <GiroDeBusca />
+          </span>
+        )}
+      </div>
       {erro ? (
         <span
           id={`${id}-erro`}
@@ -407,6 +453,9 @@ export default function Assinar() {
                     definicao={definicao}
                     valor={formulario[definicao.campo]}
                     erro={erros[definicao.campo]}
+                    ocupado={
+                      definicao.campo === "razaoSocial" && consultandoCnpj
+                    }
                     ajuda={
                       definicao.campo === "razaoSocial" && consultandoCnpj
                         ? "buscando pelo CNPJ..."
