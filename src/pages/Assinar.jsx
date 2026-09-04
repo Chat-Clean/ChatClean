@@ -582,7 +582,11 @@ export default function Assinar() {
           </form>
 
           {/* ─── Resumo ─────────────────────────────────────────────── */}
-          <aside className="rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-24">
+          {/* Sem `sticky`: o resumo fica onde está, e não desce acompanhando a
+              rolagem. O contêiner já tem `lg:items-start`, então o cartão
+              mantém a altura do próprio conteúdo em vez de esticar até o pé do
+              formulário. */}
+          <aside className="rounded-3xl border border-zinc-200 bg-white p-6">
             <h2 className="mb-1 text-lg font-black tracking-tight">
               Resumo da contratação
             </h2>
