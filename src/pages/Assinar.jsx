@@ -4,6 +4,11 @@ import { AlertCircle, ArrowLeft, Check, Loader2, Lock } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import {
+  gravarRascunho,
+  lerRascunho,
+  limparRascunho,
+} from "@/lib/rascunhoDaAssinatura";
+import {
   DIA_DE_VENCIMENTO,
   LIMITES,
   formatarMoeda,
@@ -39,7 +44,6 @@ import {
  * "recebemos", nunca "pago".
  */
 
-const RASCUNHO = "chatclean:assinar:rascunho";
 
 const CAMPOS = [
   {
@@ -165,30 +169,28 @@ export default function Assinar() {
   // o aceite dos termos NÃO é restaurado: consentimento se dá agora, não numa
   // sessão anterior que o navegador lembrou.
   useEffect(() => {
-    try {
-      const salvo = window.localStorage.getItem(RASCUNHO);
-      if (salvo) {
-        const lido = JSON.parse(salvo);
-        setFormulario({ ...VAZIO, ...lido.formulario });
-        if (Number.isInteger(lido.diaDeVencimento)) {
-          setDiaDeVencimento(lido.diaDeVencimento);
-        }
-      }
-    } catch {
-      // Navegador sem armazenamento, aba privada, dados limpos: seguir vazio.
+    // Navegador sem armazenamento, aba privada, ou categoria "Preferências"
+    // recusada na faixa de cookies: seguir vazio, sem drama.
+    const lido = lerRascunho();
+    if (!lido) return;
+    setFormulario({ ...VAZIO, ...lido.formulario });
+    if (Number.isInteger(lido.diaDeVencimento)) {
+      setDiaDeVencimento(lido.diaDeVencimento);
     }
   }, []);
 
+  // Plano e dimensionamento entram junto do formulário: sem eles, quem voltasse
+  // ao site sem o link original teria os dados guardados e nenhuma forma de
+  // saber o que estava contratando.
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        RASCUNHO,
-        JSON.stringify({ formulario, diaDeVencimento }),
-      );
-    } catch {
-      // Sem rascunho salvo o formulário continua funcionando.
-    }
-  }, [formulario, diaDeVencimento]);
+    gravarRascunho({
+      formulario,
+      diaDeVencimento,
+      plano: plano?.id ?? null,
+      usuarios,
+      conexoes,
+    });
+  }, [formulario, diaDeVencimento, plano, usuarios, conexoes]);
 
   const preco = useMemo(
     () => (plano ? precoMensal(plano, { usuarios, conexoes }) : null),
@@ -263,11 +265,8 @@ export default function Assinar() {
         return;
       }
 
-      try {
-        window.localStorage.removeItem(RASCUNHO);
-      } catch {
-        // Rascunho que não sai não impede o pagamento.
-      }
+      // O pedido virou cobrança: não há mais rascunho a retomar.
+      limparRascunho();
       window.location.href = corpo.faturaUrl;
     } catch {
       setFalha(

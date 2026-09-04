@@ -17,6 +17,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Planos from "@/components/Planos";
 import ChamadaApiOficial from "@/components/ChamadaApiOficial";
+import ContinuarPedido from "@/components/ContinuarPedido";
 import ChatbotPopup from "@/components/ChatbotPopup";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
@@ -140,6 +141,9 @@ function App() {
     <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <ScrollProgress />
       <Navbar />
+
+      {/* Só aparece para quem deixou uma contratação pela metade. */}
+      <ContinuarPedido />
 
       {/* 1. Hero verde premium */}
       <ModernHero />

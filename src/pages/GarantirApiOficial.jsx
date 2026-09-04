@@ -17,6 +17,7 @@ import {
   telefoneVisivel,
   validarLead,
 } from "@/domain/lead/lead";
+import { atribuicaoParaEnvio } from "@/lib/atribuicao";
 
 /**
  * A landing da API Oficial.
@@ -189,6 +190,10 @@ export default function GarantirApiOficial() {
           ...valores,
           origem: location.pathname,
           campanha,
+          // De onde a pessoa veio na PRIMEIRA visita, quando ela consentiu que
+          // isso fosse lembrado. É o que evita creditar como "direto" a venda
+          // que um anúncio trouxe semanas antes.
+          atribuicao: atribuicaoParaEnvio(),
         }),
       });
 

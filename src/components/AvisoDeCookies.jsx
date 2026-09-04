@@ -19,6 +19,7 @@ import {
   limparCookiesDeMarketing,
   pixelEstaCarregado,
 } from "@/lib/consentimento";
+import { esquecerOrigem, registrarOrigem } from "@/lib/atribuicao";
 
 /**
  * A faixa de consentimento de cookies.
@@ -87,6 +88,7 @@ export default function AvisoDeCookies() {
       setVisivel(true);
     } else {
       aplicarDecisao(guardada);
+      registrarOrigem(guardada);
     }
   }, []);
 
@@ -130,10 +132,12 @@ export default function AvisoDeCookies() {
         // Script de terceiro não se descarrega. Limpa o que dá e recomeça a
         // página, para a próxima navegação nascer sem o Pixel no `window`.
         limparCookiesDeMarketing();
+        esquecerOrigem();
         if (pixelEstaCarregado()) window.location.reload();
         return;
       }
       aplicarDecisao(nova);
+      registrarOrigem(nova);
     },
     [decisao],
   );

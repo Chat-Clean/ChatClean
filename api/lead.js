@@ -30,6 +30,7 @@ import {
   enderecoDoWhatsApp,
   validarLead,
 } from "../src/domain/lead/lead.js";
+import { sanitizar as sanitizarAtribuicao } from "../src/domain/campanha/atribuicao.js";
 
 export const CODIGO_HTTP = Object.freeze({
   [TIPOS.FORMULARIO_INVALIDO]: 422,
@@ -63,6 +64,24 @@ export function ipDoPedido(cabecalhos = {}) {
   const bruto = cabecalhos["x-forwarded-for"] ?? cabecalhos["X-Forwarded-For"];
   if (typeof bruto !== "string" || bruto.trim() === "") return null;
   return bruto.split(",")[0].trim().slice(0, 60) || null;
+}
+
+/**
+ * A campanha gravada: o que trouxe a pessoa hoje e o que a trouxe da primeira
+ * vez.
+ *
+ * As duas coisas respondem perguntas diferentes. A de hoje diz por qual link
+ * este formulário chegou; `primeira` diz como a pessoa descobriu a ChatClean,
+ * que é o que decide se um anúncio se pagou. Um objeto só, na coluna que já
+ * existe — nenhuma migração para isso.
+ *
+ * As duas passam por lista de permissão: o corpo é escrito por quem chama.
+ */
+export function campanhaDoPedido(corpo = {}) {
+  const campanha = campanhaDaBusca(corpo.campanha);
+  const primeira = sanitizarAtribuicao(corpo.atribuicao);
+  if (primeira) campanha.primeira = primeira;
+  return campanha;
 }
 
 /** O caminho de onde o clique veio, limitado e sem querystring. */
@@ -109,7 +128,7 @@ export default async function handler(req, res) {
     empresa: lead.empresa,
     atendentes: lead.atendentes,
     origem: origemDoPedido(corpo),
-    campanha: campanhaDaBusca(corpo.campanha),
+    campanha: campanhaDoPedido(corpo),
     aceite_versao: lead.aceiteVersao,
     aceite_ip: ipDoPedido(req.headers),
   });

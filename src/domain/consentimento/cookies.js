@@ -51,7 +51,7 @@ export const CATEGORIAS = Object.freeze([
     id: "marketing",
     nome: "Marketing",
     resumo:
-      "Meta Pixel: mede se um anúncio trouxe você até aqui. É o único rastreador de terceiro do site.",
+      "Meta Pixel, o único rastreador de terceiro do site, e a lembrança de qual anúncio trouxe você — guardada por até 90 dias, no seu navegador.",
     obrigatoria: false,
   },
 ]);
@@ -69,7 +69,7 @@ export const CATEGORIAS_OPCIONAIS = Object.freeze(
  * mudar o QUE é coletado — categoria nova, rastreador novo — e não quando
  * mudar a cor do botão.
  */
-export const VERSAO = "2026-09-03";
+export const VERSAO = "2026-09-04";
 
 /** Onde a decisão fica no navegador. */
 export const CHAVE_DE_ARMAZENAMENTO = "chatclean.consentimento";
