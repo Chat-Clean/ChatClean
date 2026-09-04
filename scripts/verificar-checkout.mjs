@@ -54,6 +54,8 @@ import {
   receberEvento,
   tokenConfere,
 } from "../api/_nucleo/eventosDoAsaas.js";
+import assinar from "../api/assinar.js";
+import { checkoutAtivo } from "../src/domain/assinatura/disponibilidade.js";
 
 let ok = 0;
 let falhas = 0;
@@ -1066,6 +1068,104 @@ const CONFIG_ARMADA = Object.freeze({
 }
 
 await new Promise((resolver) => receptor.close(resolver));
+
+/* ═══ (k) A chave que esconde o checkout ═══════════════════════════════════ */
+
+secao("(k) A chave: o padrão é OCULTO, e a porta segue a tela");
+
+afirmar(
+  "ambiente vazio esconde o checkout",
+  checkoutAtivo({}) === false && checkoutAtivo() === false,
+);
+afirmar(
+  "`1` e `true` ligam, em qualquer caixa e com espaço em volta",
+  checkoutAtivo({ VITE_CHECKOUT_ATIVO: "1" }) &&
+    checkoutAtivo({ VITE_CHECKOUT_ATIVO: " TRUE " }) &&
+    checkoutAtivo({ CHECKOUT_ATIVO: "true" }),
+);
+afirmar(
+  "a lista é fechada: `sim`, `on`, `ativo` e `0` NÃO ligam",
+  ["sim", "on", "yes", "ativo", "0", "false", "nao"].every(
+    (valor) => checkoutAtivo({ VITE_CHECKOUT_ATIVO: valor }) === false,
+  ),
+);
+afirmar(
+  "valor que não é texto não liga",
+  [1, true, null, undefined, {}, []].every(
+    (valor) => checkoutAtivo({ VITE_CHECKOUT_ATIVO: valor }) === false,
+  ),
+);
+afirmar(
+  "o nome do servidor tem precedência sobre o do navegador",
+  checkoutAtivo({ CHECKOUT_ATIVO: "0", VITE_CHECKOUT_ATIVO: "1" }) === false &&
+    checkoutAtivo({ CHECKOUT_ATIVO: "1", VITE_CHECKOUT_ATIVO: "0" }) === true,
+);
+afirmar(
+  "variável vazia não decide: cai para a próxima, e depois para oculto",
+  checkoutAtivo({ CHECKOUT_ATIVO: "   ", VITE_CHECKOUT_ATIVO: "1" }) === true &&
+    checkoutAtivo({ CHECKOUT_ATIVO: "", VITE_CHECKOUT_ATIVO: "" }) === false,
+);
+
+/* A porta, com a chave dos dois lados. */
+
+function respostaDaPorta() {
+  const estado = { status: null, corpo: null };
+  const res = {
+    setHeader() {},
+    status(codigo) {
+      estado.status = codigo;
+      return res;
+    },
+    json(corpo) {
+      estado.corpo = corpo;
+      return res;
+    },
+  };
+  return { estado, res };
+}
+
+async function chamarAPorta(ambiente) {
+  const guardado = { ...process.env };
+  for (const nome of ["CHECKOUT_ATIVO", "VITE_CHECKOUT_ATIVO"]) {
+    delete process.env[nome];
+  }
+  Object.assign(process.env, ambiente);
+  const { estado, res } = respostaDaPorta();
+  try {
+    await assinar({ method: "POST", headers: {}, body: { ...FORMULARIO } }, res);
+  } finally {
+    for (const nome of Object.keys(process.env)) delete process.env[nome];
+    Object.assign(process.env, guardado);
+  }
+  return estado;
+}
+
+{
+  const estado = await chamarAPorta({});
+  afirmar(
+    "com a chave desligada, `POST /api/assinar` responde 404",
+    estado.status === 404,
+    String(estado.status),
+  );
+  afirmar(
+    "e a resposta não conta que a rota existe",
+    estado.corpo?.tipo === "NaoEncontrado" &&
+      !JSON.stringify(estado.corpo).toLowerCase().includes("desativ") &&
+      !JSON.stringify(estado.corpo).toLowerCase().includes("checkout"),
+    JSON.stringify(estado.corpo),
+  );
+}
+
+{
+  // Com a chave ligada e o resto do ambiente vazio, a porta passa da chave e
+  // para na configuração. É isso que prova que ela PASSOU da chave.
+  const estado = await chamarAPorta({ CHECKOUT_ATIVO: "1" });
+  afirmar(
+    "com a chave ligada, a porta passa e segue para a configuração",
+    estado.status !== 404,
+    String(estado.status),
+  );
+}
 
 /* ═══ Fecho ════════════════════════════════════════════════════════════════ */
 

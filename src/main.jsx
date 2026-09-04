@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter as Router, Outlet, Route } from "react-router-dom";
+import { BrowserRouter as Router, Navigate, Outlet, Route } from "react-router-dom";
 import "./index.css";
 import App from "./App.jsx";
 import Blog from "./pages/Blog.jsx";
@@ -23,6 +23,7 @@ import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
 import Assinar from "./pages/Assinar.jsx";
 import AssinaturaRecebida from "./pages/AssinaturaRecebida.jsx";
+import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
 
@@ -48,12 +49,21 @@ createRoot(document.getElementById("root")).render(
         {/* A contratação. O dimensionamento chega pela querystring, escolhido
             na seção de planos — sem plano válido, a página manda de volta para
             lá em vez de adivinhar um. */}
-        <Route path="/assinar" element={<Assinar />} />
+        {/* As rotas do checkout continuam DECLARADAS com a chave desligada, e
+            mandam para a home. Tirá-las da árvore deixaria `/assinar` sem
+            casar com rota nenhuma, e o site não tem rota de captura: o
+            resultado seria uma página em branco, que parece defeito. */}
+        <Route
+          path="/assinar"
+          element={CHECKOUT_ATIVO ? <Assinar /> : <Navigate to="/" replace />}
+        />
         {/* Para onde o Asaas devolve quem pagou. O pedido viaja na querystring,
             e a tela só LÊ o Estado: quem confirma pagamento é o webhook. */}
         <Route
           path="/assinatura/recebido"
-          element={<AssinaturaRecebida />}
+          element={
+            CHECKOUT_ATIVO ? <AssinaturaRecebida /> : <Navigate to="/" replace />
+          }
         />
         {/* O portão envolve a rota, não vive dentro da página: assim o Painel
             só é montado se a sessão existir. Decidir lá dentro reproduziria o

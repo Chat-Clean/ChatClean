@@ -29,6 +29,7 @@
 
 import { asaasDoAmbiente } from "./_nucleo/asaas.js";
 import { dominioDoAmbiente } from "./_nucleo/entrega.js";
+import { checkoutAtivo } from "../src/domain/assinatura/disponibilidade.js";
 import { bancoDoAmbiente } from "./_nucleo/bancoDaAssinatura.js";
 import {
   TIPOS,
@@ -80,6 +81,20 @@ export default async function handler(req, res) {
     return res.status(405).json({
       tipo: "MetodoNaoPermitido",
       mensagem: "use POST para contratar.",
+    });
+  }
+
+  // A porta segue a MESMA chave que esconde a tela. Sem isto, o checkout
+  // ficaria invisível e atendendo: quem montasse um POST criaria pedido e
+  // cobrança de verdade num sistema que ainda está em teste.
+  //
+  // 404, e não 403: uma porta que responde "existe mas não pode" anuncia que
+  // ela existe. O webhook do Asaas NÃO passa por aqui, porque ele precisa
+  // continuar entregando os eventos dos testes.
+  if (!checkoutAtivo(process.env)) {
+    return res.status(404).json({
+      tipo: "NaoEncontrado",
+      mensagem: "esta rota não existe.",
     });
   }
 

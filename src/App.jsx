@@ -18,6 +18,7 @@ import Footer from "@/components/Footer";
 import Planos from "@/components/Planos";
 import ChamadaApiOficial from "@/components/ChamadaApiOficial";
 import ContinuarPedido from "@/components/ContinuarPedido";
+import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import ChatbotPopup from "@/components/ChatbotPopup";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
@@ -143,7 +144,8 @@ function App() {
       <Navbar />
 
       {/* Só aparece para quem deixou uma contratação pela metade. */}
-      <ContinuarPedido />
+      {/* A faixa só existe para quem pode comprar. Ver `lib/checkout.js`. */}
+      {CHECKOUT_ATIVO && <ContinuarPedido />}
 
       {/* 1. Hero verde premium */}
       <ModernHero />
@@ -236,7 +238,7 @@ function App() {
       </section>
 
       {/* 4. Planos — depois da prova social, antes das dúvidas */}
-      <Planos />
+      {CHECKOUT_ATIVO && <Planos />}
 
       {/* FAQ */}
       <section id="faq" className="py-24 md:py-32 aurora-bg aurora-beams relative overflow-hidden">
