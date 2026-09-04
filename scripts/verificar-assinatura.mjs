@@ -36,7 +36,11 @@ import {
   TODOS_OS_ESTADOS,
 } from "../src/domain/assinatura/pedido.js";
 import { identificadorDoPedido, leituraPublica } from "../api/pedido.js";
-import { criarAsaas } from "../api/_nucleo/asaas.js";
+import { criarAsaas, lerAmbienteDoAsaas } from "../api/_nucleo/asaas.js";
+import {
+  aplicarNoProcesso,
+  interpretarEnv,
+} from "./env-sem-expansao.mjs";
 
 let ok = 0;
 let falhas = 0;
@@ -284,6 +288,105 @@ afirmar(
   "sem parâmetro devolve vazio, que a porta recusa antes do banco",
   identificadorDoPedido({ url: "/api/pedido" }) === "" &&
     !ehIdentificadorDePedido(identificadorDoPedido({})),
+);
+
+/* ─── (f) A chave do Asaas sobrevive à leitura do `.env` ─────────────────── */
+
+console.log("\n(f) O `.env` entrega a chave inteira, sem expandir o `$`\n");
+
+/*
+ * Esta seção mora aqui, e não numa ferramenta de ambiente, porque o motivo dela
+ * é a chave do Asaas: ela é o único segredo do projeto que começa com `$`, e
+ * `dotenv-expand` (dentro do `loadEnv` do Vite) a lia como referência a uma
+ * variável inexistente e devolvia string VAZIA, sem avisar. O sintoma era
+ * `POST /api/assinar` respondendo 500 "a contratação está indisponível" com o
+ * `.env` correto o tempo todo.
+ *
+ * A verificação é sobre o leitor, não sobre o `.env` de quem desenvolve: o
+ * arquivo real não está no Git, e uma asserção que dependesse dele passaria ou
+ * falharia conforme a máquina.
+ */
+
+const ARQUIVO_DE_MENTIRA = [
+  "# comentário de linha inteira",
+  "",
+  "ASAAS_CHAVE_DE_API=$aact_hmlg_000MzkwODA2MWY2OGMxNzUyZDBk",
+  "ASAAS_TOKEN_DO_WEBHOOK=umtokenlongoosuficiente123456",
+  'COM_ASPAS_DUPLAS="valor com # dentro"',
+  "COM_ASPAS_SIMPLES='outro $valor'",
+  "export COM_EXPORT=sim",
+  "COM_COMENTARIO=valor   # isto é comentário",
+  "COM_CERQUILHA=senha#nao-e-comentario",
+  "SEM_VALOR=",
+  "= linha sem nome",
+  "1INVALIDO=nao entra",
+].join("\n");
+
+const lido = interpretarEnv(ARQUIVO_DE_MENTIRA);
+
+afirmar(
+  "o valor que começa com `$` chega inteiro, sem expansão",
+  lido.ASAAS_CHAVE_DE_API === "$aact_hmlg_000MzkwODA2MWY2OGMxNzUyZDBk",
+);
+afirmar(
+  "`$` no meio do valor também sobrevive",
+  lido.COM_ASPAS_SIMPLES === "outro $valor",
+);
+afirmar(
+  "aspas em volta somem, e o `#` de dentro fica",
+  lido.COM_ASPAS_DUPLAS === "valor com # dentro",
+);
+afirmar("`export NOME=valor` é aceito", lido.COM_EXPORT === "sim");
+afirmar(
+  "comentário depois de espaço é cortado",
+  lido.COM_COMENTARIO === "valor",
+);
+afirmar(
+  "cerquilha colada ao valor é conteúdo, não comentário",
+  lido.COM_CERQUILHA === "senha#nao-e-comentario",
+);
+afirmar("valor vazio é vazio, e não ausente", lido.SEM_VALOR === "");
+afirmar(
+  "linha sem nome e nome inválido são ignorados",
+  !("" in lido) && !("1INVALIDO" in lido),
+);
+afirmar(
+  "comentário de linha inteira não vira variável",
+  Object.keys(lido).length === 8,
+);
+
+// A precedência: quem exportou no terminal está dizendo algo mais específico.
+const processoDeMentira = { env: { JA_EXPORTADA: "do terminal" } };
+const aplicados = aplicarNoProcesso(
+  { JA_EXPORTADA: "do arquivo", SO_NO_ARQUIVO: "entra" },
+  processoDeMentira,
+);
+afirmar(
+  "variável já exportada no terminal vence o arquivo",
+  processoDeMentira.env.JA_EXPORTADA === "do terminal",
+);
+afirmar(
+  "o que só existe no arquivo entra",
+  processoDeMentira.env.SO_NO_ARQUIVO === "entra" &&
+    aplicados.length === 1 &&
+    aplicados[0] === "SO_NO_ARQUIVO",
+);
+
+// E o laço fecha: o valor lido assim é aceito por quem consome a chave.
+const configDeMentira = lerAmbienteDoAsaas({
+  ASAAS_CHAVE_DE_API: lido.ASAAS_CHAVE_DE_API,
+  ASAAS_TOKEN_DO_WEBHOOK: lido.ASAAS_TOKEN_DO_WEBHOOK,
+});
+afirmar(
+  "a chave lida assim é aceita, e o ambiente derivado dela é o sandbox",
+  configDeMentira.ok === true && configDeMentira.config.ambiente === "sandbox",
+);
+afirmar(
+  "e a chave expandida para vazio seria RECUSADA, que é o defeito de origem",
+  lerAmbienteDoAsaas({
+    ASAAS_CHAVE_DE_API: "",
+    ASAAS_TOKEN_DO_WEBHOOK: lido.ASAAS_TOKEN_DO_WEBHOOK,
+  }).ok === false,
 );
 
 /* ─── Fecho ──────────────────────────────────────────────────────────────── */

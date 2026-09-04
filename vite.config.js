@@ -1,4 +1,8 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
+import {
+  aplicarNoProcesso,
+  lerAmbienteDoDisco,
+} from "./scripts/env-sem-expansao.mjs";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import fs from "node:fs";
@@ -101,11 +105,19 @@ export default defineConfig(({ mode }) => {
      fica no processo do servidor e em lugar nenhum além dele.
 
      `process.env` já definido vence o arquivo: quem exporta a variável no
-     terminal está dizendo algo mais específico que o `.env`. */
-  const ambiente = loadEnv(mode, process.cwd(), "");
-  for (const [chave, valor] of Object.entries(ambiente)) {
-    if (process.env[chave] === undefined) process.env[chave] = valor;
-  }
+     terminal está dizendo algo mais específico que o `.env`.
+
+     ─── POR QUE NÃO É O `loadEnv` DO VITE ────────────────────────────────
+
+     Ele passa cada valor por `dotenv-expand`, e a chave da API do Asaas começa
+     com `$`. `$aact_hmlg_…` era lido como referência a uma variável que não
+     existe e virava string VAZIA, em silêncio: em desenvolvimento,
+     `POST /api/assinar` respondia 500 com "a contratação está indisponível"
+     enquanto o `.env` estava certo o tempo todo.
+
+     O leitor de `scripts/env-sem-expansao.mjs` não interpreta `$`. Ver lá o
+     porquê de um leitor próprio em vez de um escape no arquivo. */
+  aplicarNoProcesso(lerAmbienteDoDisco(process.cwd(), mode));
 
   return {
     plugins: [react(), tailwindcss(), funcoesDeApiEmDesenvolvimento()],
