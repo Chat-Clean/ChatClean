@@ -155,7 +155,7 @@ export default function TermosServico() {
             className="text-4xl md:text-6xl font-black text-white tracking-tighter leading-tight mb-4"
           >
             Termos de{" "}
-            <span className="bg-gradient-to-r from-yellow-200 via-white to-cyan-100 bg-clip-text text-transparent">
+            <span className="text-yellow-300">
               Serviço
             </span>
           </motion.h1>

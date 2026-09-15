@@ -23,7 +23,7 @@ const BentoCard = ({
   colSpan = "md:col-span-1",
   delay = 0,
   icon: Icon,
-  spotlightColor = "rgba(0, 189, 66, 0.15)",
+  spotlightColor = "rgba(81, 188, 105, 0.15)",
   children,
 }) => {
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
@@ -197,7 +197,7 @@ export default function BentoFeatures() {
             colSpan="md:col-span-2"
             delay={0.2}
             icon={Users}
-            spotlightColor="rgba(0, 189, 66, 0.15)"
+            spotlightColor="rgba(81, 188, 105, 0.15)"
           >
             <div className="flex gap-2 w-full px-4">
               {["Novo Contato", "Interessado", "Proposta", "Fechado"].map((stage, i) => (

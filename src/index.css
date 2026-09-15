@@ -12,14 +12,48 @@ html {
 
 body {
   background: #ffffff;
-  color: #0f172a;
+  color: #14231b;
   overflow-x: hidden;
   position: relative; /* necessário para framer-motion scroll container detection */
 }
 
+/* ----- Identidade tipográfica ------------------------------------------
+   Os tokens nascem em `src/App.css` (`@theme`). Aqui as regras de elemento,
+   SEM camada, de propósito: regra sem camada vence utilitário do Tailwind,
+   então `tracking-tighter` num título não aperta a serifa. O Painel
+   (`.painel`) fica de fora — ele tem a própria direção. */
+body {
+  font-family: var(--font-sans);
+}
+:is(h1, h2):not(.painel *) {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+:is(h3, h4, h5, h6, button, .uppercase):not(.painel *) {
+  font-family: var(--font-secundaria);
+}
+
+/* ----- Balões da hero: flutuação lenta, sem cursor --------------------- */
+.hero-flutua {
+  animation: hero-flutua 7s ease-in-out infinite;
+}
+.hero-flutua-2 {
+  animation: hero-flutua 8.5s ease-in-out -3.2s infinite;
+}
+@keyframes hero-flutua {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+
 /* ----- Selection -------------------------------------------------- */
 ::selection {
-  background: #00bd42;
+  background: #51bc69;
   color: #fff;
 }
 
@@ -169,7 +203,7 @@ body[data-redimensionando-imagem="true"] {
   transition: background 0.2s;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 189, 66, 0.55);
+  background: rgba(81, 188, 105, 0.55);
   background-clip: content-box;
 }
 
@@ -258,11 +292,11 @@ body[data-redimensionando-imagem="true"] {
   inset: -1px;
   background: conic-gradient(
     from var(--angle, 0deg),
-    rgba(0, 189, 66, 0) 0deg,
-    rgba(0, 189, 66, 0.6) 90deg,
-    rgba(0, 145, 204, 0.6) 180deg,
-    rgba(124, 58, 237, 0.6) 270deg,
-    rgba(0, 189, 66, 0) 360deg
+    rgba(81, 188, 105, 0) 0deg,
+    rgba(81, 188, 105, 0.6) 90deg,
+    rgba(188, 229, 255, 0.6) 180deg,
+    rgba(183, 146, 62, 0.6) 270deg,
+    rgba(81, 188, 105, 0) 360deg
   );
   border-radius: inherit;
   z-index: -1;
@@ -308,7 +342,7 @@ body[data-redimensionando-imagem="true"] {
 
 /* --- Texto com gradient (uso pontual em headlines) --- */
 .text-gradient {
-  background: linear-gradient(135deg, #00bd42 0%, #0091cc 50%, #7c3aed 100%);
+  background: linear-gradient(135deg, #51bc69 0%, #bce5ff 50%, #b7923e 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -363,7 +397,7 @@ body[data-redimensionando-imagem="true"] {
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  background: rgba(0, 189, 66, 0.4);
+  background: rgba(81, 188, 105, 0.4);
   animation: pulse-ring 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 @keyframes pulse-ring {
@@ -407,11 +441,11 @@ body[data-redimensionando-imagem="true"] {
 .aurora-bg {
   background: linear-gradient(
     125deg,
-    #005c3a 0%,
-    #007a2a 25%,
-    #00a880 50%,
-    #007a2a 75%,
-    #005c3a 100%
+    #14231b 0%,
+    #1f4a34 25%,
+    #3c9a53 50%,
+    #1f4a34 75%,
+    #14231b 100%
   );
   background-size: 400% 400%;
   animation: aurora-shift 18s ease infinite;
@@ -556,10 +590,10 @@ body[data-redimensionando-imagem="true"] {
   border-radius: inherit;
   background: linear-gradient(
     var(--border-angle, 0deg),
-    #00bd42,
-    #00e6b8,
-    #0091cc,
-    #00bd42
+    #51bc69,
+    #bce5ff,
+    #bce5ff,
+    #51bc69
   );
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
@@ -617,16 +651,16 @@ body[data-redimensionando-imagem="true"] {
 }
 .green-glow:hover {
   box-shadow:
-    0 0 0 1px rgba(0, 189, 66, 0.3),
-    0 8px 32px rgba(0, 189, 66, 0.18),
-    0 0 60px rgba(0, 230, 184, 0.25);
+    0 0 0 1px rgba(81, 188, 105, 0.3),
+    0 8px 32px rgba(81, 188, 105, 0.18),
+    0 0 60px rgba(188, 229, 255, 0.25);
 }
 
 /* ===========================================================
    TEXT GRADIENT VERDE (para títulos)
    =========================================================== */
 .text-gradient-green {
-  background: linear-gradient(135deg, #005c3a 0%, #007a2a 50%, #00a880 100%);
+  background: linear-gradient(135deg, #14231b 0%, #1f4a34 50%, #51bc69 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
