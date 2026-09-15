@@ -105,6 +105,72 @@
   --color-destaque-rosa: var(--destaque-rosa);
 }
 
+/* ===========================================================
+   IDENTIDADE CHATCLEAN — fontes e paleta do site público
+   -----------------------------------------------------------
+   Fontes: Playfair Display (display: h1 e h2), Poppins (texto corrido) e
+   Montserrat (secundária: h3–h6, botões e rótulos em caixa alta). As regras
+   de elemento moram em `src/index.css`; aqui só nascem os tokens e os
+   utilitários `font-display` e `font-secundaria`.
+
+   Cores: a paleta da marca entra pelo caminho que o site inteiro já usa —
+   as escalas `emerald`, `green`, `yellow`, `zinc` e `sky` do Tailwind são
+   REDEFINIDAS a partir dos seis valores da identidade (51bc69, 1f4a34,
+   14231b, f1efe5, b7923e, bce5ff). Nenhuma classe muda de nome; toda tela
+   muda de cor. Os tons intermediários são interpolações entre os valores da
+   marca e o branco/preto; o 600 do verde é escuro o bastante para texto
+   sobre branco (4,6:1), o 700 para texto pequeno (7,5:1).
+
+   `:root` continua intocado: isto é `@theme`, não token do shadcn, e o
+   remapeamento do Painel em `.painel` não é afetado.
+   =========================================================== */
+@theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-secundaria: "Montserrat", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-emerald-50: #eef8f0;
+  --color-emerald-100: #dbf0e0;
+  --color-emerald-200: #b9e2c3;
+  --color-emerald-300: #8fd2a0;
+  --color-emerald-400: #6cc684;
+  --color-emerald-500: #51bc69;
+  --color-emerald-600: #35894a;
+  --color-emerald-700: #256339;
+  --color-emerald-800: #1f4a34;
+  --color-emerald-900: #17372a;
+  --color-emerald-950: #14231b;
+
+  --color-green-50: #eef8f0;
+  --color-green-100: #dbf0e0;
+  --color-green-200: #b9e2c3;
+  --color-green-300: #8fd2a0;
+  --color-green-400: #6cc684;
+  --color-green-500: #51bc69;
+  --color-green-600: #35894a;
+  --color-green-700: #256339;
+  --color-green-800: #1f4a34;
+  --color-green-900: #17372a;
+  --color-green-950: #14231b;
+
+  --color-yellow-100: #f3ead2;
+  --color-yellow-200: #e6d3a3;
+  --color-yellow-300: #d2b56a;
+  --color-yellow-400: #b7923e;
+  --color-yellow-500: #a17f33;
+  --color-yellow-600: #856826;
+
+  --color-sky-100: #e3f3ff;
+  --color-sky-200: #bce5ff;
+  --color-sky-300: #8fd0f7;
+
+  --color-zinc-50: #f8f7f3;
+  --color-zinc-100: #f1efe5;
+  --color-zinc-800: #1c2b23;
+  --color-zinc-900: #14231b;
+}
+
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -670,7 +736,7 @@
   opacity: 1 !important;
   margin: 0 3.5rem;
   height: 4.5rem; /* Aumentado levemente para destaque */
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .logos-container img:hover {

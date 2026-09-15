@@ -189,7 +189,7 @@ function App() {
             </span>
             <h2 className="text-4xl md:text-6xl font-black tracking-tighter mb-6 text-zinc-900">
               O que dizem{" "}
-              <span className="text-gradient-green">nossos clientes</span>
+              <span className="text-brand-chrome">nossos clientes</span>
             </h2>
             <p className="text-zinc-600 text-lg max-w-2xl mx-auto">
               Empresas brasileiras que usam a ChatClean no dia a dia e

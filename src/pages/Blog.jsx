@@ -314,7 +314,7 @@ export default function Blog() {
             className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-[1.0] mb-6"
           >
             Blog{" "}
-            <span className="bg-gradient-to-r from-yellow-200 via-white to-cyan-100 bg-clip-text text-transparent">
+            <span className="text-yellow-300">
               ChatClean
             </span>
           </motion.h1>

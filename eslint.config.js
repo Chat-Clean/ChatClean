@@ -16,6 +16,10 @@ export default [
       "_bmad-output/**",
       // Instantâneo congelado do baseline: é evidência, não código do projeto.
       "verificacao/baseline/**",
+      // Ferramentas de agente instaladas na árvore: código de terceiro,
+      // versionado fora do Git, e nenhuma regra nossa se aplica a ele.
+      ".claude/**",
+      ".agents/**",
     ],
   },
   {

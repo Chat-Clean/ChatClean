@@ -71,7 +71,7 @@ export default function Carreiras() {
             className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-[1.0] mb-6"
           >
             Construa o futuro do{" "}
-            <span className="bg-gradient-to-r from-yellow-200 via-white to-cyan-100 bg-clip-text text-transparent">
+            <span className="text-yellow-300">
               atendimento
             </span>
           </motion.h1>
@@ -230,7 +230,7 @@ export default function Carreiras() {
           <h2 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-6">
             Não encontrou
             <br />
-            <span className="bg-gradient-to-r from-yellow-200 via-white to-cyan-100 bg-clip-text text-transparent">
+            <span className="text-yellow-300">
               a vaga ideal?
             </span>
           </h2>

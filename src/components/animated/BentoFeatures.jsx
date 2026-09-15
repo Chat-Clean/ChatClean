@@ -23,8 +23,7 @@ const BentoCard = ({
   colSpan = "md:col-span-1",
   delay = 0,
   icon: Icon,
-  accent = "from-emerald-500 to-green-600",
-  spotlightColor = "rgba(0, 189, 66, 0.15)",
+  spotlightColor = "rgba(81, 188, 105, 0.15)",
   children,
 }) => {
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
@@ -57,13 +56,14 @@ const BentoCard = ({
       <div className="relative z-10 h-full flex flex-col gap-5">
         {/* Visual */}
         <div className="h-40 w-full rounded-2xl bg-gradient-to-br from-zinc-50 to-zinc-100 flex items-center justify-center overflow-hidden border border-zinc-100 relative">
-          {children || (
-            <div
-              className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${accent} flex items-center justify-center shadow-lg`}
-            >
-              {Icon && <Icon className="w-8 h-8 text-white icon-wiggle" />}
-            </div>
-          )}
+          {children ||
+            (Icon && (
+              <Icon
+                className="w-10 h-10 text-brand-action icon-wiggle"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+            ))}
         </div>
 
         {/* Texto */}
@@ -106,7 +106,7 @@ export default function BentoFeatures() {
           </span>
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-900 tracking-tighter leading-[1.05]">
             Tudo que sua empresa{" "}
-            <span className="text-gradient-green">precisa</span>
+            <span className="text-brand-chrome">precisa</span>
           </h2>
           <p className="text-zinc-600 text-lg mt-6 leading-relaxed">
             Ferramentas simples de usar que ajudam sua equipe a
@@ -123,7 +123,6 @@ export default function BentoFeatures() {
             colSpan="md:col-span-2"
             delay={0.05}
             icon={MessageCircle}
-            accent="from-emerald-500 to-green-600"
           >
             {/* Visual: ícones das redes sociais */}
             <div className="grid grid-cols-2 gap-4 sm:flex sm:gap-6 sm:items-center">
@@ -154,7 +153,6 @@ export default function BentoFeatures() {
             description="Veja em tempo real quantos atendimentos estão abertos, quem está respondendo e se os clientes estão sendo bem atendidos."
             delay={0.1}
             icon={BarChart3}
-            accent="from-blue-500 to-blue-700"
           >
             {/* Barras animadas */}
             <div className="flex gap-2 items-end h-24">
@@ -177,7 +175,6 @@ export default function BentoFeatures() {
             description="Um robô que responde seus clientes 24h por dia, 7 dias por semana. Resolve as dúvidas mais comuns sozinho e só chama um atendente quando for necessário."
             delay={0.15}
             icon={Sparkles}
-            accent="from-yellow-400 to-orange-500"
           >
             <motion.div
               animate={{ rotate: 360 }}
@@ -200,8 +197,7 @@ export default function BentoFeatures() {
             colSpan="md:col-span-2"
             delay={0.2}
             icon={Users}
-            accent="from-purple-500 to-pink-600"
-            spotlightColor="rgba(168, 85, 247, 0.15)"
+            spotlightColor="rgba(81, 188, 105, 0.15)"
           >
             <div className="flex gap-2 w-full px-4">
               {["Novo Contato", "Interessado", "Proposta", "Fechado"].map((stage, i) => (
@@ -222,14 +218,14 @@ export default function BentoFeatures() {
                       whileInView={{ width: "100%" }}
                       transition={{ delay: 0.5 + i * 0.08, duration: 0.6 }}
                       viewport={{ once: true }}
-                      className="h-3 bg-gradient-to-r from-purple-400 to-purple-600 rounded"
+                      className="h-3 bg-emerald-500 rounded"
                     />
                     <motion.div
                       initial={{ width: 0 }}
                       whileInView={{ width: "75%" }}
                       transition={{ delay: 0.7 + i * 0.08, duration: 0.6 }}
                       viewport={{ once: true }}
-                      className="h-3 bg-gradient-to-r from-purple-300 to-pink-400 rounded"
+                      className="h-3 bg-emerald-300 rounded"
                     />
                   </div>
                 </motion.div>
@@ -243,8 +239,7 @@ export default function BentoFeatures() {
             description="Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo, de forma rápida e pelo WhatsApp oficial."
             delay={0.25}
             icon={CheckCircle}
-            accent="from-indigo-500 to-purple-600"
-            spotlightColor="rgba(99, 102, 241, 0.15)"
+            spotlightColor="rgba(0, 122, 42, 0.15)"
           />
 
           <BentoCard
@@ -252,7 +247,6 @@ export default function BentoFeatures() {
             description="Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê, em tempo real."
             delay={0.3}
             icon={Clock}
-            accent="from-red-500 to-rose-600"
             spotlightColor="rgba(244, 63, 94, 0.15)"
           />
 
@@ -261,8 +255,7 @@ export default function BentoFeatures() {
             description="Atenda seus clientes de onde estiver: pelo celular, tablet ou computador. Disponível para iPhone e Android."
             delay={0.35}
             icon={Smartphone}
-            accent="from-pink-500 to-fuchsia-600"
-            spotlightColor="rgba(236, 72, 153, 0.15)"
+            spotlightColor="rgba(0, 92, 58, 0.15)"
           />
         </div>
 

@@ -6,7 +6,7 @@
  */
 export default function AnimatedGradient({
   className = "",
-  colors = ["#00BD42", "#0091CC", "#7C3AED"],
+  colors = ["#51bc69", "#bce5ff", "#b7923e"],
 }) {
   return (
     <div

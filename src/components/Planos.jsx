@@ -217,7 +217,7 @@ export default function Planos() {
           </span>
           <h2 className="mb-6 text-4xl font-black tracking-tighter text-zinc-900 md:text-6xl">
             Você monta o{" "}
-            <span className="text-gradient-green">tamanho da sua operação</span>
+            <span className="text-brand-chrome">tamanho da sua operação</span>
           </h2>
           <p className="mx-auto max-w-2xl text-lg text-zinc-600">
             Diga quantas pessoas vão atender e quantos canais vai ligar. O preço
