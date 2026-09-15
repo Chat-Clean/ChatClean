@@ -93,8 +93,11 @@ export default function Navbar() {
   const isHome = location.pathname === "/";
 
   useEffect(() => {
-    // Encontra a seção verde (aurora-bg) no topo da página atual
-    const greenSection = document.querySelector("section.aurora-bg");
+    // Encontra a seção escura no topo da página atual: a hero verde
+    // (aurora-bg) das páginas internas ou a hero com foto da home
+    const greenSection = document.querySelector(
+      "section.aurora-bg, section[data-hero-escura]",
+    );
 
     if (!greenSection) {
       // Página sem hero verde → navbar sempre branca
@@ -168,7 +171,7 @@ export default function Navbar() {
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
           scrolled
             ? "bg-white/85 backdrop-blur-xl border-b border-zinc-100 shadow-[0_4px_30px_rgba(0,0,0,0.04)]"
-            : "bg-transparent border-b border-white/10"
+            : "bg-transparent"
         }`}
       >
         <div className="mx-auto sm:px-20">
