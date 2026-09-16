@@ -279,7 +279,7 @@ export default function BlogPost() {
   if (situacao !== ARTIGO_PRONTO) {
     return (
       <div
-        className="min-h-screen bg-white selection:bg-emerald-500 selection:text-white"
+        className="min-h-screen bg-creme selection:bg-emerald-500 selection:text-white"
         data-tela="artigo-publico"
         data-situacao={situacao}
       >
@@ -312,7 +312,7 @@ export default function BlogPost() {
 
   return (
     <div
-      className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white"
+      className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white"
       data-tela="artigo-publico"
       data-situacao={situacao}
     >

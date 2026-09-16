@@ -334,7 +334,7 @@ export default function Assinar() {
 
   if (plano === null || preco === null) {
     return (
-      <div className="min-h-screen bg-white text-zinc-900">
+      <div className="min-h-screen bg-creme text-zinc-900">
         <Navbar />
         <main className="mx-auto max-w-2xl px-4 py-32 text-center">
           <h1 className="mb-4 text-3xl font-black tracking-tighter">
@@ -412,7 +412,7 @@ export default function Assinar() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+    <div className="min-h-screen bg-creme text-zinc-900">
       <Navbar />
 
       <main className="mx-auto max-w-5xl px-4 py-16 md:py-24">

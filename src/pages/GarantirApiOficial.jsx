@@ -231,9 +231,9 @@ export default function GarantirApiOficial() {
   }, [pronto]);
 
   return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="min-h-screen bg-creme">
       {/* Cabeçalho enxuto: uma saída só, e ela volta para a home. */}
-      <header className="border-b border-zinc-200 bg-white">
+      <header className="border-b border-creme-borda bg-creme">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <Link to="/" className="flex items-center gap-2">
             <img src={chatcleanLogoGreen} alt="ChatClean" className="h-8" />

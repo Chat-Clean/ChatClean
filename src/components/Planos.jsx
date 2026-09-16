@@ -206,7 +206,7 @@ export default function Planos() {
   return (
     <section
       id="planos"
-      className="relative overflow-hidden bg-zinc-50 px-4 py-24 md:py-32"
+      className="relative overflow-hidden bg-creme-profundo px-4 py-24 md:py-32"
     >
       <div className="pointer-events-none absolute inset-0 bg-grid" />
 

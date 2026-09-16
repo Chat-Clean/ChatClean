@@ -168,6 +168,20 @@
   --color-zinc-100: #f1efe5;
   --color-zinc-800: #1c2b23;
   --color-zinc-900: #14231b;
+
+  /* O papel do site: as seções claras ficam no creme da marca e os cartões
+     continuam brancos, destacando-se sobre ele. `creme-profundo` é a faixa
+     alternada (antes zinc-50, que ficaria MAIS clara que o fundo) e
+     `creme-borda` o fio entre seções, que em zinc-100 sumiria no creme. */
+  --color-creme: #f1efe5;
+  --color-creme-profundo: #e9e5d6;
+  --color-creme-borda: #ddd8c6;
+
+  /* O creme tira contraste do cinza de apoio: o zinc-500 padrão cai de
+     4,83:1 no branco para 4,19:1 no creme, abaixo do piso de 4,5:1. Este
+     cinza esverdeado, entre 14231b e f1efe5, dá 5,20:1 no creme e 4,75:1
+     no creme-profundo. */
+  --color-zinc-500: #5e6560;
 }
 
 
@@ -727,16 +741,26 @@
 .logos-track {
   display: flex;
   width: max-content;
-  animation: scroll-logos 10s linear infinite;
+  /* A trilha leva a lista QUATRO vezes e anda metade dela (-50%): a metade
+     tem duas voltas, sempre mais larga que a tela, então o fim de uma volta
+     encosta no começo da próxima e o laço não mostra corte nem vão. */
+  animation: scroll-logos 40s linear infinite;
   will-change: transform;
 }
 
 .logos-container img {
   filter: none !important; /* Remove o grayscale anterior */
   opacity: 1 !important;
-  margin: 0 3.5rem;
-  height: 4.5rem; /* Aumentado levemente para destaque */
+  flex-shrink: 0;
+  margin: 0 2.5rem;
+  height: 2.75rem;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Logo claro demais para o creme (Liga DOOH, Linda Brazil): pintado de
+   preto. Mais específico que a regra acima, que zera o `filter`. */
+.logos-container img.logo-escurecido {
+  filter: brightness(0) !important;
 }
 
 .logos-container img:hover {
@@ -825,8 +849,8 @@ button, .cursor-pointer, a[role="button"] {
 
 @media (max-width: 768px) {
   .logos-container img {
-    height: 3rem;
-    margin: 0 2rem;
+    height: 2rem;
+    margin: 0 1.5rem;
   }
   .cards-carousel {
     height: 360px;

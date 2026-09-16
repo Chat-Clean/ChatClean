@@ -86,7 +86,7 @@ const BentoCard = ({
  */
 export default function BentoFeatures() {
   return (
-    <section className="py-24 md:py-32 bg-zinc-50 px-4 relative overflow-hidden">
+    <section className="py-24 md:py-32 bg-creme-profundo px-4 relative overflow-hidden">
       {/* Grid técnico */}
       <div className="absolute inset-0 bg-grid pointer-events-none" />
 

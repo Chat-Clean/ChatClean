@@ -41,7 +41,7 @@ const stats = [
 
 export default function StatsSection() {
   return (
-    <section className="relative py-24 md:py-32 bg-white overflow-hidden">
+    <section className="relative py-24 md:py-32 bg-creme overflow-hidden">
       {/* Grid pattern decorativo */}
       <div className="absolute inset-0 bg-grid pointer-events-none" />
 

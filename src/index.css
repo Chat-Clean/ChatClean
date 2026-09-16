@@ -33,6 +33,17 @@ body {
   font-family: var(--font-secundaria);
 }
 
+/* ----- Imagens do site: sem seleção, sem arrastar ------------------------
+   Dificulta copiar as imagens, não impede: o que o navegador mostra ele já
+   baixou. O menu "Salvar imagem" é barrado em `lib/protecaoDeImagens.js`.
+   O Painel fica de fora — o editor arrasta imagem para reposicionar. */
+img:not(.painel *) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none; /* segurar o dedo no iPhone não abre "Salvar" */
+}
+
 /* ----- Balões da hero: flutuação lenta, sem cursor --------------------- */
 .hero-flutua {
   animation: hero-flutua 7s ease-in-out infinite;

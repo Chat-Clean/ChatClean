@@ -54,7 +54,7 @@ const metodologiasSlides = [consultoria6, palestra5, palestra6, palestra7];
 
 export default function Sobre() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <Navbar />
 
       {/* Hero aurora */}
@@ -126,7 +126,7 @@ export default function Sobre() {
       </section>
 
       {/* Nossa Missão */}
-      <section className="py-24 md:py-32 bg-white relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <div className="grid md:grid-cols-2 gap-16 items-center">
@@ -182,7 +182,7 @@ export default function Sobre() {
       </section>
 
       {/* Consultoria Empresarial */}
-      <section className="py-24 md:py-32 bg-zinc-50 relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme-profundo relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16 max-w-3xl mx-auto">
@@ -232,7 +232,7 @@ export default function Sobre() {
       </section>
 
       {/* Palestras e Capacitação */}
-      <section className="py-24 md:py-32 bg-white relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16 max-w-3xl mx-auto">
@@ -258,7 +258,7 @@ export default function Sobre() {
                   "Fechamento de vendas",
                   "Relacionamento duradouro",
                 ].map((item) => (
-                  <li key={item} className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-50 border border-zinc-100 hover:border-emerald-200 transition-colors">
+                  <li key={item} className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-zinc-100 hover:border-emerald-200 transition-colors">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center flex-shrink-0">
                       <Award className="h-5 w-5 text-white" />
                     </div>

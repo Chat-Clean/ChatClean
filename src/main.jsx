@@ -26,6 +26,9 @@ import AssinaturaRecebida from "./pages/AssinaturaRecebida.jsx";
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
+import { protegerImagens } from "@/lib/protecaoDeImagens";
+
+protegerImagens();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

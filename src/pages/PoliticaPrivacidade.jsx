@@ -96,7 +96,7 @@ Telefone: +55 84 99890-0718`,
 
 export default function PoliticaPrivacidade() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <Navbar />
 
       {/* Hero */}
@@ -170,7 +170,7 @@ export default function PoliticaPrivacidade() {
           </Link>
           <Link
             to="/termos-de-servico"
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+            className="text-sm text-emerald-700 hover:text-emerald-800 font-medium transition-colors"
           >
             Ver Termos de Serviço →
           </Link>

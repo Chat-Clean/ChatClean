@@ -286,7 +286,7 @@ export default function Blog() {
 
   return (
     <div
-      className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white"
+      className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white"
       data-tela="blog-publico"
       data-situacao={situacao}
       data-relendo={relendo ? "1" : "0"}
@@ -350,7 +350,7 @@ export default function Blog() {
       </section>
 
       {/* Filtros */}
-      <section className="bg-white border-b border-zinc-100 sticky top-20 z-40">
+      <section className="bg-creme border-b border-creme-borda sticky top-20 z-40">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex flex-wrap gap-2 justify-center">
             {falhouAoCarregarCategorias ? (
@@ -435,7 +435,7 @@ export default function Blog() {
             className="mb-16"
             data-papel="destaque"
           >
-            <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-4">
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-700 mb-4">
               Post em destaque
             </p>
             <Link

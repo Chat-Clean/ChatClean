@@ -17,7 +17,7 @@ export default function Footer() {
           <div className="flex items-center space-x-2 mb-4">
             <img src={chatcleanLogoWhite} alt="ChatClean" className="h-7 w-auto" />
           </div>
-          <p className="text-zinc-500 mb-4 text-sm leading-relaxed">
+          <p className="text-zinc-400 mb-4 text-sm leading-relaxed">
             A plataforma de CRM e ChatBot para WhatsApp com API Oficial mais
             completa do Brasil.
           </p>

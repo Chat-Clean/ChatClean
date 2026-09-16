@@ -1,11 +1,14 @@
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Play, Check, Bot } from "lucide-react";
 
-// A foto da hero: a atendente ao notebook nítida, o resto desfocado. É o
-// fundo inteiro da seção. Gerada fora do build por scripts/recortar-foto-hero.mjs.
-import fotoAtendimento from "../../assets/hero-atendimento.webp";
-import fotoAtendimento720 from "../../assets/hero-atendimento-720.webp";
+// A foto da hero: a atendente ao notebook, sobre a parede de plantas. É o
+// fundo inteiro da seção, e os balões foram posicionados sobre ELA. Ainda
+// não tem variante leve para o celular. A foto anterior, gerada por
+// scripts/recortar-foto-hero.mjs, continua em hero-atendimento.webp e
+// hero-atendimento-720.webp.
+import fotoAtendimento from "../../assets/hero-atendimento-teste.jpg";
+import fotoAtendimento720 from "../../assets/hero-atendimento-teste.jpg";
 
 /**
  * A demonstração em vídeo.
@@ -18,46 +21,26 @@ import fotoAtendimento720 from "../../assets/hero-atendimento-720.webp";
 const VSL_LINK = "https://links.chatclean.com.br/vsl";
 
 /**
- * Botão magnético — segue o cursor com força configurável.
- * Estilo Linear / Awwwards.
+ * Botão da hero. Fica PARADO sob o cursor: o hover muda só cor, brilho e o
+ * preenchimento que sobe por dentro. (Já foi "magnético", seguindo o mouse,
+ * e o botão fugia de quem tentava clicar.)
  */
-const MagneticButton = ({ children, href, onClick, variant = "primary" }) => {
-  const ref = useRef(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-
-  const handleMouse = (e) => {
-    if (!ref.current) return;
-    const { clientX, clientY } = e;
-    const { height, width, left, top } = ref.current.getBoundingClientRect();
-    const middleX = clientX - (left + width / 2);
-    const middleY = clientY - (top + height / 2);
-    setPos({ x: middleX * 0.18, y: middleY * 0.18 });
-  };
-  const reset = () => setPos({ x: 0, y: 0 });
-
+const BotaoDaHero = ({ children, href, onClick, variant = "primary" }) => {
   const baseClasses =
-    "relative inline-flex items-center justify-center gap-2 px-8 md:px-10 py-4 md:py-5 font-bold text-base md:text-lg rounded-full overflow-hidden group transition-shadow duration-300";
+    "relative inline-flex items-center justify-center gap-2 px-8 md:px-10 py-4 md:py-5 font-bold text-base md:text-lg rounded-full overflow-hidden group transition-[box-shadow,border-color,background-color] duration-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white";
 
   const styles =
     variant === "primary"
       ? "bg-white text-emerald-800 shadow-[0_0_40px_rgba(255,255,255,0.25)] hover:shadow-[0_0_60px_rgba(255,255,255,0.5)]"
-      : "bg-white/10 text-white border border-white/30 hover:border-white/60 backdrop-blur-md";
+      : "bg-white/10 text-white border border-white/30 hover:border-white/60 hover:bg-white/15 backdrop-blur-md";
 
-  const Component = href ? motion.a : motion.button;
+  const Component = href ? "a" : "button";
   const extraProps = href
     ? { href, target: "_blank", rel: "noopener noreferrer" }
     : { onClick, type: "button" };
 
   return (
-    <Component
-      ref={ref}
-      onMouseMove={handleMouse}
-      onMouseLeave={reset}
-      animate={{ x: pos.x, y: pos.y }}
-      transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
-      className={`${baseClasses} ${styles}`}
-      {...extraProps}
-    >
+    <Component className={`${baseClasses} ${styles}`} {...extraProps}>
       <span className="relative z-10 flex items-center gap-2">{children}</span>
       {variant === "primary" && (
         <div className="absolute inset-0 bg-emerald-50 transform scale-y-0 origin-bottom group-hover:scale-y-100 transition-transform duration-500 ease-[cubic-bezier(0.19,1,0.22,1)] z-0" />
@@ -98,30 +81,30 @@ const Baloes = ({ compacto = false }) => (
         delay={1.1}
         className={
           compacto
-            ? "left-3 top-[21%] w-[14rem] origin-top-left scale-[0.62]"
-            : "left-[16%] lg:left-[12%] top-[7%] w-[16.5rem]"
+            ? "left-2 top-[44%] w-[13rem] origin-top-left scale-[0.68]"
+            : "left-[-6%] top-[7%] w-[13rem]"
         }
       >
-        <div className="relative rounded-2xl rounded-tl-md bg-white/95 backdrop-blur-md px-4 py-3.5 text-left shadow-[0_24px_48px_-12px_rgba(20,35,27,0.55)] ring-1 ring-emerald-950/10">
+        <div className="relative rounded-2xl rounded-tl-md bg-white/95 backdrop-blur-md px-3 py-2.5 text-left shadow-[0_24px_48px_-12px_rgba(20,35,27,0.55)] ring-1 ring-emerald-950/10">
           <span
             aria-hidden="true"
-            className="absolute -left-1.5 top-3.5 h-3 w-3 rotate-45 rounded-[2px] bg-white/95"
+            className="absolute -left-1.5 top-3 h-3 w-3 rotate-45 rounded-[2px] bg-white/95"
           />
-          <div className="mb-2 flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 font-secundaria text-[11px] font-bold text-white">
+          <div className="mb-1.5 flex items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 font-secundaria text-[10px] font-bold text-white">
               RM
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-secundaria text-[13px] font-semibold leading-tight text-zinc-900">
+              <p className="truncate font-secundaria text-[12px] font-semibold leading-tight text-zinc-900">
                 Rafaela Moraes
               </p>
-              <p className="font-secundaria text-[11px] leading-tight text-zinc-500">
+              <p className="font-secundaria text-[10px] leading-tight text-zinc-500">
                 WhatsApp · agora
               </p>
             </div>
-            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
           </div>
-          <p className="text-[13.5px] leading-snug text-zinc-800">
+          <p className="text-[12px] leading-snug text-zinc-800">
             Oi! Vocês entregam ainda hoje?
           </p>
         </div>
@@ -161,8 +144,8 @@ const Baloes = ({ compacto = false }) => (
 /**
  * Hero sobre a foto da atendente: ela, o notebook e a mesa nítidos à
  * direita, e o fundo da própria foto desfocado ocupando a seção inteira.
- * Sem fundo animado por enquanto. Magnetic CTAs, kinetic typography e
- * parallax suave do texto continuam.
+ * Sem fundo animado por enquanto. A entrada do título palavra a palavra
+ * continua; os botões ficam parados, com animação só de hover.
  *
  * H1 carrega palavras-chave SEO: "CRM e ChatBot para WhatsApp".
  */
@@ -245,7 +228,7 @@ export default function ModernHero() {
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.6 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 border border-white/30 backdrop-blur-md text-white text-sm font-medium mb-8"
+            className="hidden lg:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 border border-white/30 backdrop-blur-md text-white text-sm font-medium mb-8"
           >
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75" />
@@ -301,7 +284,7 @@ export default function ModernHero() {
             <span className="text-white font-semibold underline decoration-yellow-200/60 decoration-2 underline-offset-4">
               um único lugar
             </span>
-            . Atenda mais clientes ao mesmo tempo, sem perder nenhuma mensagem e sem complicação.
+            . Atenda mais clientes ao mesmo tempo, sem perder nenhuma mensagem e sem complicação
           </motion.p>
 
           {/* CTAs */}
@@ -311,13 +294,13 @@ export default function ModernHero() {
             transition={{ delay: 0.85, duration: 0.6 }}
             className="flex flex-col sm:flex-row gap-4"
           >
-            <MagneticButton href={VSL_LINK} variant="primary">
+            <BotaoDaHero href={VSL_LINK} variant="primary">
               <Play className="w-5 h-5 fill-current" />
               Ver Demo
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </MagneticButton>
+            </BotaoDaHero>
 
-            <MagneticButton
+            <BotaoDaHero
               onClick={() => {
                 const el = document.getElementById("funcionalidades");
                 el?.scrollIntoView({ behavior: "smooth" });
@@ -325,7 +308,7 @@ export default function ModernHero() {
               variant="secondary"
             >
               Como Funciona?
-            </MagneticButton>
+            </BotaoDaHero>
           </motion.div>
         </div>
 

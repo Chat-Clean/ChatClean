@@ -25,7 +25,7 @@ import Reveal from "@/components/animated/Reveal";
 
 export default function ChamadaApiOficial() {
   return (
-    <section className="border-t border-zinc-100 bg-white px-4 py-20 md:py-24">
+    <section className="border-t border-creme-borda bg-creme px-4 py-20 md:py-24">
       <Reveal className="mx-auto max-w-4xl text-center">
         <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-xs font-bold uppercase tracking-widest text-emerald-700">
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />

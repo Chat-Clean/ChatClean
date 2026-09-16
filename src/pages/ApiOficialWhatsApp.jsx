@@ -163,7 +163,7 @@ export default function ApiOficialWhatsApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-creme">
       <Navbar />
 
       {/* Breadcrumb (SEO + UX) — compensate for fixed navbar */}
@@ -229,7 +229,7 @@ export default function ApiOficialWhatsApp() {
       </section>
 
       {/* O que é */}
-      <section className="bg-gray-50 py-20">
+      <section className="bg-creme-profundo py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid lg:grid-cols-2 gap-12">
           <div>
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-6">
@@ -303,7 +303,7 @@ export default function ApiOficialWhatsApp() {
       </section>
 
       {/* Como funciona */}
-      <section id="como-funciona" className="bg-gray-50 py-20">
+      <section id="como-funciona" className="bg-creme-profundo py-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4 text-center">
             Como ativar a API Oficial em 5 passos

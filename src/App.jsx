@@ -29,13 +29,15 @@ import { EASE } from "@/lib/motion";
 import ModernHero from "./components/animated/ModernHero";
 import StatsSection from "./components/animated/StatsSection";
 import BentoFeatures from "./components/animated/BentoFeatures";
-import bonesRamalho from "./assets/bones-ramalho.jpg";
-import dStore from "./assets/d-store.png";
-import grupoDuraMais from "./assets/grupo-duramais.jpg";
+import bomTodo from "./assets/bom-todo.png";
+import bonesRamalho from "./assets/bones-ramalho.svg";
+import imobee from "./assets/imobee.svg";
+import lapisDecor from "./assets/lapis-decor.svg";
 import lautoCargo from "./assets/lauto-cargo.png";
-import ligaDooH from "./assets/liga-dooh.png";
-import terraInvestImoveis from "./assets/terra-invest-imoveis.jpg";
-import wishBones from "./assets/wish-bones.jpg";
+import ligaDooH from "./assets/liga-dooh.webp";
+import lindaBrazil from "./assets/linda-brazil.avif";
+import liv from "./assets/liv.svg";
+import wishBones from "./assets/wish-bones.svg";
 
 const testimonials = [
   {
@@ -127,19 +129,23 @@ const faqs = [
   },
 ];
 
+// `escurecer`: o logo é claro demais e sumiria no fundo creme; o filtro o
+// pinta de preto sem precisar de outra versão do arquivo.
 const CLIENT_LOGOS = [
-  lautoCargo,
-  dStore,
-  terraInvestImoveis,
-  bonesRamalho,
-  wishBones,
-  grupoDuraMais,
-  ligaDooH,
+  { src: lautoCargo, nome: "L'auto Cargo" },
+  { src: imobee, nome: "Imobee" },
+  { src: bonesRamalho, nome: "Bonés Ramalho" },
+  { src: bomTodo, nome: "Bom Todo" },
+  { src: wishBones, nome: "Wishbone Custom Caps" },
+  { src: lapisDecor, nome: "Lápis Decor" },
+  { src: ligaDooH, nome: "Liga DOOH", escurecer: true },
+  { src: lindaBrazil, nome: "Linda Brazil", escurecer: true },
+  { src: liv, nome: "LIV Energia Solar" },
 ];
 
 function App() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <ScrollProgress />
       <Navbar />
 
@@ -151,19 +157,23 @@ function App() {
       <ModernHero />
 
       {/* Parede de logos clientes */}
-      <section className="py-14 bg-white border-y border-zinc-100">
+      <section className="py-14 bg-creme border-y border-creme-borda">
         <div className="max-w-7xl mx-auto px-4">
           <p className="text-center text-sm font-medium text-zinc-500 uppercase tracking-widest mb-8">
             +300 empresas já crescem com a ChatClean
           </p>
           <div className="logos-container">
             <div className="logos-track">
-              {[...CLIENT_LOGOS, ...CLIENT_LOGOS].map((logo, idx) => (
+              {/* Quatro voltas para o laço contínuo (ver `.logos-track`). Só
+                  a primeira é lida pelo leitor de tela; as cópias ficam
+                  escondidas para o nome não ser lido quatro vezes */}
+              {Array.from({ length: 4 }, () => CLIENT_LOGOS).flat().map((logo, idx) => (
                 <img
                   key={idx}
-                  src={logo}
-                  alt="Cliente ChatClean"
-                  className="h-12 object-contain"
+                  src={logo.src}
+                  alt={idx < CLIENT_LOGOS.length ? logo.nome : ""}
+                  aria-hidden={idx >= CLIENT_LOGOS.length || undefined}
+                  className={`h-12 object-contain${logo.escurecer ? " logo-escurecido" : ""}`}
                 />
               ))}
             </div>
@@ -180,7 +190,7 @@ function App() {
       </div>
 
       {/* Depoimentos */}
-      <section className="py-24 md:py-32 bg-white relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16">

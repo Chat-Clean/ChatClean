@@ -45,7 +45,7 @@ export default function Carreiras() {
   const [vagas] = useState(() => getVagas().filter((v) => v.ativa !== false));
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <Navbar />
 
       {/* Hero aurora */}
@@ -89,7 +89,7 @@ export default function Carreiras() {
       </section>
 
       {/* Benefícios */}
-      <section className="py-24 md:py-32 bg-white relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16 max-w-2xl mx-auto">
@@ -119,7 +119,7 @@ export default function Carreiras() {
       </section>
 
       {/* Vagas */}
-      <section className="py-24 md:py-32 bg-zinc-50 relative overflow-hidden">
+      <section className="py-24 md:py-32 bg-creme-profundo relative overflow-hidden">
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-4xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16">
