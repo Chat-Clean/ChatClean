@@ -1,13 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Play, Check, Bot } from "lucide-react";
-import AnimatedCounter from "./AnimatedCounter";
-
-// Logos de clientes reais
-import lautoCargo from "../../assets/lauto-cargo.png";
-import dStore from "../../assets/d-store.png";
-import wishBones from "../../assets/wish-bones.jpg";
-import grupoDuraMais from "../../assets/grupo-duramais.jpg";
 
 // A foto da hero: a atendente ao notebook nítida, o resto desfocado. É o
 // fundo inteiro da seção. Gerada fora do build por scripts/recortar-foto-hero.mjs.
@@ -275,9 +268,11 @@ export default function ModernHero() {
             variants={titleVariants}
             initial="hidden"
             animate="visible"
-            className="text-[2.75rem] md:text-6xl lg:text-7xl font-extrabold text-white tracking-tighter leading-[1.05] mb-5 lg:mb-6"
+            className="text-[2.75rem] md:text-6xl lg:text-7xl font-extrabold text-white tracking-tighter leading-[0.95] mb-5 lg:mb-6"
           >
-            <span className="block overflow-hidden pb-2">
+            {/* Só a segunda linha tem descendente ("p"), então só ela leva
+                o respiro embaixo contra o corte do overflow-hidden */}
+            <span className="block overflow-hidden">
               <motion.span variants={wordVariants} className="inline-block">
                 CRM e ChatBot
               </motion.span>
@@ -331,33 +326,6 @@ export default function ModernHero() {
             >
               Como Funciona?
             </MagneticButton>
-          </motion.div>
-
-          {/* Prova social */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.05, duration: 0.6 }}
-            className="mt-8 pt-6 lg:mt-12 lg:pt-8 border-t border-white/20 flex flex-col sm:flex-row items-start sm:items-center gap-4"
-          >
-            <div className="flex -space-x-3">
-              {[lautoCargo, dStore, wishBones, grupoDuraMais].map((logo, i) => (
-                <motion.img
-                  key={i}
-                  src={logo}
-                  alt="Cliente ChatClean"
-                  className="w-12 h-12 rounded-full border-2 border-white bg-white object-contain p-1 shadow-lg"
-                  whileHover={{ y: -6, scale: 1.15, zIndex: 10 }}
-                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                />
-              ))}
-            </div>
-            <p className="text-sm text-white/85">
-              <span className="text-white font-bold">
-                +<AnimatedCounter to={300} duration={1400} /> empresas
-              </span>{" "}
-              já crescem com a ChatClean
-            </p>
           </motion.div>
         </div>
 

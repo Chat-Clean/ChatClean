@@ -154,7 +154,7 @@ function App() {
       <section className="py-14 bg-white border-y border-zinc-100">
         <div className="max-w-7xl mx-auto px-4">
           <p className="text-center text-sm font-medium text-zinc-500 uppercase tracking-widest mb-8">
-            Empresas que confiam na ChatClean
+            +300 empresas já crescem com a ChatClean
           </p>
           <div className="logos-container">
             <div className="logos-track">
