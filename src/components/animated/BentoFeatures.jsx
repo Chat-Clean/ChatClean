@@ -1,287 +1,123 @@
-import { useRef, useState } from "react";
-import { motion } from "framer-motion";
-import {
-  BarChart3,
-  MessageCircle,
-  Users,
-  Clock,
-  CheckCircle,
-  Smartphone,
-  Sparkles,
-  Zap,
-  Instagram,
-  Facebook,
-  Send,
-} from "lucide-react";
+import { Check } from "lucide-react";
+import Reveal from "./Reveal";
+import CartaoDeFuncionalidade from "@/components/funcionalidades/CartaoDeFuncionalidade";
+import CenaCaixaDeEntrada from "@/components/funcionalidades/CenaCaixaDeEntrada";
+import CenaRobo from "@/components/funcionalidades/CenaRobo";
+import CenaEnvioEmMassa from "@/components/funcionalidades/CenaEnvioEmMassa";
+import CenaFunil from "@/components/funcionalidades/CenaFunil";
+import CenaEquipe from "@/components/funcionalidades/CenaEquipe";
+import CenaPainel from "@/components/funcionalidades/CenaPainel";
+import CenaCelular from "@/components/funcionalidades/CenaCelular";
 
 /**
- * Card do Bento (modo claro) com efeito spotlight verde + tilt sutil.
+ * Funcionalidades: cada card é a funcionalidade ACONTECENDO, não um ícone
+ * ilustrando o título. A cena roda quando o card entra na tela, chega
+ * no resultado, segura esse quadro e recomeça, em laço enquanto o card
+ * está na tela. (Ver `funcionalidades/useCena.js`.)
+ *
+ * Grade de 3 colunas com os cards largos alternando de lado, como uma leitura
+ * em zigue-zague; 2 colunas no tablet e 1 no celular.
+ *
+ * `duracoes`: quanto cada passo da cena fica na tela antes do próximo, em ms.
  */
-const BentoCard = ({
-  title,
-  description,
-  colSpan = "md:col-span-1",
-  delay = 0,
-  icon: Icon,
-  spotlightColor = "rgba(81, 188, 105, 0.15)",
-  children,
-}) => {
-  const [mouse, setMouse] = useState({ x: 0, y: 0 });
-  const cardRef = useRef(null);
+const CARDS = [
+  {
+    destaque: "Tudo",
+    titulo: "em um só lugar",
+    descricao:
+      "Seus clientes falam por WhatsApp, Instagram, Facebook ou Telegram? Sua equipe responde tudo numa única tela, sem precisar trocar de aplicativo.",
+    Cena: CenaCaixaDeEntrada,
+    duracoes: [700, 1100, 1100, 1100],
+    className: "md:col-span-2",
+  },
+  {
+    destaque: "Robô",
+    titulo: "de atendimento",
+    descricao:
+      "Responde seus clientes 24h por dia, 7 dias por semana. Resolve as dúvidas mais comuns sozinho e só chama um atendente quando for necessário.",
+    Cena: CenaRobo,
+    duracoes: [600, 900, 1100, 1300, 900, 1000],
+  },
+  {
+    destaque: "Envio",
+    titulo: "em massa",
+    descricao:
+      "Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo, de forma rápida e pelo WhatsApp oficial.",
+    Cena: CenaEnvioEmMassa,
+    duracoes: [700, 900, 1600],
+  },
+  {
+    destaque: "Clientes e vendas",
+    titulo: "organizados",
+    descricao:
+      "Veja o histórico completo de cada cliente, organize suas oportunidades de venda por etapa e nunca perca o fio da conversa.",
+    Cena: CenaFunil,
+    duracoes: [900, 1000, 1000, 800],
+    className: "md:col-span-2",
+  },
+  {
+    destaque: "Equipe",
+    titulo: "organizada",
+    descricao:
+      "Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê, em tempo real.",
+    Cena: CenaEquipe,
+    duracoes: [600, 900, 800, 900, 800, 900],
+  },
+  {
+    destaque: "Painel",
+    titulo: "de controle",
+    descricao:
+      "Veja em tempo real quantos atendimentos estão abertos, quem está respondendo e se os clientes estão sendo bem atendidos.",
+    Cena: CenaPainel,
+    duracoes: [600, 1100],
+  },
+  {
+    destaque: "Atenda",
+    titulo: "pelo celular",
+    descricao:
+      "Atenda seus clientes de onde estiver: pelo celular, tablet ou computador. Disponível para iPhone e Android.",
+    Cena: CenaCelular,
+    duracoes: [600, 1300, 700, 1000, 900],
+    className: "md:col-span-2 lg:col-span-1",
+  },
+];
 
-  const handleMouseMove = (e) => {
-    if (!cardRef.current) return;
-    const r = cardRef.current.getBoundingClientRect();
-    setMouse({ x: e.clientX - r.left, y: e.clientY - r.top });
-  };
+const GARANTIAS = [
+  "Vários atendentes no mesmo número",
+  "Mensagens aprovadas pelo WhatsApp",
+  "Histórico de clientes integrado",
+  "Suporte em Português",
+];
 
-  return (
-    <motion.div
-      ref={cardRef}
-      onMouseMove={handleMouseMove}
-      initial={{ opacity: 0, y: 40 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.7, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={`relative overflow-hidden rounded-3xl bg-white border border-zinc-100 hover:border-zinc-200 p-8 group transition-all duration-500 hover:-translate-y-1 hover:shadow-2xl hover:shadow-emerald-500/10 ${colSpan}`}
-    >
-      {/* Spotlight verde que segue cursor */}
-      <div
-        className="pointer-events-none absolute -inset-px rounded-3xl opacity-0 transition duration-500 group-hover:opacity-100"
-        style={{
-          background: `radial-gradient(500px circle at ${mouse.x}px ${mouse.y}px, ${spotlightColor}, transparent 50%)`,
-        }}
-      />
-
-      <div className="relative z-10 h-full flex flex-col gap-5">
-        {/* Visual */}
-        <div className="h-40 w-full rounded-2xl bg-gradient-to-br from-zinc-50 to-zinc-100 flex items-center justify-center overflow-hidden border border-zinc-100 relative">
-          {children ||
-            (Icon && (
-              <Icon
-                className="w-10 h-10 text-brand-action icon-wiggle"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-            ))}
-        </div>
-
-        {/* Texto */}
-        <div className="mt-auto">
-          <h3 className="text-xl md:text-2xl font-bold text-zinc-900 mb-2 tracking-tight">
-            {title}
-          </h3>
-          <p className="text-zinc-600 leading-relaxed text-sm md:text-base">
-            {description}
-          </p>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-/**
- * Bento grid de funcionalidades — modo claro premium.
- * 7 cards em grade assimétrica com visuais únicos animados.
- */
 export default function BentoFeatures() {
   return (
-    <section className="py-24 md:py-32 bg-creme-profundo px-4 relative overflow-hidden">
-      {/* Grid técnico */}
-      <div className="absolute inset-0 bg-grid pointer-events-none" />
-
-      {/* Blob decorativo */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-r from-emerald-200/30 via-cyan-200/20 to-yellow-200/30 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto relative">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.7 }}
-          className="text-center mb-16 md:mb-20 max-w-3xl mx-auto"
-        >
-          <span className="inline-block px-3 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-700 text-xs font-bold uppercase tracking-widest mb-6 shadow-sm">
-            Plataforma completa
-          </span>
-          <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-900 tracking-tighter leading-[1.05]">
-            Tudo que sua empresa{" "}
-            <span className="text-brand-chrome">precisa</span>
+    <section className="relative overflow-hidden bg-creme-profundo px-4 py-24 md:py-32">
+      <div className="pointer-events-none absolute inset-0 bg-grid" />
+      <div className="relative mx-auto max-w-7xl">
+        <Reveal className="mx-auto mb-14 max-w-3xl text-center md:mb-20">
+          <h2 className="text-4xl font-black leading-[1.05] tracking-tighter text-zinc-900 md:text-5xl lg:text-6xl">
+            Tudo que sua empresa <span className="text-brand-chrome">precisa</span>
           </h2>
-          <p className="text-zinc-600 text-lg mt-6 leading-relaxed">
-            Ferramentas simples de usar que ajudam sua equipe a
-            atender melhor e vender mais, sem precisar de conhecimento técnico.
+          <p className="mt-6 text-lg leading-relaxed text-zinc-600">
+            Ferramentas simples de usar que ajudam sua equipe a atender melhor e vender mais, sem precisar de
+            conhecimento técnico.
           </p>
-        </motion.div>
+        </Reveal>
 
-        {/* Bento grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 auto-rows-fr">
-          {/* Linha 1 */}
-          <BentoCard
-            title="Tudo em Um Só Lugar"
-            description="Seus clientes falam por WhatsApp, Instagram, Facebook ou Telegram? Sua equipe responde tudo numa única tela, sem precisar trocar de aplicativo."
-            colSpan="md:col-span-2"
-            delay={0.05}
-            icon={MessageCircle}
-          >
-            {/* Visual: ícones das redes sociais */}
-            <div className="grid grid-cols-2 gap-4 sm:flex sm:gap-6 sm:items-center">
-              {[
-                { Icon: MessageCircle, bg: "bg-green-500",   shadow: "shadow-green-400/50",   title: "WhatsApp"  },
-                { Icon: Instagram,     bg: "bg-gradient-to-br from-pink-500 via-rose-500 to-orange-400", shadow: "shadow-pink-400/50",   title: "Instagram" },
-                { Icon: Facebook,      bg: "bg-blue-600",    shadow: "shadow-blue-400/50",    title: "Facebook"  },
-                { Icon: Send,          bg: "bg-sky-500",     shadow: "shadow-sky-400/50",     title: "Telegram"  },
-              ].map(({ Icon, bg, shadow, title }, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.15 + i * 0.1, duration: 0.4, type: "spring", stiffness: 260, damping: 18 }}
-                  viewport={{ once: true }}
-                  whileHover={{ y: -4, scale: 1.12 }}
-                  title={title}
-                  className={`w-14 h-14 rounded-2xl ${bg} flex items-center justify-center shadow-xl ${shadow} cursor-default`}
-                >
-                  <Icon className="w-7 h-7 text-white" strokeWidth={1.8} />
-                </motion.div>
-              ))}
-            </div>
-          </BentoCard>
-
-          <BentoCard
-            title="Painel de Controle"
-            description="Veja em tempo real quantos atendimentos estão abertos, quem está respondendo e se os clientes estão sendo bem atendidos."
-            delay={0.1}
-            icon={BarChart3}
-          >
-            {/* Barras animadas */}
-            <div className="flex gap-2 items-end h-24">
-              {[40, 70, 100, 60, 85].map((h, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ height: 0 }}
-                  whileInView={{ height: `${h}%` }}
-                  transition={{ duration: 1, delay: 0.3 + i * 0.08 }}
-                  viewport={{ once: true }}
-                  className="w-5 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-md"
-                />
-              ))}
-            </div>
-          </BentoCard>
-
-          {/* Linha 2 */}
-          <BentoCard
-            title="Robô de Atendimento"
-            description="Um robô que responde seus clientes 24h por dia, 7 dias por semana. Resolve as dúvidas mais comuns sozinho e só chama um atendente quando for necessário."
-            delay={0.15}
-            icon={Sparkles}
-          >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 16, repeat: Infinity, ease: "linear" }}
-              className="w-24 h-24 border-4 border-dashed border-yellow-300 rounded-full flex items-center justify-center"
-            >
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center shadow-lg"
-              >
-                <Sparkles className="w-6 h-6 text-white" />
-              </motion.div>
-            </motion.div>
-          </BentoCard>
-
-          <BentoCard
-            title="Organização de Clientes e Vendas"
-            description="Veja o histórico completo de cada cliente, organize suas oportunidades de venda por etapa e nunca perca o fio da conversa."
-            colSpan="md:col-span-2"
-            delay={0.2}
-            icon={Users}
-            spotlightColor="rgba(81, 188, 105, 0.15)"
-          >
-            <div className="flex gap-2 w-full px-4">
-              {["Novo Contato", "Interessado", "Proposta", "Fechado"].map((stage, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -10 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.3 + i * 0.08, duration: 0.4 }}
-                  viewport={{ once: true }}
-                  className="flex-1 min-w-0"
-                >
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2 truncate font-bold">
-                    {stage}
-                  </div>
-                  <div className="space-y-1.5">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      whileInView={{ width: "100%" }}
-                      transition={{ delay: 0.5 + i * 0.08, duration: 0.6 }}
-                      viewport={{ once: true }}
-                      className="h-3 bg-emerald-500 rounded"
-                    />
-                    <motion.div
-                      initial={{ width: 0 }}
-                      whileInView={{ width: "75%" }}
-                      transition={{ delay: 0.7 + i * 0.08, duration: 0.6 }}
-                      viewport={{ once: true }}
-                      className="h-3 bg-emerald-300 rounded"
-                    />
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </BentoCard>
-
-          {/* Linha 3 */}
-          <BentoCard
-            title="Envio em Massa"
-            description="Mande promoções, lembretes e avisos para muitos clientes ao mesmo tempo, de forma rápida e pelo WhatsApp oficial."
-            delay={0.25}
-            icon={CheckCircle}
-            spotlightColor="rgba(0, 122, 42, 0.15)"
-          />
-
-          <BentoCard
-            title="Organização da Equipe"
-            description="Distribua conversas entre os atendentes, crie departamentos e veja quem está atendendo o quê, em tempo real."
-            delay={0.3}
-            icon={Clock}
-            spotlightColor="rgba(244, 63, 94, 0.15)"
-          />
-
-          <BentoCard
-            title="Atenda pelo Celular"
-            description="Atenda seus clientes de onde estiver: pelo celular, tablet ou computador. Disponível para iPhone e Android."
-            delay={0.35}
-            icon={Smartphone}
-            spotlightColor="rgba(0, 92, 58, 0.15)"
-          />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5 lg:grid-cols-3">
+          {CARDS.map((card) => (
+            <CartaoDeFuncionalidade key={card.destaque} {...card} />
+          ))}
         </div>
 
-        {/* Faixa de bullets de benefícios */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ delay: 0.5, duration: 0.6 }}
-          className="mt-12 flex flex-wrap justify-center gap-3"
-        >
-          {[
-            "Vários atendentes no mesmo número",
-            "Mensagens aprovadas pelo WhatsApp",
-            "Histórico de clientes integrado",
-            "Suporte em Português",
-          ].map((item, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-zinc-200 text-zinc-700 text-sm shadow-sm hover:border-emerald-300 hover:text-emerald-700 transition-colors"
-            >
-              <Zap className="w-4 h-4 text-emerald-500" />
+        <ul className="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-3">
+          {GARANTIAS.map((item) => (
+            <li key={item} className="inline-flex items-center gap-2 text-sm text-zinc-700">
+              <Check className="h-4 w-4 text-emerald-600" strokeWidth={2.5} aria-hidden="true" />
               {item}
-            </span>
+            </li>
           ))}
-        </motion.div>
+        </ul>
       </div>
     </section>
   );

@@ -177,6 +177,14 @@
   --color-creme-profundo: #e9e5d6;
   --color-creme-borda: #ddd8c6;
 
+  /* Cores dos canais nas cenas de funcionalidade: são as marcas dos
+     aplicativos, reconhecíveis de relance. O WhatsApp usa o verde da própria
+     ChatClean. Ícone branco sobre elas: Instagram 4,6:1, Facebook 4,2:1 e
+     Telegram 3,0:1 — ícone não é texto, e o nome do canal aparece ao lado. */
+  --color-canal-instagram: #e1306c;
+  --color-canal-facebook: #1877f2;
+  --color-canal-telegram: #229ed9;
+
   /* O creme tira contraste do cinza de apoio: o zinc-500 padrão cai de
      4,83:1 no branco para 4,19:1 no creme, abaixo do piso de 4,5:1. Este
      cinza esverdeado, entre 14231b e f1efe5, dá 5,20:1 no creme e 4,75:1
@@ -741,11 +749,23 @@
 .logos-track {
   display: flex;
   width: max-content;
-  /* A trilha leva a lista QUATRO vezes e anda metade dela (-50%): a metade
-     tem duas voltas, sempre mais larga que a tela, então o fim de uma volta
-     encosta no começo da próxima e o laço não mostra corte nem vão. */
-  animation: scroll-logos 40s linear infinite;
-  will-change: transform;
+}
+
+/* A esteira são DOIS grupos iguais lado a lado, e cada grupo anda a própria
+   largura (-100%). Um grupo é sempre mais largo que a tela, então quando o
+   primeiro termina de sair o segundo ocupa exatamente o lugar de onde ele
+   partiu: o laço encosta sem corte nem vão.
+   Por que não uma trilha só andando -50%: ela chegava a ~9.000px de largura,
+   e no celular (2x ou 3x de densidade) passa do tamanho de textura que a
+   placa de vídeo aceita; o navegador pinta em pedaços e a esteira pisca.
+   Cada grupo tem um terço disso.
+   A duração é de um grupo: cada logo nova alonga o grupo e, com a duração
+   fixa, acelera a esteira. Ao incluir logo, aumente aqui. Com 11 logos, 25s
+   dá ~93 px/s no desktop. */
+.logos-grupo {
+  display: flex;
+  flex-shrink: 0;
+  animation: scroll-logos 25s linear infinite;
 }
 
 .logos-container img {
@@ -769,7 +789,7 @@
 
 @keyframes scroll-logos {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  100% { transform: translateX(-100%); }
 }
 
 

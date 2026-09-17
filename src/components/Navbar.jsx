@@ -5,7 +5,8 @@ import { ChevronDown, Menu, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button.jsx";
 import { EASE } from "@/lib/motion";
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
-import chatcleanLogoWhite from "/chatclean-white.svg";
+// Sobre a hero escura a marca é a versão em latão; depois dela, a verde
+import chatcleanLogoLatao from "/chatclean-latao.png";
 import chatcleanLogoGreen from "/chatclean.svg";
 
 /* `atalhos`: seções da própria home. Não ocupam a barra; abrem num card
@@ -298,7 +299,7 @@ export default function Navbar() {
               <div
                 className={`min-w-52 rounded-xl p-2 ring-1 ${
                   scrolled
-                    ? "bg-creme/85 backdrop-blur-xl ring-creme-borda shadow-[0_18px_40px_-12px_rgba(20,35,27,0.25)]"
+                    ? "bg-creme/85 backdrop-blur-md ring-creme-borda shadow-[0_18px_40px_-12px_rgba(20,35,27,0.25)]"
                     : "bg-white/15 backdrop-blur-md ring-white/30 shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)]"
                 }`}
               >
@@ -322,17 +323,19 @@ export default function Navbar() {
 
   return (
     <>
-      {/* O vidro da barra mora numa camada de fundo, não no próprio <header>:
-          `backdrop-filter` num ancestral impede o card de atalhos de desfocar
-          a página. A troca é instantânea, sem transição — com `transition-all`
-          a borda creme ficava visível sobre a hero por meio segundo. */}
+      {/* Ao sair da hero, a barra NÃO troca de cor: as duas versões estão
+          sobrepostas e uma dissolve na outra (opacidade), aqui e no logotipo,
+          na pílula e no botão. Antes a troca era seca; e animar a borda, em
+          vez da camada inteira, deixava um fio creme visível sobre a foto.
+
+          O vidro mora nesta camada, e não no próprio <header>, porque
+          `backdrop-filter` num ancestral impede o card de atalhos de
+          desfocar a página. */}
       <header className="fixed top-0 left-0 right-0 z-50">
         <div
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 -z-10 ${
-            scrolled
-              ? "bg-creme/85 backdrop-blur-xl border-b border-creme-borda shadow-[0_4px_30px_rgba(0,0,0,0.04)]"
-              : ""
+          className={`pointer-events-none absolute inset-0 -z-10 bg-creme/85 backdrop-blur-md border-b border-creme-borda shadow-[0_4px_30px_rgba(0,0,0,0.04)] transition-opacity duration-300 ${
+            scrolled ? "opacity-100" : "opacity-0"
           }`}
         />
         <div className="mx-auto sm:px-20">
@@ -342,11 +345,21 @@ export default function Navbar() {
               to="/"
               className="transition-transform hover:scale-105 active:scale-95 duration-200"
             >
-              <img
-                src={scrolled ? chatcleanLogoGreen : chatcleanLogoWhite}
-                alt="ChatClean"
-                className="h-9 w-auto transition-opacity"
-              />
+              {/* Os dois logotipos empilhados: o latão some enquanto o verde
+                  aparece. O verde é o que ocupa espaço; o latão fica por cima. */}
+              <span className="relative block h-9">
+                <img
+                  src={chatcleanLogoGreen}
+                  alt="ChatClean"
+                  className={`h-9 w-auto transition-opacity duration-300 ${scrolled ? "opacity-100" : "opacity-0"}`}
+                />
+                <img
+                  src={chatcleanLogoLatao}
+                  alt=""
+                  aria-hidden="true"
+                  className={`absolute left-0 top-0 h-9 w-auto transition-opacity duration-300 ${scrolled ? "opacity-0" : "opacity-100"}`}
+                />
+              </span>
             </Link>
 
             {/* Desktop nav */}
@@ -354,10 +367,14 @@ export default function Navbar() {
               {/* Fundo da pílula em camada própria, pelo mesmo motivo do header */}
               <span
                 aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 -z-10 rounded-full border ${
-                  scrolled
-                    ? "bg-zinc-50 border-zinc-100 shadow-sm"
-                    : "bg-white/15 border-white/30 backdrop-blur-md"
+                className={`pointer-events-none absolute inset-0 -z-10 rounded-full border bg-white/15 border-white/30 backdrop-blur-md transition-opacity duration-300 ${
+                  scrolled ? "opacity-0" : "opacity-100"
+                }`}
+              />
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 -z-10 rounded-full border bg-zinc-50 border-zinc-100 shadow-sm transition-opacity duration-300 ${
+                  scrolled ? "opacity-100" : "opacity-0"
                 }`}
               />
               {NAV_ITEMS.map((item) => renderItem(item))}
@@ -365,16 +382,22 @@ export default function Navbar() {
 
             {/* Área do Cliente button */}
             <div className="hidden md:flex items-center">
+              {/* O latão cobre o verde e dissolve quando a barra muda. O texto
+                  é branco nos dois, então só o fundo troca. */}
               <Button
                 onClick={() => setIsLoginModalOpen(true)}
-                className={`transition-transform duration-200 hover:scale-[1.03] active:scale-95 px-6 h-12 rounded-full cursor-pointer font-bold ${
-                  scrolled
-                    ? "bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30"
-                    : "bg-white hover:bg-emerald-50 text-emerald-700 shadow-xl"
+                className={`relative bg-emerald-500 hover:bg-emerald-600 text-white transition-transform duration-200 hover:scale-[1.03] active:scale-95 px-6 h-12 rounded-full cursor-pointer font-bold ${
+                  scrolled ? "shadow-lg shadow-emerald-500/30" : ""
                 }`}
               >
-                <Users className="h-4 w-4 mr-2" />
-                Área do Cliente
+                <span
+                  aria-hidden="true"
+                  className={`botao-latao pointer-events-none absolute inset-0 rounded-full transition-opacity duration-300 ${
+                    scrolled ? "opacity-0" : "opacity-100"
+                  }`}
+                />
+                <Users className="relative h-4 w-4 mr-2" />
+                <span className="relative">Área do Cliente</span>
               </Button>
             </div>
 
@@ -398,7 +421,7 @@ export default function Navbar() {
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.3, ease: EASE.out }}
-                className="md:hidden overflow-hidden border-t border-zinc-100 bg-white/95 backdrop-blur-xl"
+                className="md:hidden overflow-hidden border-t border-zinc-100 bg-white/95 backdrop-blur-md"
               >
                 <nav className="flex flex-col py-4 px-4 gap-1">
                   {NAV_ITEMS.map((item, idx) => (

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { usePausaForaDaTela } from "@/lib/pausaForaDaTela";
 import { motion } from "framer-motion";
 import { ArrowRight, Play, Check, Bot } from "lucide-react";
 
@@ -169,6 +170,9 @@ export default function ModernHero() {
     },
   };
 
+  // Os balões flutuam em laço: fora da tela, param
+  const refSecao = usePausaForaDaTela();
+
   // Texto rotativo no badge
   const [tagIdx, setTagIdx] = useState(0);
   const tags = ["WhatsApp Business", "Instagram", "Facebook", "Telegram"];
@@ -179,6 +183,7 @@ export default function ModernHero() {
 
   return (
     <section
+      ref={refSecao}
       id="home"
       data-hero-escura=""
       className="relative min-h-screen flex flex-col items-center justify-end lg:justify-center overflow-hidden pt-[44svh] pb-10 lg:pt-32 lg:pb-20 bg-emerald-950"
@@ -260,13 +265,18 @@ export default function ModernHero() {
                 CRM e ChatBot
               </motion.span>
             </span>
-            <span className="block overflow-hidden pb-2">
+            {/* `pb` é a folga para a perninha do "p" não ser cortada pelo
+                `overflow-hidden` (que existe para a palavra entrar de baixo);
+                o `-mb` devolve esse espaço ao texto seguinte */}
+            <span className="block overflow-hidden pb-8 -mb-6">
               <motion.span variants={wordVariants} className="inline-block">
                 para
               </motion.span>{" "}
               <motion.span
                 variants={wordVariants}
-                className="inline-block text-yellow-300"
+                /* Latão do logotipo (#b6913e ≈ yellow-400) com o reflexo
+                   passando por cima — a regra `.brilho-latao` em index.css */
+                className="brilho-latao inline-block"
               >
                 WhatsApp
               </motion.span>

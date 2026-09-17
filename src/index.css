@@ -44,6 +44,119 @@ img:not(.painel *) {
   -webkit-touch-callout: none; /* segurar o dedo no iPhone não abre "Salvar" */
 }
 
+/* ----- Cenas dos cards de funcionalidade ---------------------------------
+   Tudo aqui anima só `transform` e `opacity`, que o navegador compõe na
+   placa de vídeo sem refazer layout nem pintura: são vários cards rodando
+   ao mesmo tempo. (Com framer-motion por elemento, medido no Chrome: 35 fps
+   com CPU normal e 3,7 fps com CPU 4x mais lenta.)
+
+   `.cena-sem-transicao` desliga as transições por um quadro quando a cena
+   volta ao começo do laço — senão cada peça "desanimaria" de trás pra frente. */
+.cena-sem-transicao,
+.cena-sem-transicao * {
+  transition: none !important;
+  animation: none !important;
+}
+
+.cena-digitando {
+  animation: cena-digitando 0.9s ease-in-out infinite;
+}
+@keyframes cena-digitando {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.cena-onda {
+  animation: cena-onda 0.8s ease-out forwards;
+}
+@keyframes cena-onda {
+  from {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+
+/* Trecho fora da tela: animações pausadas (ver `lib/pausaForaDaTela.js`) */
+[data-fora-da-tela],
+[data-fora-da-tela] * {
+  animation-play-state: paused !important;
+}
+
+/* ----- Reflexo no "WhatsApp" do título da hero ---------------------------
+   O texto é pintado por um gradiente recortado nas letras: o latão da marca
+   com uma faixa clara atravessando na diagonal, como luz parada em metal.
+   Parado de propósito — nada se move.
+
+   O gradiente cobre a palavra INTEIRA (`background-size: 100%`). Com ele
+   maior que o texto, sobrava letra fora do gradiente, e como a cor da letra
+   é transparente esse pedaço sumia.
+
+   Sem `background-clip: text` o texto fica no latão chapado: por isso a cor
+   só vira transparente dentro do `@supports`. Os tons vão de 4,3:1 a 12,8:1
+   sobre o fundo da hero. */
+.brilho-latao {
+  color: var(--color-yellow-400);
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .brilho-latao {
+    background-image: linear-gradient(
+      100deg,
+      #a07e35 0%,
+      var(--color-yellow-400) 22%,
+      #e7d6a8 42%,
+      #fdf6e6 50%,
+      #e7d6a8 58%,
+      var(--color-yellow-400) 78%,
+      #a07e35 100%
+    );
+    /* Do tamanho exato da palavra: nenhuma letra fica fora do gradiente (era
+       o que fazia sumir pedaço do texto) e nada se move. */
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    /* A perninha do "p" desce ABAIXO da caixa da palavra, e o gradiente só
+       pinta dentro dela: sem esta folga, o rabo do "p" fica sem cor nenhuma
+       e some (medido: faltavam 8px). A margem negativa devolve o espaço. */
+    padding-bottom: 0.2em;
+    margin-bottom: -0.2em;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* ----- Botão de latão (Área do Cliente, sobre a hero) --------------------
+   Metal, não papel colorido: o gradiente escurece de cima para baixo, o fio
+   claro na borda de cima é o reflexo da luz, e a sombra apoia o botão no
+   fundo. O latão do botão é mais escuro que o do logotipo de propósito —
+   com o texto em branco, o latão claro dava 2,9:1, e aqui o miolo dá 4,9:1. */
+.botao-latao {
+  background-image: linear-gradient(180deg, #a3813a 0%, #8a6c2c 52%, #74591f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 235, 0.45),
+    inset 0 -1px 0 rgba(20, 35, 27, 0.25),
+    0 10px 24px -8px rgba(20, 35, 27, 0.55),
+    0 0 26px -6px rgba(183, 146, 62, 0.5);
+}
+button:hover > .botao-latao {
+  background-image: linear-gradient(180deg, #b08b40 0%, #957432 52%, #7d6023 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 235, 0.6),
+    inset 0 -1px 0 rgba(20, 35, 27, 0.25),
+    0 12px 28px -8px rgba(20, 35, 27, 0.55),
+    0 0 34px -6px rgba(183, 146, 62, 0.65);
+}
+
 /* ----- Balões da hero: flutuação lenta, sem cursor --------------------- */
 .hero-flutua {
   animation: hero-flutua 7s ease-in-out infinite;

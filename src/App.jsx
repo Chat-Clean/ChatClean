@@ -37,7 +37,10 @@ import lautoCargo from "./assets/lauto-cargo.png";
 import ligaDooH from "./assets/liga-dooh.webp";
 import lindaBrazil from "./assets/linda-brazil.avif";
 import liv from "./assets/liv.svg";
+import simplo from "./assets/simplo.png";
+import avelloz from "./assets/avelloz.svg";
 import wishBones from "./assets/wish-bones.svg";
+import { usePausaForaDaTela } from "@/lib/pausaForaDaTela";
 
 const testimonials = [
   {
@@ -141,9 +144,14 @@ const CLIENT_LOGOS = [
   { src: ligaDooH, nome: "Liga DOOH", escurecer: true },
   { src: lindaBrazil, nome: "Linda Brazil", escurecer: true },
   { src: liv, nome: "LIV Energia Solar" },
+  { src: simplo, nome: "Simplo Manuais Técnicos Automotivos" },
+  { src: avelloz, nome: "Avelloz Motos" },
 ];
 
 function App() {
+  // A esteira de logos anda em laço: fora da tela, para
+  const refLogos = usePausaForaDaTela();
+
   return (
     <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <ScrollProgress />
@@ -157,24 +165,27 @@ function App() {
       <ModernHero />
 
       {/* Parede de logos clientes */}
-      <section className="py-14 bg-creme border-y border-creme-borda">
+      <section ref={refLogos} className="py-14 bg-creme border-y border-creme-borda">
         <div className="max-w-7xl mx-auto px-4">
           <p className="text-center text-sm font-medium text-zinc-500 uppercase tracking-widest mb-8">
             +300 empresas já crescem com a ChatClean
           </p>
           <div className="logos-container">
             <div className="logos-track">
-              {/* Quatro voltas para o laço contínuo (ver `.logos-track`). Só
-                  a primeira é lida pelo leitor de tela; as cópias ficam
-                  escondidas para o nome não ser lido quatro vezes */}
-              {Array.from({ length: 4 }, () => CLIENT_LOGOS).flat().map((logo, idx) => (
-                <img
-                  key={idx}
-                  src={logo.src}
-                  alt={idx < CLIENT_LOGOS.length ? logo.nome : ""}
-                  aria-hidden={idx >= CLIENT_LOGOS.length || undefined}
-                  className={`h-12 object-contain${logo.escurecer ? " logo-escurecido" : ""}`}
-                />
+              {/* Dois grupos iguais, cada um andando a própria largura (ver
+                  `.logos-grupo`). Só o primeiro é lido pelo leitor de tela;
+                  a cópia fica escondida para o nome não ser lido duas vezes */}
+              {[0, 1].map((grupo) => (
+                <div key={grupo} className="logos-grupo" aria-hidden={grupo === 1 || undefined}>
+                  {CLIENT_LOGOS.map((logo) => (
+                    <img
+                      key={logo.nome}
+                      src={logo.src}
+                      alt={grupo === 0 ? logo.nome : ""}
+                      className={`h-12 object-contain${logo.escurecer ? " logo-escurecido" : ""}`}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           </div>
