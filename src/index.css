@@ -638,10 +638,12 @@ body[data-redimensionando-imagem="true"] {
    GRID PATTERN técnico (estilo Linear/Vercel)
    =========================================================== */
 .bg-grid {
-  background-image:
-    linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
-  background-size: 56px 56px;
+  /* Barras de mensagem, não quadriculado: larguras diferentes alternando
+     entre os dois lados, cada uma com um canto reto no lugar do rabicho —
+     a silhueta de uma conversa. Grande e quase apagada, para ser textura e
+     não desenho; a máscara abaixo apaga as bordas. */
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22360%22%20height%3D%22260%22%20viewBox%3D%220%200%20360%20260%22%3E%3Cg%20fill%3D%22rgba(20%2C35%2C27%2C0.05)%22%3E%3Cpath%20d%3D%22M16%2058%20L16%2041%20A17%2017%200%200%201%2033%2024%20L149%2024%20A17%2017%200%200%201%20166%2041%20L166%2041%20A17%2017%200%200%201%20149%2058%20Z%22%2F%3E%3Cpath%20d%3D%22M314%20114%20L314%2099%20A15%2015%200%200%200%20299%2084%20L211%2084%20A15%2015%200%200%200%20196%2099%20L196%2099%20A15%2015%200%200%200%20211%20114%20Z%22%2F%3E%3Cpath%20d%3D%22M40%20174%20L40%20159%20A15%2015%200%200%201%2055%20144%20L121%20144%20A15%2015%200%200%201%20136%20159%20L136%20159%20A15%2015%200%200%201%20121%20174%20Z%22%2F%3E%3Cpath%20d%3D%22M324%20234%20L324%20217%20A17%2017%200%200%200%20307%20200%20L185%20200%20A17%2017%200%200%200%20168%20217%20L168%20217%20A17%2017%200%200%200%20185%20234%20Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  background-size: 360px 260px;
   mask-image: radial-gradient(ellipse 80% 60% at center, black 30%, transparent 80%);
   -webkit-mask-image: radial-gradient(
     ellipse 80% 60% at center,
@@ -651,10 +653,9 @@ body[data-redimensionando-imagem="true"] {
 }
 
 .bg-grid-white {
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.12) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
-  background-size: 56px 56px;
+  /* Mesma conversa, para as seções escuras. */
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22360%22%20height%3D%22260%22%20viewBox%3D%220%200%20360%20260%22%3E%3Cg%20fill%3D%22rgba(241%2C239%2C229%2C0.07)%22%3E%3Cpath%20d%3D%22M16%2058%20L16%2041%20A17%2017%200%200%201%2033%2024%20L149%2024%20A17%2017%200%200%201%20166%2041%20L166%2041%20A17%2017%200%200%201%20149%2058%20Z%22%2F%3E%3Cpath%20d%3D%22M314%20114%20L314%2099%20A15%2015%200%200%200%20299%2084%20L211%2084%20A15%2015%200%200%200%20196%2099%20L196%2099%20A15%2015%200%200%200%20211%20114%20Z%22%2F%3E%3Cpath%20d%3D%22M40%20174%20L40%20159%20A15%2015%200%200%201%2055%20144%20L121%20144%20A15%2015%200%200%201%20136%20159%20L136%20159%20A15%2015%200%200%201%20121%20174%20Z%22%2F%3E%3Cpath%20d%3D%22M324%20234%20L324%20217%20A17%2017%200%200%200%20307%20200%20L185%20200%20A17%2017%200%200%200%20168%20217%20L168%20217%20A17%2017%200%200%200%20185%20234%20Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  background-size: 360px 260px;
   mask-image: radial-gradient(ellipse 80% 60% at center, black 30%, transparent 80%);
   -webkit-mask-image: radial-gradient(
     ellipse 80% 60% at center,

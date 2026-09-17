@@ -92,7 +92,8 @@ const GARANTIAS = [
 export default function BentoFeatures() {
   return (
     <section className="relative overflow-hidden bg-creme-profundo px-4 py-24 md:py-32">
-      <div className="pointer-events-none absolute inset-0 bg-grid" />
+      {/* Sem trama de fundo: os sete palcos das cenas já têm a própria
+          textura pontilhada, e as duas camadas juntas poluíam a seção. */}
       <div className="relative mx-auto max-w-7xl">
         <Reveal className="mx-auto mb-14 max-w-3xl text-center md:mb-20">
           <h2 className="text-4xl font-black leading-[1.05] tracking-tighter text-zinc-900 md:text-5xl lg:text-6xl">
