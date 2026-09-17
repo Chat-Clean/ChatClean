@@ -135,7 +135,10 @@ export default function ChatbotPopup() {
   );
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+    // Os dois estados ficam ANCORADOS no mesmo canto, sobrepostos. Em coluna,
+    // ao fechar, o círculo nascia ACIMA da janela que ainda estava saindo:
+    // aparecia no meio da lateral e só depois descia para o canto.
+    <div className="fixed bottom-6 right-6 z-50">
 
       {/* Botão flutuante quando fechado */}
       <AnimatePresence>
@@ -147,7 +150,7 @@ export default function ChatbotPopup() {
             whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.94 }}
             onClick={() => setIsOpen(true)}
-            className="relative group"
+            className="absolute bottom-0 right-0 group"
           >
             {/* Pulse ring */}
             <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-30 animate-ping" />
@@ -172,7 +175,7 @@ export default function ChatbotPopup() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: 16 }}
             transition={{ type: "spring", damping: 22, stiffness: 300 }}
-            className="w-80 sm:w-[360px] flex flex-col rounded-3xl shadow-2xl shadow-zinc-900/20 overflow-hidden border border-zinc-200/80 bg-white"
+            className="absolute bottom-0 right-0 w-80 sm:w-[360px] flex flex-col rounded-3xl shadow-2xl shadow-zinc-900/20 overflow-hidden border border-zinc-200/80 bg-white"
             style={{ maxHeight: "min(600px, 80vh)" }}
           >
             {/* Header */}

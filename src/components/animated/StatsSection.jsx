@@ -2,6 +2,8 @@ import { motion } from "framer-motion";
 import { Building2, MessageSquare, Clock, Bot } from "lucide-react";
 import AnimatedCounter from "./AnimatedCounter";
 import Reveal from "./Reveal";
+import { useCarrossel } from "@/lib/useCarrossel";
+import ControlesDeCarrossel from "./ControlesDeCarrossel";
 
 /**
  * <StatsSection /> — banner de KPIs animados em 4 colunas.
@@ -40,6 +42,10 @@ const stats = [
 ];
 
 export default function StatsSection() {
+  // No celular os cards viram um carrossel de arrastar; a partir de `sm` a
+  // mesma lista volta a ser grade e os controles somem.
+  const { trilha, indice, irPara } = useCarrossel(stats.length);
+
   return (
     <section className="relative py-24 md:py-32 bg-creme overflow-hidden">
       {/* Grid pattern decorativo */}
@@ -50,9 +56,6 @@ export default function StatsSection() {
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <Reveal className="text-center max-w-3xl mx-auto mb-16">
-          <span className="inline-block px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-widest mb-6">
-            Resultados que falam por si
-          </span>
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-zinc-900 tracking-tighter leading-[1.05] mb-6">
             Resultados reais de <br />
             <span className="text-brand-chrome">quem já usa</span>
@@ -63,7 +66,13 @@ export default function StatsSection() {
           </p>
         </Reveal>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {/* Celular: fileira que arrasta, com o próximo card espiando na
+            borda — é o que conta que dá para deslizar. Da grade para cima
+            (`sm:`), volta tudo ao normal. */}
+        <div
+          ref={trilha}
+          className="sem-barra-de-rolagem -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-6 sm:overflow-visible sm:px-0 lg:grid-cols-4"
+        >
           {stats.map((stat, i) => (
             <motion.div
               key={stat.label}
@@ -75,7 +84,7 @@ export default function StatsSection() {
                 delay: i * 0.08,
                 ease: [0.16, 1, 0.3, 1],
               }}
-              className="group relative bg-white rounded-3xl p-6 md:p-8 border border-zinc-100 hover:border-zinc-200 green-glow card-3d"
+              className="group relative basis-[85%] shrink-0 snap-center bg-white rounded-3xl p-6 md:p-8 border border-zinc-100 hover:border-zinc-200 green-glow card-3d sm:basis-auto"
             >
               <stat.icon
                 className="w-9 h-9 text-brand-action icon-wiggle mb-6 transition-transform duration-500 group-hover:scale-110"
@@ -98,13 +107,17 @@ export default function StatsSection() {
                 {stat.description}
               </p>
 
-              {/* Linha decorativa que aparece no hover */}
-              <div
-                className={`absolute bottom-0 left-8 right-8 h-1 bg-gradient-to-r ${stat.accent} rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
-              />
             </motion.div>
           ))}
         </div>
+
+        {/* Controles: só no celular, onde a grade virou carrossel */}
+        <ControlesDeCarrossel
+          className="sm:hidden"
+          rotulos={stats.map((stat) => `${stat.value}${stat.suffix} ${stat.label.toLowerCase()}`)}
+          indice={indice}
+          irPara={irPara}
+        />
       </div>
     </section>
   );

@@ -41,6 +41,8 @@ import simplo from "./assets/simplo.png";
 import avelloz from "./assets/avelloz.svg";
 import wishBones from "./assets/wish-bones.svg";
 import { usePausaForaDaTela } from "@/lib/pausaForaDaTela";
+import { useCarrossel } from "@/lib/useCarrossel";
+import ControlesDeCarrossel from "@/components/animated/ControlesDeCarrossel";
 
 const testimonials = [
   {
@@ -152,6 +154,10 @@ function App() {
   // A esteira de logos anda em laço: fora da tela, para
   const refLogos = usePausaForaDaTela();
 
+  // No celular os depoimentos viram carrossel de arrastar; de `md` para
+  // cima voltam a ser as três colunas.
+  const depoimentos = useCarrossel(testimonials.length);
+
   return (
     <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <ScrollProgress />
@@ -205,9 +211,6 @@ function App() {
         <div className="absolute inset-0 bg-grid pointer-events-none" />
         <div className="max-w-7xl mx-auto px-4 relative">
           <Reveal className="text-center mb-16">
-            <span className="inline-block px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-widest mb-6">
-              Clientes que evoluíram com a gente
-            </span>
             <h2 className="text-4xl md:text-6xl font-black tracking-tighter mb-6 text-zinc-900">
               O que dizem{" "}
               <span className="text-brand-chrome">nossos clientes</span>
@@ -218,9 +221,14 @@ function App() {
             </p>
           </Reveal>
 
-          <StaggerGroup className="grid md:grid-cols-3 gap-6">
+          {/* Celular: fileira que arrasta, com o próximo depoimento espiando
+              na borda; da grade para cima, três colunas. */}
+          <StaggerGroup
+            ref={depoimentos.trilha}
+            className="sem-barra-de-rolagem -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain px-4 pb-1 md:mx-0 md:grid md:grid-cols-3 md:gap-6 md:overflow-visible md:px-0"
+          >
             {testimonials.map((testimonial, index) => (
-              <StaggerItem key={index}>
+              <StaggerItem key={index} className="basis-[85%] shrink-0 snap-center md:basis-auto">
                 <Card className="h-full bg-white border-zinc-100 hover:border-emerald-200 green-glow card-3d transition-all duration-500">
                   <CardHeader>
                     <div className="flex space-x-1 mb-4">
@@ -255,6 +263,13 @@ function App() {
               </StaggerItem>
             ))}
           </StaggerGroup>
+
+          <ControlesDeCarrossel
+            className="md:hidden"
+            rotulos={testimonials.map((t) => `o depoimento da ${t.company}`)}
+            indice={depoimentos.indice}
+            irPara={depoimentos.irPara}
+          />
         </div>
       </section>
 

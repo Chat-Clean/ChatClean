@@ -87,6 +87,15 @@ img:not(.painel *) {
   }
 }
 
+/* Carrossel de arrastar: a barra de rolagem some, porque as bolinhas e as
+   setas embaixo já dizem onde a pessoa está (ver `lib/useCarrossel.js`). */
+.sem-barra-de-rolagem {
+  scrollbar-width: none;
+}
+.sem-barra-de-rolagem::-webkit-scrollbar {
+  display: none;
+}
+
 /* Trecho fora da tela: animações pausadas (ver `lib/pausaForaDaTela.js`) */
 [data-fora-da-tela],
 [data-fora-da-tela] * {
