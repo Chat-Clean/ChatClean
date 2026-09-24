@@ -1041,16 +1041,26 @@ if (temToken) {
 secao("(e) schema do conteúdo do blog");
 
 /** As tabelas do módulo, na ordem em que a migração as cria. */
+/* TROCA REGISTRADA (Story 5.2, revisão): as quatro tabelas de Carreiras
+   entram na mesma bateria (existe, RLS, instante em timestamptz, leitura por
+   anon e authenticated, nenhum privilégio nem política de escrita, as duas
+   políticas `<t>_leitura_anonima`/`_autenticada`, e a escrita anônima pela
+   REST negada sem mudar linha alguma). `vagas` tem Slug, com o índice único
+   que `constraint vagas_slug_unico unique (slug)` gera. */
 const TABELAS_CONTEUDO = [
   "categorias",
   "posts",
   "tags",
   "posts_tags",
   "slugs_antigos",
+  "vagas",
+  "departamentos",
+  "tipos_de_vaga",
+  "niveis",
 ];
 
 /** As tabelas com coluna `slug`, que é chave de URL pública. */
-const TABELAS_COM_SLUG = ["posts", "categorias", "tags", "slugs_antigos"];
+const TABELAS_COM_SLUG = ["posts", "categorias", "tags", "slugs_antigos", "vagas"];
 
 if (!temToken) {
   // Sem `else`, as ~50 asserções desta seção sumiriam em silêncio quando o
@@ -1394,7 +1404,7 @@ if (!temToken) {
     );
   }
 
-  /* — Privilégio: o segundo cadeado, nas cinco tabelas, três papéis — */
+  /* — Privilégio: o segundo cadeado, em toda tabela de TABELAS_CONTEUDO, três papéis — */
   //
   // `public` entra na conta porque privilégio concedido ao pseudo-papel é
   // herdado por `anon` e `authenticated`: revogar dos dois e esquecer dele
@@ -1594,10 +1604,16 @@ if (!temToken) {
   // privilégio no REMOTO, e não o `grant` escrito no arquivo: o arquivo diz o
   // que alguém quis, o catálogo diz o que vale.
 
+  /* TROCA REGISTRADA (Story 5.2): de 3 para 5 nomes. As duas funções de
+     entrega de Carreiras (`situacao_da_vaga`, `vagas_abertas`) são da mesma
+     família (definer, stable, search_path fixo, execute a anon, revogadas de
+     public, comentadas) e passam pela MESMA bateria abaixo. */
   const FUNCOES_DA_ENTREGA_NO_BANCO = [
     "situacao_do_endereco",
     "posts_no_ar",
     "proxima_publicacao",
+    "situacao_da_vaga",
+    "vagas_abertas",
   ];
   const entregaNoBanco = await uma(
     `select p.proname as nome,
@@ -1677,7 +1693,7 @@ if (!temToken) {
     );
   }
 
-  /* — Nenhuma política de escrita no remoto, nas cinco tabelas — */
+  /* — Nenhuma política de escrita no remoto, em toda tabela de TABELAS_CONTEUDO — */
 
   const politicasConteudo = await uma(
     `select coalesce(string_agg(tablename || ':' || policyname || ':' || cmd || ':' || array_to_string(roles, '+'), ' | ' order by tablename, policyname), '') as p
@@ -1696,7 +1712,7 @@ if (!temToken) {
     `políticas: ${listaConteudo || "nenhuma"}`,
   );
 
-  // As dez políticas de leitura precisam EXISTIR. Apagar uma
+  // As duas políticas de leitura de cada tabela precisam EXISTIR. Apagar uma
   // `*_leitura_autenticada` deixaria o Painel abrindo vazio sem nada falhar —
   // a prova comportamental delas está na seção (f), com sessão real.
   for (const t of TABELAS_CONTEUDO) {
@@ -2979,7 +2995,15 @@ if (temToken && temChave) {
                 from public.posts_tags pt join public.posts p on p.id = pt.post_id
                where p.slug like ${literal(marca)}) as posts_tags,
              (select coalesce(md5(string_agg(s::text, '|' order by s.slug)), '')
-                from public.slugs_antigos s where s.slug like ${literal(marca)}) as slugs_antigos`,
+                from public.slugs_antigos s where s.slug like ${literal(marca)}) as slugs_antigos,
+             (select coalesce(md5(string_agg(v::text, '|' order by v.slug)), '')
+                from public.vagas v where v.slug like ${literal(marca)}) as vagas,
+             (select coalesce(md5(string_agg(d::text, '|' order by d.nome)), '')
+                from public.departamentos d where d.nome like ${literal(marca)}) as departamentos,
+             (select coalesce(md5(string_agg(x::text, '|' order by x.nome)), '')
+                from public.tipos_de_vaga x where x.nome like ${literal(marca)}) as tipos_de_vaga,
+             (select coalesce(md5(string_agg(n::text, '|' order by n.nome)), '')
+                from public.niveis n where n.nome like ${literal(marca)}) as niveis`,
           "instantâneo das linhas do módulo",
         );
 
@@ -2996,6 +3020,17 @@ if (temToken && temChave) {
         tags: { slug: slug("intruso"), nome: "Escrita por anon" },
         slugs_antigos: { slug: slug("intruso"), post_id: idVisivel },
         posts_tags: { post_id: idVisivel, tag_id: ZERO_UUID },
+        vagas: {
+          slug: slug("intruso"),
+          titulo: "Escrita por anon",
+          estado: "aberta",
+          departamento_id: ZERO_UUID,
+          tipo_id: ZERO_UUID,
+          nivel_id: ZERO_UUID,
+        },
+        departamentos: { nome: slug("intruso") },
+        tipos_de_vaga: { nome: slug("intruso"), equivalente_jobposting: "OTHER" },
+        niveis: { nome: slug("intruso") },
       };
       const filtroDe = {
         posts: `slug=like.${prefixo}*`,
@@ -3003,6 +3038,10 @@ if (temToken && temChave) {
         tags: `slug=like.${prefixo}*`,
         slugs_antigos: `slug=like.${prefixo}*`,
         posts_tags: `post_id=eq.${idVisivel}`,
+        vagas: `slug=like.${prefixo}*`,
+        departamentos: `nome=like.${prefixo}*`,
+        tipos_de_vaga: `nome=like.${prefixo}*`,
+        niveis: `nome=like.${prefixo}*`,
       };
       // Alteração visível no instantâneo, coluna que existe em toda tabela do
       // módulo: contagem não muda em UPDATE, e era só contagem que a versão
@@ -3044,7 +3083,7 @@ if (temToken && temChave) {
         }
       }
 
-      // O que realmente prova a negação: o estado depois das quinze tentativas
+      // O que realmente prova a negação: o estado depois das três tentativas por tabela
       // é BIT A BIT o estado de antes. Um 4xx pode vir de tipo, de rota ou de
       // sintaxe — o instantâneo não pode vir de outro lugar.
       const depois = await instantaneo();
@@ -3054,7 +3093,7 @@ if (temToken && temChave) {
       afirmar(
         "nenhuma escrita anônima criou, alterou ou apagou linha alguma",
         !antes.falhou && !depois.falhou && iguais.length === TABELAS_CONTEUDO.length,
-        `tabelas com instantâneo idêntico: ${iguais.join(", ") || "nenhuma"} (esperado as cinco)`,
+        `tabelas com instantâneo idêntico: ${iguais.join(", ") || "nenhuma"} (esperado as ${TABELAS_CONTEUDO.length})`,
       );
 
       /* ── O que o banco RECUSA gravar ──────────────────────────────────── */

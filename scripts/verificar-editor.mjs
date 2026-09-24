@@ -1992,10 +1992,14 @@ if (schema) {
     /* PROJEÇÃO, não segunda declaração: cada forma da Descrição é a MESMA do
        Post, ou ela com menos atributos. Uma cópia passaria na matriz de hoje e
        divergiria no primeiro conserto feito num lado só. */
+    /* TROCA REGISTRADA (Story 5.2): o link da Descrição deixou de ser o MESMO
+       objeto do Post. Ele é DERIVADO de `MARCAS.link`, com o `href` restrito a
+       http, https e mailto. A identidade continua cobrada em negrito e itálico,
+       e o link é conferido logo abaixo por COMPORTAMENTO e pela identidade das
+       peças que ele herda. */
     afirmar(
-      "a Descrição é PROJEÇÃO do schema: marcas, texto, quebra e listas são os MESMOS objetos do Post",
-      DESCRICAO.marcas.link === schema.MARCAS.link &&
-        DESCRICAO.marcas.bold === schema.MARCAS.bold &&
+      "a Descrição é PROJEÇÃO do schema: negrito, itálico, texto, quebra e listas são os MESMOS objetos do Post",
+      DESCRICAO.marcas.bold === schema.MARCAS.bold &&
         DESCRICAO.marcas.italic === schema.MARCAS.italic &&
         DESCRICAO.nos.text === schema.NOS.text &&
         DESCRICAO.nos.hardBreak === schema.NOS.hardBreak &&
@@ -2003,6 +2007,41 @@ if (schema) {
         DESCRICAO.nos.orderedList === schema.NOS.orderedList &&
         DESCRICAO.nos.heading.atributos.level === schema.NOS.heading.atributos.level,
     );
+    /* O LINK DA DESCRIÇÃO, por comportamento (Story 5.2). Ele herda do Post
+       tudo menos o `href`: as mesmas peças (identidade), e o `href` executado
+       sobre amostras. Onde a Descrição aceita, o valor é o MESMO que o Post
+       daria; onde ela recusa, é por esquema, não por outra regra. */
+    {
+      const linkD = DESCRICAO.marcas.link;
+      const linkP = schema.MARCAS.link;
+      const herdadas = ["target", "rel", "title", "class"];
+      afirmar(
+        "o link da Descrição herda do Post os validadores de target, rel, title e class, a obrigatoriedade do href e o `normalizar` (mesmos objetos)",
+        linkD !== linkP &&
+          herdadas.every((a) => linkD.atributos[a] === linkP.atributos[a]) &&
+          linkD.atributosObrigatorios === linkP.atributosObrigatorios &&
+          linkD.normalizar === linkP.normalizar &&
+          igual(Object.keys(linkD.atributos), Object.keys(linkP.atributos)),
+        Object.keys(linkD.atributos ?? {}).join(", "),
+      );
+      const ACEITOS = ["https://chatclean.com.br/vagas", "http://a.b", "mailto:vagas@chatclean.com.br", " HTTPS://x.com "];
+      const RECUSADOS = ["tel:+5584999999999", "/carreiras", "#secao", "?a=1", "pagina", "javascript:alert(1)", "data:text/html,oi", "", null];
+      const aceitosErrados = ACEITOS.filter(
+        (h) => linkD.atributos.href(h) === undefined || linkD.atributos.href(h) !== linkP.atributos.href(h),
+      );
+      const recusadosErrados = RECUSADOS.filter((h) => linkD.atributos.href(h) !== undefined);
+      afirmar(
+        "o `href` da Descrição aceita http, https e mailto (com o MESMO valor do Post) e recusa tel, relativo, âncora, javascript e data",
+        aceitosErrados.length === 0 && recusadosErrados.length === 0,
+        `aceitos errados: ${JSON.stringify(aceitosErrados)} | recusados errados: ${JSON.stringify(recusadosErrados)}`,
+      );
+      afirmar(
+        "e o vocabulário da Descrição entrega ao editor a MESMA regra do link (`enderecoPermitido`)",
+        typeof DESCRICAO.enderecoPermitido === "function" &&
+          [...ACEITOS].every((h) => DESCRICAO.enderecoPermitido(h) === true) &&
+          RECUSADOS.every((h) => DESCRICAO.enderecoPermitido(h) === false),
+      );
+    }
     afirmar(
       "a Descrição tem exatamente os nós e as marcas que a story nomeia",
       igual(Object.keys(DESCRICAO.nos).sort(), [

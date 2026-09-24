@@ -1034,11 +1034,70 @@ const NOS_DA_DESCRICAO = Object.freeze({
   hardBreak: NOS.hardBreak,
 });
 
-/** As marcas da Descrição: negrito, itálico e link, as MESMAS do Post. */
+/**
+ * Os esquemas que um link DENTRO DA DESCRIÇÃO pode usar: um subconjunto de
+ * `PROTOCOLOS_DE_LINK`. Sai `tel:`, e sai o endereço relativo: a Descrição é
+ * lida fora do site (no Google Vagas, num agregador), onde `/blog` não aponta
+ * para lugar nenhum. Espelho em SQL: `descricao_da_vaga_e_permitida`, comparado
+ * nos dois sentidos pela ferramenta `verificar:carreiras`.
+ */
+export const PROTOCOLOS_DE_LINK_DA_DESCRICAO = Object.freeze([
+  "http:",
+  "https:",
+  "mailto:",
+]);
+
+/**
+ * O endereço cabe num link da Descrição?
+ *
+ * É a regra do Post (`enderecoPermitido`) MAIS o recorte de esquema: tudo o
+ * que o Post recusa continua recusado, e do que ele aceita só passa o que tem
+ * esquema absoluto da lista acima. A decodificação vem primeiro, pela mesma
+ * razão de lá: o navegador resolve o endereço decodificado.
+ *
+ * Esquema absoluto quer dizer COM HOST: `http`/`https` seguidos de `//` e de
+ * um caractere que não é barra nem espaço. `https:relativo`, `http:/x` e
+ * `https:///x` têm o esquema certo e mesmo assim são endereço relativo ao
+ * site (o navegador os resolve contra a página), e é isso que a Descrição
+ * lida fora do site não pode ter. `mailto:` não tem host. Caixa do esquema
+ * não importa. Espelho em SQL: `~* '^(https?://[^/[:space:]]|mailto:)'`.
+ */
+export function enderecoPermitidoNaDescricao(valor) {
+  if (!enderecoPermitido(valor)) return false;
+  const limpo = decodificarEntidades(valor).trim();
+  const esquema = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(limpo);
+  if (
+    esquema === null ||
+    !PROTOCOLOS_DE_LINK_DA_DESCRICAO.includes(esquema[0].toLowerCase())
+  ) {
+    return false;
+  }
+  return /^(?:https?:\/\/[^/\s]|mailto:)/iu.test(limpo);
+}
+
+/**
+ * O link da Descrição: DERIVADO de `MARCAS.link`, com o `href` restrito. Os
+ * demais validadores (`target`, `rel`, `title`, `class`), a obrigatoriedade do
+ * `href` e o `normalizar` do par `target`/`rel` são os MESMOS objetos do Post:
+ * um conserto neles vale para os dois documentos no mesmo instante.
+ */
+const LINK_DA_DESCRICAO = Object.freeze({
+  ...MARCAS.link,
+  atributos: Object.freeze({
+    ...MARCAS.link.atributos,
+    href: (valor) =>
+      enderecoPermitidoNaDescricao(valor) ? MARCAS.link.atributos.href(valor) : undefined,
+  }),
+});
+
+/**
+ * As marcas da Descrição: negrito e itálico são as MESMAS do Post; o link é o
+ * derivado acima.
+ */
 const MARCAS_DA_DESCRICAO = Object.freeze({
   bold: MARCAS.bold,
   italic: MARCAS.italic,
-  link: MARCAS.link,
+  link: LINK_DA_DESCRICAO,
 });
 
 /**
@@ -1058,7 +1117,10 @@ export const VOCABULARIO_DA_DESCRICAO = Object.freeze({
   niveisDeTitulo: NIVEIS_DE_TITULO,
   alinhamentos: Object.freeze([]),
   coresDeDestaque: Object.freeze([]),
-  enderecoPermitido,
+  /* A regra do link é a da PROJEÇÃO: é ela que o editor usa para aceitar ou
+     recusar um endereço digitado, e recusar lá é melhor que descartar na
+     gravação o link que a pessoa acabou de criar. */
+  enderecoPermitido: enderecoPermitidoNaDescricao,
   acaoQueAlterna: ALTERNA,
   mensagens: Object.freeze({
     vazio: "A descrição está vazia. Escreva algo antes de salvar.",

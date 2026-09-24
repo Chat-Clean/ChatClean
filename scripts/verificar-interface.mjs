@@ -2145,11 +2145,15 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
      a proibição vale em lugar nenhum do Painel, e restringi-la aos arquivos
      desta entrega deixaria o resto de fora justamente quando um dado do banco
      começa a chegar perto de virar aparência. */
+  /* TROCA REGISTRADA (Story 5.2): o alcance ganha `src/domain/carreiras/`, o
+     domínio que o Painel de Carreiras consome (catálogo do Estado da Vaga,
+     Classificações com Cor). A mesma proibição, sobre mais um domínio. */
   const doPainel = fontesSrc.filter((a) => {
     const caminho = rel(a);
     return (
       caminho.startsWith("src/admin/") ||
       caminho.startsWith("src/domain/blog/") ||
+      caminho.startsWith("src/domain/carreiras/") ||
       caminho === CAMINHO_PAGINA
     );
   });
@@ -2157,6 +2161,11 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
     "há arquivos do Painel para varrer",
     doPainel.length > 0,
     "uma lista vazia faria a asserção seguinte passar por vacuidade",
+  );
+  afirmar(
+    "e o domínio de Carreiras está entre eles",
+    doPainel.some((a) => rel(a).startsWith("src/domain/carreiras/")),
+    "sem arquivo de src/domain/carreiras/ na lista, a troca da Story 5.2 não vale nada",
   );
   const montadas = [];
   for (const arquivo of doPainel) {

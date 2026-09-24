@@ -10,9 +10,9 @@
  *
  * ─── E SEM CONSULTA LIVRE ─────────────────────────────────────────────────
  *
- * Ele também não consulta tabela. As três chamadas são funções de banco de
- * propósito único (Story 4.2), que devolvem exatamente o que a entrega precisa:
- * a situação de um endereço, os Posts no ar, e quando é a próxima publicação.
+ * Ele também não consulta tabela. As chamadas são funções de banco de
+ * propósito único (Story 4.2 e 5.2), que devolvem só o que a entrega precisa:
+ * situação de endereço, Posts no ar, próxima publicação, situação de Vaga e Vagas Abertas.
  * Uma consulta livre aqui devolveria o que a política libera — e a política
  * esconde justamente a diferença entre arquivado e inexistente, que é a razão
  * de as funções existirem.
@@ -36,11 +36,17 @@ export const DEFEITO_SEM_AMBIENTE =
   "A leitura do servidor não foi configurada: defina a URL do projeto e a chave " +
   "PUBLICÁVEL no ambiente. A chave de serviço não serve aqui — este caminho só lê.";
 
-/** As três funções que este módulo pode chamar. Lista fechada. */
+/**
+ * As funções que este módulo pode chamar. Lista fechada, e a ORDEM importa:
+ * as três do Blog vêm primeiro, e as duas de Carreiras (Story 5.2) entram NO
+ * FIM, porque a verificação usa `FUNCOES_DA_ENTREGA[0]`.
+ */
 export const FUNCOES_DA_ENTREGA = Object.freeze([
   "situacao_do_endereco",
   "posts_no_ar",
   "proxima_publicacao",
+  "situacao_da_vaga",
+  "vagas_abertas",
 ]);
 
 function doAmbiente(nomes, ambiente) {

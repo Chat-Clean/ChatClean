@@ -454,13 +454,24 @@ secao("(b) a arquitetura de acesso está onde deveria");
      banco, e chamá-la é leitura. O que não pode é uma segunda chamada aparecer
      sem ninguém reparar — função de banco é o caminho natural para "escrever
      sem escrever". */
+  /* TROCA REGISTRADA (Story 5.2): era "um arquivo só" (`src/data/blog/posts.js`)
+     e passou a LISTA DE PERMISSÃO, porque a leitura de Carreiras também chama
+     funções de banco (`vagas_abertas`, `situacao_da_vaga`,
+     `buscar_vagas_do_painel`), todas de leitura. Continua fechada nos dois
+     sentidos: arquivo fora da lista reprova, e arquivo da lista que deixou de
+     chamar `.rpc(` também (lista decorativa não protege nada). */
+  const ARQUIVOS_COM_RPC = Object.freeze([
+    "src/data/blog/posts.js",
+    "src/data/carreiras/leitura.js",
+  ]);
   const comRpc = [
     ...new Set(ocorrencias(fontes, /\.rpc\s*\(/).map((o) => o.split(":")[0])),
-  ];
+  ].sort();
   afirmar(
-    "a única função de banco chamada por src/ é a busca da listagem, e ela é leitura",
-    comRpc.length === 1 && comRpc[0] === "src/data/blog/posts.js",
-    comRpc.join(", ") || "nenhuma — a busca da Story 2.11 deveria estar aqui",
+    "as funções de banco chamadas por src/ saem só dos módulos de leitura da lista de permissão (a busca do Blog e a leitura de Carreiras)",
+    comRpc.length === ARQUIVOS_COM_RPC.length &&
+      ARQUIVOS_COM_RPC.every((a) => comRpc.includes(a)),
+    `encontrados: ${comRpc.join(", ") || "nenhum"} | permitidos: ${ARQUIVOS_COM_RPC.join(", ")}`,
   );
 
   /* E A ROTA DA FUNÇÃO tem UM cliente. Dois módulos falando com `/api/posts`
