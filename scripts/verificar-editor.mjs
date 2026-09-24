@@ -38,7 +38,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -67,8 +67,24 @@ const CAMINHO_SCHEMA = "src/domain/blog/schema.js";
 const CAMINHO_CONFIGURACAO = "src/admin/blog/configuracao.js";
 const CAMINHO_CONTEUDO = "src/admin/blog/conteudo.js";
 const CAMINHO_ICONES = "src/admin/blog/icones.js";
-const CAMINHO_BARRA = "src/admin/blog/BarraDoEditor.jsx";
+/* Story 5.1: a barra e a casca do editor passaram a morar em `admin/comum`,
+   parametrizadas por vocabulário. `CAMINHO_BARRA` aponta para onde o CÓDIGO
+   da barra mora agora (as asserções que leem o texto dela vêm junto); os
+   arquivos de `admin/blog` continuam existindo, com a mesma API, como
+   ligações finas — `CAMINHO_EDITOR` continua sendo o que se compila e monta,
+   e a ligação da barra entra na varredura de "elemento escrito à mão". */
+const CAMINHO_BARRA = "src/admin/comum/BarraDoEditor.jsx";
+const CAMINHO_BARRA_DO_BLOG = "src/admin/blog/BarraDoEditor.jsx";
 const CAMINHO_EDITOR = "src/admin/blog/Editor.jsx";
+const CAMINHO_EDITOR_COMUM = "src/admin/comum/EditorDeTexto.jsx";
+const CAMINHO_CONFIGURACAO_COMUM = "src/admin/comum/configuracaoDoEditor.js";
+const CAMINHO_PENDENCIA_COMUM = "src/admin/comum/pendencia.js";
+/* Revisão da 5.1: o saneamento da entrada ganhou fabricador comum, e o
+   arrasto do Blog voltou a ter código próprio (a largura da imagem). */
+const CAMINHO_CONTEUDO_COMUM = "src/admin/comum/conteudo.js";
+const CAMINHO_ARRASTO = "src/admin/blog/arrasto.js";
+const CAMINHO_ARRASTO_COMUM = "src/admin/comum/arrasto.js";
+const DIRETORIO_COMUM = "src/admin/comum";
 const CAMINHO_APP_CSS = "src/App.css";
 
 /* A tela da Story 2.6, a gaveta e os dois módulos puros da Story 2.7. */
@@ -942,11 +958,12 @@ if (schema && configuracao) {
         return !lancou && achados.length === 1 && achados[0].chave === "ruim";
       })(),
     );
-    const fonteConfig = tentar(
-      `${CAMINHO_CONFIGURACAO} legível`,
-      () => ler(CAMINHO_CONFIGURACAO),
-      "",
-    );
+    /* Story 5.1: a derivação mora em `admin/comum/configuracaoDoEditor.js`, e
+       a do Blog é a ligação fina. As DUAS são lidas: o código que deriva se
+       mudou de arquivo, e a asserção se muda junto, sem soltar a ligação. */
+    const fonteConfig = [CAMINHO_CONFIGURACAO, CAMINHO_CONFIGURACAO_COMUM]
+      .map((arquivo) => tentar(`${arquivo} legível`, () => ler(arquivo), ""))
+      .join("\n");
     afirmar(
       "a derivação da barra não lança por voz no caminho de render (`exigir` não é chamado)",
       !/\bexigir\s*\(/.test(mascararComentariosJs(fonteConfig)),
@@ -1070,7 +1087,16 @@ if (schema && configuracao) {
     [CAMINHO_BARRA]: Object.freeze(["titulo2", "titulo3", "negrito", "italico", "link"]),
   });
 
-  for (const arquivo of [CAMINHO_BARRA, CAMINHO_EDITOR]) {
+  /* Story 5.1: a barra e a casca foram para `admin/comum`; as ligações do Blog
+     (`CAMINHO_BARRA_DO_BLOG`, `CAMINHO_EDITOR`) continuam na varredura, e a
+     casca comum (`CAMINHO_EDITOR_COMUM`) entra nela. Nenhum dos quatro tem
+     exceção além da declarada para a barra comum. */
+  for (const arquivo of [
+    CAMINHO_BARRA,
+    CAMINHO_EDITOR,
+    CAMINHO_BARRA_DO_BLOG,
+    CAMINHO_EDITOR_COMUM,
+  ]) {
     const fonte = tentar(`${arquivo} legível`, () => ler(arquivo), "");
     const excecoesDeChave = EXCECOES_DE_CHAVE_NA_BARRA[arquivo] ?? [];
     const termos = [
@@ -1186,6 +1212,11 @@ if (schema) {
       CAMINHO_CONFIGURACAO,
       CAMINHO_BARRA,
       CAMINHO_EDITOR,
+      /* Story 5.1: o código que se mudou para `admin/comum` e as ligações que
+         ficaram no Blog. */
+      CAMINHO_CONFIGURACAO_COMUM,
+      CAMINHO_EDITOR_COMUM,
+      CAMINHO_BARRA_DO_BLOG,
     ]) {
       const codigo = mascararComentariosJs(tentar(`${arquivo} legível`, () => ler(arquivo), ""));
       afirmar(
@@ -1688,6 +1719,1207 @@ if (schema) {
   }
 }
 
+/* ─── (d2) Vocabulário reduzido e peças comuns (Story 5.1) ───────────────── */
+
+secao("(d2) Vocabulário reduzido e peças comuns (Story 5.1)");
+
+/**
+ * As origens de import que `src/admin/comum/**` pode usar: LISTA DE PERMISSÃO,
+ * não de proibição. `admin/comum` serve o Blog e Carreiras, e não fixa
+ * vocabulário de domínio (emenda a AD-15): o vocabulário chega por parâmetro.
+ * Um import de `admin/blog`, `admin/carreiras`, `domain/`, `data/` ou `pages`
+ * é recusado por não estar na lista, e não por estar numa lista de proibidos.
+ *
+ * Relativo é resolvido antes de julgar: `../blog/x` a partir de `comum` é
+ * `src/admin/blog/x`, e cai; `../shell/voz.js` é o shell, e passa.
+ */
+function origemPermitidaNoComum(especificador, arquivoRelativo) {
+  if (typeof especificador !== "string" || especificador === "") return false;
+  /* Apelido com segmento `.` ou `..` é RECUSADO, e não normalizado: o prefixo
+     permitido é casado sobre o texto, e `@/lib/../domain/blog/schema` começa
+     com `@/lib/` e resolve para `domain/`. Nenhum import legítimo do comum
+     precisa subir diretório depois do apelido. */
+  if (especificador.startsWith("@/") && /(^|\/)\.{1,2}(\/|$)/.test(especificador.slice(2))) {
+    return false;
+  }
+  if (especificador === "react") return true;
+  if (especificador.startsWith("@tiptap/")) return true;
+  if (especificador === "lucide-react" || especificador === "framer-motion") return true;
+  if (/^@\/components\/ui\/[\w./-]+$/.test(especificador)) return true;
+  if (/^@\/lib\/[\w./-]+$/.test(especificador)) return true;
+  if (/^@\/admin\/shell\/[\w./-]+$/.test(especificador)) return true;
+  if (/^@\/admin\/comum\/[\w./-]+$/.test(especificador)) return true;
+  if (especificador.startsWith("./") || especificador.startsWith("../")) {
+    const resolvido = path.posix.normalize(
+      path.posix.join(path.posix.dirname(arquivoRelativo), especificador),
+    );
+    return (
+      resolvido.startsWith(`${DIRETORIO_COMUM}/`) || resolvido.startsWith("src/admin/shell/")
+    );
+  }
+  return false;
+}
+
+/**
+ * Toda origem que um fonte importa: `import … from`, `import "…"`,
+ * `export … from`, `import("…")` e `require("…")`. O fonte é lido MASCARADO:
+ * comentário que cite `admin/blog` não é import. Import dinâmico ou `require`
+ * com argumento que não é literal não tem origem que se possa julgar, e volta
+ * como `(não literal)`, que nenhuma lista de permissão aceita. O mesmo vale
+ * para modelo com interpolação (`` import(`@/lib/${x}`) ``): o texto não é a
+ * origem, e o que a origem será só se sabe rodando.
+ *
+ * Espaço em volta de `import`, `from` e `export` é OPCIONAL, como na
+ * linguagem: `import{ y }from"x"` e `export*from"x"` são imports válidos, e
+ * exigir espaço os deixava passar sem julgamento. O `(?<![\w$.])` antes da
+ * palavra é o que impede de casar dentro de `reimport` ou de `obj.import`.
+ */
+function origensDeImport(fonte) {
+  const codigo = mascararComentariosJs(fonte);
+  const origens = [];
+  const padroes = [
+    /(?<![\w$.])import\s*(?:[^'"`;()]*?\s*\bfrom\s*)?["']([^"']+)["']/g,
+    /(?<![\w$.])export\s*[^'"`;]*?\s*\bfrom\s*["']([^"']+)["']/g,
+  ];
+  for (const padrao of padroes) {
+    for (const achado of codigo.matchAll(padrao)) origens.push(achado[1]);
+  }
+  for (const achado of codigo.matchAll(
+    /(?<![\w$.])(?:import|require)\s*\(\s*(["'`])((?:(?!\1)[^\\]|\\.)*)\1\s*\)/g,
+  )) {
+    const [, aspa, texto] = achado;
+    origens.push(aspa === "`" && texto.includes("${") ? `(não literal: modelo ${texto})` : texto);
+  }
+  for (const achado of codigo.matchAll(/(?<![\w$.])(?:import|require)\s*\(\s*([^"'`\s)])/g)) {
+    origens.push(`(não literal: ${achado[1]}…)`);
+  }
+  return origens;
+}
+
+/** Os `.js`/`.jsx` de um diretório, recursivamente, relativos à raiz, com `/`. */
+function arquivosDe(diretorioRelativo) {
+  const saida = [];
+  const varrer = (relativo) => {
+    let entradas = [];
+    try {
+      entradas = readdirSync(path.join(raiz, relativo), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entrada of entradas) {
+      const filho = `${relativo}/${entrada.name}`;
+      if (entrada.isDirectory()) varrer(filho);
+      else if (/\.(js|jsx|mjs)$/.test(entrada.name)) saida.push(filho);
+    }
+  };
+  varrer(diretorioRelativo);
+  return saida.sort();
+}
+
+/* O detector precisa poder acusar, e absolver o que é permitido. Sem isto ele
+   seria uma regex que nunca viu um positivo. Cada origem recusada pela story
+   é tentada, pelo apelido e pelo caminho relativo. */
+{
+  const deComum = `${DIRETORIO_COMUM}/Qualquer.jsx`;
+  const recusadas = [
+    'import x from "@/admin/blog/x";',
+    'import x from "@/admin/carreiras/x";',
+    'import { y } from "@/domain/blog/schema";',
+    'import { y } from "@/data/blog/posts";',
+    'import Pagina from "@/pages/Blog";',
+    'import x from "../blog/configuracao.js";',
+    'import { y } from "../../domain/blog/schema.js";',
+    'export { y } from "../carreiras/x.js";',
+    'const m = await import("@/admin/blog/x");',
+    'const m = await import(caminho);',
+    'import "@/data/supabase/cliente";',
+    /* Revisão da 5.1: apelido que sobe diretório depois do prefixo
+       permitido, import sem espaço, e modelo com interpolação. Os três
+       passavam. */
+    'import { y } from "@/lib/../domain/blog/schema";',
+    'import x from "@/admin/comum/../blog/x";',
+    'import x from "@/admin/shell/../../data/x";',
+    'import{ y }from"@/domain/blog/schema";',
+    'export*from"@/admin/blog/x";',
+    "const m = await import(`@/admin/comum/${nome}`);",
+  ];
+  const absolvidas = [
+    'import { useState } from "react";',
+    'import { useEditor } from "@tiptap/react";',
+    'import { X } from "lucide-react";',
+    'import { motion } from "framer-motion";',
+    'import { Button } from "@/components/ui/button";',
+    'import { cn } from "@/lib/utils";',
+    'import { exigir } from "@/admin/shell/voz";',
+    'import { diagnosticarRotuloDeAcao } from "../shell/voz.js";',
+    'import { ICONES } from "./icones.js";',
+    'import Barra from "@/admin/comum/BarraDoEditor";',
+    '// import x from "@/admin/blog/x";\nimport { cn } from "@/lib/utils";',
+    // Sem espaço também ABSOLVE o que é permitido: o detector lê a origem.
+    'import{ cn }from"@/lib/utils";',
+    'export*from"./icones.js";',
+    "const m = await import(`@/admin/comum/icones`);",
+  ];
+  const acusadas = recusadas.filter((fonte) =>
+    origensDeImport(fonte).some((origem) => !origemPermitidaNoComum(origem, deComum)),
+  );
+  const acusadasSemRazao = absolvidas.filter((fonte) =>
+    origensDeImport(fonte).some((origem) => !origemPermitidaNoComum(origem, deComum)),
+  );
+  afirmar(
+    "a varredura de imports de `admin/comum` ACUSA admin/blog, admin/carreiras, domain/, data/ e pages, pelo apelido e pelo caminho relativo",
+    acusadas.length === recusadas.length,
+    `passaram sem acusar: ${recusadas.filter((f) => !acusadas.includes(f)).join(" | ")}`,
+  );
+  afirmar(
+    "e ABSOLVE a lista de permissão (react, @tiptap/*, lucide-react, framer-motion, ui, lib, shell, o próprio comum) e o import que só existe em comentário",
+    acusadasSemRazao.length === 0 &&
+      absolvidas.every((fonte) => origensDeImport(fonte).length > 0),
+    `acusadas sem razão: ${acusadasSemRazao.join(" | ")}`,
+  );
+  /* E a palavra só conta como import quando é a PALAVRA: identificador que
+     termina em `import` ou método chamado `import` não é import. */
+  {
+    const falsos = origensDeImport(
+      'reimport("@/admin/blog/x");\nobj.import("@/data/x");\nconst exportfrom = "x";',
+    );
+    afirmar(
+      "e não confunde `reimport(...)`, `obj.import(...)` nem um identificador com a palavra `import`",
+      falsos.length === 0,
+      falsos.join(" | "),
+    );
+    /* O modelo com interpolação é julgado como NÃO LITERAL, e não pelo
+       texto: `@/lib/${x}` começa com um prefixo permitido, e só não passa
+       hoje porque `$` está fora da classe de caracteres do prefixo, um
+       acaso que a próxima edição da regex desfaz. */
+    const doModelo = origensDeImport("const m = await import(`@/lib/${nome}`);");
+    afirmar(
+      "import dinâmico com modelo interpolado vira `(não literal)`, e não uma origem julgada pelo texto",
+      doModelo.length === 1 && doModelo[0].startsWith("(não literal") &&
+        !origemPermitidaNoComum(doModelo[0], `${DIRETORIO_COMUM}/Qualquer.jsx`),
+      doModelo.join(" | "),
+    );
+  }
+}
+
+/* A varredura de verdade, sobre `src/admin/comum/**`. */
+{
+  const arquivos = arquivosDe(DIRETORIO_COMUM);
+  const foraDaLista = [];
+  let totalDeOrigens = 0;
+  for (const arquivo of arquivos) {
+    const fonte = tentar(`${arquivo} legível`, () => ler(arquivo), "");
+    for (const origem of origensDeImport(fonte)) {
+      totalDeOrigens += 1;
+      if (!origemPermitidaNoComum(origem, arquivo)) foraDaLista.push(`${arquivo}: ${origem}`);
+    }
+  }
+  const esperados = [
+    CAMINHO_BARRA,
+    CAMINHO_EDITOR_COMUM,
+    CAMINHO_CONFIGURACAO_COMUM,
+    CAMINHO_PENDENCIA_COMUM,
+    `${DIRETORIO_COMUM}/PilulaDeEstado.jsx`,
+    `${DIRETORIO_COMUM}/icones.js`,
+    `${DIRETORIO_COMUM}/arrasto.js`,
+    CAMINHO_CONTEUDO_COMUM,
+  ];
+  afirmar(
+    "as peças comuns existem em `src/admin/comum/` (barra, casca do editor, configuração, pendência, pílula, ícones, arrasto, saneamento da entrada)",
+    esperados.every((arquivo) => arquivos.includes(arquivo)),
+    `faltam: ${esperados.filter((a) => !arquivos.includes(a)).join(", ")}`,
+  );
+  afirmar(
+    "`src/admin/comum/**` só importa da lista de permissão, e não fixa vocabulário de domínio",
+    arquivos.length >= esperados.length && totalDeOrigens > 0 && foraDaLista.length === 0,
+    foraDaLista.join(" | ") || `${arquivos.length} arquivo(s), ${totalDeOrigens} origem(ns)`,
+  );
+}
+
+/* Os dois módulos do núcleo que a verificação importa DIRETAMENTE, sem
+   empacotador: sem JSX e com imports relativos. */
+const configuracaoComum = await tentar(
+  "`admin/comum/configuracaoDoEditor.js` importa e executa em Node",
+  () => import(urlDe(CAMINHO_CONFIGURACAO_COMUM)),
+  null,
+);
+const pendenciaComum = await tentar(
+  "`admin/comum/pendencia.js` importa e executa em Node",
+  () => import(urlDe(CAMINHO_PENDENCIA_COMUM)),
+  null,
+);
+const renderizadorDaStory = await tentar(
+  "o renderizador único importa e executa em Node",
+  () => import(urlDe(CAMINHO_RENDERIZADOR)),
+  null,
+);
+
+if (schema) {
+  const POST = schema.VOCABULARIO_DO_POST;
+  const DESCRICAO = schema.VOCABULARIO_DA_DESCRICAO;
+
+  afirmar(
+    "o schema exporta `VOCABULARIO_DO_POST`, `VOCABULARIO_DA_DESCRICAO` e `validarDocumentoNoVocabulario`",
+    POST !== undefined &&
+      DESCRICAO !== undefined &&
+      typeof schema.validarDocumentoNoVocabulario === "function",
+  );
+
+  if (POST && DESCRICAO && typeof schema.validarDocumentoNoVocabulario === "function") {
+    const noVocabulario = (entrada, vocabulario) => {
+      try {
+        return schema.validarDocumentoNoVocabulario(entrada, vocabulario);
+      } catch (erro) {
+        afirmar(
+          "validarDocumentoNoVocabulario não lança para quem chama",
+          false,
+          `${JSON.stringify(entrada)?.slice(0, 80)} → ${erro?.message ?? erro}`,
+        );
+        return { ok: false, erro: null, documento: null };
+      }
+    };
+
+    afirmar(
+      "o vocabulário do Post é o schema inteiro, sem projeção",
+      POST.nos === schema.NOS &&
+        POST.marcas === schema.MARCAS &&
+        POST.elementos === schema.ELEMENTOS &&
+        igual([...POST.niveisDeTitulo], [...schema.NIVEIS_DE_TITULO]) &&
+        igual([...POST.alinhamentos], [...schema.ALINHAMENTOS_DE_TEXTO]) &&
+        igual([...POST.coresDeDestaque], [...schema.CORES_DE_DESTAQUE]),
+    );
+
+    /* PROJEÇÃO, não segunda declaração: cada forma da Descrição é a MESMA do
+       Post, ou ela com menos atributos. Uma cópia passaria na matriz de hoje e
+       divergiria no primeiro conserto feito num lado só. */
+    afirmar(
+      "a Descrição é PROJEÇÃO do schema: marcas, texto, quebra e listas são os MESMOS objetos do Post",
+      DESCRICAO.marcas.link === schema.MARCAS.link &&
+        DESCRICAO.marcas.bold === schema.MARCAS.bold &&
+        DESCRICAO.marcas.italic === schema.MARCAS.italic &&
+        DESCRICAO.nos.text === schema.NOS.text &&
+        DESCRICAO.nos.hardBreak === schema.NOS.hardBreak &&
+        DESCRICAO.nos.bulletList === schema.NOS.bulletList &&
+        DESCRICAO.nos.orderedList === schema.NOS.orderedList &&
+        DESCRICAO.nos.heading.atributos.level === schema.NOS.heading.atributos.level,
+    );
+    afirmar(
+      "a Descrição tem exatamente os nós e as marcas que a story nomeia",
+      igual(Object.keys(DESCRICAO.nos).sort(), [
+        "bulletList",
+        "doc",
+        "hardBreak",
+        "heading",
+        "listItem",
+        "orderedList",
+        "paragraph",
+        "text",
+      ]) &&
+        igual(Object.keys(DESCRICAO.marcas).sort(), ["bold", "italic", "link"]) &&
+        igual(Object.keys(DESCRICAO.nos.paragraph.atributos), []) &&
+        igual(Object.keys(DESCRICAO.nos.heading.atributos), ["level"]) &&
+        igual([...DESCRICAO.alinhamentos], []) &&
+        igual([...DESCRICAO.coresDeDestaque], []),
+      `nós: ${Object.keys(DESCRICAO.nos).join(", ")} | marcas: ${Object.keys(DESCRICAO.marcas).join(", ")}`,
+    );
+    /* `every` sobre lista vazia é verdadeiro: sem o piso de uma mensagem, um
+       vocabulário que perdesse as mensagens passaria aqui por vacuidade. */
+    const mensagensDaDescricao = Object.values(DESCRICAO.mensagens ?? {});
+    afirmar(
+      "as mensagens novas não têm travessão (e existem: pelo menos uma)",
+      mensagensDaDescricao.length >= 1 &&
+        mensagensDaDescricao.every((m) => typeof m === "string" && !m.includes("—")),
+      `${mensagensDaDescricao.length} mensagem(ns)`,
+    );
+    /* O domínio do Blog não conhece a entidade de outro módulo: a projeção
+       fala de "descrição" e de "conteúdo", e quem a usa personaliza. */
+    afirmar(
+      "as mensagens da projeção são NEUTRAS: nenhuma fala de vaga (nem de post)",
+      mensagensDaDescricao.length >= 1 &&
+        mensagensDaDescricao.every(
+          (m) => !/(?<![\p{L}\p{N}_])(vagas?|posts?)(?![\p{L}\p{N}_])/iu.test(m),
+        ),
+      mensagensDaDescricao.join(" | "),
+    );
+
+    /* ── Matriz I/O, linha 1: a projeção limpa conteúdo do Blog ─────────── */
+    const doBlog = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { textAlign: "center" },
+          content: [{ type: "text", text: "centralizado" }],
+        },
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Seção" }] },
+        {
+          type: "blockquote",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "citado" }] }],
+        },
+        { type: "image", attrs: { src: "https://chatclean.com.br/a.png", alt: null, title: null } },
+        {
+          type: "codeBlock",
+          attrs: { language: null },
+          content: [{ type: "text", text: "npm run verificar" }],
+        },
+        { type: "horizontalRule" },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              marks: [{ type: "bold" }, { type: "highlight", attrs: { cor: "amarelo" } }],
+              text: "forte e destacado",
+            },
+            { type: "text", text: " e " },
+            {
+              type: "text",
+              marks: [{ type: "link", attrs: { href: "https://chatclean.com.br/blog" } }],
+              text: "um link",
+            },
+          ],
+        },
+      ],
+    };
+    const limpoEsperado = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "centralizado" }] },
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Seção" }] },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", marks: [{ type: "bold" }], text: "forte e destacado" },
+            { type: "text", text: " e " },
+            {
+              type: "text",
+              marks: [{ type: "link", attrs: { href: "https://chatclean.com.br/blog" } }],
+              text: "um link",
+            },
+          ],
+        },
+      ],
+    };
+    const limpo = noVocabulario(doBlog, DESCRICAO);
+    afirmar(
+      "matriz 1: a projeção limpa o conteúdo do Blog (fica parágrafo sem alinhamento, H2, negrito e link; saem citação, imagem, código, linha e destaque)",
+      limpo.ok === true && igualProfundo(limpo.documento, limpoEsperado) && limpo.totalDescartado > 0,
+      `${JSON.stringify(limpo.documento)} | descartado: ${limpo.totalDescartado}`,
+    );
+    afirmar(
+      "e o MESMO documento, no vocabulário do Post, guarda o que a Descrição descarta (a asserção distingue os dois)",
+      (() => {
+        const noPost = noVocabulario(doBlog, POST);
+        const tipos = JSON.stringify(noPost.documento);
+        return (
+          noPost.ok === true &&
+          noPost.totalDescartado === 0 &&
+          ["blockquote", "image", "codeBlock", "horizontalRule", "highlight", "textAlign"].every(
+            (nome) => tipos.includes(`"${nome}"`),
+          )
+        );
+      })(),
+    );
+
+    /* ── Matriz I/O, linha 2: a projeção aceita tudo o que é dela ───────── */
+    const daDescricao = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Requisitos" }] },
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", marks: [{ type: "italic" }], text: "inglês" }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "orderedList",
+          attrs: { start: 1, type: null },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    { type: "text", text: "primeira linha" },
+                    { type: "hardBreak" },
+                    { type: "text", text: "segunda linha" },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              marks: [
+                {
+                  type: "link",
+                  attrs: {
+                    href: "mailto:vagas@chatclean.com.br",
+                    target: "_blank",
+                    rel: "noopener noreferrer nofollow",
+                    class: null,
+                    title: null,
+                  },
+                },
+              ],
+              text: "escreva para nós",
+            },
+          ],
+        },
+      ],
+    };
+    const fixo = noVocabulario(daDescricao, DESCRICAO);
+    afirmar(
+      "matriz 2: documento só com o que é da Descrição (H3, as duas listas, itálico, link mailto, quebra) atravessa idêntico: ponto fixo",
+      fixo.ok === true &&
+        JSON.stringify(fixo.documento) === JSON.stringify(daDescricao) &&
+        fixo.totalDescartado === 0 &&
+        fixo.totalSaneado === 0,
+      JSON.stringify(fixo.descartados ?? []),
+    );
+
+    /* ── Matriz I/O, linha 3: entrada que não é documento ──────────────── */
+    {
+      const entradas = [null, undefined, [], "doc", 7, { type: "paragraph" }, { type: "doc", content: 3 }];
+      const resultados = entradas.map((entrada) => noVocabulario(entrada, DESCRICAO));
+      afirmar(
+        "matriz 3: o que não é documento volta `{ ok: false, erro }` sem exceção, e a frase fala de descrição, não de post",
+        resultados.every(
+          (r) =>
+            r.ok === false &&
+            typeof r.erro?.mensagem === "string" &&
+            /descrição/i.test(r.erro.mensagem) &&
+            !/\bpost\b/i.test(r.erro.mensagem),
+        ),
+        resultados.map((r) => r.erro?.mensagem).join(" | "),
+      );
+      afirmar(
+        "e o vocabulário do Post continua falando de post na mesma situação",
+        entradas.every((entrada) => /\bpost\b/i.test(noVocabulario(entrada, POST).erro?.mensagem ?? "")),
+      );
+      /* Os malformados de SEGUNDO nível (revisão da 5.1): a forma de um nó que
+         a travessia não sabe ler (`doc: {}`, sem `texto` nem `filhos`),
+         `filhos` que não é lista, marca que não é objeto. Antes, só o primeiro
+         nível era olhado, e `nos.doc = {}` lançava dentro da travessia. */
+      const malformados = [
+        null,
+        {},
+        { nos: {} },
+        "vocabulario",
+        { ...DESCRICAO, nos: { ...DESCRICAO.nos, doc: {} } },
+        { ...DESCRICAO, nos: { ...DESCRICAO.nos, listItem: { filhos: "paragraph" } } },
+        { ...DESCRICAO, nos: { ...DESCRICAO.nos, text: null } },
+        { ...DESCRICAO, marcas: { ...DESCRICAO.marcas, bold: true } },
+        { ...DESCRICAO, marcas: [] },
+      ];
+      const resultadosMalformados = malformados.map((ruim) => {
+        try {
+          return schema.validarDocumentoNoVocabulario(daDescricao, ruim);
+        } catch (erro) {
+          return { lancou: String(erro?.message ?? erro) };
+        }
+      });
+      afirmar(
+        "vocabulário fora de forma volta `{ ok: false }` em vez de lançar, inclusive no segundo nível (`nos.doc = {}`, `filhos` que não é lista, marca que não é objeto)",
+        resultadosMalformados.every((r) => r.ok === false && r.lancou === undefined),
+        resultadosMalformados
+          .map((r, i) => (r.ok === false ? null : `#${i}: ${r.lancou ?? "ok:true"}`))
+          .filter(Boolean)
+          .join(" | "),
+      );
+      afirmar(
+        "e os dois vocabulários de verdade passam pela MESMA checagem de forma (a asserção distingue)",
+        noVocabulario(daDescricao, DESCRICAO).ok === true &&
+          noVocabulario(daDescricao, POST).ok === true,
+      );
+    }
+
+    /* `validarDocumento` aceita o vocabulário como segundo parâmetro, e com
+       ele é EXATAMENTE `validarDocumentoNoVocabulario`: duas portas para a
+       mesma travessia, nunca duas travessias. */
+    {
+      const corpus = [doBlog, daDescricao, null, [], 7, { type: "doc", content: [] }];
+      const divergentes = corpus.filter(
+        (entrada) =>
+          JSON.stringify(schema.validarDocumento(entrada, DESCRICAO)) !==
+          JSON.stringify(noVocabulario(entrada, DESCRICAO)),
+      );
+      afirmar(
+        "`validarDocumento(x, VOCABULARIO_DA_DESCRICAO)` é byte a byte `validarDocumentoNoVocabulario(x, VOCABULARIO_DA_DESCRICAO)`",
+        divergentes.length === 0 &&
+          // Distingue: com a Descrição, o documento do Blog perde conteúdo.
+          schema.validarDocumento(doBlog, DESCRICAO).totalDescartado > 0,
+        divergentes.map((d) => JSON.stringify(d)?.slice(0, 60)).join(" | "),
+      );
+    }
+
+    /* ── Matriz I/O, linha 4: o vocabulário do Blog é o padrão ─────────── */
+    {
+      const corpus = [
+        doBlog,
+        daDescricao,
+        null,
+        [],
+        { type: "doc", content: [] },
+        { type: "doc", content: [{ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "h1" }] }] },
+        { type: "doc", content: [{ type: "table", content: [] }, { type: "paragraph" }] },
+      ];
+      afirmar(
+        "matriz 4: `validarDocumento(x)` sem vocabulário é byte a byte `validarDocumentoNoVocabulario(x, VOCABULARIO_DO_POST)`",
+        corpus.every(
+          (entrada) =>
+            JSON.stringify(schema.validarDocumento(entrada)) ===
+            JSON.stringify(noVocabulario(entrada, POST)),
+        ),
+      );
+      if (renderizadorDaStory) {
+        const { derivarHtml } = renderizadorDaStory;
+        afirmar(
+          "matriz 4: `derivarHtml(x)` sem vocabulário é byte a byte `derivarHtml(x, VOCABULARIO_DO_POST)`",
+          corpus.every(
+            (entrada) =>
+              JSON.stringify(derivarHtml(entrada)) ===
+              JSON.stringify(derivarHtml(entrada, POST)),
+          ),
+        );
+
+        /* O HTML reduzido: o MESMO renderizador, e o que a Descrição não
+           aceita não chega ao HTML porque caiu na validação antes. */
+        const reduzido = derivarHtml(doBlog, DESCRICAO);
+        const completo = derivarHtml(doBlog);
+        const PROIBIDOS = ["<blockquote", "<img", "<pre", "<hr", "<mark"];
+        afirmar(
+          "`derivarHtml` na Descrição sai sem `<blockquote>`, `<img>`, `<pre>`, `<hr>` e `<mark>`, e com o título, o negrito e o link",
+          reduzido.ok === true &&
+            PROIBIDOS.every((marca) => !reduzido.html.includes(marca)) &&
+            reduzido.html.includes("<h2>") &&
+            reduzido.html.includes("<strong>") &&
+            reduzido.html.includes('<a href="https://chatclean.com.br/blog"') &&
+            !/\sclass=/.test(reduzido.html) &&
+            !/text-align/.test(reduzido.html),
+          reduzido.html,
+        );
+        afirmar(
+          "e o mesmo documento pelo padrão do Post tem os cinco (a asserção distingue os dois)",
+          completo.ok === true && PROIBIDOS.every((marca) => completo.html.includes(marca)),
+          completo.html,
+        );
+        afirmar(
+          "`derivarHtml` na Descrição recusa o que não é documento com a frase da descrição",
+          derivarHtml(null, DESCRICAO).ok === false &&
+            /descrição/i.test(derivarHtml(null, DESCRICAO).erro?.mensagem ?? ""),
+        );
+      }
+    }
+
+    /* ── Matriz I/O, linha 5: a configuração reduzida ──────────────────── */
+    if (configuracaoComum && typeof configuracaoComum.criarConfiguracaoDoEditor === "function") {
+      const reduzida = configuracaoComum.criarConfiguracaoDoEditor(DESCRICAO);
+      const doPost = configuracaoComum.criarConfiguracaoDoEditor(POST);
+      const chaves = reduzida.controlesDaBarra().map((c) => c.chave);
+      afirmar(
+        "matriz 5: a barra reduzida tem titulo2, titulo3, negrito, italico, listaOrdenada, listaComMarcadores e link, nesta ordem",
+        igual(chaves, [
+          "titulo2",
+          "titulo3",
+          "negrito",
+          "italico",
+          "listaOrdenada",
+          "listaComMarcadores",
+          "link",
+        ]),
+        chaves.join(", "),
+      );
+      const nomesDe = (config) => config.extensoesDoEditor().map((e) => e.name);
+      const nomesReduzidos = nomesDe(reduzida);
+      const nomesDoPost = nomesDe(doPost);
+      afirmar(
+        "matriz 5: as extensões reduzidas não incluem Image, Highlight nem TextAlign",
+        !["image", "highlight", "textAlign"].some((nome) => nomesReduzidos.includes(nome)) &&
+          nomesReduzidos.includes("starterKit"),
+        nomesReduzidos.join(", "),
+      );
+      afirmar(
+        "e as do Post incluem as três, na ordem de sempre (a asserção distingue os dois)",
+        igual(nomesDoPost, ["starterKit", "textAlign", "image", "highlight"]),
+        nomesDoPost.join(", "),
+      );
+      {
+        const kit = reduzida.configuracaoDoKit();
+        afirmar(
+          "o kit reduzido desliga citação, bloco de código e linha divisória, e só oferece títulos 2 e 3",
+          kit.blockquote === false &&
+            kit.codeBlock === false &&
+            kit.horizontalRule === false &&
+            igual(kit.heading?.levels, [2, 3]) &&
+            typeof kit.link === "object",
+          JSON.stringify(kit, (_c, v) => (typeof v === "function" ? "ƒ" : v)),
+        );
+      }
+      afirmar(
+        "a ligação do Blog é o núcleo sobre `VOCABULARIO_DO_POST`: mesma barra, mesmas extensões, mesmo kit",
+        configuracao !== null &&
+          igual(
+            configuracao.controlesDaBarra().map((c) => c.chave),
+            doPost.controlesDaBarra().map((c) => c.chave),
+          ) &&
+          igual(nomesDe(configuracao), nomesDoPost) &&
+          JSON.stringify(configuracao.configuracaoDoKit()) ===
+            JSON.stringify(doPost.configuracaoDoKit()),
+      );
+      afirmar(
+        "o rótulo da área de escrita vem do vocabulário (Post e Descrição), e quem chama ainda pode trocá-lo",
+        doPost.opcoesDoEditor().editorProps.attributes["aria-label"] === "Conteúdo do post" &&
+          reduzida.opcoesDoEditor().editorProps.attributes["aria-label"] ===
+            DESCRICAO.mensagens.rotuloDoConteudo &&
+          reduzida.opcoesDoEditor({ rotulo: "Outro" }).editorProps.attributes["aria-label"] ===
+            "Outro",
+      );
+
+      /* `JSON.stringify` do kit, acima, PERDE as funções: `isAllowedUri` e
+         `shouldAutoLink` somem da comparação. Aqui elas são EXECUTADAS nos
+         dois lados, sobre as mesmas amostras. */
+      {
+        const AMOSTRAS = [
+          "https://chatclean.com.br",
+          "mailto:contato@chatclean.com.br",
+          "javascript:alert(1)",
+          "data:text/html,oi",
+          "",
+        ];
+        const comportamento = (config) => {
+          const link = config.configuracaoDoKit().link ?? {};
+          return AMOSTRAS.map((url) => [
+            typeof link.isAllowedUri === "function" ? link.isAllowedUri(url) : "ausente",
+            typeof link.shouldAutoLink === "function" ? link.shouldAutoLink(url) : "ausente",
+          ]);
+        };
+        const linkDoBlog = configuracao ? comportamento(configuracao) : null;
+        const linkDoNucleo = comportamento(doPost);
+        afirmar(
+          "o link da ligação do Blog se COMPORTA como o do núcleo: `isAllowedUri` e `shouldAutoLink` dão o mesmo nas mesmas amostras",
+          linkDoBlog !== null && igual(linkDoBlog, linkDoNucleo),
+          `Blog: ${JSON.stringify(linkDoBlog)} | núcleo: ${JSON.stringify(linkDoNucleo)}`,
+        );
+        afirmar(
+          "e o comportamento é o certo: https aceito, `javascript:` e `data:` recusados",
+          linkDoNucleo[0][0] === true &&
+            linkDoNucleo[0][1] === true &&
+            linkDoNucleo[2][0] === false &&
+            linkDoNucleo[2][1] === false &&
+            linkDoNucleo[3][0] === false,
+          JSON.stringify(linkDoNucleo),
+        );
+      }
+
+      /* Revisão da 5.1: a barra lê da CONFIGURAÇÃO se há imagem e destaque, e
+         com que cores. A configuração é a fonte única; a reduzida não oferece
+         nada disso, a do Post oferece tudo. */
+      afirmar(
+        "a configuração reduzida expõe `comImagem: false`, `comDestaque: false` e nenhuma cor de destaque",
+        reduzida.comImagem === false &&
+          reduzida.comDestaque === false &&
+          Array.isArray(reduzida.coresDeDestaque) &&
+          reduzida.coresDeDestaque.length === 0,
+        JSON.stringify({
+          comImagem: reduzida.comImagem,
+          comDestaque: reduzida.comDestaque,
+          cores: reduzida.coresDeDestaque,
+        }),
+      );
+      afirmar(
+        "a do Post expõe `comImagem: true`, `comDestaque: true` e as quatro cores, na ordem do schema",
+        doPost.comImagem === true &&
+          doPost.comDestaque === true &&
+          igual([...doPost.coresDeDestaque], ["amarelo", "verde", "azul", "rosa"]) &&
+          igual([...doPost.coresDeDestaque], [...schema.CORES_DE_DESTAQUE]),
+        JSON.stringify(doPost.coresDeDestaque),
+      );
+      afirmar(
+        "e a ligação do Blog entrega à barra EXATAMENTE isso (a barra do Blog lê `comImagem`, `comDestaque` e `coresDeDestaque` da ligação)",
+        configuracao !== null &&
+          configuracao.comImagem === true &&
+          configuracao.comDestaque === true &&
+          Array.isArray(configuracao.coresDeDestaque) &&
+          igual([...configuracao.coresDeDestaque], [...doPost.coresDeDestaque]),
+      );
+
+      /* O gancho de arrasto de imagem só é instalado onde há imagem. */
+      {
+        const ganchosDoBlog = configuracao?.opcoesDoEditor?.().editorProps?.handleDOMEvents ?? {};
+        const ganchosReduzidos = reduzida.opcoesDoEditor().editorProps?.handleDOMEvents ?? {};
+        afirmar(
+          "a ligação do Blog registra o gancho `dragstart` (arrasto de imagem) em `editorProps.handleDOMEvents`",
+          typeof ganchosDoBlog.dragstart === "function",
+          Object.keys(ganchosDoBlog).join(", ") || "nenhum gancho",
+        );
+        afirmar(
+          "e a configuração reduzida (sem imagem) NÃO registra gancho de arrasto de imagem",
+          !Object.hasOwn(ganchosReduzidos, "dragstart"),
+          Object.keys(ganchosReduzidos).join(", "),
+        );
+      }
+
+      /* Vocabulário incompleto lança NA CRIAÇÃO, com o que falta nomeado. */
+      {
+        const tentarCriar = (vocabulario) => {
+          try {
+            configuracaoComum.criarConfiguracaoDoEditor(vocabulario);
+            return null;
+          } catch (erro) {
+            return erro;
+          }
+        };
+        const casos = [
+          [null, "objeto"],
+          [{ ...DESCRICAO, nos: null }, "nos"],
+          [{ ...DESCRICAO, marcas: [] }, "marcas"],
+          [{ ...DESCRICAO, elementos: undefined }, "elementos"],
+          [{ ...DESCRICAO, alinhamentos: "left" }, "alinhamentos"],
+          [{ ...DESCRICAO, coresDeDestaque: null }, "coresDeDestaque"],
+          [{ ...DESCRICAO, mensagens: {} }, "rotuloDoConteudo"],
+        ];
+        const errados = casos.filter(([vocabulario, nome]) => {
+          const erro = tentarCriar(vocabulario);
+          return !(erro instanceof TypeError && erro.message.includes(nome));
+        });
+        afirmar(
+          "`criarConfiguracaoDoEditor` com vocabulário incompleto lança `TypeError` que nomeia o que falta",
+          errados.length === 0,
+          errados.map(([, nome]) => nome).join(", "),
+        );
+        afirmar(
+          "e com os dois vocabulários de verdade NÃO lança (a asserção distingue)",
+          tentarCriar(DESCRICAO) === null && tentarCriar(POST) === null,
+        );
+      }
+    } else {
+      afirmar("`criarConfiguracaoDoEditor` é exportado pelo núcleo comum", false);
+    }
+  }
+}
+
+/* A ligação fina do Blog mantém a MESMA API pública. As listas de nomes são
+   escritas à mão aqui de propósito: lê-las do próprio módulo faria a asserção
+   dizer apenas que ele é igual a si mesmo. */
+{
+  /* Revisão da 5.1 (troca registrada): a lista GANHA `comImagem`,
+     `comDestaque` e `coresDeDestaque`, que a barra do Blog passou a ler da
+     ligação em vez de receber como propriedades à parte. Nenhum nome de antes
+     saiu. */
+  const EXPORTS_DA_CONFIGURACAO = [
+    "CLASSE_DA_AREA_DE_ESCRITA",
+    "EXTENSOES_SEM_VOCABULARIO",
+    "aBarraFlutuanteAparece",
+    "atalhoCanonico",
+    "atalhoLegivel",
+    "comDestaque",
+    "comImagem",
+    "configuracaoDoKit",
+    "controlesDaBarra",
+    "coresDeDestaque",
+    "extensoesDoEditor",
+    "extensoesInstaladasPeloKit",
+    "opcoesDoEditor",
+    "problemasDeVozDosControles",
+  ];
+  afirmar(
+    "`admin/blog/configuracao.js` exporta os mesmos nomes de antes, mais o que a barra lê (`comImagem`, `comDestaque`, `coresDeDestaque`)",
+    configuracao !== null && igual(Object.keys(configuracao).sort(), EXPORTS_DA_CONFIGURACAO),
+    configuracao ? Object.keys(configuracao).sort().join(", ") : "não importou",
+  );
+
+  /** Importa sem derrubar a ferramenta, e GUARDA a razão da falha para o detalhe. */
+  const importarOuMotivo = (relativo) =>
+    import(urlDe(relativo)).then(
+      (modulo) => ({ modulo, motivo: "" }),
+      (erro) => ({ modulo: null, motivo: `${relativo}: ${String(erro?.message ?? erro).slice(0, 200)}` }),
+    );
+
+  const importeDaPendencia = await importarOuMotivo(CAMINHO_PENDENCIA);
+  const pendenciaDoBlog = importeDaPendencia.modulo;
+  afirmar(
+    "`admin/blog/pendencia.js` exporta exatamente os mesmos nomes de antes, e reexporta os genéricos do comum",
+    pendenciaDoBlog !== null &&
+      pendenciaComum !== null &&
+      igual(Object.keys(pendenciaDoBlog).sort(), [
+        "ROTULO_PARA_FICAR",
+        "ROTULO_PARA_SAIR",
+        "TITULO_DA_SAIDA",
+        "descricaoDaSaida",
+        "haPendencia",
+        "instantaneo",
+      ]) &&
+      pendenciaDoBlog.instantaneo === pendenciaComum.instantaneo &&
+      pendenciaDoBlog.haPendencia === pendenciaComum.haPendencia,
+    importeDaPendencia.motivo,
+  );
+  if (pendenciaDoBlog && pendenciaComum) {
+    afirmar(
+      "a saída sem título diz \"deste post\" no Blog, e o comum diz o que quem chama mandar",
+      pendenciaDoBlog.descricaoDaSaida("").includes("deste post") &&
+        pendenciaComum.descricaoDaSaida("", "desta vaga").includes("desta vaga") &&
+        !/\bpost\b/.test(pendenciaComum.descricaoDaSaida("", "desta vaga")) &&
+        pendenciaComum.descricaoDaSaida("Guia", "desta vaga").includes("Guia"),
+      pendenciaComum.descricaoDaSaida("", "desta vaga"),
+    );
+  }
+
+  const importes = await Promise.all(
+    [
+      CAMINHO_ICONES,
+      `${DIRETORIO_COMUM}/icones.js`,
+      CAMINHO_ARRASTO,
+      CAMINHO_ARRASTO_COMUM,
+    ].map(importarOuMotivo),
+  );
+  const [iconesDoBlog, iconesComuns, arrastoDoBlog, arrastoComum] = importes.map((i) => i.modulo);
+  const motivosDosImportes = importes
+    .map((i) => i.motivo)
+    .filter((m) => m !== "")
+    .join(" | ");
+
+  afirmar(
+    "`admin/blog/icones.js` só reexporta o comum: o mesmo objeto",
+    iconesDoBlog !== null && iconesComuns !== null && iconesDoBlog.ICONES === iconesComuns.ICONES,
+    motivosDosImportes,
+  );
+
+  /* Revisão da 5.1 (troca registrada): `admin/blog/arrasto.js` deixou de ser
+     só reexportação. O rolamento continua vindo do comum (mesmos objetos), e
+     a LARGURA DA IMAGEM voltou para o Blog, que é o único vocabulário com
+     imagem. O comum não pode exportar nada de largura. */
+  const PROPRIOS_DO_ARRASTO_DO_BLOG = ["LARGURA_MAXIMA", "LARGURA_MINIMA", "larguraRedimensionada"];
+  afirmar(
+    "`admin/blog/arrasto.js` reexporta TODO o rolamento do comum (mesmos objetos) e só acrescenta a largura da imagem",
+    arrastoDoBlog !== null &&
+      arrastoComum !== null &&
+      Object.keys(arrastoComum).length > 0 &&
+      Object.keys(arrastoComum).every((nome) => arrastoDoBlog[nome] === arrastoComum[nome]) &&
+      igual(
+        Object.keys(arrastoDoBlog)
+          .filter((nome) => !Object.hasOwn(arrastoComum, nome))
+          .sort(),
+        PROPRIOS_DO_ARRASTO_DO_BLOG,
+      ),
+    motivosDosImportes ||
+      (arrastoDoBlog ? `no Blog: ${Object.keys(arrastoDoBlog).sort().join(", ")}` : ""),
+  );
+  afirmar(
+    "e `admin/comum/arrasto.js` não conhece largura de imagem (nenhum export de largura)",
+    arrastoComum !== null &&
+      !Object.keys(arrastoComum).some((nome) => /largura/i.test(nome)) &&
+      igual(Object.keys(arrastoComum).sort(), [
+        "VELOCIDADE_MAXIMA",
+        "ZONA_DE_ROLAMENTO",
+        "deslocamentoDoArrasto",
+      ]),
+    arrastoComum ? Object.keys(arrastoComum).sort().join(", ") : motivosDosImportes,
+  );
+
+  /* Os limites da largura REPETIDOS no Blog batem com o validador de `width`
+     de `NOS.image` no schema, EXECUTADO: dos dois lados de cada limite. É a
+     comparação que o comentário de `arrasto.js` promete. */
+  if (arrastoDoBlog && schema) {
+    const largura = schema.NOS?.image?.atributos?.width;
+    const { LARGURA_MINIMA, LARGURA_MAXIMA, larguraRedimensionada } = arrastoDoBlog;
+    afirmar(
+      "o validador de `width` da imagem no schema recusa 79 e 1601 e aceita 80 e 1600",
+      typeof largura === "function" &&
+        largura(79) === undefined &&
+        largura(1601) === undefined &&
+        largura(80) === 80 &&
+        largura(1600) === 1600,
+      typeof largura === "function"
+        ? [79, 80, 1600, 1601].map((n) => `${n}→${largura(n)}`).join(", ")
+        : "sem validador de width",
+    );
+    afirmar(
+      "e os limites de `admin/blog/arrasto.js` são EXATAMENTE esses: o mínimo e o máximo que o schema aceita",
+      typeof largura === "function" &&
+        LARGURA_MINIMA === 80 &&
+        LARGURA_MAXIMA === 1600 &&
+        largura(LARGURA_MINIMA) === LARGURA_MINIMA &&
+        largura(LARGURA_MINIMA - 1) === undefined &&
+        largura(LARGURA_MAXIMA) === LARGURA_MAXIMA &&
+        largura(LARGURA_MAXIMA + 1) === undefined,
+      `LARGURA_MINIMA=${LARGURA_MINIMA} LARGURA_MAXIMA=${LARGURA_MAXIMA}`,
+    );
+    afirmar(
+      "`larguraRedimensionada` prende o resultado aos mesmos limites",
+      typeof larguraRedimensionada === "function" &&
+        larguraRedimensionada({ larguraInicial: 100, deslocamento: -500 }) === LARGURA_MINIMA &&
+        larguraRedimensionada({ larguraInicial: 1500, deslocamento: 500 }) === LARGURA_MAXIMA &&
+        larguraRedimensionada({ larguraInicial: 300, deslocamento: 20.4 }) === 320,
+    );
+  }
+
+  /* A conta do rolamento, EXECUTADA em tabela. Caixa de 100 a 700 (600 de
+     altura, bem mais que duas zonas): o meio não rola, a borda de cima sobe
+     (negativo), a de baixo desce (positivo), e passar da borda não acelera
+     além do teto. */
+  if (arrastoDoBlog) {
+    const { deslocamentoDoArrasto, ZONA_DE_ROLAMENTO, VELOCIDADE_MAXIMA } = arrastoDoBlog;
+    const caixa = { topo: 100, base: 700 };
+    const tabela = [
+      ["meio da caixa (zona morta)", 400, (d) => d === 0],
+      ["logo abaixo da zona de cima (zona morta)", 100 + ZONA_DE_ROLAMENTO + 1, (d) => d === 0],
+      ["dentro da zona de cima: sobe", 100 + ZONA_DE_ROLAMENTO / 2, (d) => d < 0 && d > -VELOCIDADE_MAXIMA],
+      ["na borda de cima: sobe no teto", 100, (d) => d === -VELOCIDADE_MAXIMA],
+      ["muito acima da caixa: limitado ao teto", -5000, (d) => d === -VELOCIDADE_MAXIMA],
+      ["dentro da zona de baixo: desce", 700 - ZONA_DE_ROLAMENTO / 2, (d) => d > 0 && d < VELOCIDADE_MAXIMA],
+      ["na borda de baixo: desce no teto", 700, (d) => d === VELOCIDADE_MAXIMA],
+      ["muito abaixo da caixa: limitado ao teto", 9000, (d) => d === VELOCIDADE_MAXIMA],
+    ];
+    const erradas = tabela
+      .map(([nome, y, confere]) => {
+        const d = deslocamentoDoArrasto({ y, ...caixa });
+        return confere(d) ? null : `${nome}: y=${y} → ${d}`;
+      })
+      .filter((linha) => linha !== null);
+    afirmar(
+      "`deslocamentoDoArrasto`, em tabela: zona morta 0, borda de cima negativa, borda de baixo positiva, além da borda preso a ±`VELOCIDADE_MAXIMA`",
+      typeof deslocamentoDoArrasto === "function" && erradas.length === 0,
+      erradas.join(" | "),
+    );
+    afirmar(
+      "e caixa baixa demais (menos de duas zonas) ou medida inválida não rola",
+      deslocamentoDoArrasto({ y: 100, topo: 100, base: 100 + ZONA_DE_ROLAMENTO }) === 0 &&
+        deslocamentoDoArrasto({ y: Number.NaN, ...caixa }) === 0 &&
+        deslocamentoDoArrasto() === 0,
+    );
+  }
+
+  /* O saneamento da entrada: o fabricador comum e a ligação do Blog. O comum
+     não importa domínio; o validador chega por parâmetro, e aqui ele é o da
+     Descrição, para provar que o fabricador serve outro vocabulário. */
+  const importeDoConteudoComum = await importarOuMotivo(CAMINHO_CONTEUDO_COMUM);
+  const importeDoConteudoDoBlog = await importarOuMotivo(CAMINHO_CONTEUDO);
+  const conteudoComum = importeDoConteudoComum.modulo;
+  const conteudoDoBlog = importeDoConteudoDoBlog.modulo;
+  afirmar(
+    "`admin/comum/conteudo.js` e `admin/blog/conteudo.js` importam e executam em Node",
+    conteudoComum !== null && conteudoDoBlog !== null,
+    [importeDoConteudoComum.motivo, importeDoConteudoDoBlog.motivo].filter(Boolean).join(" | "),
+  );
+  if (conteudoComum && schema && schema.VOCABULARIO_DA_DESCRICAO) {
+    const DESCRICAO = schema.VOCABULARIO_DA_DESCRICAO;
+    const prepararDescricao = conteudoComum.criarPrepararConteudo({
+      validar: (documento) => schema.validarDocumentoNoVocabulario(documento, DESCRICAO),
+      documentoVazio: schema.documentoVazio,
+      mensagens: {
+        recusado: "A descrição gravada não pôde ser lida.",
+        limpo: ({ total, nomes }) => `Saíram ${total}: ${nomes}.`,
+      },
+    });
+    const comCitacaoEImagem = {
+      type: "doc",
+      content: [
+        {
+          type: "blockquote",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "citado" }] }],
+        },
+        { type: "image", attrs: { src: "https://chatclean.com.br/a.png" } },
+        { type: "paragraph", content: [{ type: "text", text: "fica" }] },
+      ],
+    };
+    const preparado = prepararDescricao(comCitacaoEImagem);
+    afirmar(
+      "o fabricador comum, com o validador da Descrição, LIMPA citação e imagem e avisa o que saiu",
+      preparado.aviso?.gravidade === "limpo" &&
+        preparado.aviso.mensagem === "Saíram 2: blockquote, image." &&
+        igual(preparado.documento, {
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: "fica" }] }],
+        }),
+      JSON.stringify(preparado),
+    );
+    afirmar(
+      "e recusa o que não é documento com a frase recebida, abrindo vazio",
+      (() => {
+        const recusado = prepararDescricao(42);
+        return (
+          recusado.aviso?.gravidade === "recusado" &&
+          recusado.aviso.mensagem === "A descrição gravada não pôde ser lida." &&
+          igual(recusado.documento, schema.documentoVazio())
+        );
+      })(),
+    );
+    afirmar(
+      "o fabricador recusa ser criado sem validador, sem documento vazio ou sem as frases (`TypeError`)",
+      /* Cada caso falta UMA coisa só: um caso que faltasse tudo seria
+         recusado por qualquer das guardas, e não provaria nenhuma delas. */
+      [
+        { documentoVazio: () => null, mensagens: { recusado: "", limpo: () => "" } },
+        { validar: () => ({ ok: true }), mensagens: { recusado: "", limpo: () => "" } },
+        { validar: () => ({ ok: true }), documentoVazio: () => null },
+        {
+          validar: () => ({ ok: true }),
+          documentoVazio: () => null,
+          mensagens: { recusado: "" },
+        },
+      ].every((parametros) => {
+        try {
+          conteudoComum.criarPrepararConteudo(parametros);
+          return false;
+        } catch (erro) {
+          return erro instanceof TypeError;
+        }
+      }),
+    );
+  }
+  if (conteudoDoBlog) {
+    /* O do Blog é BYTE A BYTE o de antes da revisão. As saídas abaixo foram
+       tiradas do `prepararConteudo` anterior (o que tinha a lógica inteira
+       dentro de `admin/blog/conteudo.js`), executado sobre as mesmas entradas
+       em 2026-09-24, e são coladas aqui como texto: comparar com o módulo
+       atual rodado duas vezes provaria só que ele é igual a si mesmo. */
+    const ANTES = [
+      [
+        undefined,
+        '{"documento":{"type":"doc","content":[{"type":"paragraph"}]},"aviso":null}',
+      ],
+      [
+        42,
+        '{"documento":{"type":"doc","content":[{"type":"paragraph"}]},"aviso":{"gravidade":"recusado","mensagem":"Não conseguimos ler o conteúdo gravado deste post, então o Editor abriu vazio. Salvar agora substitui o conteúdo original: se ele importa, saia sem salvar e avise quem cuida dos dados.","detalhe":"esperava um documento e veio number"}}',
+      ],
+      [
+        { type: "doc", content: [{ type: "table", content: [] }, { type: "paragraph" }] },
+        '{"documento":{"type":"doc","content":[{"type":"paragraph"}]},"aviso":{"gravidade":"limpo","mensagem":"Removemos 1 trecho(s) que este editor não guarda: table. O resto do post está aqui inteiro; salvar grava exatamente o que você está vendo.","detalhe":""}}',
+      ],
+      [
+        {
+          type: "doc",
+          content: [
+            {
+              type: "blockquote",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }],
+            },
+            { type: "image", attrs: { src: "x" } },
+            { type: "codeBlock" },
+            { type: "horizontalRule" },
+            { type: "table" },
+            { type: "paragraph", content: [{ type: "text", text: "b" }] },
+          ],
+        },
+        '{"documento":{"type":"doc","content":[{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"a"}]}]},{"type":"codeBlock"},{"type":"horizontalRule"},{"type":"paragraph","content":[{"type":"text","text":"b"}]}]},"aviso":{"gravidade":"limpo","mensagem":"Removemos 2 trecho(s) que este editor não guarda: image, table. O resto do post está aqui inteiro; salvar grava exatamente o que você está vendo.","detalhe":""}}',
+      ],
+    ];
+    const divergentes = ANTES.filter(
+      ([entrada, esperado]) => JSON.stringify(conteudoDoBlog.prepararConteudo(entrada)) !== esperado,
+    );
+    afirmar(
+      "o `prepararConteudo` do Blog, agora ligação sobre o fabricador comum, é byte a byte o de antes",
+      divergentes.length === 0,
+      divergentes
+        .map(([entrada]) => JSON.stringify(conteudoDoBlog.prepararConteudo(entrada)).slice(0, 200))
+        .join(" | "),
+    );
+  }
+}
+
+/* ─── A PALAVRA DE DOMÍNIO NÃO MORA EM `admin/comum` ────────────────────────
+   O vocabulário chega por parâmetro, e por isso nenhuma frase de `admin/comum`
+   pode falar de post, de vaga ou de artigo: essas frases são de quem liga o
+   módulo. A varredura lê os LITERAIS DE TEXTO do código (comentário explica,
+   e pode citar o Blog). Palavra inteira, sem diferenciar maiúscula.
+
+   O fonte passa ANTES pelo esbuild, que tira os comentários e transforma o
+   JSX em chamadas: o texto de JSX vira literal (é texto que a pessoa lê, e
+   entra na varredura), e `</div>` deixa de existir. O mascarador de
+   comentários deste arquivo foi feito para `.js` sem JSX; num `.jsx` ele lê
+   `</div>` como abertura de regex e deixa um comentário inteiro passar como
+   se fosse código (medido: foi assim que `.artigo`, de um comentário de
+   `EditorDeTexto.jsx`, apareceu como literal na primeira execução). */
+{
+  const PALAVRAS_DE_DOMINIO = /(?<![\p{L}\p{N}_])(posts?|vagas?|artigo)(?![\p{L}\p{N}_])/iu;
+  const { transformSync } = await import("esbuild");
+
+  /** Os literais de texto (aspas simples, duplas e modelo) de um fonte. */
+  const literaisDe = (fonte, arquivo = "x.js") => {
+    let codigo = "";
+    try {
+      codigo = transformSync(fonte, {
+        loader: arquivo.endsWith(".jsx") ? "jsx" : "js",
+        jsx: "automatic",
+        charset: "utf8",
+      }).code;
+    } catch (erro) {
+      // Fonte que não compila não é absolvido: vira um achado com o motivo.
+      return [`(não compilou: ${String(erro?.message ?? erro).slice(0, 80)})`];
+    }
+    return [...codigo.matchAll(/(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)].map(
+      (achado) => achado[2],
+    );
+  };
+
+  /* Exceção DECLARADA, com motivo. `CLASSE_DA_AREA_DE_ESCRITA` começa por
+     `artigo`: é o NOME da classe CSS global `.artigo` (a mesma do site
+     publicado), não uma frase que alguém lê. A exceção é o literal EXATO,
+     conferido contra o valor exportado, e não "qualquer texto com artigo". */
+  const EXCECOES = configuracaoComum
+    ? [
+        {
+          arquivo: CAMINHO_CONFIGURACAO_COMUM,
+          literal: configuracaoComum.CLASSE_DA_AREA_DE_ESCRITA,
+          motivo: "classe CSS global `.artigo`, a mesma do site publicado; não é texto visível",
+        },
+      ]
+    : [];
+
+  const achadosDe = (arquivo, fonte) =>
+    literaisDe(fonte, arquivo)
+      .filter((literal) => PALAVRAS_DE_DOMINIO.test(literal) || literal.startsWith("(não compilou"))
+      .filter(
+        (literal) =>
+          !EXCECOES.some((excecao) => excecao.arquivo === arquivo && excecao.literal === literal),
+      );
+
+  /* O detector antes do repositório: acusa a palavra no texto, absolve a
+     palavra em comentário e a palavra que só CONTÉM o termo. */
+  afirmar(
+    "o detector de palavra de domínio acusa \"post\"/\"Vagas\"/`artigo` em literal, e absolve comentário e palavra que só contém o termo",
+    achadosDe("x.js", 'const a = "Conteúdo do post";').length === 1 &&
+      achadosDe("x.js", "const b = 'Vagas abertas';").length === 1 &&
+      achadosDe("x.js", "const c = `o artigo ${x}`;").length === 1 &&
+      achadosDe("x.js", '// o post\nconst d = "postura e vagarosa";').length === 0,
+  );
+
+  const achados = [];
+  for (const arquivo of arquivosDe(DIRETORIO_COMUM)) {
+    const fonte = tentar(`${arquivo} legível`, () => ler(arquivo), "");
+    for (const literal of achadosDe(arquivo, fonte)) achados.push(`${arquivo}: "${literal}"`);
+  }
+  afirmar(
+    "nenhum literal de texto de `src/admin/comum/**` fala de post, vaga ou artigo (exceção declarada: a classe `.artigo` da área de escrita)",
+    configuracaoComum !== null && achados.length === 0,
+    achados.join(" | ") || (configuracaoComum ? "" : "núcleo comum não importou"),
+  );
+  afirmar(
+    "e a exceção declarada existe de fato no código (não é uma exceção órfã)",
+    EXCECOES.every((excecao) =>
+      literaisDe(
+        tentar(`${excecao.arquivo} legível`, () => ler(excecao.arquivo), ""),
+        excecao.arquivo,
+      ).includes(excecao.literal),
+    ) && EXCECOES.length === 1,
+  );
+}
+
 /* ─── (e) e (f) O editor de verdade, montado em DOM ──────────────────────── */
 
 secao("(e) o editor real: só existe nele o que o schema conhece");
@@ -2172,17 +3404,24 @@ if (editor && schema && configuracao) {
      inclusive um segundo, continua proibido nos dois arquivos. */
   const declarada = configuracao.CLASSE_DA_AREA_DE_ESCRITA;
   const LARGURA_DA_PAGINA_PERMITIDA = "max-w-4xl";
-  const maxWDoEditor =
-    mascararComentariosJs(ler(CAMINHO_EDITOR)).match(
+  /* Story 5.1: o cartão de página se mudou com a casca para
+     `admin/comum/EditorDeTexto.jsx`, que é onde o ÚNICO `max-w-4xl` mora
+     agora. As ligações do Blog (editor e barra) continuam sem nenhum. */
+  const larguraDe = (arquivo) =>
+    mascararComentariosJs(ler(arquivo)).match(
       /\bmax-w-[\w-]+|\bmax-width\s*:|\bw-\[[^\]]*\]/g,
     ) ?? [];
+  const maxWDoEditor = larguraDe(CAMINHO_EDITOR_COMUM);
+  const maxWDaLigacao = larguraDe(CAMINHO_EDITOR);
   afirmar(
     "a área de escrita NÃO redeclara a medida do texto",
     !/\bmax-w-|\bw-\[|\bmax-width|ch\]/.test(declarada) &&
       maxWDoEditor.length === 1 &&
       maxWDoEditor[0] === LARGURA_DA_PAGINA_PERMITIDA &&
-      !/\bmax-w-|\bmax-width/.test(mascararComentariosJs(ler(CAMINHO_BARRA))),
-    `classe declarada: ${declarada} | max-w em Editor.jsx: ${maxWDoEditor.join(", ") || "nenhum"}`,
+      maxWDaLigacao.length === 0 &&
+      !/\bmax-w-|\bmax-width/.test(mascararComentariosJs(ler(CAMINHO_BARRA))) &&
+      !/\bmax-w-|\bmax-width/.test(mascararComentariosJs(ler(CAMINHO_BARRA_DO_BLOG))),
+    `classe declarada: ${declarada} | max-w em EditorDeTexto.jsx: ${maxWDoEditor.join(", ") || "nenhum"} | na ligação Editor.jsx: ${maxWDaLigacao.join(", ") || "nenhum"}`,
   );
 
   {
@@ -3848,6 +5087,159 @@ if (janela && schema && configuracao && compilado) {
       await tela.desmontar();
     }
 
+    /* ── A imagem montada: o punho e o arrasto (revisão da 5.1) ──────────
+       A ligação do arrasto se mudou para o núcleo comum nesta story e não
+       tinha prova nenhuma montada. Aqui o editor do Blog é montado com uma
+       imagem, e o que se observa é o que a pessoa vê: o punho de
+       redimensionar sobre a imagem selecionada, e o arrasto de uma `<img>`
+       marcando o corpo e avisando a prévia. */
+    {
+      const ENDERECO_DA_IMAGEM = "https://chatclean.com.br/blog/foto.png";
+      const tela = await montar({
+        documento: {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: "antes da imagem" }] },
+            { type: "image", attrs: { src: ENDERECO_DA_IMAGEM, alt: "foto" } },
+            { type: "paragraph", content: [{ type: "text", text: "depois da imagem" }] },
+          ],
+        },
+        aoMudar: () => {},
+        rotulo: "Conteúdo do post",
+      });
+      const editorMontado = tela.areaDeEscrita()?.editor ?? null;
+      const imagem = tela.alvo.querySelector('[role="textbox"] img');
+      afirmar(
+        "o editor do Blog monta com a imagem no documento (há `<img>` na área de escrita)",
+        editorMontado !== null && imagem !== null,
+      );
+
+      /* O jsdom não faz layout: toda caixa mede zero, e o punho (com razão)
+         não se desenha sobre imagem de largura zero. A geometria de mentira é
+         SÓ da imagem, e só durante esta prova. */
+      const prototipoDaImagem = janela.HTMLImageElement.prototype;
+      const medidaOriginal = Object.getOwnPropertyDescriptor(prototipoDaImagem, "getBoundingClientRect");
+      prototipoDaImagem.getBoundingClientRect = () => ({
+        top: 40,
+        left: 20,
+        right: 340,
+        bottom: 240,
+        width: 320,
+        height: 200,
+        x: 20,
+        y: 40,
+      });
+
+      try {
+        if (editorMontado && imagem) {
+          let posicaoDaImagem = null;
+          editorMontado.state.doc.descendants((no, posicao) => {
+            if (posicaoDaImagem === null && no.type.name === "image") posicaoDaImagem = posicao;
+          });
+          const punho = () => tela.alvo.querySelector('[data-papel="punho-de-redimensionar"]');
+
+          await act(async () => {
+            editorMontado.commands.setTextSelection(2);
+          });
+          const semSelecaoDeImagem = punho();
+          await act(async () => {
+            editorMontado.commands.setNodeSelection(posicaoDaImagem);
+          });
+          const comImagemSelecionada = punho();
+          afirmar(
+            "com o nó `image` selecionado, o punho de redimensionar aparece (e não aparece com o cursor no texto)",
+            posicaoDaImagem !== null && semSelecaoDeImagem === null && comImagemSelecionada !== null,
+            `posição da imagem: ${posicaoDaImagem}; punho sem seleção: ${semSelecaoDeImagem !== null}; com seleção: ${comImagemSelecionada !== null}`,
+          );
+          afirmar(
+            "e o punho se anuncia pelo que faz",
+            comImagemSelecionada?.getAttribute("aria-label") === "Redimensionar a imagem",
+            comImagemSelecionada?.getAttribute("aria-label") ?? "",
+          );
+
+          /* O arrasto de HTML5, pelo caminho real: o evento chega ao
+             `contenteditable`, o ProseMirror chama o gancho de
+             `editorProps.handleDOMEvents.dragstart`, e o gancho marca o corpo
+             e avisa a prévia. O `dataTransfer` é de mentira porque o jsdom não
+             tem um; o que ele registra é o que o gancho pediu. */
+          await act(async () => {
+            editorMontado.commands.setTextSelection(2);
+          });
+          const avisos = [];
+          const ouvirAviso = (evento) => avisos.push(evento.detail ?? null);
+          janela.document.addEventListener("painel:arrasto-de-imagem", ouvirAviso);
+          const retratos = [];
+          const transferenciaDeMentira = () => ({
+            files: [],
+            effectAllowed: "",
+            clearData() {},
+            setData() {},
+            setDragImage(elemento, x, y) {
+              retratos.push({ elemento, x, y });
+            },
+          });
+          const arrastar = async (alvo) => {
+            const evento = new janela.Event("dragstart", { bubbles: true, cancelable: true });
+            Object.defineProperty(evento, "dataTransfer", { value: transferenciaDeMentira() });
+            await act(async () => {
+              alvo.dispatchEvent(evento);
+            });
+          };
+
+          // Primeiro o que NÃO é imagem: o gancho não pode agir sobre texto.
+          const paragrafo = tela.alvo.querySelector('[role="textbox"] p');
+          if (paragrafo) await arrastar(paragrafo);
+          const marcadoPorTexto = janela.document.body.hasAttribute("data-arrastando-imagem");
+          const avisosPorTexto = avisos.length;
+
+          const imagemAgora = tela.alvo.querySelector('[role="textbox"] img');
+          if (imagemAgora) await arrastar(imagemAgora);
+          const marcado = janela.document.body.getAttribute("data-arrastando-imagem");
+          const previa = tela.alvo.querySelector('[data-papel="previa-de-arrasto"]');
+
+          afirmar(
+            "`dragstart` numa `<img>` do editor põe `data-arrastando-imagem` no body e dispara `painel:arrasto-de-imagem` com o endereço",
+            paragrafo !== null &&
+              imagemAgora !== null &&
+              marcado === "true" &&
+              avisos.length === 1 &&
+              avisos[0]?.endereco === ENDERECO_DA_IMAGEM &&
+              retratos.length === 1,
+            `marca: ${marcado}; avisos: ${JSON.stringify(avisos)}; retratos: ${retratos.length}`,
+          );
+          afirmar(
+            "e o mesmo `dragstart` num parágrafo NÃO marca nem avisa (a asserção distingue)",
+            paragrafo !== null && marcadoPorTexto === false && avisosPorTexto === 0,
+          );
+          afirmar(
+            "a prévia de arrasto do Blog ouve o aviso e se desenha com a imagem arrastada",
+            previa !== null && previa.getAttribute("src") === ENDERECO_DA_IMAGEM,
+            previa ? previa.getAttribute("src") ?? "" : "sem prévia",
+          );
+
+          // O fim do arrasto limpa no MESMO lugar que marcou.
+          if (imagemAgora) {
+            await act(async () => {
+              imagemAgora.dispatchEvent(new janela.Event("dragend", { bubbles: true }));
+            });
+          }
+          afirmar(
+            "e o `dragend` tira a marca do body",
+            !janela.document.body.hasAttribute("data-arrastando-imagem"),
+          );
+          janela.document.removeEventListener("painel:arrasto-de-imagem", ouvirAviso);
+        }
+      } finally {
+        if (medidaOriginal) {
+          Object.defineProperty(prototipoDaImagem, "getBoundingClientRect", medidaOriginal);
+        } else {
+          delete prototipoDaImagem.getBoundingClientRect;
+        }
+        janela.document.body.removeAttribute("data-arrastando-imagem");
+        await tela.desmontar();
+      }
+    }
+
     /* ── A prova de que a higienização da entrada é carregada ──────────── */
     afirmar(
       "`prepararConteudo` é pura e é ela que decide o que entra e o que se diz",
@@ -3994,6 +5386,8 @@ if (janela && schema && configuracao && compilado) {
         CAMINHO_GAVETA,
         CAMINHO_MODULO_DA_GAVETA,
         CAMINHO_PENDENCIA,
+        // Story 5.1: as regras genéricas da pendência moram aqui agora.
+        CAMINHO_PENDENCIA_COMUM,
       ];
       const TERMOS = ["localStorage", "sessionStorage", "document.cookie", "indexedDB"];
       const procurar = (fonte) => {

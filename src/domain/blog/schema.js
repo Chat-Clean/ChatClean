@@ -950,6 +950,127 @@ export function documentoVazio() {
   return { type: "doc", content: [{ type: "paragraph" }] };
 }
 
+/* ─── Os vocabulários: o do Post e a projeção reduzida ───────────────────────
+ *
+ * Um VOCABULÁRIO é o que as peças comuns do Painel (`src/admin/comum/`) e a
+ * validação precisam saber de um documento: que nós e marcas existem, que
+ * elementos a barra oferece, que níveis de título, alinhamentos e cores de
+ * destaque valem, e que frase a pessoa lê quando a entrada não é documento.
+ *
+ * A Descrição é uma PROJEÇÃO deste schema, e não uma segunda declaração:
+ * cada forma de nó e de marca dela é a MESMA forma do Post (o mesmo objeto, ou
+ * ele com menos atributos). Um conserto na forma do link, por exemplo, vale
+ * para os dois documentos no mesmo instante.
+ */
+
+/**
+ * Os elementos da barra que cabem num vocabulário: nó ou marca presente nele,
+ * nível de título aceito, e alinhamento só quando o vocabulário tem
+ * alinhamentos. A ORDEM é a de `ELEMENTOS`, sempre.
+ */
+function elementosQueCabem({ nos, marcas, niveisDeTitulo, alinhamentos }) {
+  return Object.freeze(
+    ELEMENTOS.filter((elemento) => {
+      if (elemento.nome === null) return alinhamentos.length > 0;
+      const presente =
+        elemento.especie === MARCA
+          ? Object.hasOwn(marcas, elemento.nome)
+          : Object.hasOwn(nos, elemento.nome);
+      if (!presente) return false;
+      const nivel = elemento.atributos?.level;
+      return nivel === undefined || niveisDeTitulo.includes(nivel);
+    }),
+  );
+}
+
+/**
+ * O vocabulário do Post: o schema inteiro, sem projeção. É o padrão de toda
+ * função que aceita vocabulário, e é por isso que o Blog não muda.
+ */
+export const VOCABULARIO_DO_POST = Object.freeze({
+  nos: NOS,
+  marcas: MARCAS,
+  elementos: ELEMENTOS,
+  niveisDeTitulo: NIVEIS_DE_TITULO,
+  alinhamentos: ALINHAMENTOS_DE_TEXTO,
+  coresDeDestaque: CORES_DE_DESTAQUE,
+  /* As duas peças de regra que a configuração do editor precisa e que não são
+     tabela: a regra de endereço do link e o valor que marca "alterna". Vão
+     junto do vocabulário para que `admin/comum` não importe o domínio. */
+  enderecoPermitido,
+  acaoQueAlterna: ALTERNA,
+  mensagens: Object.freeze({
+    vazio: "O conteúdo do post está vazio. Escreva algo antes de salvar.",
+    formato:
+      "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+    rotuloDoConteudo: "Conteúdo do post",
+  }),
+});
+
+/** Os blocos que a Descrição aceita: parágrafo, título e as duas listas. */
+const BLOCOS_DA_DESCRICAO = Object.freeze([
+  "paragraph",
+  "heading",
+  "bulletList",
+  "orderedList",
+]);
+
+/**
+ * Os nós da Descrição, projetados de `NOS`. Parágrafo sem atributo nenhum
+ * (sem alinhamento), título só com `level`, e `doc`/`listItem` com os blocos
+ * reduzidos como filhos. O resto é o MESMO objeto do Post.
+ */
+const NOS_DA_DESCRICAO = Object.freeze({
+  doc: Object.freeze({ ...NOS.doc, filhos: BLOCOS_DA_DESCRICAO }),
+  paragraph: Object.freeze({ ...NOS.paragraph, atributos: Object.freeze({}) }),
+  heading: Object.freeze({
+    ...NOS.heading,
+    atributos: Object.freeze({ level: NOS.heading.atributos.level }),
+  }),
+  bulletList: NOS.bulletList,
+  orderedList: NOS.orderedList,
+  listItem: Object.freeze({ ...NOS.listItem, filhos: BLOCOS_DA_DESCRICAO }),
+  text: NOS.text,
+  hardBreak: NOS.hardBreak,
+});
+
+/** As marcas da Descrição: negrito, itálico e link, as MESMAS do Post. */
+const MARCAS_DA_DESCRICAO = Object.freeze({
+  bold: MARCAS.bold,
+  italic: MARCAS.italic,
+  link: MARCAS.link,
+});
+
+/**
+ * O vocabulário reduzido: parágrafo, H2/H3, negrito, itálico, as duas listas,
+ * item de lista, link e quebra de linha. Nada de citação, código, linha
+ * divisória, imagem, destaque ou alinhamento.
+ */
+export const VOCABULARIO_DA_DESCRICAO = Object.freeze({
+  nos: NOS_DA_DESCRICAO,
+  marcas: MARCAS_DA_DESCRICAO,
+  elementos: elementosQueCabem({
+    nos: NOS_DA_DESCRICAO,
+    marcas: MARCAS_DA_DESCRICAO,
+    niveisDeTitulo: NIVEIS_DE_TITULO,
+    alinhamentos: [],
+  }),
+  niveisDeTitulo: NIVEIS_DE_TITULO,
+  alinhamentos: Object.freeze([]),
+  coresDeDestaque: Object.freeze([]),
+  enderecoPermitido,
+  acaoQueAlterna: ALTERNA,
+  mensagens: Object.freeze({
+    vazio: "A descrição está vazia. Escreva algo antes de salvar.",
+    /* Neutras de propósito: o domínio do Blog não conhece a entidade do
+       módulo que usa a projeção. Quem precisar de uma frase mais específica
+       troca as mensagens no próprio módulo. */
+    formato:
+      "A descrição não está no formato de documento. Abra o conteúdo no Painel e salve de novo.",
+    rotuloDoConteudo: "Descrição",
+  }),
+});
+
 /* ─── A higienização ─────────────────────────────────────────────────────── */
 
 /**
@@ -1002,8 +1123,14 @@ function filtrarAtributos(forma, atributos, registrar, caminho) {
   return Object.keys(saida).length > 0 ? saida : null;
 }
 
-/** As marcas de um trecho de texto, filtradas pela lista de permissão. */
-function filtrarMarcas(marcas, registrar, caminho) {
+/**
+ * As marcas de um trecho de texto, filtradas pela lista de permissão.
+ *
+ * `vocabulario.marcas` é a lista: a do Post (`MARCAS`) ou uma projeção dela
+ * (`VOCABULARIO_DA_DESCRICAO`). A forma de cada marca vem da MESMA tabela, e
+ * não de uma segunda declaração.
+ */
+function filtrarMarcas(vocabulario, marcas, registrar, caminho) {
   if (marcas === undefined) return undefined;
   if (!Array.isArray(marcas)) {
     registrar("marca", "(não é lista)", caminho);
@@ -1013,11 +1140,11 @@ function filtrarMarcas(marcas, registrar, caminho) {
   const saida = [];
   for (const marca of marcas) {
     const nome = marca?.type;
-    if (!ehMarcaPermitida(nome)) {
+    if (typeof nome !== "string" || !Object.hasOwn(vocabulario.marcas, nome)) {
       registrar("marca", typeof nome === "string" ? nome : String(nome), caminho);
       continue;
     }
-    const forma = MARCAS[nome];
+    const forma = vocabulario.marcas[nome];
     let attrs = filtrarAtributos(forma, marca.attrs, registrar, `${caminho}/${nome}`);
     if (attrs === null && (forma.atributosObrigatorios ?? []).length > 0) {
       // Link sem endereço aceitável não é link — a MARCA cai, o texto fica.
@@ -1039,7 +1166,15 @@ function filtrarMarcas(marcas, registrar, caminho) {
  * porque está fora da lista, porque perdeu atributo obrigatório, ou porque
  * ficou vazio e vazio não é forma válida para ele.
  */
-function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profundidade = 0) {
+function filtrarNo(
+  vocabulario,
+  no,
+  permitidos,
+  registrar,
+  caminho,
+  semMarcas = false,
+  profundidade = 0,
+) {
   /* O TETO DE PROFUNDIDADE. Sem ele, "esta função nunca lança" era falso: um
      documento aninhado fundo o bastante estoura a pilha com `RangeError`, e é
      esta a função que o servidor da Story 2.5 vai chamar sobre conteúdo de
@@ -1057,7 +1192,7 @@ function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profun
   }
 
   const nome = no.type;
-  if (!ehNoPermitido(nome)) {
+  if (typeof nome !== "string" || !Object.hasOwn(vocabulario.nos, nome)) {
     registrar("no", typeof nome === "string" ? nome : String(nome), caminho);
     return null;
   }
@@ -1067,7 +1202,7 @@ function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profun
     return null;
   }
 
-  const forma = NOS[nome];
+  const forma = vocabulario.nos[nome];
   const aqui = `${caminho}/${nome}`;
 
   if (forma.texto) {
@@ -1081,7 +1216,7 @@ function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profun
       ? (Array.isArray(no.marks) && no.marks.length > 0
           ? (registrar("marca", "(dentro de bloco de código)", aqui), undefined)
           : undefined)
-      : filtrarMarcas(no.marks, registrar, aqui);
+      : filtrarMarcas(vocabulario, no.marks, registrar, aqui);
     // `marks` antes de `text`, na ordem em que o editor emite: assim um
     // documento válido atravessa a validação idêntico até na serialização, e a
     // asserção de ponto fixo pode ser byte a byte em vez de aproximada.
@@ -1113,6 +1248,7 @@ function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profun
   if (Array.isArray(no.content)) {
     for (const filho of no.content) {
       const saneado = filtrarNo(
+        vocabulario,
         filho,
         forma.filhos,
         registrar,
@@ -1149,13 +1285,75 @@ function filtrarNo(no, permitidos, registrar, caminho, semMarcas = false, profun
  * descobrir sozinha que faltou conteúdo. A lista tem teto, e por isso vem
  * acompanhada de `totalDescartado` e `descartadosTruncados`: uma tela que
  * contasse o tamanho da lista diria "200 removidos" quando foram cinco mil.
+ *
+ * `vocabulario` é opcional e o padrão é o do Post: quem não o passa recebe
+ * exatamente o que sempre recebeu.
  */
-export function validarDocumento(entrada) {
+export function validarDocumento(entrada, vocabulario = VOCABULARIO_DO_POST) {
+  return validarDocumentoNoVocabulario(entrada, vocabulario);
+}
+
+/** É objeto simples (não `null`, não lista)? */
+function ehObjeto(valor) {
+  return valor !== null && typeof valor === "object" && !Array.isArray(valor);
+}
+
+/**
+ * A forma de um nó é a que a travessia lê? Ou é texto (`texto`), ou é atômica
+ * (`filhos === null`), ou declara a lista dos filhos aceitos. Os atributos,
+ * quando existem, são uma tabela.
+ */
+function ehFormaDeNo(forma) {
+  if (!ehObjeto(forma)) return false;
+  if (forma.atributos !== undefined && !ehObjeto(forma.atributos)) return false;
+  return forma.texto === true || forma.filhos === null || Array.isArray(forma.filhos);
+}
+
+/**
+ * O vocabulário tem a forma que a travessia exige? `nos` e `marcas` são
+ * tabelas de forma (objeto, não lista), cada entrada de `nos` é uma forma de
+ * nó que a travessia sabe ler, cada entrada de `marcas` é um objeto, e as
+ * mensagens são as que a pessoa lê. Olhar só o primeiro nível deixava passar
+ * `nos.doc = {}`, e a travessia lançava lá dentro, longe de quem errou.
+ */
+function ehVocabulario(vocabulario) {
+  return (
+    ehObjeto(vocabulario) &&
+    ehObjeto(vocabulario.nos) &&
+    Object.hasOwn(vocabulario.nos, "doc") &&
+    Object.values(vocabulario.nos).every(ehFormaDeNo) &&
+    ehObjeto(vocabulario.marcas) &&
+    Object.values(vocabulario.marcas).every(ehObjeto) &&
+    typeof vocabulario.mensagens?.vazio === "string" &&
+    typeof vocabulario.mensagens?.formato === "string"
+  );
+}
+
+/**
+ * Valida um documento contra um VOCABULÁRIO: o do Post (`VOCABULARIO_DO_POST`,
+ * o que `validarDocumento` usa) ou uma projeção dele
+ * (`VOCABULARIO_DA_DESCRICAO`). É a MESMA travessia, com a mesma promessa de
+ * nunca lançar; o que muda é a lista de permissão e a frase que a pessoa lê.
+ *
+ * Vocabulário fora de forma é defeito de quem chamou, e volta como
+ * `{ ok: false }`, nunca como exceção.
+ */
+export function validarDocumentoNoVocabulario(entrada, vocabulario) {
+  if (!ehVocabulario(vocabulario)) {
+    return {
+      ok: false,
+      erro: {
+        mensagem: "Não conseguimos conferir este conteúdo. Tente salvar de novo.",
+        detalhe: "o vocabulário recebido não tem `nos`, `marcas` e `mensagens`",
+      },
+    };
+  }
+  const { mensagens } = vocabulario;
   if (entrada === null || entrada === undefined) {
     return {
       ok: false,
       erro: {
-        mensagem: "O conteúdo do post está vazio. Escreva algo antes de salvar.",
+        mensagem: mensagens.vazio,
         detalhe: `esperava um documento e veio ${entrada === null ? "null" : "undefined"}`,
       },
     };
@@ -1164,8 +1362,7 @@ export function validarDocumento(entrada) {
     return {
       ok: false,
       erro: {
-        mensagem:
-          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        mensagem: mensagens.formato,
         detalhe: `esperava um documento e veio ${Array.isArray(entrada) ? `lista de ${entrada.length}` : typeof entrada}`,
       },
     };
@@ -1174,8 +1371,7 @@ export function validarDocumento(entrada) {
     return {
       ok: false,
       erro: {
-        mensagem:
-          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        mensagem: mensagens.formato,
         detalhe: `a raiz precisa ser \`doc\` e veio ${JSON.stringify(entrada.type ?? null)}`,
       },
     };
@@ -1184,8 +1380,7 @@ export function validarDocumento(entrada) {
     return {
       ok: false,
       erro: {
-        mensagem:
-          "O conteúdo do post não está no formato de documento. Abra o post no Editor e salve de novo.",
+        mensagem: mensagens.formato,
         detalhe: `\`content\` da raiz precisa ser uma lista e veio ${typeof entrada.content}`,
       },
     };
@@ -1210,7 +1405,7 @@ export function validarDocumento(entrada) {
     }
   };
 
-  const documento = filtrarNo(entrada, null, registrar, "");
+  const documento = filtrarNo(vocabulario, entrada, null, registrar, "");
 
   // A raiz sobrevive sempre (`doc.vazioSobrevive`), mas um documento sem bloco
   // nenhum não é editável: o parágrafo vazio é o piso do formato.

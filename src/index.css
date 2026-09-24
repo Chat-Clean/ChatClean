@@ -253,7 +253,7 @@ img.ProseMirror-selectednode {
 /* A IMAGEM SOME DO LUGAR DE ORIGEM ENQUANTO É ARRASTADA -------------------
    E some COM ANIMAÇÃO: encolhe e desvanece, em vez de piscar para fora. A
    marca `data-arrastando-imagem` é posta em `document.body` pelo gancho de
-   `dragstart` (`admin/blog/configuracao.js`) e retirada no `dragend` — que
+   `dragstart` (`admin/comum/configuracaoDoEditor.js`) e retirada no `dragend` — que
    dispara em qualquer desfecho, inclusive soltar fora ou cancelar com
    Escape. Por isso a volta é de graça: sem a marca, a transição roda ao
    contrário sozinha.

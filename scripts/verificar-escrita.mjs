@@ -3128,6 +3128,61 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
   }
 }
 
+/* ─── (c4b) A fachada da autenticação (Story 5.1) ────────────────────────── */
+
+secao("(c4b) a fachada da autenticação: as MESMAS funções, num endereço neutro (Story 5.1)");
+
+/* `identificarChamador`, `perfilOuFalha` e `autorizar` servem toda escrita do
+   Painel, e `api/_nucleo/autenticacao.js` é o endereço neutro de onde uma
+   função nova as importa. A fachada REEXPORTA, não copia: a igualdade é de
+   IDENTIDADE (`===`), porque uma cópia que hoje se comporta igual divergiria
+   na primeira correção de segurança feita num lado só, e passaria em qualquer
+   asserção de comportamento feita antes dela. */
+{
+  const [fachada, doNucleo, dasOperacoes] = await Promise.all(
+    [
+      "api/_nucleo/autenticacao.js",
+      CAMINHO_NUCLEO,
+      CAMINHO_OPERACOES_DO_POST,
+    ].map((relativo) =>
+      import(pathToFileURL(path.join(raiz, relativo)).href).catch((erro) => ({
+        __falhou: String(erro?.message ?? erro),
+      })),
+    ),
+  );
+  afirmar(
+    "a fachada `api/_nucleo/autenticacao.js` importa em Node",
+    fachada !== null && !fachada.__falhou,
+    fachada?.__falhou ?? "",
+  );
+  if (fachada && !fachada.__falhou) {
+    afirmar(
+      "a fachada exporta exatamente `autorizar`, `identificarChamador` e `perfilOuFalha`",
+      mesmoConjunto(Object.keys(fachada), ["autorizar", "identificarChamador", "perfilOuFalha"]) &&
+        Object.keys(fachada).length === 3,
+      Object.keys(fachada).join(", "),
+    );
+    /* Se a ORIGEM não importou, o `===` daria falso por outro motivo, e a
+       falha diria "cópia" quando o defeito é o import. O detalhe nomeia qual
+       dos dois lados caiu. */
+    const origensQueFalharam = [
+      doNucleo?.__falhou ? `${CAMINHO_NUCLEO}: ${doNucleo.__falhou}` : null,
+      dasOperacoes?.__falhou ? `${CAMINHO_OPERACOES_DO_POST}: ${dasOperacoes.__falhou}` : null,
+    ].filter((linha) => linha !== null);
+    afirmar(
+      "e cada uma é a MESMA função de onde nasceu (`===`), não uma cópia",
+      origensQueFalharam.length === 0 &&
+        typeof fachada.identificarChamador === "function" &&
+        fachada.identificarChamador === doNucleo.identificarChamador &&
+        fachada.perfilOuFalha === doNucleo.perfilOuFalha &&
+        fachada.autorizar === dasOperacoes.autorizar,
+      origensQueFalharam.length > 0
+        ? `a origem não importou: ${origensQueFalharam.join(" | ")}`
+        : "",
+    );
+  }
+}
+
 /* ─── (d) O núcleo, executado sem rede ───────────────────────────────────── */
 
 /* ─── (c5) O vocabulário fechado das operações (Story 2.12) ──────────────── */

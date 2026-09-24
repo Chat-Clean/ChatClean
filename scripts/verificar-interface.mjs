@@ -432,6 +432,18 @@ const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
    regra que cobra `.dado` sobre ele precisa se mudar junto. */
 const CAMINHO_TELA = "src/admin/blog/EditorDePost.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
+/* Story 5.1: o DESENHO da pílula (ponto, palavra, `data-estado`, raio) mudou
+   para `admin/comum`, que serve o Blog e Carreiras e não conhece Estado
+   nenhum. A guarda e o vocabulário continuam na ligação do Blog
+   (`CAMINHO_PILULA`); as regras que leem o desenho leem daqui. */
+const CAMINHO_PILULA_COMUM = "src/admin/comum/PilulaDeEstado.jsx";
+/* Revisão da 5.1: a barra e a casca do editor também moram em `admin/comum`
+   agora, com as frases visíveis, as classes e os tokens que antes estavam no
+   Blog. Elas entram na lista fechada de código novo (hex solto, paleta
+   aposentada, raio fora da direção); as varreduras de árvore inteira (voz,
+   classe montada, travessão) já as alcançam por estarem sob `src/admin/`. */
+const CAMINHO_BARRA_DO_EDITOR_COMUM = "src/admin/comum/BarraDoEditor.jsx";
+const CAMINHO_EDITOR_DE_TEXTO_COMUM = "src/admin/comum/EditorDeTexto.jsx";
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 /* A pré-visualização da Story 2.13 e o módulo puro dela. Elas entram na lista
    fechada pela mesma razão que a listagem entrou na 2.10: superfície nova do
@@ -477,6 +489,9 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_NOTIFICACOES,
   CAMINHO_DIALOGO,
   CAMINHO_PILULA,
+  CAMINHO_PILULA_COMUM,
+  CAMINHO_BARRA_DO_EDITOR_COMUM,
+  CAMINHO_EDITOR_DE_TEXTO_COMUM,
   CAMINHO_ESTADOS,
   CAMINHO_FORMATO,
   CAMINHO_MENU,
@@ -526,6 +541,7 @@ const menu = lerOuFalhar(CAMINHO_MENU);
 const gaveta = lerOuFalhar(CAMINHO_GAVETA);
 const tela = lerOuFalhar(CAMINHO_TELA);
 const pilula = lerOuFalhar(CAMINHO_PILULA);
+const pilulaComum = lerOuFalhar(CAMINHO_PILULA_COMUM);
 const lista = lerOuFalhar(CAMINHO_LISTA);
 const appCss = lerOuFalhar(CAMINHO_APP_CSS);
 const indexCss = lerOuFalhar(CAMINHO_INDEX_CSS);
@@ -1671,13 +1687,22 @@ if (pilula) {
     /from\s+["']@\/domain\/blog\/estados["']/.test(codigo) &&
       /aparenciaDoEstado\(/.test(codigo),
   );
+  /* Story 5.1: a palavra e o raio moram no desenho comum
+     (`CAMINHO_PILULA_COMUM`), e é lá que estas duas regras leem. A ligação do
+     Blog continua proibida de trazer raio solto, e precisa de fato entregar a
+     aparência do vocabulário ao desenho comum. */
+  const codigoComum = pilulaComum ? semComentarios(pilulaComum) : "";
   afirmar(
     "a pílula traz a palavra por extenso — cor não é o único portador do Estado",
-    /\{rotulo\}/.test(codigo),
+    /\{rotulo\}/.test(codigoComum) &&
+      /aparencia=\{aparenciaDoEstado\(estado\)\}/.test(codigo) &&
+      /from\s+["']@\/admin\/comum\/PilulaDeEstado["']/.test(codigo),
   );
   afirmar(
     "a pílula usa o raio de pílula e nenhum raio solto",
-    /rounded-pilula/.test(codigo) && !/rounded-(full|xl|lg|md|sm)\b/.test(codigo),
+    /rounded-pilula/.test(codigoComum) &&
+      !/rounded-(full|xl|lg|md|sm)\b/.test(codigoComum) &&
+      !/rounded-(full|xl|lg|md|sm)\b/.test(codigo),
   );
   /*
    * Ausente e desconhecido não são a mesma coisa. Post sem Estado é o caso de
@@ -5038,10 +5063,14 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
     302: "dentro de um `console.error()` direto do resíduo de Storage — o comentário logo abaixo confirma: \"o que sai na resposta é só o arquivo\", motivo interno fica só no log",
   }),
   "src/admin/blog/PilulaDeEstado.jsx": Object.freeze({
-    37: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
+    /* Story 5.1: o mesmo texto de `exigir()`, na posição nova depois de o
+       desenho da pílula ir para `admin/comum` (antes, linha 37). */
+    30: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
   }),
   "src/admin/blog/configuracao.js": Object.freeze({
-    101: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
+    /* Story 5.1: o mesmo `EXTENSOES_SEM_VOCABULARIO`, que continua no Blog, na
+       posição nova depois de o núcleo ir para `admin/comum` (antes, linha 101). */
+    42: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
   }),
   "src/admin/blog/previa.js": Object.freeze({
     164: "throw de `falaDaSituacao()`: o único chamador (`PreVisualizacaoDePost.jsx`) só passa o valor de `situacaoDaTela()`, que devolve exclusivamente as quatro situações fechadas já cobertas em `FALAS` — situação fora da lista é erro de programação, nunca alcança o fluxo normal",

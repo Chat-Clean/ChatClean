@@ -51,7 +51,8 @@ import {
   NIVEIS_DE_TITULO,
   RELACOES_DE_LINK,
   TIPOS_DE_LISTA_ORDENADA,
-  validarDocumento,
+  validarDocumentoNoVocabulario,
+  VOCABULARIO_DO_POST,
 } from "../../domain/blog/schema.js";
 
 /* ─── Peças de serialização ──────────────────────────────────────────────── */
@@ -444,9 +445,15 @@ export function htmlDoDocumento(documento) {
  * `{ ok: false, erro }` quando a entrada não é um documento. Nunca lança:
  * exceção que suba daqui derrubaria a função de escrita, e o contrato do
  * projeto é que a exceção vira valor.
+ *
+ * `vocabulario` é a lista de permissão contra a qual a entrada é validada. O
+ * padrão é o do Post, e é por isso que a escrita do Blog não mudou; a
+ * projeção reduzida passa `VOCABULARIO_DA_DESCRICAO`, e o que está fora dela
+ * cai ANTES de chegar aqui, então o HTML sai sem citação, imagem, código,
+ * linha divisória nem destaque pelo mesmo renderizador.
  */
-export function derivarHtml(entrada) {
-  const validado = validarDocumento(entrada);
+export function derivarHtml(entrada, vocabulario = VOCABULARIO_DO_POST) {
+  const validado = validarDocumentoNoVocabulario(entrada, vocabulario);
   if (!validado.ok) return { ok: false, erro: validado.erro };
 
   let html;
