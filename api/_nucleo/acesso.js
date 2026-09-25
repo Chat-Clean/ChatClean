@@ -39,6 +39,13 @@ import {
 /* E os campos de SEO vêm do MESMO lugar de onde a porta os aceita — a lista é
    uma, e não uma por camada. */
 import { CAMPOS_DE_SEO } from "../../src/domain/blog/compartilhamento.js";
+/* Story 5.3: a TABELA de uma Classificação vem da lista fechada do domínio,
+   nunca de um texto do pedido. O transporte a resolve pela chave e recusa a
+   chave que não está lá, como segunda trava depois do núcleo. */
+import { listaDeClassificacao } from "../../src/domain/carreiras/classificacoes.js";
+/* E o formato do Slug, para a busca do dono de um endereço recusar o torto
+   antes de ir à rede. É o MESMO formato do Post, que a Vaga reusa. */
+import { FORMATO_DE_SLUG, TAMANHO_MAXIMO_DO_SLUG } from "../../src/domain/blog/slug.js";
 
 /**
  * As variáveis que a função exige, e de onde ela as aceita.
@@ -179,6 +186,56 @@ const SELECAO_DA_CATEGORIA = COLUNAS_DA_CATEGORIA_NA_ESCRITA.join(",");
 export const COLUNAS_DA_TAG_NA_ESCRITA = Object.freeze(["id", "nome", "slug"]);
 
 const SELECAO_DA_TAG = COLUNAS_DA_TAG_NA_ESCRITA.join(",");
+
+/**
+ * As colunas que uma gravação de Vaga devolve e que a leitura do registro
+ * gravado traz (Story 5.3). Lista FECHADA pela razão da do Post. Ela traz
+ * tudo o que `problemasParaAbrir` precisa para julgar o registro GRAVADO, e
+ * `aberta_em`, que diz se o Slug já travou.
+ */
+export const COLUNAS_DA_VAGA_NA_ESCRITA = Object.freeze([
+  "id",
+  "slug",
+  "titulo",
+  "estado",
+  "departamento_id",
+  "tipo_id",
+  "nivel_id",
+  "modalidade",
+  "localizacao",
+  "resumo",
+  "descricao",
+  "descricao_html",
+  "link_de_candidatura",
+  "aberta_em",
+  "criado_em",
+  "atualizado_em",
+]);
+
+const SELECAO_DA_VAGA = COLUNAS_DA_VAGA_NA_ESCRITA.join(",");
+
+/**
+ * As colunas de uma Classificação, por lista: as comuns mais a Cor
+ * (Departamento e Nível) ou o Equivalente JobPosting (Tipo). Derivadas das
+ * marcas `temCor` e `temEquivalente` do domínio, para a lista de colunas e a
+ * de listas não divergirem.
+ */
+export function colunasDaClassificacaoNaEscrita(chave) {
+  const lista = listaDeClassificacao(chave);
+  if (lista === null) return null;
+  return Object.freeze([
+    "id",
+    "nome",
+    ...(lista.temCor ? ["cor"] : []),
+    ...(lista.temEquivalente ? ["equivalente_jobposting"] : []),
+    "ordem",
+    "criado_em",
+    "atualizado_em",
+  ]);
+}
+
+/** O filtro de igualdade do PostgREST, com o valor codificado. */
+const igualA = (coluna, valor) => `${coluna}=eq.${encodeURIComponent(valor)}`;
 
 /**
  * O total de uma faixa do PostgREST (`0-0/12`, `* /12`, `0-24/*`), ou `null`.
@@ -431,6 +488,67 @@ export function criarAcesso({
     if (!resultado.ok) return resultado;
     const lista = Array.isArray(resultado.dados) ? resultado.dados : [];
     return { ...resultado, dados: lista.length > 0 ? lista[0] : null };
+  };
+
+  /**
+   * A recusa do PRÓPRIO transporte, antes de qualquer ida à rede (Story 5.3).
+   * Mesma forma de toda resposta. É a guarda que impede um filtro ausente de
+   * virar comando na tabela inteira.
+   *
+   * `status: 400`, e NÃO `0` (revisão da 5.3): `status: 0` quer dizer "não
+   * falamos com o servidor", e `classificar` o leva a `rede`, com o conselho
+   * de esperar e tentar de novo. Um identificador torto não melhora com o
+   * tempo: é entrada que não serve, e 400 leva a `dados_invalidos`.
+   */
+  const STATUS_DA_RECUSA_LOCAL = 400;
+  const recusaDoTransporte = (codigo, mensagem) => ({
+    ok: false,
+    status: STATUS_DA_RECUSA_LOCAL,
+    faixa: "",
+    codigo,
+    mensagem,
+    dados: null,
+  });
+
+  /**
+   * Os campos de um comando de escrita servem? Objeto simples com ao menos
+   * uma coluna. `PATCH` com corpo vazio não muda nada e responde a linha como
+   * se tivesse gravado; `POST` vazio criaria uma linha só de padrões. Os dois
+   * são recusados aqui, sem ida à rede.
+   */
+  const camposDeEscritaValidos = (campos) =>
+    campos !== null &&
+    typeof campos === "object" &&
+    !Array.isArray(campos) &&
+    Object.keys(campos).length > 0;
+
+  /**
+   * O teto da lista de nomes de uma Classificação. As listas são curtas por
+   * natureza (a semeadura tem oito Departamentos); o limite EXPLÍCITO existe
+   * para o pedido não depender do teto padrão do PostgREST, que o projeto
+   * pode mudar sem avisar. A colisão conferida sobre esta lista é a primeira
+   * linha; o índice único do banco continua sendo a última.
+   */
+  const LIMITE_DE_NOMES_DA_CLASSIFICACAO = 1000;
+
+  /** O identificador aparado, se tiver forma de UUID, ou `null`. */
+  const uuidOuNulo = (id) => {
+    const alvo = typeof id === "string" ? id.trim() : "";
+    return PADRAO_DE_UUID.test(alvo) ? alvo : null;
+  };
+
+  /**
+   * A tabela, a coluna em `vagas` e a seleção de uma lista de Classificação,
+   * ou `null` para chave fora da lista fechada do domínio.
+   */
+  const classificacao = (chave) => {
+    const lista = listaDeClassificacao(chave);
+    if (lista === null) return null;
+    return {
+      tabela: lista.tabela,
+      coluna: lista.coluna,
+      selecao: colunasDaClassificacaoNaEscrita(chave).join(","),
+    };
   };
 
   return {
@@ -914,6 +1032,263 @@ export function criarAcesso({
         return { ...resposta, ok: true, dados: null, codigo: "", mensagem: "" };
       }
       return resposta;
+    },
+
+    /* ─── Vagas (Story 5.3) ────────────────────────────────────────────────
+       A escrita de Carreiras passa por aqui, com a chave de serviço, como a
+       do Blog. Nenhuma política de escrita existe em `vagas` nem nas
+       Classificações: a RLS continua negando escrita a `anon` e a
+       `authenticated`. Todo comando que leva identificador confere o formato
+       ANTES de ir à rede: filtro ausente no PostgREST é comando na tabela
+       inteira. */
+
+    /** A Vaga GRAVADA, com tudo o que a decisão precisa, ou `null`. */
+    async lerVaga(id) {
+      const alvo = uuidOuNulo(id);
+      if (alvo === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "leitura de vaga recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      return primeira(
+        await pedir(`/rest/v1/vagas?select=${SELECAO_DA_VAGA}&${igualA("id", alvo)}&limit=1`, {
+          cabecalhos: comServico(),
+        }),
+      );
+    },
+
+    /**
+     * Quem é o dono deste Slug entre as Vagas, ou `null`. O formato é
+     * conferido ANTES da rede: um Slug torto não é de ninguém, e perguntar
+     * por ele só gastaria uma ida ao banco.
+     */
+    async vagaPorSlug(slug) {
+      const alvo = typeof slug === "string" ? slug.trim() : "";
+      if (alvo === "" || alvo.length > TAMANHO_MAXIMO_DO_SLUG || !FORMATO_DE_SLUG.test(alvo)) {
+        return recusaDoTransporte(
+          "SlugInvalido",
+          "busca do dono do endereço recusada no transporte: slug ausente ou fora do formato",
+        );
+      }
+      return primeira(
+        await pedir(`/rest/v1/vagas?select=id,slug,titulo&${igualA("slug", alvo)}&limit=1`, {
+          cabecalhos: comServico(),
+        }),
+      );
+    },
+
+    /** Cria uma Vaga. Um comando, com as colunas montadas pelo chamador. */
+    async inserirVaga(campos) {
+      if (!camposDeEscritaValidos(campos)) {
+        return recusaDoTransporte("CamposVazios", "criação de vaga recusada no transporte: nenhuma coluna para gravar");
+      }
+      return primeira(
+        await pedir(`/rest/v1/vagas?select=${SELECAO_DA_VAGA}`, {
+          metodo: "POST",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /**
+     * Atualiza uma Vaga. `estado`, quando vem, entra no FILTRO: o comando só
+     * alcança a linha se ela ainda estiver no Estado em que a decisão foi
+     * tomada. Linha nenhuma de volta quer dizer que ela mudou (ou sumiu) no
+     * meio, e quem chama distingue os dois relendo.
+     */
+    async atualizarVaga(id, campos, { estado = null } = {}) {
+      const alvo = uuidOuNulo(id);
+      if (alvo === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "gravação de vaga recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      if (!camposDeEscritaValidos(campos)) {
+        return recusaDoTransporte("CamposVazios", "gravação de vaga recusada no transporte: nenhuma coluna para gravar");
+      }
+      if (estado !== null && (typeof estado !== "string" || !/^[a-z]+$/.test(estado))) {
+        return recusaDoTransporte(
+          "EstadoInvalido",
+          "gravação de vaga recusada no transporte: Estado do filtro fora de forma",
+        );
+      }
+      const filtroDoEstado = estado === null ? "" : `&${igualA("estado", estado)}`;
+      return primeira(
+        await pedir(`/rest/v1/vagas?select=${SELECAO_DA_VAGA}&${igualA("id", alvo)}${filtroDoEstado}`, {
+          metodo: "PATCH",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /**
+     * Apaga uma Vaga, com a guarda do `DELETE` de Post. O gatilho
+     * `vagas_maquina_de_estados` recusa a Aberta no banco, venha o comando de
+     * onde vier; quem chama confere o Estado antes para dizer a frase certa.
+     */
+    async excluirVaga(id) {
+      const alvo = uuidOuNulo(id);
+      if (alvo === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "exclusão de vaga recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      return primeira(
+        await pedir(`/rest/v1/vagas?select=${SELECAO_DA_VAGA}&${igualA("id", alvo)}`, {
+          metodo: "DELETE",
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /* ─── Classificações (Story 5.3) ───────────────────────────────────────
+       `lista` é a CHAVE do domínio (`departamento`, `tipo`, `nivel`), e a
+       tabela sai de `LISTAS_DE_CLASSIFICACAO`. Chave fora da lista não vira
+       nome de tabela: é recusada aqui, sem ida à rede. */
+
+    /** A Classificação gravada, ou `null`. */
+    async lerClassificacao(lista, id) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      const identificador = uuidOuNulo(id);
+      if (identificador === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "leitura de classificação recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      return primeira(
+        await pedir(`/rest/v1/${alvo.tabela}?select=${alvo.selecao}&${igualA("id", identificador)}&limit=1`, {
+          cabecalhos: comServico(),
+        }),
+      );
+    },
+
+    /**
+     * Os nomes da lista, para a colisão ser conferida SEM caixa nem acento
+     * antes de gravar (o índice único é sobre `normalizar_busca(nome)`, e um
+     * filtro `eq` não o reproduz). Pedido com limite EXPLÍCITO
+     * (`LIMITE_DE_NOMES_DA_CLASSIFICACAO`), e a resposta precisa ser LISTA:
+     * outra forma é falha, nunca "nenhum nome", que deixaria a colisão passar.
+     */
+    async listarNomesDaClassificacao(lista) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      const resposta = await pedir(
+        `/rest/v1/${alvo.tabela}?select=id,nome&order=ordem.asc,nome.asc&limit=${LIMITE_DE_NOMES_DA_CLASSIFICACAO}`,
+        { cabecalhos: comServico() },
+      );
+      if (!resposta.ok) return resposta;
+      if (!Array.isArray(resposta.dados)) {
+        return {
+          ok: false,
+          status: resposta.status,
+          dados: null,
+          faixa: resposta.faixa,
+          codigo: "RespostaSemLista",
+          mensagem: `o PostgREST não devolveu lista de nomes de ${alvo.tabela}`,
+        };
+      }
+      return resposta;
+    },
+
+    /** Cria uma Classificação na tabela da lista. */
+    async inserirClassificacao(lista, campos) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      if (!camposDeEscritaValidos(campos)) {
+        return recusaDoTransporte("CamposVazios", "criação de classificação recusada no transporte: nenhuma coluna para gravar");
+      }
+      return primeira(
+        await pedir(`/rest/v1/${alvo.tabela}?select=${alvo.selecao}`, {
+          metodo: "POST",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /** Atualiza uma Classificação existente. */
+    async atualizarClassificacao(lista, id, campos) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      const identificador = uuidOuNulo(id);
+      if (identificador === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "gravação de classificação recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      if (!camposDeEscritaValidos(campos)) {
+        return recusaDoTransporte("CamposVazios", "gravação de classificação recusada no transporte: nenhuma coluna para gravar");
+      }
+      return primeira(
+        await pedir(`/rest/v1/${alvo.tabela}?select=${alvo.selecao}&${igualA("id", identificador)}`, {
+          metodo: "PATCH",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /**
+     * Apaga uma Classificação. A FK `on delete restrict` de `vagas` recusa a
+     * que está em uso (23503); quem chama conta antes para dizer quantas.
+     */
+    async excluirClassificacao(lista, id) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      const identificador = uuidOuNulo(id);
+      if (identificador === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "exclusão de classificação recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      return primeira(
+        await pedir(`/rest/v1/${alvo.tabela}?select=${alvo.selecao}&${igualA("id", identificador)}`, {
+          metodo: "DELETE",
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /**
+     * Quantas Vagas usam esta Classificação, pela coluna da lista em `vagas`.
+     * Mesma leitura de faixa de `contarPostsDaCategoria`: faixa ilegível é
+     * falha, nunca zero.
+     */
+    async contarVagasDaClassificacao(lista, id) {
+      const alvo = classificacao(lista);
+      if (alvo === null) return recusaDoTransporte("ListaInvalida", "lista de classificação fora do vocabulário");
+      const identificador = uuidOuNulo(id);
+      if (identificador === null) {
+        return recusaDoTransporte(
+          "IdentificadorInvalido",
+          "contagem recusada no transporte: identificador ausente ou fora do formato",
+        );
+      }
+      const resposta = await pedir(`/rest/v1/vagas?select=id&${igualA(alvo.coluna, identificador)}&limit=1`, {
+        cabecalhos: comServico({ Prefer: "count=exact" }),
+      });
+      if (!resposta.ok) return resposta;
+      const total = totalDaFaixa(resposta.faixa);
+      if (total === null) {
+        return {
+          ok: false,
+          status: resposta.status,
+          dados: null,
+          faixa: resposta.faixa,
+          codigo: "ContagemIlegivel",
+          mensagem: `o PostgREST não devolveu contagem: content-range ${JSON.stringify(resposta.faixa ?? "")}`,
+        };
+      }
+      return { ...resposta, dados: { total } };
     },
   };
 }

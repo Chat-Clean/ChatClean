@@ -2977,11 +2977,18 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          forma de `removerArquivoDaCapa`, guarda trocada (`ehCaminhoDoCorpo`
          em vez de `ehCaminhoDeCapa`), porque a imagem INLINE do corpo do Post
          vive numa pasta própria do mesmo bucket (`corpo/`, não `capas/`). */
+      /* TROCA REGISTRADA (Story 5.3): a escrita de Carreiras entra no MESMO
+         transporte, e com ela as duas remoções dela: `excluirVaga` e
+         `excluirClassificacao`. As duas têm a guarda de identificador do
+         `DELETE` de Post antes de ir à rede, e a de Classificação resolve a
+         tabela pela lista fechada do domínio, nunca pelo pedido. */
       "api/_nucleo/acesso.js": [
         "excluirPost",
         "excluirCategoria",
         "removerArquivoDaCapa",
         "removerArquivoDoCorpo",
+        "excluirVaga",
+        "excluirClassificacao",
       ],
       /* E o núcleo passou a ter remoção: `removerCapaAnterior` decide QUAL
          arquivo sai e QUANDO — sempre depois de a linha ser gravada ou

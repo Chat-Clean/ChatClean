@@ -89,13 +89,19 @@ export function linkDeCandidaturaValido(valor) {
 /**
  * Os campos que uma Vaga Aberta sempre tem, na ordem do formulário. É a lista
  * FECHADA que `problemasParaAbrir` devolve: nada fora dela aparece.
+ *
+ * As chaves são os NOMES DAS COLUNAS de `public.vagas` (revisão da Story 5.3):
+ * o `faltando` da função de escrita junta esta lista com a recusa da leitura
+ * do corpo, e as duas falam o mesmo vocabulário, o da coluna. Antes as três
+ * Classificações saíam daqui como `departamento`, `tipo` e `nivel`, e dois
+ * nomes para o mesmo campo obrigavam a tela a traduzir.
  */
 export const CAMPOS_PARA_ABRIR = Object.freeze([
   "titulo",
   "slug",
-  "departamento",
-  "tipo",
-  "nivel",
+  "departamento_id",
+  "tipo_id",
+  "nivel_id",
   "modalidade",
   "resumo",
   "descricao",
@@ -107,9 +113,9 @@ export const CAMPOS_PARA_ABRIR = Object.freeze([
 export const ROTULOS_DOS_CAMPOS = Object.freeze({
   titulo: "Título",
   slug: "Endereço",
-  departamento: "Departamento",
-  tipo: "Tipo",
-  nivel: "Nível",
+  departamento_id: "Departamento",
+  tipo_id: "Tipo",
+  nivel_id: "Nível",
   modalidade: "Modalidade",
   resumo: "Resumo",
   descricao: "Descrição",
@@ -169,9 +175,9 @@ export function problemasParaAbrir(vaga) {
   ) {
     faltam.add("slug");
   }
-  if (!identificador(v.departamento_id)) faltam.add("departamento");
-  if (!identificador(v.tipo_id)) faltam.add("tipo");
-  if (!identificador(v.nivel_id)) faltam.add("nivel");
+  if (!identificador(v.departamento_id)) faltam.add("departamento_id");
+  if (!identificador(v.tipo_id)) faltam.add("tipo_id");
+  if (!identificador(v.nivel_id)) faltam.add("nivel_id");
   if (!ehModalidade(v.modalidade)) faltam.add("modalidade");
   if (!preenchido(v.resumo) || !cabe(v.resumo, LIMITES_DA_VAGA.resumo)) faltam.add("resumo");
   if (!descricaoPreenchida(v)) faltam.add("descricao");

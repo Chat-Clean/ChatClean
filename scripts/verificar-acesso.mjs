@@ -486,6 +486,17 @@ secao("(b) a arquitetura de acesso está onde deveria");
     comRota.join(", ") || "nenhum módulo conhece a rota — a escrita não teria por onde sair",
   );
 
+  /* Story 5.3: a MESMA regra para a função de escrita de Carreiras. Um só
+     módulo de src/ conhece `/api/carreiras`, e é o cliente de Carreiras. */
+  const comRotaDeCarreiras = [
+    ...new Set(ocorrencias(fontes, /["'`]\/api\/carreiras["'`]/).map((o) => o.split(":")[0])),
+  ];
+  afirmar(
+    "só um módulo de src/ conhece o endereço da escrita de Carreiras, e ele é `data/carreiras/escrita.js`",
+    comRotaDeCarreiras.length === 1 && comRotaDeCarreiras[0] === "src/data/carreiras/escrita.js",
+    comRotaDeCarreiras.join(", ") || "nenhum módulo conhece a rota: a escrita de Carreiras não teria por onde sair",
+  );
+
   /* E AS TELAS chegam à escrita por ele, nunca por um `fetch` próprio. O Painel
      tem duas superfícies que escrevem — o Editor e a listagem — e as duas
      importam as funções da camada. */

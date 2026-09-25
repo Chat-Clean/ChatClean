@@ -32,6 +32,25 @@
  *       resíduo zero no fim, com prefixo `zzz-verificacao-5-2-` e `finally`
  *       com as limpezas conferidas.
  *
+ * Story 5.3 (a escrita pela função única):
+ *
+ *   (i) LOCAL, o despacho: `api/carreiras.js` executado com `req`/`res` de
+ *       mentira contra um dublê local de GoTrue e PostgREST, cobrindo a matriz
+ *       de I/O de servidor, inclusive abrir e reabrir (que só existem aqui);
+ *   (j) REMOTO, o gatilho `vagas_maquina_de_estados`, em transação desfeita;
+ *   (k) REMOTO, a prova real em produção SÓ com Rascunho: criar, editar,
+ *       Slug em colisão, excluir Rascunho e o CRUD de Classificação, com
+ *       prefixo `zzz-verificacao-5-3-`. NUNCA abre uma Vaga em produção;
+ *   (l) LOCAL, estática e executada: o cliente do Painel só conhece a rota
+ *       nova, as frases não falam de post, nenhum travessão, e os tipos de
+ *       erro do cliente são os do servidor.
+ *
+ * Revisão da 5.3 (migração 20260924160000): `aberta_em` só pelo banco (a
+ * primeira abertura com data é recusada), o TRUNCATE com Vaga Aberta barrado
+ * por um gatilho de instrução, o dublê amarrado à MAQUINA e à função vigente,
+ * a seleção de frase da tradução do banco, e o transporte recusando local
+ * como `dados_invalidos`.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -55,6 +74,7 @@ import {
   raiz,
   REF_PROJETO,
   registrarSegredo,
+  revelarChaves,
   sanitizar,
   TIMEOUT_MS,
   URL_PROJETO,
@@ -140,7 +160,31 @@ const MIGRACOES_DE_CARREIRAS = Object.freeze([
   NOME_DA_MIGRACAO,
   "20260924130000_busca_de_vagas_recusa_estado.sql",
   "20260924140000_descricao_e_link_estritos.sql",
+  /* Story 5.3: a máquina de estados imposta no banco (segunda defesa). */
+  "20260924150000_maquina_de_estados_da_vaga.sql",
+  /* Revisão da 5.3: `aberta_em` só pelo banco, e o TRUNCATE barrado. */
+  "20260924160000_abertura_so_pelo_banco.sql",
 ]);
+/** A migração da máquina de estados (Story 5.3). */
+const MIGRACAO_DA_MAQUINA = "20260924150000_maquina_de_estados_da_vaga.sql";
+/**
+ * O gatilho e a função da máquina (Story 5.3). A função NÃO entra em
+ * `FUNCOES_NOVAS`: aquela lista é a das cinco que a migração 20260924120000
+ * cria, e duas asserções contam cinco sobre ela. A lista de permissão de
+ * comandos ganha os dois nomes à parte.
+ */
+const GATILHO_DA_MAQUINA = "vagas_maquina_de_estados";
+const FUNCAO_DA_MAQUINA = "vagas_respeitam_a_maquina";
+/**
+ * A correção da revisão da 5.3: redefine a função da máquina (a primeira
+ * abertura com `aberta_em` enviado passa a ser recusada) e cria o gatilho de
+ * INSTRUÇÃO que barra o `truncate` com Vaga Aberta, com a função dele. Os
+ * dois nomes novos entram na lista de permissão de comandos à parte, como os
+ * da máquina, e NÃO em `FUNCOES_NOVAS`.
+ */
+const MIGRACAO_DA_ABERTURA = "20260924160000_abertura_so_pelo_banco.sql";
+const GATILHO_DO_TRUNCATE = "vagas_maquina_de_estados_no_truncate";
+const FUNCAO_DO_TRUNCATE = "vagas_truncate_respeita_a_maquina";
 const CARIMBO_DAS_LANDINGS = "20260922120000";
 /** As restrições de `vagas`, pelo nome. As migrações de correção só podem refazer estas. */
 const RESTRICOES_DE_VAGAS = Object.freeze([
@@ -305,6 +349,26 @@ function recusaDoComando(limpo) {
     new RegExp(`^grant select on ${tabela} to (anon|authenticated)$`),
     new RegExp(`^insert into public\\.(${CLASSIFICACOES.join("|")}) \\(`),
     /^notify pgrst,\s*$/,
+    /* TROCA REGISTRADA (Story 5.3): a lista aceitava só o gatilho
+       `<t>_tocar_atualizado_em` e as funções de `FUNCOES_NOVAS`. Ela ganha,
+       pelo NOME, o gatilho da máquina de estados em `vagas` (antes de insert,
+       update e delete, por linha, chamando só a função da máquina) e a
+       própria função, com o `comment on` dela. Nada mais muda. */
+    new RegExp(`^create or replace function public\\.${FUNCAO_DA_MAQUINA}\\(\\)`),
+    new RegExp(`^comment on function public\\.${FUNCAO_DA_MAQUINA}\\(\\) is\\s*$`),
+    new RegExp(`^drop trigger if exists ${GATILHO_DA_MAQUINA} on public\\.vagas$`),
+    new RegExp(
+      `^create trigger ${GATILHO_DA_MAQUINA} before insert or update or delete on public\\.vagas for each row execute function public\\.${FUNCAO_DA_MAQUINA}\\(\\)$`,
+    ),
+    /* TROCA REGISTRADA (revisão da 5.3): o gatilho de INSTRUÇÃO que barra o
+       `truncate` com Vaga Aberta, e a função dele, pelo NOME: só em `vagas`,
+       só `before truncate`, só `for each statement`, só com a função dele. */
+    new RegExp(`^create or replace function public\\.${FUNCAO_DO_TRUNCATE}\\(\\)`),
+    new RegExp(`^comment on function public\\.${FUNCAO_DO_TRUNCATE}\\(\\) is\\s*$`),
+    new RegExp(`^drop trigger if exists ${GATILHO_DO_TRUNCATE} on public\\.vagas$`),
+    new RegExp(
+      `^create trigger ${GATILHO_DO_TRUNCATE} before truncate on public\\.vagas for each statement execute function public\\.${FUNCAO_DO_TRUNCATE}\\(\\)$`,
+    ),
   ];
   return PERMITIDOS.some((padrao) => padrao.test(limpo))
     ? null
@@ -337,6 +401,26 @@ function recusaDoComando(limpo) {
     "alter table public.vagas add constraint vagas_outra check (",
     "alter table public.vagas drop column titulo",
     "alter table public.departamentos drop constraint if exists departamentos_cor_na_paleta",
+    /* Story 5.3: o gatilho da máquina, só no nome, só em `vagas`, só com a
+       função dela; e a função, só ela. */
+    "create trigger vagas_maquina_de_estados before insert or update or delete on public.posts for each row execute function public.vagas_respeitam_a_maquina()",
+    "create trigger vagas_maquina_de_estados before insert or update or delete on public.vagas for each row execute function public.tocar_atualizado_em()",
+    "create trigger outro_gatilho before insert or update or delete on public.vagas for each row execute function public.vagas_respeitam_a_maquina()",
+    "drop trigger if exists vagas_maquina_de_estados on public.posts",
+    "create or replace function public.vagas_respeitam_a_maquina_outra()",
+    "drop function if exists public.vagas_respeitam_a_maquina()",
+    "comment on function public.exigir_slug_livre() is",
+    /* Revisão da 5.3: o gatilho do truncate, só no nome, só em `vagas`, só
+       antes do truncate, só por instrução, só com a função dele. */
+    "create trigger vagas_maquina_de_estados_no_truncate before truncate on public.posts for each statement execute function public.vagas_truncate_respeita_a_maquina()",
+    "create trigger vagas_maquina_de_estados_no_truncate after truncate on public.vagas for each statement execute function public.vagas_truncate_respeita_a_maquina()",
+    "create trigger vagas_maquina_de_estados_no_truncate before truncate on public.vagas for each statement execute function public.tocar_atualizado_em()",
+    "create trigger outro_gatilho before truncate on public.vagas for each statement execute function public.vagas_truncate_respeita_a_maquina()",
+    "create trigger vagas_maquina_de_estados_no_truncate before insert or update or delete on public.vagas for each row execute function public.vagas_truncate_respeita_a_maquina()",
+    "drop trigger if exists vagas_maquina_de_estados_no_truncate on public.posts",
+    "create or replace function public.vagas_truncate_respeita_a_maquina_outra()",
+    "drop function if exists public.vagas_truncate_respeita_a_maquina()",
+    "comment on function public.vagas_truncate_respeita_a_maquina_outra() is",
   ];
   const DEVE_ACEITAR = [
     "do",
@@ -348,6 +432,14 @@ function recusaDoComando(limpo) {
     "create or replace function public.situacao_da_vaga(p_slug text)",
     "alter table public.vagas drop constraint if exists vagas_aberta_completa",
     "alter table public.vagas add constraint vagas_link_de_candidatura_valido check (",
+    "create or replace function public.vagas_respeitam_a_maquina()",
+    "comment on function public.vagas_respeitam_a_maquina() is",
+    "drop trigger if exists vagas_maquina_de_estados on public.vagas",
+    "create trigger vagas_maquina_de_estados before insert or update or delete on public.vagas for each row execute function public.vagas_respeitam_a_maquina()",
+    "create or replace function public.vagas_truncate_respeita_a_maquina()",
+    "comment on function public.vagas_truncate_respeita_a_maquina() is",
+    "drop trigger if exists vagas_maquina_de_estados_no_truncate on public.vagas",
+    "create trigger vagas_maquina_de_estados_no_truncate before truncate on public.vagas for each statement execute function public.vagas_truncate_respeita_a_maquina()",
   ];
   const escaparam = DEVE_RECUSAR.filter((c) => recusaDoComando(c) === null);
   const barrados = DEVE_ACEITAR.filter((c) => recusaDoComando(c) !== null);
@@ -481,6 +573,168 @@ function recusaDoComando(limpo) {
     "e avisa no topo que a ORDEM das migrações é a garantia (reaplicar 20260924120000 sozinha recriaria a busca antiga)",
     /20260924120000[\s\S]{0,200}ISOLADAMENTE[\s\S]{0,400}ORDEM/.test(correcao.slice(0, 4000)),
   );
+}
+
+/* A MIGRAÇÃO DA MÁQUINA DE ESTADOS (Story 5.3), lida. O comportamento é
+   provado no banco, em transação desfeita (seção j); aqui se fixa a FORMA:
+   gatilho de linha antes das três escritas, função invoker com `search_path`
+   fixo, toda recusa com 23514 e o nome do gatilho, e execução revogada. */
+{
+  const texto = ler(path.join("supabase", "migrations", MIGRACAO_DA_MAQUINA)) ?? "";
+  afirmar(`${MIGRACAO_DA_MAQUINA}: existe`, texto !== "", "arquivo ausente em supabase/migrations");
+  const cmds = comandosSql(texto);
+  const limpos = cmds.map((c) => c.limpo);
+  const funcao = cmds.find((c) => c.limpo.startsWith(`create or replace function public.${FUNCAO_DA_MAQUINA}()`));
+  afirmar(
+    "a função da máquina é de GATILHO, plpgsql, `security invoker` e fixa `search_path = ''`",
+    Boolean(funcao) &&
+      /^create or replace function public\.vagas_respeitam_a_maquina\(\) returns trigger language plpgsql security invoker set search_path = as$/.test(
+        funcao.limpo,
+      ) &&
+      funcao.bruto.toLowerCase().replace(/\s+/g, " ").includes("set search_path = ''"),
+    funcao?.limpo ?? "ausente",
+  );
+  const iDrop = limpos.indexOf(`drop trigger if exists ${GATILHO_DA_MAQUINA} on public.vagas`);
+  const iCreate = limpos.findIndex((l) => l.startsWith(`create trigger ${GATILHO_DA_MAQUINA} `));
+  const iFuncao = limpos.findIndex((l) => l.startsWith(`create or replace function public.${FUNCAO_DA_MAQUINA}(`));
+  afirmar(
+    "o gatilho `vagas_maquina_de_estados` é `before insert or update or delete` por linha, com o `drop trigger if exists` antes e a função criada antes dele",
+    iFuncao !== -1 &&
+      iDrop > iFuncao &&
+      iCreate > iDrop &&
+      limpos[iCreate] ===
+        `create trigger ${GATILHO_DA_MAQUINA} before insert or update or delete on public.vagas for each row execute function public.${FUNCAO_DA_MAQUINA}()`,
+    `função ${iFuncao}, drop ${iDrop}, create ${iCreate}`,
+  );
+  const recusas = [...String(funcao?.bruto ?? "").matchAll(/raise exception ([\s\S]*?);/g)].map((m) => m[1]);
+  const recusasTortas = recusas.filter(
+    (r) => !/^'vagas_maquina_de_estados: /.test(r) || !/using errcode = '23514'\s*$/.test(r.replace(/\s+/g, " ")),
+  );
+  afirmar(
+    "toda recusa da função usa `errcode = '23514'` e começa pelo nome do gatilho (são sete: insert fora de rascunho, insert com data, exclusão de Aberta, transição, `aberta_em`, `slug`, rascunho com data)",
+    recusas.length === 7 && recusasTortas.length === 0,
+    `${recusas.length} recusa(s); tortas: ${recusasTortas.map((r) => r.slice(0, 60)).join(" | ")}`,
+  );
+  const bloco = cmds.find((c) => c.limpo === "do")?.bruto ?? "";
+  afirmar(
+    "a execução da função é revogada de public, anon e authenticated e concedida a postgres e service_role, no bloco `do` do molde da 20260924120000",
+    /fn text := 'public\.vagas_respeitam_a_maquina\(\)'/.test(bloco) &&
+      /revoke execute on function %s from public/.test(bloco) &&
+      /array\['anon', 'authenticated'\][\s\S]*revoke execute on function %s from %I/.test(bloco) &&
+      /array\['postgres', 'service_role'\][\s\S]*grant execute on function %s to %I/.test(bloco),
+    bloco.slice(0, 120),
+  );
+  afirmar(
+    "a função da máquina NÃO entra em `FUNCOES_NOVAS`, que continua com as cinco de 20260924120000",
+    !FUNCOES_NOVAS.includes(FUNCAO_DA_MAQUINA) && FUNCOES_NOVAS.length === 5,
+    FUNCOES_NOVAS.join(", "),
+  );
+}
+
+/* A CORREÇÃO DA REVISÃO (20260924160000), lida. O comportamento é do banco
+   (seção j, em transação desfeita, com a sabotagem feita pela sessão
+   principal); aqui se fixa a FORMA: a função da máquina redefinida recusa a
+   primeira abertura com `aberta_em` enviado e grava `now()` sem condição, e o
+   gatilho do truncate é de instrução, antes do truncate, sobre uma função
+   invoker que recusa com 23514 e o nome da máquina. */
+{
+  const texto = ler(path.join("supabase", "migrations", MIGRACAO_DA_ABERTURA)) ?? "";
+  afirmar(`${MIGRACAO_DA_ABERTURA}: existe`, texto !== "", "arquivo ausente em supabase/migrations");
+  const cmds = comandosSql(texto);
+  const limpos = cmds.map((c) => c.limpo);
+  const normalizado = (c) => String(c?.bruto ?? "").replace(/\s+/g, " ");
+  const recusasDe = (c) => [...String(c?.bruto ?? "").matchAll(/raise exception ([\s\S]*?);/g)].map((m) => m[1]);
+  const tortas = (lista) =>
+    lista.filter((r) => !/^'vagas_maquina_de_estados: /.test(r) || !/using errcode = '23514'\s*$/.test(r.replace(/\s+/g, " ")));
+
+  const maquina = cmds.find((c) => c.limpo.startsWith(`create or replace function public.${FUNCAO_DA_MAQUINA}()`));
+  afirmar(
+    "160000: a função da máquina é redefinida com a MESMA assinatura, de gatilho, plpgsql, `security invoker` e `search_path = ''`",
+    Boolean(maquina) &&
+      /^create or replace function public\.vagas_respeitam_a_maquina\(\) returns trigger language plpgsql security invoker set search_path = as$/.test(
+        maquina.limpo,
+      ) &&
+      normalizado(maquina).toLowerCase().includes("set search_path = ''"),
+    maquina?.limpo ?? "ausente",
+  );
+  const recusasDaMaquina = recusasDe(maquina);
+  afirmar(
+    "160000: as recusas da máquina são OITO (as sete de 150000 e a da primeira abertura com data), todas 23514 e com o nome do gatilho",
+    recusasDaMaquina.length === 8 && tortas(recusasDaMaquina).length === 0,
+    `${recusasDaMaquina.length} recusa(s); tortas: ${tortas(recusasDaMaquina).map((r) => r.slice(0, 60)).join(" | ")}`,
+  );
+  afirmar(
+    "160000: na primeira abertura, `aberta_em` enviado é RECUSADO e o banco grava `now()` sem condição (nenhum `if new.aberta_em is null` sobrou)",
+    /if new\.estado = 'aberta'::public\.estado_vaga then if new\.aberta_em is not null then raise exception 'vagas_maquina_de_estados: [^']*' using errcode = '23514'; end if; new\.aberta_em := now\(\);/.test(
+      normalizado(maquina),
+    ) && !/if new\.aberta_em is null then new\.aberta_em := now\(\)/.test(normalizado(maquina)),
+    normalizado(maquina).slice(normalizado(maquina).indexOf("Nunca aberta"), normalizado(maquina).indexOf("Nunca aberta") + 400),
+  );
+  afirmar(
+    "160000: o gatilho de linha da máquina NÃO é recriado (ele aponta para a função, que muda por `create or replace`)",
+    !limpos.some((l) => l.startsWith(`create trigger ${GATILHO_DA_MAQUINA} `) || l.startsWith(`drop trigger if exists ${GATILHO_DA_MAQUINA} `)),
+  );
+
+  const doTruncate = cmds.find((c) => c.limpo.startsWith(`create or replace function public.${FUNCAO_DO_TRUNCATE}()`));
+  afirmar(
+    "160000: a função do truncate é de gatilho, plpgsql, `security invoker` e fixa `search_path = ''`",
+    Boolean(doTruncate) &&
+      /^create or replace function public\.vagas_truncate_respeita_a_maquina\(\) returns trigger language plpgsql security invoker set search_path = as$/.test(
+        doTruncate.limpo,
+      ) &&
+      normalizado(doTruncate).toLowerCase().includes("set search_path = ''"),
+    doTruncate?.limpo ?? "ausente",
+  );
+  const recusasDoTruncate = recusasDe(doTruncate);
+  afirmar(
+    "160000: a função do truncate recusa UMA vez, com 23514 e o nome da máquina, e SÓ quando existe Vaga Aberta",
+    recusasDoTruncate.length === 1 &&
+      tortas(recusasDoTruncate).length === 0 &&
+      /if exists \(select 1 from public\.vagas v where v\.estado = 'aberta'::public\.estado_vaga\) then raise exception/.test(
+        normalizado(doTruncate),
+      ),
+    `${recusasDoTruncate.length} recusa(s)`,
+  );
+  const iFuncao = limpos.findIndex((l) => l.startsWith(`create or replace function public.${FUNCAO_DO_TRUNCATE}(`));
+  const iDrop = limpos.indexOf(`drop trigger if exists ${GATILHO_DO_TRUNCATE} on public.vagas`);
+  const iCreate = limpos.findIndex((l) => l.startsWith(`create trigger ${GATILHO_DO_TRUNCATE} `));
+  afirmar(
+    "160000: o gatilho `vagas_maquina_de_estados_no_truncate` é `before truncate` POR INSTRUÇÃO, com o `drop trigger if exists` antes e a função criada antes dele",
+    iFuncao !== -1 &&
+      iDrop > iFuncao &&
+      iCreate > iDrop &&
+      limpos[iCreate] ===
+        `create trigger ${GATILHO_DO_TRUNCATE} before truncate on public.vagas for each statement execute function public.${FUNCAO_DO_TRUNCATE}()`,
+    `função ${iFuncao}, drop ${iDrop}, create ${iCreate}`,
+  );
+  const bloco = cmds.find((c) => c.limpo === "do")?.bruto ?? "";
+  afirmar(
+    "160000: a execução das DUAS funções é revogada de public, anon e authenticated e concedida a postgres e service_role",
+    /array\['public\.vagas_respeitam_a_maquina\(\)', 'public\.vagas_truncate_respeita_a_maquina\(\)'\]/.test(bloco) &&
+      /revoke execute on function %s from public/.test(bloco) &&
+      /array\['anon', 'authenticated'\][\s\S]*revoke execute on function %s from %I/.test(bloco) &&
+      /array\['postgres', 'service_role'\][\s\S]*grant execute on function %s to %I/.test(bloco),
+    bloco.slice(0, 160),
+  );
+  afirmar(
+    "160000: a função do truncate também NÃO entra em `FUNCOES_NOVAS`",
+    !FUNCOES_NOVAS.includes(FUNCAO_DO_TRUNCATE) && FUNCOES_NOVAS.length === 5,
+  );
+}
+
+/**
+ * A função da máquina VIGENTE: a da migração MAIS RECENTE de Carreiras que a
+ * define (`create or replace` substitui a anterior no banco). É dela que a
+ * seção (i) lê os pares de transição, para amarrar o dublê ao banco.
+ */
+function funcaoDaMaquinaVigente() {
+  for (const nome of [...MIGRACOES_DE_CARREIRAS].reverse()) {
+    const cmd = comandosSql(ler(path.join("supabase", "migrations", nome)) ?? "").find((c) =>
+      c.limpo.startsWith(`create or replace function public.${FUNCAO_DA_MAQUINA}()`),
+    );
+    if (cmd) return { migracao: nome, bruto: cmd.bruto };
+  }
+  return { migracao: null, bruto: "" };
 }
 
 if (sql !== null) {
@@ -1110,11 +1364,16 @@ const CASOS_DO_INVARIANTE = Object.freeze([
     limitesErrados.length === 0,
     limitesErrados.map(([nome, patch]) => `${nome}: ${JSON.stringify(problemasParaAbrir({ ...VAGA_QUE_ABRE, ...patch }))}`).join(" | "),
   );
+  /* TROCA REGISTRADA (revisão da 5.3): a Classificação ausente saía como
+     `nivel` (a chave da lista) e passou a sair como `nivel_id`, o nome da
+     COLUNA, que é o vocabulário único de `faltando` (a leitura do corpo da
+     função de escrita já usava a coluna). */
   afirmar(
-    "Link inválido, Slug fora do formato e Classificação ausente também faltam",
+    "Link inválido, Slug fora do formato e Classificação ausente também faltam (a Classificação pelo nome da COLUNA)",
     igual([...problemasParaAbrir({ ...VAGA_QUE_ABRE, link_de_candidatura: "javascript:x" })], ["link_de_candidatura"]) &&
       igual([...problemasParaAbrir({ ...VAGA_QUE_ABRE, slug: "Com Espaco" })], ["slug"]) &&
-      igual([...problemasParaAbrir({ ...VAGA_QUE_ABRE, nivel_id: "" })], ["nivel"]),
+      igual([...problemasParaAbrir({ ...VAGA_QUE_ABRE, nivel_id: "" })], ["nivel_id"]) &&
+      igual([...problemasParaAbrir({ ...VAGA_QUE_ABRE, departamento_id: null, tipo_id: " " })], ["departamento_id", "tipo_id"]),
   );
 
   /* A matriz do Link de Candidatura: a da spec, mais as formas da revisão.
@@ -1244,12 +1503,77 @@ const CASOS_DO_INVARIANTE = Object.freeze([
     impuros.length === 0,
     impuros.join(", "),
   );
+  /* TROCA REGISTRADA (Story 5.3): a asserção afirmava que `api/carreiras.js`
+     NÃO existia (fora do escopo da 5.2). A 5.3 cria a função única de escrita,
+     então a metade dela vira o contrário: a rota EXISTE, e é a única de
+     Carreiras em `api/`. As outras duas metades continuam iguais. */
   afirmar(
-    "não existe `src/domain/comum`, `src/render/carreiras` nem `api/carreiras.js` (fora do escopo da 5.2)",
+    "não existe `src/domain/comum` nem `src/render/carreiras`",
     !existsSync(path.join(raiz, "src", "domain", "comum")) &&
-      !existsSync(path.join(raiz, "src", "render", "carreiras")) &&
-      !existsSync(path.join(raiz, "api", "carreiras.js")),
+      !existsSync(path.join(raiz, "src", "render", "carreiras")),
   );
+  const rotasDeCarreiras = existsSync(path.join(raiz, "api"))
+    ? readdirSync(path.join(raiz, "api")).filter((n) => /carreira|vaga|classifica/i.test(n))
+    : [];
+  afirmar(
+    "`api/carreiras.js` existe e é a ÚNICA rota de Carreiras em `api/` (uma função só, pelo teto do plano)",
+    igual(rotasDeCarreiras, ["carreiras.js"]),
+    rotasDeCarreiras.join(", ") || "nenhuma",
+  );
+}
+
+{
+  /* O VOCABULÁRIO DAS OPERAÇÕES (Story 5.3), importado e executado. A lista é
+     a da SPEC, escrita aqui como expectativa independente. */
+  let op = null;
+  try {
+    op = await import(urlDe("src/domain/carreiras/operacoes.js"));
+  } catch (erro) {
+    afirmar("src/domain/carreiras/operacoes.js importa", false, erro.message);
+  }
+  if (op !== null) {
+    afirmar(
+      "as operações de Carreiras são EXATAMENTE salvarVaga, mudarEstadoDaVaga, excluirVaga, salvarClassificacao e excluirClassificacao, congeladas",
+      igual([...op.OPERACOES_DE_CARREIRAS], [
+        "salvarVaga",
+        "mudarEstadoDaVaga",
+        "excluirVaga",
+        "salvarClassificacao",
+        "excluirClassificacao",
+      ]) && Object.isFrozen(op.OPERACOES_DE_CARREIRAS),
+      JSON.stringify(op.OPERACOES_DE_CARREIRAS),
+    );
+    /* A OPERAÇÃO É OBRIGATÓRIA: nada de padrão implícito. */
+    const RECUSADOS = [undefined, null, "", "   ", "apagarTudo", "salvar", "constructor", "__proto__", "toString", 1, ["salvarVaga"], { x: 1 }];
+    const aceitaramSemOperacao = [];
+    for (const valor of RECUSADOS) {
+      const r = op.operacaoPedidaDeCarreiras(valor === undefined ? {} : { operacao: valor });
+      const certo = r.ok === false && typeof r.mensagem === "string" && r.mensagem !== "" && typeof r.detalhe === "string";
+      if (!certo) aceitaramSemOperacao.push(JSON.stringify(valor) ?? "undefined");
+    }
+    for (const corpo of [null, "texto", [1], 42]) {
+      const r = op.operacaoPedidaDeCarreiras(corpo);
+      if (r.ok !== false) aceitaramSemOperacao.push(`corpo ${JSON.stringify(corpo)}`);
+    }
+    afirmar(
+      "`operacaoPedidaDeCarreiras` RECUSA operação ausente, vazia, desconhecida, herdada do protótipo e de outro tipo (sem operação padrão), sem lançar",
+      aceitaramSemOperacao.length === 0,
+      aceitaramSemOperacao.join(", "),
+    );
+    afirmar(
+      "e aceita cada uma das cinco, com espaço em volta aparado",
+      op.OPERACOES_DE_CARREIRAS.every((o) => {
+        const r = op.operacaoPedidaDeCarreiras({ operacao: ` ${o} ` });
+        return r.ok === true && r.operacao === o;
+      }),
+    );
+    const frases = [op.operacaoPedidaDeCarreiras({}).mensagem, op.operacaoPedidaDeCarreiras({ operacao: "x" }).mensagem];
+    afirmar(
+      "as frases da recusa falam de Carreiras, não de post, e não têm travessão",
+      frases.every((f) => /Carreiras/.test(f) && !/\bposts?\b/i.test(f) && !f.includes("—")),
+      frases.join(" | "),
+    );
+  }
 }
 
 /* ─── (c) A camada de dados ──────────────────────────────────────────────── */
@@ -1414,6 +1738,19 @@ const urlDoEnv = lerDoEnv("VITE_SUPABASE_URL");
 const chavePublicavel = lerDoEnv("VITE_SUPABASE_PUBLISHABLE_KEY");
 if (chavePublicavel) registrarSegredo(chavePublicavel);
 
+/* O AMBIENTE DO PROCESSO, ANTES DE QUALQUER IMPORT DA CAMADA DE DADOS.
+   `src/data/supabase/clientes.js` lê URL e chave UMA vez, na carga do módulo,
+   e o módulo fica em cache pelo resto da execução. A seção (l) importa o
+   cliente de escrita neste mesmo processo; sem isto, ela carregava
+   `clientes.js` com ambiente vazio, e a seção (g) (a camada de dados contra o
+   projeto) recebia `configuracao` em vez de exercitar as leituras. Os casos
+   SEM ambiente continuam provados onde sempre foram: em processo novo, com o
+   ambiente pedido (`sondar`). */
+if (urlDoEnv && chavePublicavel) {
+  process.env.VITE_SUPABASE_URL = urlDoEnv;
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY = chavePublicavel;
+}
+
 /**
  * Roda as seis leituras num processo NOVO, com o ambiente pedido. Outro
  * processo porque os clientes são memoizados no módulo; e é o teste mais
@@ -1535,6 +1872,1441 @@ if (chavePublicavel) {
   }
 } else {
   afirmar("a sonda de rede pôde ser exercida", false, "sem VITE_SUPABASE_PUBLISHABLE_KEY no `.env`");
+}
+
+/* ─── (i) O despacho local, contra um dublê de GoTrue e PostgREST ────────── */
+
+secao("(i) o despacho: `api/carreiras.js` executado contra um dublê local de GoTrue e PostgREST");
+
+/**
+ * Requisição e resposta de mentira, no formato que a plataforma entrega, e o
+ * ambiente do processo remendado só durante a chamada (e restaurado sempre).
+ * O `console.error` é capturado: é o log do servidor, e é lá que o `detalhe`
+ * precisa aparecer, e não na resposta.
+ */
+async function dirigir(handler, { metodo = "POST", corpo = {}, cabecalhos = {}, ambiente = null }) {
+  const registro = { status: null, corpo: null, cabecalhos: {}, log: [] };
+  const req = { method: metodo, headers: cabecalhos, body: corpo };
+  const res = {
+    setHeader(nome, valor) {
+      registro.cabecalhos[nome] = valor;
+    },
+    status(codigo) {
+      registro.status = codigo;
+      return res;
+    },
+    json(saida) {
+      registro.corpo = saida;
+      return res;
+    },
+  };
+  const antes = {};
+  if (ambiente) {
+    for (const [nome, valor] of Object.entries(ambiente)) {
+      antes[nome] = process.env[nome];
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    }
+  }
+  const erroOriginal = console.error;
+  console.error = (...partes) => registro.log.push(partes.join(" "));
+  try {
+    await handler(req, res);
+  } finally {
+    console.error = erroOriginal;
+    for (const [nome, valor] of Object.entries(antes)) {
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    }
+  }
+  return registro;
+}
+
+/**
+ * As REGRAS do dublê que imitam o gatilho da máquina, declaradas uma vez e
+ * usadas por ele. Não são confiadas: logo abaixo, uma asserção as compara com
+ * a `MAQUINA` do domínio e com os pares escritos na função vigente da
+ * migração. Um dublê que aceitasse uma transição que o banco recusa provaria
+ * o servidor contra um banco que não existe.
+ */
+const TRANSICOES_DO_DUBLE = Object.freeze([
+  ["rascunho", "aberta"],
+  ["aberta", "encerrada"],
+  ["encerrada", "aberta"],
+]);
+const ESTADOS_QUE_NAO_SE_EXCLUEM_NO_DUBLE = Object.freeze(["aberta"]);
+
+{
+  const par = ([de, para]) => `${de}->${para}`;
+  const doDuble = ordenado(TRANSICOES_DO_DUBLE.map(par));
+  const doDominio = ordenado(
+    estadosDaVaga.ESTADOS_DA_VAGA.flatMap((e) =>
+      transicoesDaVaga
+        .acoesDoEstadoDaVaga(e)
+        .filter((a) => a.exclui !== true)
+        .map((a) => par([e, a.destino])),
+    ),
+  );
+  const vigente = funcaoDaMaquinaVigente();
+  const corpo = String(vigente.bruto).replace(/\s+/g, " ");
+  const doBanco = ordenado(
+    [...corpo.matchAll(/old\.estado = '([a-z]+)'::public\.estado_vaga and new\.estado = '([a-z]+)'::public\.estado_vaga/g)].map((m) =>
+      par([m[1], m[2]]),
+    ),
+  );
+  afirmar(
+    "as transições do dublê são EXATAMENTE as da `MAQUINA` do domínio e as da função vigente da migração (a mais recente que define `vagas_respeitam_a_maquina`)",
+    vigente.migracao !== null && doBanco.length > 0 && igual(doDuble, doDominio) && igual(doDuble, doBanco),
+    `migração: ${vigente.migracao} | dublê: ${doDuble.join(", ")} | domínio: ${doDominio.join(", ")} | banco: ${doBanco.join(", ")}`,
+  );
+  const naoExcluiveisDoDominio = estadosDaVaga.ESTADOS_DA_VAGA.filter((e) => !transicoesDaVaga.exclusaoDaVagaPermitida(e));
+  const naoExcluiveisDoBanco = [
+    ...corpo.matchAll(/if tg_op = 'DELETE' then if old\.estado = '([a-z]+)'::public\.estado_vaga then raise exception/g),
+  ].map((m) => m[1]);
+  afirmar(
+    "e os Estados que não se excluem no dublê são os do domínio (`exclusaoDaVagaPermitida`) e os da recusa de DELETE da função vigente",
+    igual(ordenado(ESTADOS_QUE_NAO_SE_EXCLUEM_NO_DUBLE), ordenado(naoExcluiveisDoDominio)) &&
+      igual(ordenado(ESTADOS_QUE_NAO_SE_EXCLUEM_NO_DUBLE), ordenado(naoExcluiveisDoBanco)),
+    `dublê: ${ESTADOS_QUE_NAO_SE_EXCLUEM_NO_DUBLE.join(", ")} | domínio: ${naoExcluiveisDoDominio.join(", ")} | banco: ${naoExcluiveisDoBanco.join(", ")}`,
+  );
+  afirmar(
+    "e a função vigente é a da correção da revisão (20260924160000), que recusa a primeira abertura com data, como o dublê",
+    vigente.migracao === MIGRACAO_DA_ABERTURA,
+    `vigente: ${vigente.migracao}`,
+  );
+}
+
+/** A chave de comparação de nome do dublê: o `lower(unaccent(x))` do banco. */
+const chaveDeNome = (n) => String(n ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+/**
+ * O DUBLÊ: um servidor HTTP local que responde como o GoTrue e como o
+ * PostgREST para as quatro tabelas de Carreiras. Ele imita o que o banco faz
+ * de relevante para a escrita (e só isso): o gatilho da máquina de estados,
+ * o invariante da Aberta, o Slug único, o nome único sem caixa nem acento, e
+ * as chaves estrangeiras `restrict`. É AQUI, e só aqui, que abrir e reabrir
+ * são exercidos pelo servidor: em produção a verificação nunca abre uma Vaga.
+ *
+ * `injecoes` força uma resposta para o próximo pedido que casar (a corrida
+ * entre a conferência e o comando, que o banco real só produziria por sorte).
+ */
+function criarDuble() {
+  const CONTA = randomUUID();
+  const tabelas = { departamentos: [], tipos_de_vaga: [], niveis: [], vagas: [], perfis: [{ id: CONTA, nome_exibicao: "Pessoa do Painel" }] };
+  const recebidos = [];
+  const injecoes = [];
+  const agora = () => new Date().toISOString();
+  const erroPg = (status, code, message) => [status, { code, message, details: null, hint: null }];
+
+  const TABELAS_DE_CLASSIFICACAO = { departamentos: "departamento_id", tipos_de_vaga: "tipo_id", niveis: "nivel_id" };
+
+  /** O gatilho `vagas_maquina_de_estados` num UPDATE, e o invariante da Aberta. */
+  const regrasDoUpdate = (a, n) => {
+    if (n.estado !== a.estado) {
+      const ok = TRANSICOES_DO_DUBLE.some(([de, para]) => a.estado === de && n.estado === para);
+      if (!ok) return erroPg(400, "23514", `vagas_maquina_de_estados: a vaga não pode ir de ${a.estado} para ${n.estado}`);
+    }
+    const jaAberta = a.aberta_em !== null || a.estado !== "rascunho";
+    if (jaAberta) {
+      if (n.aberta_em !== a.aberta_em) return erroPg(400, "23514", "vagas_maquina_de_estados: aberta_em não muda");
+      if (n.slug !== a.slug) return erroPg(400, "23514", "vagas_maquina_de_estados: o slug não muda");
+    } else if (n.estado === "aberta") {
+      /* A regra de 20260924160000: a primeira abertura NÃO traz data. */
+      if (n.aberta_em !== null && n.aberta_em !== undefined) {
+        return erroPg(400, "23514", "vagas_maquina_de_estados: aberta_em é gravado pelo banco na primeira abertura");
+      }
+      n.aberta_em = agora();
+    } else if (n.aberta_em !== null && n.aberta_em !== undefined) {
+      return erroPg(400, "23514", "vagas_maquina_de_estados: um rascunho não tem aberta_em");
+    }
+    if (n.estado === "aberta" && regrasDaVaga.problemasParaAbrir(n).length > 0) {
+      return erroPg(400, "23514", 'new row for relation "vagas" violates check constraint "vagas_aberta_completa"');
+    }
+    return null;
+  };
+
+  const conferirVaga = (linha, id) => {
+    if (tabelas.vagas.some((v) => v.slug === linha.slug && v.id !== id)) {
+      return erroPg(409, "23505", 'duplicate key value violates unique constraint "vagas_slug_unico"');
+    }
+    for (const [tabela, coluna] of Object.entries(TABELAS_DE_CLASSIFICACAO)) {
+      if (!tabelas[tabela].some((c) => c.id === linha[coluna])) {
+        return erroPg(409, "23503", `insert or update on table "vagas" violates foreign key constraint "vagas_${coluna}_fkey"`);
+      }
+    }
+    return null;
+  };
+
+  const conferirClassificacao = (tabela, linha, id) => {
+    if (tabelas[tabela].some((c) => c.id !== id && chaveDeNome(c.nome) === chaveDeNome(linha.nome))) {
+      return erroPg(409, "23505", `duplicate key value violates unique constraint "${tabela}_nome_normalizado_unico"`);
+    }
+    if (tabela === "tipos_de_vaga" && !linha.equivalente_jobposting) {
+      return erroPg(400, "23502", 'null value in column "equivalente_jobposting" violates not-null constraint');
+    }
+    return null;
+  };
+
+  const projetar = (linha, selecao) =>
+    selecao ? Object.fromEntries(selecao.split(",").map((c) => [c, linha[c] ?? null])) : { ...linha };
+
+  function atender(metodo, url, corpo, cabecalhos) {
+    const u = new URL(url, "http://duble");
+    if (u.pathname === "/auth/v1/user") {
+      const credencial = String(cabecalhos.authorization ?? "");
+      return credencial === "Bearer bom"
+        ? [200, { id: CONTA, email: "painel@chatclean.com.br" }]
+        : [401, { code: 401, error_code: "bad_jwt", msg: "invalid JWT: unable to parse or verify signature" }];
+    }
+    const tabela = /^\/rest\/v1\/([a-z_]+)$/.exec(u.pathname)?.[1];
+    if (!tabela || !Object.hasOwn(tabelas, tabela)) {
+      return [404, { code: "PGRST205", message: `Could not find the table 'public.${tabela}' in the schema cache` }];
+    }
+    const selecao = u.searchParams.get("select");
+    const filtros = [...u.searchParams.entries()].filter(([k]) => !["select", "limit", "order", "on_conflict"].includes(k));
+    /* `uuid` no Postgres não tem caixa: `eq.ABC…` casa com `abc…`. */
+    const mesmoValor = (guardado, pedido) =>
+      /^[0-9a-f-]{36}$/i.test(pedido) ? String(guardado).toLowerCase() === pedido.toLowerCase() : String(guardado) === pedido;
+    const casa = (linha) => filtros.every(([k, v]) => v.startsWith("eq.") && mesmoValor(linha[k], v.slice(3)));
+    const linhas = tabelas[tabela];
+
+    if (metodo === "GET") {
+      const achadas = linhas.filter(casa);
+      const limite = Number(u.searchParams.get("limit") ?? Infinity);
+      const cabecalhosExtra = /count=exact/.test(String(cabecalhos.prefer ?? ""))
+        ? { "content-range": achadas.length === 0 ? "*/0" : `0-0/${achadas.length}` }
+        : {};
+      return [200, achadas.slice(0, limite).map((l) => projetar(l, selecao)), cabecalhosExtra];
+    }
+    if (metodo === "POST") {
+      const base =
+        tabela === "vagas"
+          ? {
+              id: randomUUID(),
+              estado: "rascunho",
+              modalidade: null,
+              localizacao: "",
+              resumo: "",
+              descricao: { type: "doc", content: [{ type: "paragraph" }] },
+              descricao_html: "",
+              link_de_candidatura: null,
+              aberta_em: null,
+            }
+          : { id: randomUUID(), ordem: 0, ...(tabela === "tipos_de_vaga" ? {} : { cor: "var(--categoria-cinza-bg)" }) };
+      const linha = { ...base, ...corpo, criado_em: agora(), atualizado_em: agora() };
+      if (tabela === "vagas") {
+        if (linha.estado !== "rascunho") return erroPg(400, "23514", `vagas_maquina_de_estados: uma vaga nasce rascunho, e veio ${linha.estado}`);
+        if (linha.aberta_em !== null) return erroPg(400, "23514", "vagas_maquina_de_estados: uma vaga nasce sem aberta_em");
+        const recusa = conferirVaga(linha, linha.id);
+        if (recusa) return recusa;
+      } else {
+        const recusa = conferirClassificacao(tabela, linha, linha.id);
+        if (recusa) return recusa;
+      }
+      linhas.push(linha);
+      return [201, [projetar(linha, selecao)]];
+    }
+    if (metodo === "PATCH") {
+      const alvo = linhas.filter(casa);
+      const novas = [];
+      for (const a of alvo) {
+        const n = { ...a, ...corpo, atualizado_em: agora() };
+        const recusa =
+          tabela === "vagas" ? regrasDoUpdate(a, n) ?? conferirVaga(n, a.id) : conferirClassificacao(tabela, n, a.id);
+        if (recusa) return recusa;
+        novas.push([a, n]);
+      }
+      for (const [a, n] of novas) linhas[linhas.indexOf(a)] = n;
+      return [200, novas.map(([, n]) => projetar(n, selecao))];
+    }
+    if (metodo === "DELETE") {
+      const alvo = linhas.filter(casa);
+      for (const a of alvo) {
+        if (tabela === "vagas" && ESTADOS_QUE_NAO_SE_EXCLUEM_NO_DUBLE.includes(a.estado)) {
+          return erroPg(400, "23514", "vagas_maquina_de_estados: uma vaga aberta não pode ser excluída, encerre a vaga antes");
+        }
+        const coluna = TABELAS_DE_CLASSIFICACAO[tabela];
+        if (coluna && tabelas.vagas.some((v) => v[coluna] === a.id)) {
+          return erroPg(409, "23503", `update or delete on table "${tabela}" violates foreign key constraint "vagas_${coluna}_fkey" on table "vagas"`);
+        }
+      }
+      tabelas[tabela] = linhas.filter((l) => !alvo.includes(l));
+      return [200, alvo.map((l) => projetar(l, selecao))];
+    }
+    return [405, { message: "método fora do dublê" }];
+  }
+
+  const servidor = createServer((req, res) => {
+    let bruto = "";
+    req.on("data", (p) => {
+      bruto += p;
+    });
+    req.on("end", () => {
+      let corpo = null;
+      try {
+        corpo = bruto === "" ? null : JSON.parse(bruto);
+      } catch {
+        corpo = bruto;
+      }
+      const pedido = { metodo: req.method, url: req.url, corpo, cabecalhos: { ...req.headers } };
+      recebidos.push(pedido);
+      const injecao = injecoes.find((i) => i.vezes > 0 && i.quando(pedido));
+      let resposta;
+      if (injecao) {
+        injecao.vezes -= 1;
+        resposta = injecao.resposta;
+      } else {
+        try {
+          resposta = atender(req.method, req.url, corpo, req.headers);
+        } catch (erro) {
+          resposta = [500, { message: `o dublê lançou: ${erro?.message ?? erro}` }];
+        }
+      }
+      const [status, dados, extra = {}] = resposta;
+      res.writeHead(status, { "Content-Type": "application/json", ...extra });
+      res.end(JSON.stringify(dados));
+    });
+  });
+  return { CONTA, tabelas, recebidos, injecoes, servidor };
+}
+
+const { createServer } = await import("node:http");
+let moduloDoHandler = null;
+try {
+  moduloDoHandler = await import(urlDe("api/carreiras.js"));
+  afirmar("api/carreiras.js importa, e tem handler padrão", typeof moduloDoHandler.default === "function");
+} catch (erro) {
+  afirmar("api/carreiras.js importa", false, erro.message);
+}
+const moduloDosPosts = await import(urlDe("api/posts.js"));
+const nucleoDoPost = await import(urlDe("api/_nucleo/salvarPost.js"));
+const nucleoDaVaga = await import(urlDe("api/_nucleo/operacoesDaVaga.js"));
+const nucleoDaClassificacao = await import(urlDe("api/_nucleo/operacoesDaClassificacao.js"));
+const operacoesDeCarreiras = await import(urlDe("src/domain/carreiras/operacoes.js"));
+const { diagnosticarMensagem } = await import(urlDe("src/admin/shell/voz.js"));
+
+/** Uma frase de Carreiras: existe, não fala de post, sem travessão, e não é vaga. */
+const fraseDeCarreirasBoa = (f) =>
+  typeof f === "string" && f.trim() !== "" && !/\b[Pp]osts?\b/.test(f) && !f.includes("—") && diagnosticarMensagem("frase", f) === null;
+
+if (moduloDoHandler !== null) {
+  const handler = moduloDoHandler.default;
+  const duble = criarDuble();
+  await new Promise((pronto) => duble.servidor.listen(0, "127.0.0.1", pronto));
+  const porta = duble.servidor.address().port;
+  const AMBIENTE = {
+    SUPABASE_URL: `http://127.0.0.1:${porta}`,
+    SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_duble_de_verificacao",
+    SUPABASE_CHAVE_DE_SERVICO: "sb_secret_duble_de_verificacao",
+    VITE_SUPABASE_URL: undefined,
+    VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+  };
+  const respostas = [];
+  const enviar = async (corpo, { token = "bom", metodo = "POST" } = {}) => {
+    const r = await dirigir(handler, {
+      metodo,
+      corpo,
+      cabecalhos: token === null ? {} : { authorization: `Bearer ${token}` },
+      ambiente: AMBIENTE,
+    });
+    respostas.push(r);
+    return r;
+  };
+  const marca = () => duble.recebidos.length;
+  const escritasDesde = (n) =>
+    duble.recebidos.slice(n).filter((p) => p.url.startsWith("/rest/v1/") && ["POST", "PATCH", "DELETE"].includes(p.metodo));
+  const idaAoRestDesde = (n) => duble.recebidos.slice(n).filter((p) => p.url.startsWith("/rest/v1/"));
+  const erroDe = (r) => r.corpo?.erro ?? {};
+
+  /* As Classificações e as Vagas de partida. */
+  const agoraIso = new Date().toISOString();
+  const dep = { id: randomUUID(), nome: "Operações", cor: "var(--categoria-ciano-bg)", ordem: 1, criado_em: agoraIso, atualizado_em: agoraIso };
+  const depLivre = { id: randomUUID(), nome: "Tecnologia", cor: "var(--categoria-azul-bg)", ordem: 2, criado_em: agoraIso, atualizado_em: agoraIso };
+  const tipo = { id: randomUUID(), nome: "CLT", equivalente_jobposting: "FULL_TIME", ordem: 1, criado_em: agoraIso, atualizado_em: agoraIso };
+  const nivel = { id: randomUUID(), nome: "Pleno", cor: "var(--categoria-azul-bg)", ordem: 1, criado_em: agoraIso, atualizado_em: agoraIso };
+  duble.tabelas.departamentos.push(dep, depLivre);
+  duble.tabelas.tipos_de_vaga.push(tipo);
+  duble.tabelas.niveis.push(nivel);
+  const vagaBase = (sufixo, estado, extra = {}) => ({
+    id: randomUUID(),
+    slug: `vaga-${sufixo}`,
+    titulo: `Vaga ${sufixo}`,
+    estado,
+    departamento_id: dep.id,
+    tipo_id: tipo.id,
+    nivel_id: nivel.id,
+    modalidade: "presencial",
+    localizacao: "Natal, RN",
+    resumo: "Resumo da vaga.",
+    descricao: DOC_VALIDO,
+    descricao_html: HTML_VALIDO,
+    link_de_candidatura: "https://exemplo.com/vaga",
+    aberta_em: null,
+    criado_em: agoraIso,
+    atualizado_em: agoraIso,
+    ...extra,
+  });
+  const incompleta = vagaBase("incompleta", "rascunho", { link_de_candidatura: null });
+  const completa = vagaBase("completa", "rascunho");
+  const aberta = vagaBase("aberta", "aberta", { aberta_em: "2026-01-02T03:04:05.000Z" });
+  const encerrada = vagaBase("encerrada", "encerrada", { aberta_em: "2025-12-01T00:00:00.000Z" });
+  duble.tabelas.vagas.push(incompleta, completa, aberta, encerrada);
+  const classificacoesCompletas = { departamento_id: dep.id, tipo_id: tipo.id, nivel_id: nivel.id };
+
+  try {
+    /* ── Método ── */
+    {
+      const n = marca();
+      const r = await enviar({ operacao: "salvarVaga" }, { metodo: "GET" });
+      afirmar(
+        "GET responde 405 com `Allow: POST`, sem ida ao banco",
+        r.status === 405 && r.cabecalhos.Allow === "POST" && erroDe(r).tipo === "dados_invalidos" && duble.recebidos.length === n,
+        `HTTP ${r.status} Allow ${r.cabecalhos.Allow}`,
+      );
+    }
+
+    /* ── Sem credencial ── */
+    for (const [nome, token] of [
+      ["sem Bearer", null],
+      ["com token forjado", "forjado.x.y"],
+    ]) {
+      const n = marca();
+      const r = await enviar({ operacao: "salvarVaga", titulo: "Intrusa", ...classificacoesCompletas }, { token });
+      afirmar(
+        `POST ${nome}: 401, frase de vaga (e não de post), e nada é escrito`,
+        r.status === 401 && erroDe(r).tipo === "permissao" && /vaga/i.test(erroDe(r).mensagem) && fraseDeCarreirasBoa(erroDe(r).mensagem) && escritasDesde(n).length === 0,
+        `HTTP ${r.status} ${erroDe(r).mensagem} | escritas ${escritasDesde(n).length}`,
+      );
+    }
+    {
+      /* Conta autenticada SEM perfil no Painel: autenticar não é autorizar. */
+      const perfis = duble.tabelas.perfis;
+      duble.tabelas.perfis = [];
+      const n = marca();
+      const r = await enviar({ operacao: "salvarClassificacao", lista: "nivel", nome: "Sem cadastro" });
+      duble.tabelas.perfis = perfis;
+      afirmar(
+        "Conta sem perfil no Painel: 401, frase de cadastro que fala de Classificação, e nada é escrito",
+        r.status === 401 && /cadastrada no Painel/.test(erroDe(r).mensagem) && /Departamentos, Tipos e Níveis/.test(erroDe(r).mensagem) && escritasDesde(n).length === 0,
+        `HTTP ${r.status} ${erroDe(r).mensagem}`,
+      );
+    }
+
+    /* ── A operação é obrigatória ── */
+    for (const [nome, corpo, token] of [
+      ["ausente, com sessão", { titulo: "x" }, "bom"],
+      ["`apagarTudo`, com sessão", { operacao: "apagarTudo" }, "bom"],
+      ["`constructor`, com sessão", { operacao: "constructor" }, "bom"],
+      ["`__proto__`, com sessão", JSON.parse('{"operacao":"__proto__"}'), "bom"],
+      ["ausente, sem sessão", { titulo: "x" }, null],
+      ["corpo que não é objeto", "isto não é json", "bom"],
+    ]) {
+      /* TROCA REGISTRADA (revisão da 5.3): era "sem ida ao banco NEM à
+         conferência do token". Com token presente, a operação recusada agora
+         CONFERE o token no GoTrue antes de responder (quem só manda `Bearer x`
+         não ouve o vocabulário). O PostgREST continua intocado; sem token,
+         nada sai. */
+      const n = marca();
+      const r = await enviar(corpo, { token });
+      const aoGoTrue = duble.recebidos.slice(n).filter((p) => p.url.startsWith("/auth/v1/user")).length;
+      afirmar(
+        `operação ${nome}: 422, sem ida ao PostgREST${token === null ? " nem ao GoTrue" : ", e o token é conferido UMA vez no GoTrue"}`,
+        r.status === 422 &&
+          erroDe(r).tipo === "dados_invalidos" &&
+          idaAoRestDesde(n).length === 0 &&
+          aoGoTrue === (token === null ? 0 : 1) &&
+          duble.recebidos.length - n === aoGoTrue,
+        `HTTP ${r.status} | pedidos ${duble.recebidos.length - n} (GoTrue ${aoGoTrue})`,
+      );
+    }
+    {
+      const SONDA = "apagarTudo-SONDA-DO-LOG-5-3";
+      const comSessao = await enviar({ operacao: SONDA });
+      const semSessao = await enviar({ operacao: SONDA }, { token: null });
+      const forjado = await enviar({ operacao: SONDA }, { token: "forjado" });
+      afirmar(
+        "quem tem sessão ouve o vocabulário das cinco operações; quem não tem recebe a recusa seca, e o log não registra o que ele mandou",
+        operacoesDeCarreiras.OPERACOES_DE_CARREIRAS.every((o) => erroDe(comSessao).mensagem.includes(o)) &&
+          erroDe(semSessao).mensagem === moduloDosPosts.RECUSA_SEM_CREDENCIAL &&
+          semSessao.log.length === 0 &&
+          comSessao.log.some((l) => l.startsWith("[api/carreiras]")),
+        `${erroDe(comSessao).mensagem} | ${erroDe(semSessao).mensagem} | log ${semSessao.log.length}`,
+      );
+      afirmar(
+        "`Bearer forjado` com operação inválida: a MESMA recusa seca de quem não tem credencial (o token é conferido, não só visto), e nada no log",
+        forjado.status === 422 &&
+          erroDe(forjado).mensagem === moduloDosPosts.RECUSA_SEM_CREDENCIAL &&
+          !operacoesDeCarreiras.OPERACOES_DE_CARREIRAS.some((o) => erroDe(forjado).mensagem.includes(o)) &&
+          forjado.log.length === 0,
+        `${erroDe(forjado).mensagem} | log: ${forjado.log.join(" / ")}`,
+      );
+      afirmar(
+        "e nem a quem tem sessão o log repete o texto enviado: registra o tipo e o tamanho, nunca o valor",
+        [comSessao, semSessao, forjado].every((r) => r.log.every((l) => !l.includes("SONDA") && !l.includes("apagarTudo"))) &&
+          comSessao.log.some((l) => l.includes(`${SONDA.length} caractere`)),
+        comSessao.log.join(" / "),
+      );
+    }
+    afirmar(
+      "`executorDe` só devolve as cinco, e nada herdado do protótipo",
+      operacoesDeCarreiras.OPERACOES_DE_CARREIRAS.every((o) => typeof moduloDoHandler.executorDe(o) === "function") &&
+        ["constructor", "__proto__", "toString", "salvar", "excluir", ""].every((o) => moduloDoHandler.executorDe(o) === null),
+    );
+    afirmar(
+      "a tabela de despacho liga cada operação ao executor do núcleo, pelo mesmo objeto",
+      moduloDoHandler.EXECUTORES.salvarVaga === nucleoDaVaga.salvarVaga &&
+        moduloDoHandler.EXECUTORES.mudarEstadoDaVaga === nucleoDaVaga.mudarEstadoDaVaga &&
+        moduloDoHandler.EXECUTORES.excluirVaga === nucleoDaVaga.excluirVaga &&
+        moduloDoHandler.EXECUTORES.salvarClassificacao === nucleoDaClassificacao.salvarClassificacao &&
+        moduloDoHandler.EXECUTORES.excluirClassificacao === nucleoDaClassificacao.excluirClassificacao &&
+        igual(Object.keys(moduloDoHandler.EXECUTORES), [...operacoesDeCarreiras.OPERACOES_DE_CARREIRAS]),
+    );
+
+    /* ── Criar Rascunho ── */
+    let criadaId = null;
+    {
+      const titulo = "Analista de Operações Júnior";
+      const n = marca();
+      const r = await enviar({ operacao: "salvarVaga", titulo, ...classificacoesCompletas });
+      const vaga = r.corpo?.dados?.vaga ?? {};
+      criadaId = vaga.id ?? null;
+      const insercao = escritasDesde(n).find((p) => p.metodo === "POST" && p.url.startsWith("/rest/v1/vagas"));
+      afirmar(
+        "criar Rascunho (título e as três Classificações, sem link nem Descrição): 201, `criada`, Estado rascunho, Slug derivado do título",
+        r.status === 201 &&
+          r.corpo?.dados?.criada === true &&
+          vaga.estado === "rascunho" &&
+          vaga.slug === regrasDaVaga.slugDaVaga(titulo).slug &&
+          vaga.aberta_em === null,
+        `HTTP ${r.status} ${JSON.stringify(r.corpo).slice(0, 200)}`,
+      );
+      afirmar(
+        "e o comando de criação NÃO leva `estado` nem `aberta_em` (a Vaga nasce Rascunho pelo banco)",
+        insercao !== undefined && !Object.hasOwn(insercao.corpo, "estado") && !Object.hasOwn(insercao.corpo, "aberta_em"),
+        JSON.stringify(insercao?.corpo ?? {}).slice(0, 200),
+      );
+    }
+
+    /* ── Campo desconhecido ── */
+    {
+      const n = marca();
+      const r = await enviar({
+        operacao: "salvarVaga",
+        titulo: "Vaga com campos a mais",
+        ...classificacoesCompletas,
+        estado: "aberta",
+        aberta_em: "2020-01-01T00:00:00Z",
+        descricao_html: "<p>forjado</p>",
+        criado_em: "1999-01-01T00:00:00Z",
+        xpto: 1,
+      });
+      const insercao = escritasDesde(n).find((p) => p.metodo === "POST");
+      const colunas = Object.keys(insercao?.corpo ?? {});
+      afirmar(
+        "campo desconhecido: a Vaga nasce Rascunho, e `estado`, `aberta_em`, `descricao_html`, `criado_em` e `xpto` saem RELATADOS como ignorados",
+        r.status === 201 &&
+          r.corpo?.dados?.vaga?.estado === "rascunho" &&
+          r.corpo?.dados?.vaga?.aberta_em === null &&
+          ["estado", "aberta_em", "descricao_html", "criado_em", "xpto"].every((c) => r.corpo?.dados?.ignorados?.includes(c)),
+        JSON.stringify(r.corpo?.dados?.ignorados),
+      );
+      afirmar(
+        "e as colunas do comando são montadas à mão: só as da lista fechada, nenhum campo ignorado viaja",
+        colunas.length > 0 && colunas.every((c) => nucleoDaVaga.COLUNAS_GRAVAVEIS_DA_VAGA.includes(c)),
+        colunas.join(", "),
+      );
+    }
+
+    /* ── Descrição fora da projeção ── */
+    {
+      const n = marca();
+      const descricao = {
+        type: "doc",
+        content: [
+          { type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "citado" }] }] },
+          { type: "image", attrs: { src: "https://chatclean.com.br/a.png", alt: "a" } },
+          { type: "paragraph", content: [{ type: "text", text: "fica", marks: [{ type: "highlight", attrs: { cor: "amarelo" } }] }] },
+        ],
+      };
+      const r = await enviar({ operacao: "salvarVaga", titulo: "Vaga com Descrição suja", ...classificacoesCompletas, descricao });
+      const gravado = escritasDesde(n).find((p) => p.metodo === "POST")?.corpo ?? {};
+      const tipos = JSON.stringify(gravado.descricao ?? {});
+      afirmar(
+        "Descrição com citação, imagem e destaque: gravada SEM eles, e a resposta relata o descarte",
+        r.status === 201 &&
+          (r.corpo?.dados?.descarte?.total ?? 0) >= 3 &&
+          !/"(blockquote|image|highlight)"/.test(tipos) &&
+          /fica/.test(tipos),
+        `${JSON.stringify(r.corpo?.dados?.descarte ?? null).slice(0, 160)} | ${tipos.slice(0, 160)}`,
+      );
+      afirmar(
+        "e o `descricao_html` gravado NO MESMO comando sai do renderizador único, sem `<blockquote>`, `<img>` nem `<mark>`",
+        typeof gravado.descricao_html === "string" &&
+          gravado.descricao_html === derivarHtml(gravado.descricao, descricaoDaVaga.VOCABULARIO_DA_VAGA).html &&
+          !/<(blockquote|img|mark)\b/.test(gravado.descricao_html) &&
+          r.corpo?.dados?.vaga?.descricao_html === gravado.descricao_html,
+        String(gravado.descricao_html).slice(0, 160),
+      );
+    }
+
+    /* ── Abrir incompleta, abrir, encerrar, reabrir ── */
+    {
+      const n = marca();
+      const r = await enviar({ operacao: "mudarEstadoDaVaga", id: incompleta.id, acao: "abrir" });
+      afirmar(
+        "abrir um Rascunho sem Link: 422, `faltando` inclui `link_de_candidatura`, e nenhum comando sai",
+        r.status === 422 && erroDe(r).faltando?.includes("link_de_candidatura") && escritasDesde(n).length === 0,
+        `HTTP ${r.status} ${JSON.stringify(erroDe(r))}`.slice(0, 240),
+      );
+    }
+    {
+      const n = marca();
+      const r = await enviar({ operacao: "mudarEstadoDaVaga", id: completa.id, acao: "abrir" });
+      const patch = escritasDesde(n).find((p) => p.metodo === "PATCH");
+      afirmar(
+        "abrir um Rascunho completo: 200, Estado aberta, `aberta_em` preenchido pelo banco",
+        r.status === 200 && r.corpo?.dados?.vaga?.estado === "aberta" && typeof r.corpo?.dados?.vaga?.aberta_em === "string",
+        `HTTP ${r.status} ${JSON.stringify(r.corpo).slice(0, 200)}`,
+      );
+      afirmar(
+        "e o comando leva SÓ `{ estado: \"aberta\" }` (nada de `aberta_em`), filtrado pelo Estado LIDO",
+        patch !== undefined && igual(patch.corpo, { estado: "aberta" }) && /[?&]estado=eq\.rascunho(&|$)/.test(patch.url),
+        `${patch?.url ?? "sem PATCH"} ${JSON.stringify(patch?.corpo ?? null)}`,
+      );
+    }
+    {
+      const n = marca();
+      const encerrar = await enviar({ operacao: "mudarEstadoDaVaga", id: aberta.id, acao: "encerrar" });
+      const reabrir = await enviar({ operacao: "mudarEstadoDaVaga", id: aberta.id, acao: "reabrir" });
+      afirmar(
+        "encerrar uma Aberta e reabrir: 200 as duas, e `aberta_em` continua o ORIGINAL",
+        encerrar.status === 200 &&
+          encerrar.corpo?.dados?.vaga?.estado === "encerrada" &&
+          reabrir.status === 200 &&
+          reabrir.corpo?.dados?.vaga?.estado === "aberta" &&
+          reabrir.corpo?.dados?.vaga?.aberta_em === "2026-01-02T03:04:05.000Z" &&
+          escritasDesde(n).every((p) => !Object.hasOwn(p.corpo ?? {}, "aberta_em")),
+        `${encerrar.status}/${reabrir.status} ${reabrir.corpo?.dados?.vaga?.aberta_em}`,
+      );
+    }
+
+    /* ── Transições proibidas ── */
+    {
+      const n = marca();
+      const encerrarRascunho = await enviar({ operacao: "mudarEstadoDaVaga", id: incompleta.id, acao: "encerrar" });
+      const reabrirAberta = await enviar({ operacao: "mudarEstadoDaVaga", id: aberta.id, acao: "reabrir" });
+      const abrirEncerrada = await enviar({ operacao: "mudarEstadoDaVaga", id: encerrada.id, acao: "abrir" });
+      afirmar(
+        "transição proibida (`encerrar` um Rascunho, `reabrir` uma Aberta): 422 com a frase de `motivoDaRecusa`, e nenhum comando",
+        encerrarRascunho.status === 422 &&
+          erroDe(encerrarRascunho).mensagem === transicoesDaVaga.motivoDaRecusa("rascunho", "encerrada") &&
+          reabrirAberta.status === 422 &&
+          erroDe(reabrirAberta).mensagem === transicoesDaVaga.motivoDaRecusa("aberta", "aberta") &&
+          escritasDesde(n).length === 0,
+        `${encerrarRascunho.status} ${erroDe(encerrarRascunho).mensagem} | ${reabrirAberta.status} ${erroDe(reabrirAberta).mensagem}`,
+      );
+      afirmar(
+        "a ação é julgada pela CHAVE no Estado gravado: `abrir` uma Encerrada é recusado (a saída dela é reabrir), com frase que nomeia as saídas",
+        abrirEncerrada.status === 422 && /Reabrir vaga/.test(erroDe(abrirEncerrada).mensagem) && fraseDeCarreirasBoa(erroDe(abrirEncerrada).mensagem),
+        `${abrirEncerrada.status} ${erroDe(abrirEncerrada).mensagem}`,
+      );
+      const excluirComoAcao = await enviar({ operacao: "mudarEstadoDaVaga", id: incompleta.id, acao: "excluir" });
+      const acaoInventada = await enviar({ operacao: "mudarEstadoDaVaga", id: incompleta.id, acao: "publicar" });
+      afirmar(
+        "`excluir` e ação inventada não são mudança de Estado: 422",
+        excluirComoAcao.status === 422 && acaoInventada.status === 422 && escritasDesde(n).length === 0,
+      );
+    }
+
+    /* ── A Aberta que ficaria incompleta ── */
+    {
+      const n = marca();
+      const r = await enviar({ operacao: "salvarVaga", id: aberta.id, link_de_candidatura: null, resumo: "" });
+      afirmar(
+        "salvar uma Aberta que ficaria sem Link e sem Resumo: 422 com `faltando`, e nenhum comando",
+        r.status === 422 &&
+          igual([...(erroDe(r).faltando ?? [])], ["resumo", "link_de_candidatura"]) &&
+          escritasDesde(n).length === 0,
+        `HTTP ${r.status} ${JSON.stringify(erroDe(r))}`.slice(0, 240),
+      );
+      const ok = await enviar({ operacao: "salvarVaga", id: aberta.id, resumo: "Resumo novo da vaga aberta." });
+      afirmar(
+        "e salvar uma Aberta que continua completa passa (200), sem mudar o Estado",
+        ok.status === 200 && ok.corpo?.dados?.vaga?.estado === "aberta" && ok.corpo?.dados?.vaga?.resumo === "Resumo novo da vaga aberta.",
+        `HTTP ${ok.status}`,
+      );
+    }
+
+    /* ── Slug travado e colisão ── */
+    {
+      const n = marca();
+      const travado = await enviar({ operacao: "salvarVaga", id: encerrada.id, slug: "outro-endereco" });
+      afirmar(
+        "editar o Slug de uma Encerrada (já foi aberta): 422, e nenhum comando",
+        travado.status === 422 && /travou/.test(erroDe(travado).mensagem) && escritasDesde(n).length === 0,
+        `HTTP ${travado.status} ${erroDe(travado).mensagem}`,
+      );
+      const colisao = await enviar({ operacao: "salvarVaga", titulo: "Outra", slug: aberta.slug, ...classificacoesCompletas });
+      afirmar(
+        "Slug de outra Vaga: 409, dizendo de QUAL vaga ele é, e nenhum comando",
+        colisao.status === 409 && erroDe(colisao).mensagem.includes(aberta.titulo) && fraseDeCarreirasBoa(erroDe(colisao).mensagem) && escritasDesde(n).length === 0,
+        `HTTP ${colisao.status} ${erroDe(colisao).mensagem}`,
+      );
+      /* A CORRIDA: a conferência disse livre, e o índice único recusou. */
+      duble.injecoes.push({
+        vezes: 1,
+        quando: (p) => p.metodo === "POST" && p.url.startsWith("/rest/v1/vagas"),
+        resposta: [409, { code: "23505", message: 'duplicate key value violates unique constraint "vagas_slug_unico"' }],
+      });
+      const corrida = await enviar({ operacao: "salvarVaga", titulo: "Corrida de endereço", ...classificacoesCompletas });
+      afirmar(
+        "o 23505 do banco (corrida entre conferir e gravar) vira 409 com frase de VAGA, nunca a de post",
+        corrida.status === 409 && /vaga/i.test(erroDe(corrida).mensagem) && fraseDeCarreirasBoa(erroDe(corrida).mensagem),
+        `HTTP ${corrida.status} ${erroDe(corrida).mensagem}`,
+      );
+    }
+
+    /* ── O PATCH que não alcança a linha (revisão da 5.3) ──
+       A gravação leva o Estado LIDO no filtro. Se outra sessão mudou o Estado
+       (ou excluiu a Vaga) entre a leitura e o comando, o PostgREST devolve
+       lista vazia; a injeção produz exatamente isso, e muda o dublê como a
+       outra sessão teria mudado. O servidor relê e diz qual dos dois foi. */
+    {
+      const alvoSalvar = vagaBase("corrida-salvar", "rascunho");
+      const alvoSalvarSumiu = vagaBase("corrida-salvar-sumiu", "rascunho");
+      const alvoMudar = vagaBase("corrida-mudar", "rascunho");
+      const alvoMudarSumiu = vagaBase("corrida-mudar-sumiu", "rascunho");
+      duble.tabelas.vagas.push(alvoSalvar, alvoSalvarSumiu, alvoMudar, alvoMudarSumiu);
+      const outraSessaoAbre = (id) => {
+        const linha = duble.tabelas.vagas.find((v) => v.id === id);
+        linha.estado = "aberta";
+        linha.aberta_em = new Date().toISOString();
+      };
+      const outraSessaoExclui = (id) => {
+        duble.tabelas.vagas = duble.tabelas.vagas.filter((v) => v.id !== id);
+      };
+      const patchVazio = (id, efeito) => ({
+        vezes: 1,
+        quando: (p) => {
+          const casa = p.metodo === "PATCH" && p.url.startsWith("/rest/v1/vagas") && p.url.includes(id);
+          if (casa) efeito(id);
+          return casa;
+        },
+        resposta: [200, []],
+      });
+
+      duble.injecoes.push(patchVazio(alvoSalvar.id, outraSessaoAbre));
+      const n = marca();
+      const salvarMudou = await enviar({ operacao: "salvarVaga", id: alvoSalvar.id, resumo: "Resumo trocado no meio." });
+      const patch = duble.recebidos.slice(n).find((p) => p.metodo === "PATCH");
+      afirmar(
+        "salvarVaga: o PATCH leva o filtro `estado=eq.<lido>` (aqui, rascunho), e a linha que não voltou porque o Estado mudou no meio é 409 `conflito`",
+        patch !== undefined &&
+          /[?&]estado=eq\.rascunho(&|$)/.test(patch.url) &&
+          salvarMudou.status === 409 &&
+          erroDe(salvarMudou).tipo === "conflito" &&
+          fraseDeCarreirasBoa(erroDe(salvarMudou).mensagem),
+        `${patch?.url ?? "sem PATCH"} | HTTP ${salvarMudou.status} ${erroDe(salvarMudou).mensagem}`,
+      );
+      duble.injecoes.push(patchVazio(alvoSalvarSumiu.id, outraSessaoExclui));
+      const salvarSumiu = await enviar({ operacao: "salvarVaga", id: alvoSalvarSumiu.id, resumo: "Resumo de quem sumiu." });
+      afirmar(
+        "salvarVaga: e a linha que não voltou porque a Vaga SUMIU no meio é 404 `nao_encontrado`",
+        salvarSumiu.status === 404 && erroDe(salvarSumiu).tipo === "nao_encontrado" && fraseDeCarreirasBoa(erroDe(salvarSumiu).mensagem),
+        `HTTP ${salvarSumiu.status} ${erroDe(salvarSumiu).mensagem}`,
+      );
+
+      duble.injecoes.push(patchVazio(alvoMudar.id, outraSessaoAbre));
+      const m = marca();
+      const mudarMudou = await enviar({ operacao: "mudarEstadoDaVaga", id: alvoMudar.id, acao: "abrir" });
+      const patchDaMudanca = duble.recebidos.slice(m).find((p) => p.metodo === "PATCH");
+      afirmar(
+        "mudarEstadoDaVaga: o PATCH filtrado pelo Estado lido que não alcança a linha (outra sessão abriu antes) é 409 `conflito`",
+        patchDaMudanca !== undefined &&
+          /[?&]estado=eq\.rascunho(&|$)/.test(patchDaMudanca.url) &&
+          mudarMudou.status === 409 &&
+          erroDe(mudarMudou).tipo === "conflito",
+        `HTTP ${mudarMudou.status} ${erroDe(mudarMudou).mensagem}`,
+      );
+      duble.injecoes.push(patchVazio(alvoMudarSumiu.id, outraSessaoExclui));
+      const mudarSumiu = await enviar({ operacao: "mudarEstadoDaVaga", id: alvoMudarSumiu.id, acao: "abrir" });
+      afirmar(
+        "mudarEstadoDaVaga: e quando a Vaga sumiu no meio, 404 `nao_encontrado`",
+        mudarSumiu.status === 404 && erroDe(mudarSumiu).tipo === "nao_encontrado",
+        `HTTP ${mudarSumiu.status} ${erroDe(mudarSumiu).mensagem}`,
+      );
+      afirmar(
+        "e as quatro injeções foram de fato consumidas (a asserção exerceu a corrida, e não o caminho comum)",
+        duble.injecoes.filter((i) => i.vezes > 0).length === 0,
+        `${duble.injecoes.filter((i) => i.vezes > 0).length} injeção(ões) sobrando`,
+      );
+    }
+
+    /* ── Classificação escolhida que não existe (revisão da 5.3) ── */
+    {
+      const inexistente = randomUUID();
+      const n = marca();
+      const r = await enviar({
+        operacao: "salvarVaga",
+        titulo: "Vaga com Departamento fantasma",
+        departamento_id: inexistente,
+        tipo_id: tipo.id,
+        nivel_id: nivel.id,
+      });
+      afirmar(
+        "salvarVaga com UUID VÁLIDO de um Departamento que não existe: 422, `faltando` com a COLUNA `departamento_id`, e nenhum POST",
+        r.status === 422 &&
+          erroDe(r).tipo === "dados_invalidos" &&
+          igual([...(erroDe(r).faltando ?? [])], ["departamento_id"]) &&
+          escritasDesde(n).filter((p) => p.metodo === "POST").length === 0,
+        `HTTP ${r.status} ${JSON.stringify(erroDe(r)).slice(0, 200)}`,
+      );
+      /* A CORRIDA: a conferência achou o Nível, e ele foi excluído antes do
+         comando; a chave estrangeira recusa com 23503 (HTTP 409 no PostgREST). */
+      duble.injecoes.push({
+        vezes: 1,
+        quando: (p) => p.metodo === "POST" && p.url.startsWith("/rest/v1/vagas"),
+        resposta: [409, { code: "23503", message: 'insert or update on table "vagas" violates foreign key constraint "vagas_nivel_id_fkey"' }],
+      });
+      const corrida = await enviar({ operacao: "salvarVaga", titulo: "Vaga da corrida do Nível", ...classificacoesCompletas });
+      afirmar(
+        "o 23503 da chave estrangeira no salvamento (HTTP 409 do PostgREST) é 422 com a frase da Classificação inexistente, e NUNCA a de endereço repetido",
+        corrida.status === 422 &&
+          erroDe(corrida).tipo === "dados_invalidos" &&
+          /não existe mais/.test(erroDe(corrida).mensagem) &&
+          !/endereço/.test(erroDe(corrida).mensagem),
+        `HTTP ${corrida.status} ${erroDe(corrida).mensagem}`,
+      );
+    }
+
+    /* ── Excluir ── */
+    {
+      const n = marca();
+      const r = await enviar({ operacao: "excluirVaga", id: aberta.id });
+      afirmar(
+        "excluir uma Aberta: 422, \"encerre antes\", decidido sobre o Estado GRAVADO (nenhum DELETE chega ao banco)",
+        r.status === 422 &&
+          /Encerre a vaga antes/.test(erroDe(r).mensagem) &&
+          escritasDesde(n).filter((p) => p.metodo === "DELETE").length === 0,
+        `HTTP ${r.status} ${erroDe(r).mensagem} | DELETEs ${escritasDesde(n).filter((p) => p.metodo === "DELETE").length}`,
+      );
+      const rascunho = await enviar({ operacao: "excluirVaga", id: criadaId });
+      afirmar(
+        "excluir um Rascunho: 200, com a linha que saiu",
+        rascunho.status === 200 && rascunho.corpo?.dados?.vaga?.id === criadaId && !duble.tabelas.vagas.some((v) => v.id === criadaId),
+        `HTTP ${rascunho.status}`,
+      );
+      const denovo = await enviar({ operacao: "excluirVaga", id: criadaId });
+      afirmar("excluir de novo: 404 (a Vaga já saiu)", denovo.status === 404 && fraseDeCarreirasBoa(erroDe(denovo).mensagem), `HTTP ${denovo.status}`);
+      const torto = await enviar({ operacao: "excluirVaga", id: "nao-e-uuid" });
+      afirmar("id torto: 422, antes de ir ao banco", torto.status === 422, `HTTP ${torto.status}`);
+    }
+
+    /* ── Classificações ── */
+    {
+      const n = marca();
+      const repetida = await enviar({ operacao: "salvarClassificacao", lista: "departamento", nome: "operacoes" });
+      afirmar(
+        "Classificação duplicada (`operacoes` diante de `Operações`): 409 que NOMEIA \"Operações\", e nenhum comando",
+        repetida.status === 409 && erroDe(repetida).mensagem.includes("“Operações”") && escritasDesde(n).length === 0,
+        `HTTP ${repetida.status} ${erroDe(repetida).mensagem}`,
+      );
+      duble.injecoes.push({
+        vezes: 1,
+        quando: (p) => p.metodo === "POST" && p.url.startsWith("/rest/v1/niveis"),
+        resposta: [409, { code: "23505", message: 'duplicate key value violates unique constraint "niveis_nome_normalizado_unico"' }],
+      });
+      const corrida = await enviar({ operacao: "salvarClassificacao", lista: "nivel", nome: "Sênior" });
+      afirmar(
+        "o 23505 do índice normalizado vira 409 com frase própria (de Nível), nunca a de post",
+        corrida.status === 409 && /Nível/.test(erroDe(corrida).mensagem) && fraseDeCarreirasBoa(erroDe(corrida).mensagem),
+        `HTTP ${corrida.status} ${erroDe(corrida).mensagem}`,
+      );
+      const nova = await enviar({ operacao: "salvarClassificacao", lista: "nivel", nome: "  Especialista   Sênior ", cor: "var(--categoria-roxo-bg)", equivalente_jobposting: "FULL_TIME" });
+      afirmar(
+        "criar um Nível: 201, nome com espaço colapsado, e a coluna que não é da lista (Equivalente num Nível) é ignorada e relatada",
+        nova.status === 201 &&
+          nova.corpo?.dados?.criada === true &&
+          nova.corpo?.dados?.classificacao?.nome === "Especialista Sênior" &&
+          nova.corpo?.dados?.ignorados?.includes("equivalente_jobposting") &&
+          !Object.hasOwn(duble.recebidos.at(-1)?.corpo ?? {}, "equivalente_jobposting"),
+        `HTTP ${nova.status} ${JSON.stringify(nova.corpo).slice(0, 200)}`,
+      );
+      /* O PRÓPRIO nome não colide consigo mesmo (revisão da 5.3): editar a Cor
+         mandando o nome junto, com o id em MAIÚSCULAS (o formato aceita) e o
+         nome com outra caixa e sem acento. */
+      const proprio = await enviar({
+        operacao: "salvarClassificacao",
+        lista: "departamento",
+        id: dep.id.toUpperCase(),
+        nome: "Operações",
+        cor: "var(--categoria-rosa-bg)",
+      });
+      const corDepois = duble.tabelas.departamentos.find((d) => d.id === dep.id)?.cor;
+      const variacao = await enviar({
+        operacao: "salvarClassificacao",
+        lista: "departamento",
+        id: dep.id.toUpperCase(),
+        nome: "OPERACOES",
+        cor: "var(--categoria-ciano-bg)",
+      });
+      const restaurado = await enviar({ operacao: "salvarClassificacao", lista: "departamento", id: dep.id, nome: "Operações" });
+      afirmar(
+        "editar um Departamento mandando o PRÓPRIO nome (e a variação de caixa e acento) com Cor nova, pelo id em maiúsculas: 200, e a Cor muda",
+        proprio.status === 200 &&
+          corDepois === "var(--categoria-rosa-bg)" &&
+          variacao.status === 200 &&
+          variacao.corpo?.dados?.classificacao?.cor === "var(--categoria-ciano-bg)" &&
+          restaurado.status === 200 &&
+          duble.tabelas.departamentos.find((d) => d.id === dep.id)?.nome === "Operações",
+        `${proprio.status} ${erroDe(proprio).mensagem ?? ""} | ${variacao.status} ${erroDe(variacao).mensagem ?? ""} | ${restaurado.status}`,
+      );
+      /* O relatório do que foi ignorado diz o TOTAL e se foi cortado. */
+      const lixo = Object.fromEntries(Array.from({ length: 55 }, (_, i) => [`campo_a_mais_${i}`, i]));
+      const muitos = await enviar({ operacao: "salvarClassificacao", lista: "nivel", id: nivel.id, ordem: 2, ...lixo });
+      const poucos = await enviar({ operacao: "salvarClassificacao", lista: "nivel", id: nivel.id, ordem: 1, xpto: 1 });
+      const vagaComLixo = await enviar({ operacao: "salvarVaga", id: completa.id, resumo: "Resumo com lixo.", ...lixo });
+      const LIMITE = nucleoDoPost.LIMITE_DE_IGNORADOS;
+      afirmar(
+        `Classificação e Vaga com 55 campos a mais: a lista vem cortada no teto (${LIMITE}), com \`totalIgnorado\` 55 e \`ignoradosTruncados\`; com um só, nada é cortado`,
+        muitos.status === 200 &&
+          muitos.corpo?.dados?.ignorados?.length === LIMITE &&
+          muitos.corpo?.dados?.totalIgnorado === 55 &&
+          muitos.corpo?.dados?.ignoradosTruncados === true &&
+          poucos.status === 200 &&
+          igual(poucos.corpo?.dados?.ignorados, ["xpto"]) &&
+          poucos.corpo?.dados?.totalIgnorado === 1 &&
+          poucos.corpo?.dados?.ignoradosTruncados === false &&
+          vagaComLixo.status === 200 &&
+          vagaComLixo.corpo?.dados?.totalIgnorado === 55 &&
+          vagaComLixo.corpo?.dados?.ignoradosTruncados === true,
+        `${muitos.status} ${JSON.stringify({ n: muitos.corpo?.dados?.ignorados?.length, t: muitos.corpo?.dados?.totalIgnorado, c: muitos.corpo?.dados?.ignoradosTruncados })} | ${poucos.status} | vaga ${vagaComLixo.status} ${vagaComLixo.corpo?.dados?.totalIgnorado}`,
+      );
+      const semEquivalente = await enviar({ operacao: "salvarClassificacao", lista: "tipo", nome: "Temporário" });
+      afirmar("criar um Tipo sem Equivalente JobPosting: 422", semEquivalente.status === 422, `HTTP ${semEquivalente.status}`);
+      const corFora = await enviar({ operacao: "salvarClassificacao", lista: "departamento", nome: "Jurídico", cor: "#ff0000" });
+      afirmar("Cor fora da paleta: 422", corFora.status === 422, `HTTP ${corFora.status}`);
+    }
+    {
+      const n = marca();
+      const cargos = await enviar({ operacao: "salvarClassificacao", lista: "cargos", nome: "Diretor" });
+      const semLista = await enviar({ operacao: "excluirClassificacao", id: dep.id });
+      afirmar(
+        "lista inválida (`cargos`) ou ausente: 422, e a tabela NUNCA vem do corpo (nenhum pedido ao banco)",
+        cargos.status === 422 && semLista.status === 422 && idaAoRestDesde(n).filter((p) => !p.url.startsWith("/rest/v1/perfis")).length === 0 && !duble.recebidos.some((p) => /cargos/.test(p.url)),
+        `HTTP ${cargos.status}/${semLista.status} | idas ${idaAoRestDesde(n).length}`,
+      );
+    }
+    {
+      const n = marca();
+      const emUso = await enviar({ operacao: "excluirClassificacao", lista: "departamento", id: dep.id });
+      afirmar(
+        "excluir um Departamento usado por Vagas: 409 \"em uso por N vagas\", contado pela coluna da lista, e nenhum DELETE",
+        emUso.status === 409 &&
+          new RegExp(`em uso por ${duble.tabelas.vagas.filter((v) => v.departamento_id === dep.id).length} vagas`, "i").test(erroDe(emUso).mensagem) &&
+          escritasDesde(n).length === 0,
+        `HTTP ${emUso.status} ${erroDe(emUso).mensagem}`,
+      );
+      /* Uma vaga só usando o Nível novo: a frase é no singular. */
+      const nivelNovo = duble.tabelas.niveis.find((x) => x.nome === "Especialista Sênior");
+      duble.tabelas.vagas.push(vagaBase("do-nivel-novo", "rascunho", { nivel_id: nivelNovo.id }));
+      const umaVaga = await enviar({ operacao: "excluirClassificacao", lista: "nivel", id: nivelNovo.id });
+      afirmar(
+        "excluir um Nível usado por UMA Vaga: 409 \"Em uso por 1 vaga\"",
+        umaVaga.status === 409 && /em uso por 1 vaga\b/i.test(erroDe(umaVaga).mensagem),
+        `HTTP ${umaVaga.status} ${erroDe(umaVaga).mensagem}`,
+      );
+      /* A CORRIDA: a contagem disse zero, e a chave estrangeira recusou. */
+      duble.injecoes.push({
+        vezes: 1,
+        quando: (p) => p.metodo === "GET" && p.url.startsWith("/rest/v1/vagas?select=id&nivel_id="),
+        resposta: [200, [], { "content-range": "*/0" }],
+      });
+      const corrida = await enviar({ operacao: "excluirClassificacao", lista: "nivel", id: nivelNovo.id });
+      afirmar(
+        "o 23503 da chave estrangeira (corrida entre contar e excluir) vira 409 com a contagem refeita, NUNCA 422",
+        corrida.status === 409 && erroDe(corrida).tipo === "conflito" && /em uso por 1 vaga\b/i.test(erroDe(corrida).mensagem),
+        `HTTP ${corrida.status} ${erroDe(corrida).mensagem}`,
+      );
+      /* A CORRIDA COM A RECONTAGEM FORA (revisão da 5.3): a contagem disse
+         zero, a chave estrangeira recusou, e a recontagem falhou. A frase diz
+         que está em uso SEM inventar número, e a falha da recontagem vai ao log. */
+      const nivelDaRecontagem = { id: randomUUID(), nome: "Nível da recontagem", cor: "var(--categoria-azul-bg)", ordem: 7, criado_em: agoraIso, atualizado_em: agoraIso };
+      duble.tabelas.niveis.push(nivelDaRecontagem);
+      const contagemDoNivel = (p) => p.metodo === "GET" && p.url.startsWith(`/rest/v1/vagas?select=id&nivel_id=eq.${nivelDaRecontagem.id}`);
+      duble.injecoes.push(
+        { vezes: 1, quando: contagemDoNivel, resposta: [200, [], { "content-range": "*/0" }] },
+        {
+          vezes: 1,
+          quando: (p) => p.metodo === "DELETE" && p.url.startsWith("/rest/v1/niveis") && p.url.includes(nivelDaRecontagem.id),
+          resposta: [409, { code: "23503", message: 'update or delete on table "niveis" violates foreign key constraint "vagas_nivel_id_fkey" on table "vagas"' }],
+        },
+        { vezes: 1, quando: contagemDoNivel, resposta: [503, { message: "recontagem fora do ar" }] },
+      );
+      const semRecontagem = await enviar({ operacao: "excluirClassificacao", lista: "nivel", id: nivelDaRecontagem.id });
+      afirmar(
+        "23503 com a recontagem FALHANDO: 409 que diz \"em uso por vagas\" sem número nenhum, e o log registra que a recontagem falhou",
+        semRecontagem.status === 409 &&
+          erroDe(semRecontagem).tipo === "conflito" &&
+          /em uso por vagas/.test(erroDe(semRecontagem).mensagem) &&
+          !/\d/.test(erroDe(semRecontagem).mensagem) &&
+          semRecontagem.log.some((l) => /recontagem falhou/.test(l)) &&
+          duble.injecoes.filter((i) => i.vezes > 0).length === 0,
+        `HTTP ${semRecontagem.status} ${erroDe(semRecontagem).mensagem} | log: ${semRecontagem.log.join(" / ").slice(0, 200)}`,
+      );
+      const livre = await enviar({ operacao: "excluirClassificacao", lista: "departamento", id: depLivre.id });
+      afirmar(
+        "excluir um Departamento que ninguém usa: 200",
+        livre.status === 200 && livre.corpo?.dados?.id === depLivre.id && !duble.tabelas.departamentos.some((d) => d.id === depLivre.id),
+        `HTTP ${livre.status}`,
+      );
+    }
+
+    /* ── O que TODA resposta revela, e o que vai ao log ── */
+    {
+      const comDetalhe = respostas.filter((r) => r.corpo?.erro && Object.hasOwn(r.corpo.erro, "detalhe"));
+      afirmar(
+        `nenhuma das ${respostas.length} respostas devolve \`detalhe\` (ele vai só para o log)`,
+        respostas.length > 30 && comDetalhe.length === 0,
+        comDetalhe.map((r) => JSON.stringify(r.corpo.erro).slice(0, 80)).join(" | "),
+      );
+      const falhasComDetalheNoLog = respostas.filter((r) => r.corpo?.ok === false && r.status !== 405 && r.log.some((l) => l.startsWith("[api/carreiras] ")));
+      afirmar(
+        "e o log do servidor sai com o prefixo `[api/carreiras]`",
+        falhasComDetalheNoLog.length > 5 && respostas.every((r) => r.log.every((l) => l.startsWith("[api/carreiras] "))),
+        `${falhasComDetalheNoLog.length} falha(s) com log`,
+      );
+      const frasesRuins = respostas
+        .filter((r) => r.corpo?.ok === false)
+        .map((r) => r.corpo.erro.mensagem)
+        .filter((m) => m !== moduloDosPosts.RECUSA_SEM_CREDENCIAL && !fraseDeCarreirasBoa(m));
+      afirmar(
+        "toda frase de recusa fala de vaga ou Classificação: nenhuma diz \"post\", nenhuma tem travessão, nenhuma é vaga",
+        frasesRuins.length === 0,
+        frasesRuins.slice(0, 4).join(" | "),
+      );
+    }
+  } finally {
+    await new Promise((pronto) => duble.servidor.close(pronto));
+  }
+}
+
+/* O NÚCLEO, pelas frases: a tradução do banco nunca devolve frase de post,
+   para NENHUM código que o transporte pode trazer. */
+{
+  const CODIGOS = [
+    { status: 0, codigo: "TypeError" },
+    { status: 401, codigo: "" },
+    { status: 409, codigo: "23505" },
+    { status: 409, codigo: "23503" },
+    { status: 400, codigo: "23514", mensagem: "vagas_maquina_de_estados: x" },
+    { status: 400, codigo: "23514", mensagem: "vagas_aberta_completa" },
+    { status: 400, codigo: "22P02" },
+    { status: 404, codigo: "PGRST205" },
+    { status: 500, codigo: "" },
+  ];
+  const ruins = [];
+  for (const resposta of CODIGOS) {
+    for (const conflito of ["", "Já existe uma vaga com este endereço. Escolha outro antes de salvar."]) {
+      const f = nucleoDaVaga.falhaDaEscritaDeCarreiras({ ok: false, mensagem: "", ...resposta }, { oQue: "teste", fazer: "salvar a vaga", conflito });
+      if (!fraseDeCarreirasBoa(f.erro.mensagem)) ruins.push(`${resposta.status}/${resposta.codigo}: ${f.erro.mensagem}`);
+    }
+  }
+  afirmar(
+    "`falhaDaEscritaDeCarreiras` nunca devolve frase de post nem frase vazia, para rede, permissão, conflito, 23503, gatilho, invariante, tipo torto, rota ausente e 500",
+    ruins.length === 0,
+    ruins.join(" | "),
+  );
+  const DEP = classificacoes.LISTAS_DE_CLASSIFICACAO[0];
+  afirmar(
+    "a frase de Classificação em uso diz o número, no singular e no plural",
+    /em uso por 1 vaga\. Troque o Departamento dessa vaga/.test(nucleoDaClassificacao.fraseDeClassificacaoEmUso(DEP, "Operações", 1)) &&
+      /em uso por 3 vagas\. Troque o Departamento dessas vagas/.test(nucleoDaClassificacao.fraseDeClassificacaoEmUso(DEP, "Operações", 3)),
+  );
+  afirmar(
+    "as frases de autorização do servidor falam de vagas e de Departamentos, Tipos e Níveis, nunca de post",
+    [
+      nucleoDaVaga.SEM_PERMISSAO_PARA_VAGAS,
+      nucleoDaVaga.SEM_CADASTRO_PARA_VAGAS,
+      nucleoDaClassificacao.SEM_PERMISSAO_PARA_CLASSIFICACOES,
+      nucleoDaClassificacao.SEM_CADASTRO_PARA_CLASSIFICACOES,
+      moduloDoHandler?.SO_POST,
+      moduloDoHandler?.SEM_CONFIGURACAO,
+    ].every(fraseDeCarreirasBoa),
+  );
+
+  /* A SELEÇÃO da frase (revisão da 5.3): não basta a frase ser de Carreiras,
+     ela precisa ser a CERTA para o que o banco disse. As entradas têm o HTTP
+     que o PostgREST de fato manda (409 para 23503 e 23505, 400 para 23514). */
+  const CONFLITO_DO_SLUG = "Já existe uma vaga com este endereço. Escolha outro antes de salvar.";
+  const selecionar = (resposta) =>
+    nucleoDaVaga.falhaDaEscritaDeCarreiras({ ok: false, ...resposta }, { oQue: "teste", fazer: "salvar a vaga", conflito: CONFLITO_DO_SLUG }).erro;
+  const maquina = selecionar({ status: 400, codigo: "23514", mensagem: "vagas_maquina_de_estados: x" });
+  const incompleta = selecionar({ status: 400, codigo: "23514", mensagem: 'new row violates check constraint "vagas_aberta_completa"' });
+  const fk = selecionar({ status: 409, codigo: "23503", mensagem: 'insert or update on table "vagas" violates foreign key constraint "vagas_tipo_id_fkey"' });
+  const slug = selecionar({ status: 409, codigo: "23505", mensagem: 'duplicate key value violates unique constraint "vagas_slug_unico"' });
+  afirmar(
+    "a tradução do banco ESCOLHE a frase certa: gatilho da máquina, invariante da Aberta, Classificação inexistente (23503, mesmo com HTTP 409) e endereço repetido (23505)",
+    maquina.tipo === "dados_invalidos" &&
+      /estados da vaga/.test(maquina.mensagem) &&
+      incompleta.tipo === "dados_invalidos" &&
+      /precisa estar completa/.test(incompleta.mensagem) &&
+      fk.tipo === "dados_invalidos" &&
+      /Departamento, Tipo ou Nível escolhido não existe mais/.test(fk.mensagem) &&
+      slug.tipo === "conflito" &&
+      slug.mensagem === CONFLITO_DO_SLUG,
+    [maquina, incompleta, fk, slug].map((e) => `${e.tipo}: ${e.mensagem}`).join(" | "),
+  );
+
+  /* O DESTINO SAI DO ESTADO GRAVADO (revisão da 5.3). Com a MAQUINA de hoje
+     cada chave vive num Estado só, e a primeira ocorrência coincide com a do
+     Estado gravado: a diferença só aparece com uma tabela em que a MESMA
+     chave leva a destinos diferentes. A tabela de mentira é injetada. */
+  const TABELA_DE_MENTIRA = {
+    rascunho: [{ chave: "mover", destino: "aberta", exclui: false }],
+    encerrada: [{ chave: "mover", destino: "rascunho", exclui: false }, { chave: "excluir", destino: null, exclui: true }],
+  };
+  const acoesDe = (e) => {
+    if (!Object.hasOwn(TABELA_DE_MENTIRA, e)) throw new Error(`Estado de mentira desconhecido: ${e}`);
+    return TABELA_DE_MENTIRA[e];
+  };
+  const resolver = nucleoDaVaga.resolverAcaoNoEstado;
+  afirmar(
+    "`resolverAcaoNoEstado` procura a ação na linha do Estado GRAVADO: a mesma chave leva a destinos diferentes conforme o Estado, e a exclusão nunca é mudança",
+    typeof resolver === "function" &&
+      resolver("encerrada", "mover", { acoesDe })?.destino === "rascunho" &&
+      resolver("rascunho", "mover", { acoesDe })?.destino === "aberta" &&
+      resolver("aberta", "mover", { acoesDe }) === null &&
+      resolver("encerrada", "excluir", { acoesDe }) === null &&
+      resolver("rascunho", "abrir")?.destino === "aberta" &&
+      resolver("encerrada", "abrir") === null &&
+      resolver("aberta", "reabrir") === null &&
+      resolver("publicado", "abrir") === null,
+  );
+  /* Leitura ESTÁTICA, porque o comportamento é indistinguível com a MAQUINA
+     de hoje: `mudarEstadoDaVaga` tira o destino de `resolverAcaoNoEstado` sobre
+     o Estado gravado, e não de uma busca da chave em todos os Estados. */
+  const corpoDaMudanca = (() => {
+    const fonte = semComentarios(ler("api/_nucleo/operacoesDaVaga.js") ?? "");
+    const i = fonte.indexOf("export async function mudarEstadoDaVaga");
+    const j = fonte.indexOf("export async function excluirVaga");
+    return i === -1 || j === -1 ? "" : fonte.slice(i, j);
+  })();
+  afirmar(
+    "`mudarEstadoDaVaga` decide o destino por `resolverAcaoNoEstado(gravada.estado, …)`, e a busca em todos os Estados só aparece para a frase (leitura estática)",
+    /const acaoNoEstado = resolverAcaoNoEstado\(gravada\.estado, acao\);/.test(corpoDaMudanca) &&
+      /const destino = acaoNoEstado === null \? null : acaoNoEstado\.destino;/.test(corpoDaMudanca) &&
+      !/destino = [^;]*destinoNominalDaAcao/.test(corpoDaMudanca),
+  );
+
+  /* O VOCABULÁRIO DE `faltando` (revisão da 5.3): toda chave que a escrita da
+     Vaga pode devolver é o nome de uma COLUNA de `vagas` e tem rótulo. As
+     chaves são COLHIDAS executando as duas fontes (a leitura do corpo, com
+     tudo errado, e `problemasParaAbrir` de uma Vaga vazia), e não escritas à
+     mão. A terceira fonte, a Classificação inexistente, é a coluna da lista,
+     exercida no dublê acima. */
+  const tudoErrado = nucleoDaVaga.lerCorpoDaVaga(
+    {
+      titulo: 5,
+      slug: "Com Espaço",
+      departamento_id: "x",
+      tipo_id: "x",
+      nivel_id: "x",
+      modalidade: "marte",
+      localizacao: 5,
+      resumo: 5,
+      link_de_candidatura: "javascript:x",
+      descricao: "não é documento",
+    },
+    { criando: true },
+  );
+  const ausentes = nucleoDaVaga.lerCorpoDaVaga({}, { criando: true });
+  const possiveis = new Set([
+    ...(tudoErrado.faltando ?? []),
+    ...(ausentes.faltando ?? []),
+    ...regrasDaVaga.problemasParaAbrir({}),
+    ...classificacoes.LISTAS_DE_CLASSIFICACAO.map((l) => l.coluna),
+  ]);
+  const { COLUNAS_DA_VAGA_NA_ESCRITA } = await import(urlDe("api/_nucleo/acesso.js"));
+  const semRotulo = [...possiveis].filter((c) => typeof regrasDaVaga.ROTULOS_DOS_CAMPOS[c] !== "string");
+  const naoColuna = [...possiveis].filter((c) => !COLUNAS_DA_VAGA_NA_ESCRITA.includes(c));
+  const frase = nucleoDaVaga.fraseDoQueFalta([...possiveis], { aberta: false });
+  afirmar(
+    "toda chave possível de `faltando` (leitura do corpo, `problemasParaAbrir` e Classificação inexistente) é o nome de uma COLUNA de `vagas` e tem rótulo em `ROTULOS_DOS_CAMPOS`",
+    tudoErrado.ok === false &&
+      possiveis.size >= 10 &&
+      ["departamento_id", "tipo_id", "nivel_id", "link_de_candidatura", "descricao"].every((c) => tudoErrado.faltando.includes(c)) &&
+      semRotulo.length === 0 &&
+      naoColuna.length === 0,
+    `possíveis: ${[...possiveis].join(", ")} | sem rótulo: ${semRotulo.join(", ")} | fora das colunas: ${naoColuna.join(", ")}`,
+  );
+  afirmar(
+    "e `fraseDoQueFalta` diz o RÓTULO de cada uma, nunca a chave crua",
+    [...possiveis].every((c) => frase.includes(regrasDaVaga.ROTULOS_DOS_CAMPOS[c])) &&
+      ![...possiveis].some((c) => c.includes("_") && frase.includes(c)),
+    frase,
+  );
+}
+
+/* O TRANSPORTE de Carreiras (revisão da 5.3), executado com `buscar` de
+   mentira que CONTA as idas à rede. Recusa local é `dados_invalidos` (nunca
+   `rede`, que mandaria esperar), e não sai pedido nenhum. */
+{
+  const { criarAcesso } = await import(urlDe("api/_nucleo/acesso.js"));
+  const { classificar } = nucleoDoPost;
+  const idas = [];
+  let respostaDaRede = () => new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+  const acesso = criarAcesso({
+    url: "http://transporte.invalido",
+    chavePublicavel: "sb_publishable_transporte",
+    chaveDeServico: "sb_secret_transporte",
+    buscar: async (endereco, opcoes) => {
+      idas.push({ endereco, metodo: opcoes?.method ?? "GET" });
+      return respostaDaRede();
+    },
+  });
+  const UM = "11111111-1111-4111-8111-111111111111";
+  const RECUSAS_LOCAIS = [
+    ["lerVaga com id torto", () => acesso.lerVaga("nao-e-uuid")],
+    ["atualizarVaga com id torto", () => acesso.atualizarVaga("x", { titulo: "t" })],
+    ["excluirVaga com id torto", () => acesso.excluirVaga("")],
+    ["lerClassificacao com lista fora do vocabulário", () => acesso.lerClassificacao("cargos", UM)],
+    ["contarVagasDaClassificacao com id torto", () => acesso.contarVagasDaClassificacao("nivel", "x")],
+    ["inserirVaga com campos vazios", () => acesso.inserirVaga({})],
+    ["inserirVaga com campos nulos", () => acesso.inserirVaga(null)],
+    ["atualizarVaga com campos vazios", () => acesso.atualizarVaga(UM, {})],
+    ["atualizarVaga com lista no lugar dos campos", () => acesso.atualizarVaga(UM, ["titulo"])],
+    ["inserirClassificacao com campos vazios", () => acesso.inserirClassificacao("nivel", {})],
+    ["atualizarClassificacao com campos vazios", () => acesso.atualizarClassificacao("departamento", UM, {})],
+    ["vagaPorSlug com slug torto", () => acesso.vagaPorSlug("Com Espaço")],
+    ["vagaPorSlug com slug vazio", () => acesso.vagaPorSlug("")],
+    ["vagaPorSlug com slug nulo", () => acesso.vagaPorSlug(null)],
+  ];
+  const erradas = [];
+  for (const [nome, chamar] of RECUSAS_LOCAIS) {
+    acesso.reiniciarPrazo();
+    const antes = idas.length;
+    const r = await chamar();
+    const tipo = r?.ok === false ? classificar(r) : "aceitou";
+    if (tipo !== "dados_invalidos" || idas.length !== antes) erradas.push(`${nome}: ${tipo}, ${idas.length - antes} ida(s)`);
+  }
+  afirmar(
+    "recusas locais do transporte (id torto, lista fora do vocabulário, campos vazios, slug torto) são `dados_invalidos` e NÃO vão à rede",
+    erradas.length === 0,
+    erradas.join(" | "),
+  );
+  const antesDoSlug = idas.length;
+  acesso.reiniciarPrazo();
+  const slugBom = await acesso.vagaPorSlug("vaga-boa");
+  afirmar(
+    "controle: um slug no formato vai à rede (a recusa acima é do formato, e não de toda busca)",
+    slugBom.ok === true && idas.length === antesDoSlug + 1 && /[?&]slug=eq\.vaga-boa(&|$)/.test(idas.at(-1)?.endereco ?? ""),
+    `${idas.length - antesDoSlug} ida(s) ${idas.at(-1)?.endereco ?? ""}`,
+  );
+  acesso.reiniciarPrazo();
+  respostaDaRede = () => new Response(JSON.stringify([{ id: UM, nome: "Pleno" }]), { status: 200 });
+  const lista = await acesso.listarNomesDaClassificacao("nivel");
+  const enderecoDaLista = idas.at(-1)?.endereco ?? "";
+  acesso.reiniciarPrazo();
+  respostaDaRede = () => new Response(JSON.stringify({ id: UM, nome: "Pleno" }), { status: 200 });
+  const naoLista = await acesso.listarNomesDaClassificacao("nivel");
+  afirmar(
+    "`listarNomesDaClassificacao` pede com limite EXPLÍCITO (`limit=1000`) e só aceita LISTA: um objeto no lugar é falha, nunca \"nenhum nome\"",
+    lista.ok === true &&
+      Array.isArray(lista.dados) &&
+      /[?&]limit=1000(&|$)/.test(enderecoDaLista) &&
+      naoLista.ok === false &&
+      naoLista.dados === null,
+    `${enderecoDaLista} | ${JSON.stringify({ ok: naoLista.ok, codigo: naoLista.codigo })}`,
+  );
+}
+
+/* ─── (l) O cliente do Painel e as regras estáticas da escrita ───────────── */
+
+secao("(l) o cliente do Painel (`src/data/carreiras/escrita.js`) e as regras estáticas da escrita");
+
+{
+  let cliente = null;
+  try {
+    cliente = await import(urlDe("src/data/carreiras/escrita.js"));
+  } catch (erro) {
+    afirmar("src/data/carreiras/escrita.js importa", false, erro.message);
+  }
+  const fonteDoCliente = semComentarios(ler("src/data/carreiras/escrita.js") ?? "");
+  afirmar(
+    "o cliente conhece SÓ a rota nova: `\"/api/carreiras\"`, e nunca `/api/posts`",
+    cliente?.ROTA_DA_ESCRITA_DE_CARREIRAS === "/api/carreiras" &&
+      /["'`]\/api\/carreiras["'`]/.test(fonteDoCliente) &&
+      !/\/api\/posts/.test(fonteDoCliente),
+  );
+  afirmar(
+    "o cliente não importa `data/blog/escrita.js` (as frases de lá são de post)",
+    !origensDeImport(fonteDoCliente).some((o) => /blog\/escrita(\.js)?$/.test(o)) &&
+      origensDeImport(fonteDoCliente).length > 0,
+    origensDeImport(fonteDoCliente).join(", "),
+  );
+  afirmar(
+    "o cliente não escreve pelo banco: nenhum `.from(`, `.rpc(`, `.insert(`, `.update(`, `.upsert(` ou `.delete(`",
+    !/\.(from|rpc|insert|update|upsert|delete)\s*\(/.test(fonteDoCliente),
+  );
+  if (cliente !== null) {
+    afirmar(
+      "os tipos de erro do cliente são EXATAMENTE os do servidor, na mesma ordem",
+      igual([...cliente.TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS], [...nucleoDoPost.TIPOS_DE_ERRO]) &&
+        cliente.ERRO_DADOS_INVALIDOS === nucleoDoPost.ERRO_DADOS_INVALIDOS &&
+        cliente.ERRO_CONFLITO === nucleoDoPost.ERRO_CONFLITO,
+      `cliente: ${cliente.TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS.join(", ")} | servidor: ${nucleoDoPost.TIPOS_DE_ERRO.join(", ")}`,
+    );
+    afirmar(
+      "cada operação do vocabulário tem frase própria no cliente, e nenhuma a mais",
+      igual(ordenado(cliente.OPERACOES_COM_FRASE), ordenado(operacoesDeCarreiras.OPERACOES_DE_CARREIRAS)),
+      cliente.OPERACOES_COM_FRASE.join(", "),
+    );
+    const ruins = [];
+    for (const operacao of operacoesDeCarreiras.OPERACOES_DE_CARREIRAS) {
+      for (const tipo of cliente.TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS) {
+        const f = cliente.fraseDaEscritaDeCarreiras(operacao, tipo);
+        if (!fraseDeCarreirasBoa(f)) ruins.push(`${operacao}/${tipo}: ${f}`);
+      }
+    }
+    afirmar(
+      "as frases do cliente, em toda combinação de operação e tipo, não falam de post, não têm travessão e não são vagas",
+      ruins.length === 0,
+      ruins.slice(0, 4).join(" | "),
+    );
+
+    /* O PEDIDO QUE SAIRIA, observado pela costura `buscar`. */
+    const pedidos = [];
+    const buscarQueResponde = (status, corpo) => async (rota, opcoes) => {
+      pedidos.push({ rota, opcoes, corpo: JSON.parse(opcoes.body) });
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        text: async () => (corpo === undefined ? "" : JSON.stringify(corpo)),
+      };
+    };
+    const obterToken = async () => ({ ok: true, dados: "token-do-painel" });
+    const UM = "11111111-1111-4111-8111-111111111111";
+    const sucessoDoServidor = { ok: true, dados: { operacao: "x" } };
+
+    const salvo = await cliente.salvarVaga({ titulo: "t", operacao: "excluirVaga" }, { id: UM, buscar: buscarQueResponde(200, sucessoDoServidor), obterToken });
+    const ultimo = pedidos.at(-1);
+    afirmar(
+      "salvarVaga vai por POST à rota nova, com o token no cabeçalho, e a operação é a do cliente (a do corpo não escolhe)",
+      salvo.ok === true &&
+        ultimo.rota === "/api/carreiras" &&
+        ultimo.opcoes.method === "POST" &&
+        ultimo.opcoes.headers.Authorization === "Bearer token-do-painel" &&
+        ultimo.corpo.operacao === "salvarVaga" &&
+        ultimo.corpo.id === UM,
+      JSON.stringify(ultimo?.corpo ?? {}),
+    );
+    await cliente.mudarEstadoDaVaga(UM, "abrir", { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken });
+    await cliente.excluirVaga(UM, { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken });
+    await cliente.salvarClassificacao("departamento", { nome: "Jurídico" }, { buscar: buscarQueResponde(201, sucessoDoServidor), obterToken });
+    await cliente.excluirClassificacao("nivel", UM, { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken });
+    afirmar(
+      "as cinco funções mandam a SUA operação, com os campos certos (`acao`, `lista`, `id`)",
+      igual(
+        pedidos.slice(-4).map((p) => [p.corpo.operacao, p.corpo.acao ?? null, p.corpo.lista ?? null, p.corpo.id ?? null]),
+        [
+          ["mudarEstadoDaVaga", "abrir", null, UM],
+          ["excluirVaga", null, null, UM],
+          ["salvarClassificacao", null, "departamento", null],
+          ["excluirClassificacao", null, "nivel", UM],
+        ],
+      ),
+      JSON.stringify(pedidos.slice(-4).map((p) => p.corpo)),
+    );
+    const antes = pedidos.length;
+    const tortos = [
+      await cliente.salvarVaga({}, { id: "x", buscar: buscarQueResponde(200, sucessoDoServidor), obterToken }),
+      await cliente.mudarEstadoDaVaga("x", "abrir", { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken }),
+      await cliente.excluirVaga(null, { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken }),
+      await cliente.excluirClassificacao("nivel", "x", { buscar: buscarQueResponde(200, sucessoDoServidor), obterToken }),
+    ];
+    afirmar(
+      "id torto é recusado ANTES da rede, como `dados_invalidos` (nunca `nao_encontrado`)",
+      tortos.every((r) => r.ok === false && r.erro.tipo === "dados_invalidos") && pedidos.length === antes,
+    );
+    const doServidor = await cliente.excluirClassificacao("departamento", UM, {
+      buscar: buscarQueResponde(409, { ok: false, erro: { tipo: "conflito", mensagem: "Não dá para excluir o Departamento “X”: em uso por 1 vaga." } }),
+      obterToken,
+    });
+    const cincoZeroZero = await cliente.excluirVaga(UM, { buscar: buscarQueResponde(502, undefined), obterToken });
+    const rotaAusente = await cliente.salvarVaga({ titulo: "t" }, { buscar: buscarQueResponde(404, undefined), obterToken });
+    let lancou = false;
+    let redeFora = null;
+    try {
+      redeFora = await cliente.salvarVaga({ titulo: "t" }, {
+        buscar: async () => {
+          throw new TypeError("fetch failed");
+        },
+        obterToken,
+      });
+    } catch {
+      lancou = true;
+    }
+    afirmar(
+      "a frase do servidor atravessa; sem ela, a frase é da OPERAÇÃO (5xx e rede), e a rota ausente diz que a função não respondeu; nada lança",
+      doServidor.ok === false &&
+        doServidor.erro.tipo === "conflito" &&
+        /em uso por 1 vaga/.test(doServidor.erro.mensagem) &&
+        cincoZeroZero.erro?.tipo === "rede" &&
+        /excluir a vaga/.test(cincoZeroZero.erro.mensagem) &&
+        rotaAusente.erro?.tipo === "configuracao" &&
+        /\/api\/carreiras/.test(rotaAusente.erro.mensagem) &&
+        !lancou &&
+        redeFora?.erro?.tipo === "rede" &&
+        /salvar a vaga/.test(redeFora.erro.mensagem),
+      `${cincoZeroZero.erro?.mensagem} | ${rotaAusente.erro?.mensagem} | ${redeFora?.erro?.mensagem}`,
+    );
+    const semSessao = await cliente.excluirVaga(UM, {
+      buscar: buscarQueResponde(200, sucessoDoServidor),
+      obterToken: async () => ({ ok: false, erro: { tipo: "permissao", mensagem: "Esta leitura exige uma sessão válida. Entre no Painel e tente de novo." } }),
+    });
+    afirmar(
+      "sem sessão, a frase genérica da LEITURA é trocada pela da operação",
+      semSessao.ok === false && semSessao.erro.tipo === "permissao" && /excluir a vaga/.test(semSessao.erro.mensagem),
+      semSessao.erro?.mensagem,
+    );
+  }
+
+  /* NENHUM TRAVESSÃO fora de comentário nos arquivos novos da 5.3. */
+  const NOVOS = [
+    "api/carreiras.js",
+    "api/_nucleo/operacoesDaVaga.js",
+    "api/_nucleo/operacoesDaClassificacao.js",
+    "src/data/carreiras/escrita.js",
+    "src/domain/carreiras/operacoes.js",
+  ];
+  const comTravessao = NOVOS.filter((a) => (semComentarios(ler(a) ?? "—")).includes("—"));
+  afirmar(
+    "nenhum travessão fora de comentário nos arquivos novos da escrita de Carreiras",
+    comTravessao.length === 0,
+    comTravessao.join(", "),
+  );
+  /* O invólucro REUSA as peças do de posts pelo mesmo objeto, e a lógica de
+     escrita não usa a tradução de erro de post. */
+  const involucro = semComentarios(ler("api/carreiras.js") ?? "");
+  afirmar(
+    "o invólucro importa de `api/posts.js` o código HTTP, o token do cabeçalho, o corpo e a resposta sem `detalhe`, em vez de copiá-los",
+    /import\s*\{[^}]*\bCODIGO_HTTP\b[^}]*\bcorpoComoObjeto\b[^}]*\brespostaDeErro\b[^}]*\btokenDoCabecalho\b[^}]*\}\s*from\s*["']\.\/posts\.js["']/.test(involucro) &&
+      !/function\s+(respostaDeErro|tokenDoCabecalho|corpoComoObjeto)\b/.test(involucro),
+  );
+  const nucleos = ["api/_nucleo/operacoesDaVaga.js", "api/_nucleo/operacoesDaClassificacao.js"].map((a) => semComentarios(ler(a) ?? ""));
+  afirmar(
+    "as operações de Carreiras não usam `falhaDaEscrita` (a de post) nem a frase padrão do núcleo",
+    nucleos.every((t) => !/\bfalhaDaEscrita\s*\(/.test(t)),
+  );
+  const funcoesNaApi = existsSync(path.join(raiz, "api"))
+    ? readdirSync(path.join(raiz, "api")).filter((n) => /\.(js|mjs|ts)$/.test(n))
+    : [];
+  afirmar(
+    "`api/` continua dentro do teto de 12 funções do plano",
+    funcoesNaApi.length > 0 && funcoesNaApi.length <= 12,
+    `${funcoesNaApi.length}: ${funcoesNaApi.join(", ")}`,
+  );
 }
 
 /* ─── Remoto ─────────────────────────────────────────────────────────────── */
@@ -1758,6 +3530,75 @@ if (temToken) {
       gatilhos.linhas.some((g) => g.tabela === t && g.nome === `${t}_tocar_atualizado_em` && g.funcao === "tocar_atualizado_em"),
     ),
     gatilhos.linhas.map((g) => `${g.tabela}:${g.nome}`).join(" | "),
+  );
+
+  /* — A máquina de estados no banco (Story 5.3), pela DEFINIÇÃO — */
+  const maquina = await consulta(
+    `select pg_get_triggerdef(t.oid) as def, t.tgenabled as ligado,
+            p.prosecdef as definer, coalesce(array_to_string(p.proconfig, ','), '') as cfg,
+            (select l.lanname from pg_language l where l.oid = p.prolang) as linguagem,
+            has_function_privilege('anon', p.oid, 'execute') as anon,
+            has_function_privilege('authenticated', p.oid, 'execute') as auth,
+            exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+            p.proacl is null as acl_padrao
+       from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'vagas' and t.tgname = ${literal(GATILHO_DA_MAQUINA)}`,
+    "o gatilho da máquina de estados",
+  );
+  const m = maquina.linha ?? {};
+  afirmar(
+    "o gatilho `vagas_maquina_de_estados` existe, ligado, BEFORE INSERT, UPDATE e DELETE, por linha, sobre `vagas_respeitam_a_maquina()`",
+    /^CREATE TRIGGER vagas_maquina_de_estados BEFORE /.test(m.def ?? "") &&
+      ["INSERT", "UPDATE", "DELETE"].every((e) => new RegExp(`\\b${e}\\b`).test((m.def ?? "").split(" ON ")[0])) &&
+      / ON public\.vagas FOR EACH ROW EXECUTE FUNCTION (public\.)?vagas_respeitam_a_maquina\(\)$/.test(m.def ?? "") &&
+      m.ligado === "O",
+    `${m.def ?? "ausente"} (ligado: ${m.ligado ?? "?"})`,
+  );
+  afirmar(
+    "e a função dele é plpgsql, `security invoker`, com `search_path` fixo, e NÃO executável por anon, authenticated nem public",
+    m.linguagem === "plpgsql" &&
+      m.definer === false &&
+      /search_path=/.test(m.cfg ?? "") &&
+      m.anon === false &&
+      m.auth === false &&
+      m.publico === false &&
+      m.acl_padrao === false,
+    JSON.stringify({ ...m, def: undefined }),
+  );
+
+  /* — O gatilho do truncate (revisão da 5.3, 20260924160000) — */
+  const doTruncate = await consulta(
+    `select pg_get_triggerdef(t.oid) as def, t.tgenabled as ligado,
+            p.prosecdef as definer, coalesce(array_to_string(p.proconfig, ','), '') as cfg,
+            (select l.lanname from pg_language l where l.oid = p.prolang) as linguagem,
+            has_function_privilege('anon', p.oid, 'execute') as anon,
+            has_function_privilege('authenticated', p.oid, 'execute') as auth,
+            exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+            p.proacl is null as acl_padrao
+       from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'vagas' and t.tgname = ${literal(GATILHO_DO_TRUNCATE)}`,
+    "o gatilho do truncate",
+  );
+  const tt = doTruncate.linha ?? {};
+  afirmar(
+    "o gatilho `vagas_maquina_de_estados_no_truncate` existe, ligado, BEFORE TRUNCATE, por INSTRUÇÃO, sobre `vagas_truncate_respeita_a_maquina()`",
+    /^CREATE TRIGGER vagas_maquina_de_estados_no_truncate BEFORE TRUNCATE ON public\.vagas FOR EACH STATEMENT EXECUTE FUNCTION (public\.)?vagas_truncate_respeita_a_maquina\(\)$/.test(
+      tt.def ?? "",
+    ) && tt.ligado === "O",
+    `${tt.def ?? "ausente"} (ligado: ${tt.ligado ?? "?"})`,
+  );
+  afirmar(
+    "e a função dele é plpgsql, `security invoker`, com `search_path` fixo, e NÃO executável por anon, authenticated nem public",
+    tt.linguagem === "plpgsql" &&
+      tt.definer === false &&
+      /search_path=/.test(tt.cfg ?? "") &&
+      tt.anon === false &&
+      tt.auth === false &&
+      tt.publico === false &&
+      tt.acl_padrao === false,
+    JSON.stringify({ ...tt, def: undefined }),
   );
 
   /* — Funções — */
@@ -2258,12 +4099,26 @@ const NOME_NIVEL = `${PREFIXO_TESTE}${nonce} Nível`;
 /**
  * As Classificações e as cinco Vagas da matriz, criadas DENTRO da transação.
  * Com `atualizado_em` no passado, para o gatilho ter o que mudar.
+ *
+ * TROCA REGISTRADA (Story 5.3): as Vagas eram inseridas já `aberta` e
+ * `encerrada`, e o gatilho `vagas_maquina_de_estados` passou a recusar isso
+ * (uma Vaga nasce Rascunho). Agora as cinco nascem Rascunho, e três seguem
+ * pela máquina com `update`: abrir (com o `aberta_em` explícito da primeira
+ * abertura, que dá a cada Aberta uma data distinta) e, a Encerrada, encerrar.
+ * Os dois Rascunhos não são tocados depois de inseridos, e continuam com o
+ * `atualizado_em` no passado que a asserção do gatilho de tempo usa.
+ *
+ * TROCA REGISTRADA (revisão da 5.3): a migração 20260924160000 passou a
+ * RECUSAR `aberta_em` enviado na primeira abertura. As três Vagas abrem pela
+ * máquina, sem data (o banco grava `now()`), e a data distinta de cada uma é
+ * ajustada com o gatilho DESLIGADO, dentro da mesma transação desfeita, e
+ * religado logo depois: o resto da matriz roda com ele ligado.
  */
 function fixture() {
   const DOC = literal(JSON.stringify(DOC_VALIDO));
   const HTML = literal(HTML_VALIDO);
-  const linha = (sufixo, titulo, estado, dep, modalidade, localizacao, resumo, link, dias) =>
-    `(${literal(slugDe(sufixo))}, ${literal(titulo)}, ${literal(estado)}, ${literal(dep)}, ${modalidade === null ? "null" : literal(modalidade)}, ${literal(localizacao)}, ${literal(resumo)}, ${link === null ? "null" : literal(link)}, ${dias === null ? "null" : dias})`;
+  const linha = (sufixo, titulo, dep, modalidade, localizacao, resumo, link, dias) =>
+    `(${literal(slugDe(sufixo))}, ${literal(titulo)}, ${literal(dep)}, ${modalidade === null ? "null" : literal(modalidade)}, ${literal(localizacao)}, ${literal(resumo)}, ${link === null ? "null" : literal(link)}, ${dias === null ? "null" : dias})`;
   return `
     insert into public.departamentos (nome, cor, ordem, atualizado_em) values
       (${literal(NOME_OP)}, 'var(--categoria-ciano-bg)', 900, now() - interval '3 days'),
@@ -2272,23 +4127,33 @@ function fixture() {
       (${literal(NOME_TIPO)}, 'FULL_TIME', 900, now() - interval '3 days');
     insert into public.niveis (nome, cor, ordem, atualizado_em) values
       (${literal(NOME_NIVEL)}, 'var(--categoria-verde-bg)', 900, now() - interval '3 days');
-    insert into public.vagas (slug, titulo, estado, departamento_id, tipo_id, nivel_id, modalidade,
+    create temp table fixture_das_vagas on commit drop as
+    select * from (values
+        ${linha("rascunho", "Rascunho de verificação", NOME_OP, null, "", "", null, null)},
+        ${linha("rascunho-tec", "Outro rascunho de verificação", NOME_TEC, null, "", "", null, null)},
+        ${linha("aberta", "Aberta de verificação", NOME_OP, "presencial", "Natal, RN", "Resumo da aberta.", "https://exemplo.com/vaga", 2)},
+        ${linha("aberta-nova", "Aberta mais nova de verificação", NOME_TEC, "remoto", "", "Resumo da nova.", "https://exemplo.com/nova", 1)},
+        ${linha("encerrada", "Encerrada de verificação", NOME_OP, "presencial", "Natal, RN", "Resumo da encerrada.", "https://exemplo.com/fim", 5)}
+      ) as v(slug, titulo, dep, modalidade, localizacao, resumo, link, dias);
+    insert into public.vagas (slug, titulo, departamento_id, tipo_id, nivel_id, modalidade,
                               localizacao, resumo, descricao, descricao_html, link_de_candidatura,
-                              aberta_em, atualizado_em)
-    select v.slug, v.titulo, v.estado::public.estado_vaga,
+                              atualizado_em)
+    select v.slug, v.titulo,
            (select d.id from public.departamentos d where d.nome = v.dep),
            (select x.id from public.tipos_de_vaga x where x.nome = ${literal(NOME_TIPO)}),
            (select n.id from public.niveis n where n.nome = ${literal(NOME_NIVEL)}),
            v.modalidade, v.localizacao, v.resumo, ${DOC}::jsonb, ${HTML}, v.link,
-           case when v.dias is null then null else now() - make_interval(days => v.dias) end,
            now() - interval '3 days'
-      from (values
-        ${linha("rascunho", "Rascunho de verificação", "rascunho", NOME_OP, null, "", "", null, null)},
-        ${linha("rascunho-tec", "Outro rascunho de verificação", "rascunho", NOME_TEC, null, "", "", null, null)},
-        ${linha("aberta", "Aberta de verificação", "aberta", NOME_OP, "presencial", "Natal, RN", "Resumo da aberta.", "https://exemplo.com/vaga", 2)},
-        ${linha("aberta-nova", "Aberta mais nova de verificação", "aberta", NOME_TEC, "remoto", "", "Resumo da nova.", "https://exemplo.com/nova", 1)},
-        ${linha("encerrada", "Encerrada de verificação", "encerrada", NOME_OP, "presencial", "Natal, RN", "Resumo da encerrada.", "https://exemplo.com/fim", 5)}
-      ) as v(slug, titulo, estado, dep, modalidade, localizacao, resumo, link, dias);`;
+      from pg_temp.fixture_das_vagas v;
+    update public.vagas x set estado = 'aberta'
+      from pg_temp.fixture_das_vagas v
+     where x.slug = v.slug and v.dias is not null;
+    alter table public.vagas disable trigger ${GATILHO_DA_MAQUINA};
+    update public.vagas x set aberta_em = now() - make_interval(days => v.dias)
+      from pg_temp.fixture_das_vagas v
+     where x.slug = v.slug and v.dias is not null;
+    alter table public.vagas enable trigger ${GATILHO_DA_MAQUINA};
+    update public.vagas set estado = 'encerrada' where slug = ${literal(slugDe("encerrada"))};`;
 }
 
 /** Os erros do Postgres nomeiam a restrição; é por ela que a recusa é julgada. */
@@ -2482,8 +4347,11 @@ if (temToken) {
     for (const [nome, patch, esperado] of CASOS_DO_INVARIANTE) {
       const vaga = { ...VAGA_QUE_ABRE, ...patch };
       const campos = ["modalidade", "localizacao", "resumo", "descricao", "descricao_html", "link_de_candidatura"];
+      /* TROCA REGISTRADA (revisão da 5.3): o comando mandava `aberta_em =
+         now()`, que 20260924160000 recusa. Agora abre sem data, e quem a
+         grava é o banco; a recusa esperada continua sendo a do CHECK. */
       const r = await desfeito(`${fixture()}
-        update public.vagas set estado = 'aberta', aberta_em = now(),
+        update public.vagas set estado = 'aberta',
           ${campos.map((c) => `${c} = ${coluna(vaga[c])}`).join(", ")}
          where slug = ${literal(slugDe("rascunho"))};
         select v.estado::text as estado from public.vagas v where v.slug = ${literal(slugDe("rascunho"))};`);
@@ -2498,12 +4366,25 @@ if (temToken) {
       divergentes.length === 0,
       divergentes.join(" | "),
     );
+    /* TROCA REGISTRADA (Story 5.3): `rascunho -> encerrada` era recusado pelo
+       CHECK `vagas_aberta_em_obrigatorio`. Agora o gatilho da máquina recusa
+       ANTES (a transição não existe), e a asserção passa a julgar as duas
+       defesas: com o gatilho, a recusa é dele; com o gatilho DESLIGADO dentro
+       da transação desfeita, o CHECK continua recusando sozinho. */
     const semData = await desfeito(`${fixture()}
       update public.vagas set estado = 'encerrada' where slug = ${literal(slugDe("rascunho-tec"))};`);
     afirmar(
-      "sair do Rascunho sem `aberta_em` é recusado (`vagas_aberta_em_obrigatorio`)",
-      recusouPor(semData, "vagas_aberta_em_obrigatorio"),
+      "sair do Rascunho direto para Encerrada é recusado pelo gatilho `vagas_maquina_de_estados`",
+      recusouPor(semData, GATILHO_DA_MAQUINA),
       semData.erro ?? "aceitou",
+    );
+    const semDataSemGatilho = await desfeito(`${fixture()}
+      alter table public.vagas disable trigger ${GATILHO_DA_MAQUINA};
+      update public.vagas set estado = 'encerrada' where slug = ${literal(slugDe("rascunho-tec"))};`);
+    afirmar(
+      "e, com o gatilho desligado (em transação desfeita), o CHECK `vagas_aberta_em_obrigatorio` ainda recusa sair do Rascunho sem `aberta_em`",
+      recusouPor(semDataSemGatilho, "vagas_aberta_em_obrigatorio"),
+      semDataSemGatilho.erro ?? "aceitou",
     );
   }
 
@@ -2704,6 +4585,209 @@ if (temToken) {
   }
 } else {
   afirmar("a matriz de I/O pôde ser exercida", false, "sem SUPABASE_ACCESS_TOKEN");
+}
+
+/* ─── (j) O gatilho da máquina de estados, em transação desfeita ─────────── */
+
+secao("(j) o gatilho `vagas_maquina_de_estados`, em transação desfeita (Story 5.3)");
+
+/**
+ * Roda UM comando sobre a matriz, como o papel dado, e diz o que o banco
+ * respondeu: `aceito` ou o SQLSTATE com a mensagem. O comando roda dentro de
+ * um bloco com exceção, que o isola num ponto de salvamento: a leitura que
+ * vem depois (`leitura`) enxerga o estado da tabela depois do comando.
+ * Tudo é desfeito no fim. O resultado viaja por uma configuração local da
+ * transação, que qualquer papel pode escrever.
+ */
+async function tentarNoBanco({ comando, papel = "service_role", preparo = "", leitura = "null::text" }) {
+  const r = await desfeito(`${fixture()}
+    ${preparo}
+    ${papel === "postgres" ? "" : `set local role ${papel};`}
+    do $verificacao$
+    begin
+      begin
+        ${comando};
+        perform set_config('verificacao.resultado', 'aceito', true);
+      exception when others then
+        perform set_config('verificacao.resultado', sqlstate || '|' || sqlerrm, true);
+      end;
+    end
+    $verificacao$;
+    select current_setting('verificacao.resultado', true) as resultado, (${leitura})::text as leitura;`);
+  if (!r.ok) return { ok: false, erro: r.erro, resultado: null, leitura: null };
+  return { ok: true, resultado: r.dados?.[0]?.resultado ?? null, leitura: r.dados?.[0]?.leitura ?? null };
+}
+
+/** Recusado pelo gatilho: SQLSTATE 23514 e o nome dele na mensagem. */
+const recusadoPelaMaquina = (r) =>
+  r.ok === true && typeof r.resultado === "string" && r.resultado.startsWith("23514|") && r.resultado.includes(`${GATILHO_DA_MAQUINA}:`);
+
+if (temToken) {
+  const vaga = (sufixo) => literal(slugDe(sufixo));
+  const doTesteComum = `(select d.id from public.departamentos d where d.nome = ${literal(NOME_OP)}),
+           (select x.id from public.tipos_de_vaga x where x.nome = ${literal(NOME_TIPO)}),
+           (select n.id from public.niveis n where n.nome = ${literal(NOME_NIVEL)})`;
+  const RECUSAS = [
+    [
+      "inserir uma Vaga já `aberta` (completa), como service_role",
+      `insert into public.vagas (slug, titulo, estado, departamento_id, tipo_id, nivel_id, modalidade, localizacao, resumo,
+                                 descricao, descricao_html, link_de_candidatura, aberta_em)
+       select ${vaga("direta")}, 'Aberta direta', 'aberta', ${doTesteComum}, 'remoto', '', 'Resumo.',
+              ${literal(JSON.stringify(DOC_VALIDO))}::jsonb, ${literal(HTML_VALIDO)}, 'https://exemplo.com/v', now()`,
+      "service_role",
+    ],
+    [
+      "inserir uma Vaga já `aberta`, como postgres (o SQL manual também esbarra)",
+      `insert into public.vagas (slug, titulo, estado, departamento_id, tipo_id, nivel_id, modalidade, localizacao, resumo,
+                                 descricao, descricao_html, link_de_candidatura, aberta_em)
+       select ${vaga("direta-manual")}, 'Aberta direta', 'aberta', ${doTesteComum}, 'remoto', '', 'Resumo.',
+              ${literal(JSON.stringify(DOC_VALIDO))}::jsonb, ${literal(HTML_VALIDO)}, 'https://exemplo.com/v', now()`,
+      "postgres",
+    ],
+    [
+      "inserir um Rascunho com `aberta_em`",
+      `insert into public.vagas (slug, titulo, departamento_id, tipo_id, nivel_id, aberta_em)
+       select ${vaga("rascunho-datado")}, 'Rascunho datado', ${doTesteComum}, now()`,
+      "service_role",
+    ],
+    ["`aberta -> rascunho`", `update public.vagas set estado = 'rascunho' where slug = ${vaga("aberta")}`, "service_role"],
+    ["`encerrada -> rascunho`", `update public.vagas set estado = 'rascunho' where slug = ${vaga("encerrada")}`, "service_role"],
+    ["`rascunho -> encerrada`", `update public.vagas set estado = 'encerrada' where slug = ${vaga("rascunho")}`, "service_role"],
+    ["excluir uma Aberta", `delete from public.vagas where slug = ${vaga("aberta")}`, "service_role"],
+    ["mudar `aberta_em` de uma Aberta", `update public.vagas set aberta_em = now() where slug = ${vaga("aberta")}`, "service_role"],
+    ["apagar `aberta_em` de uma Encerrada", `update public.vagas set aberta_em = null where slug = ${vaga("encerrada")}`, "service_role"],
+    ["mudar o `slug` de uma Aberta", `update public.vagas set slug = ${vaga("outro-endereco")} where slug = ${vaga("aberta")}`, "service_role"],
+    ["mudar o `slug` de uma Encerrada", `update public.vagas set slug = ${vaga("outro-endereco")} where slug = ${vaga("encerrada")}`, "service_role"],
+    ["dar `aberta_em` a um Rascunho que continua Rascunho", `update public.vagas set aberta_em = now() where slug = ${vaga("rascunho")}`, "service_role"],
+  ];
+  const naoRecusadas = [];
+  for (const [nome, comando, papel] of RECUSAS) {
+    const r = await tentarNoBanco({ comando, papel });
+    if (!recusadoPelaMaquina(r)) naoRecusadas.push(`${nome}: ${r.ok ? r.resultado : `falhou: ${String(r.erro).slice(0, 80)}`}`);
+  }
+  afirmar(
+    "o banco RECUSA, com 23514 e `vagas_maquina_de_estados`: inserir Aberta (como service_role e como postgres), Rascunho com data, `aberta -> rascunho`, `encerrada -> rascunho`, `rascunho -> encerrada`, excluir Aberta, mudar `aberta_em` ou `slug` depois de aberta, e dar data a um Rascunho",
+    naoRecusadas.length === 0,
+    naoRecusadas.join(" | "),
+  );
+
+  /* O QUE A MÁQUINA PERMITE, e o que ela faz com `aberta_em`. */
+  const completar = `update public.vagas set modalidade = 'presencial', localizacao = 'Natal, RN', resumo = 'Resumo.',
+                            link_de_candidatura = 'https://exemplo.com/v' where slug = ${vaga("rascunho")};`;
+  const abrir = await tentarNoBanco({
+    preparo: completar,
+    comando: `update public.vagas set estado = 'aberta' where slug = ${vaga("rascunho")}`,
+    leitura: `select v.estado::text || '|' || (v.aberta_em = now())::text from public.vagas v where v.slug = ${vaga("rascunho")}`,
+  });
+  afirmar(
+    "abrir um Rascunho completo SEM mandar `aberta_em` é aceito, e o banco grava `aberta_em = now()`",
+    abrir.ok && abrir.resultado === "aceito" && abrir.leitura === "aberta|true",
+    `${abrir.resultado ?? abrir.erro} | ${abrir.leitura}`,
+  );
+  /* REVISÃO DA 5.3 (20260924160000): a primeira abertura com data enviada é
+     RECUSADA, com o Rascunho COMPLETO, para a recusa não poder ser do CHECK
+     do invariante. Sabotagem de banco: da sessão principal. */
+  const inventada = [];
+  for (const [nome, data] of [
+    ["retroativa", "now() - interval '30 days'"],
+    ["futura", "now() + interval '30 days'"],
+    ["igual a agora", "now()"],
+  ]) {
+    const r = await tentarNoBanco({
+      preparo: completar,
+      comando: `update public.vagas set estado = 'aberta', aberta_em = ${data} where slug = ${vaga("rascunho")}`,
+      leitura: `select v.estado::text || '|' || coalesce(v.aberta_em::text, 'sem data') from public.vagas v where v.slug = ${vaga("rascunho")}`,
+    });
+    if (!recusadoPelaMaquina(r) || !/^rascunho\|sem data$/.test(r.leitura ?? "")) {
+      inventada.push(`${nome}: ${r.ok ? `${r.resultado} / ${r.leitura}` : String(r.erro).slice(0, 80)}`);
+    }
+  }
+  afirmar(
+    "abrir um Rascunho completo MANDANDO `aberta_em` (retroativa, futura ou igual a agora) é recusado com 23514 e `vagas_maquina_de_estados`, e a Vaga continua Rascunho sem data",
+    inventada.length === 0,
+    inventada.join(" | "),
+  );
+
+  /* O TRUNCATE (20260924160000): o gatilho de linha não dispara nele, e o de
+     instrução recusa enquanto houver Vaga Aberta. A matriz tem duas Abertas.
+     Sabotagem de banco: da sessão principal. */
+  const truncar = await tentarNoBanco({
+    papel: "postgres",
+    comando: "truncate public.vagas",
+    leitura: "select count(*) from public.vagas",
+  });
+  const cascata = await tentarNoBanco({
+    papel: "postgres",
+    comando: "truncate public.niveis cascade",
+    leitura: "select count(*) from public.vagas",
+  });
+  afirmar(
+    "`truncate public.vagas`, e o truncate em cascata de uma Classificação, são RECUSADOS com 23514 e `vagas_maquina_de_estados` enquanto há Vaga Aberta",
+    recusadoPelaMaquina(truncar) &&
+      Number(truncar.leitura) > 0 &&
+      recusadoPelaMaquina(cascata) &&
+      Number(cascata.leitura) > 0,
+    `${truncar.resultado ?? truncar.erro} | ${cascata.resultado ?? cascata.erro}`,
+  );
+  const semAberta = await tentarNoBanco({
+    papel: "postgres",
+    preparo: "update public.vagas set estado = 'encerrada' where estado = 'aberta';",
+    comando: "truncate public.vagas",
+    leitura: "select count(*) from public.vagas",
+  });
+  afirmar(
+    "controle: sem nenhuma Vaga Aberta (todas encerradas pela máquina, na transação desfeita), o truncate é ACEITO",
+    semAberta.ok && semAberta.resultado === "aceito" && semAberta.leitura === "0",
+    `${semAberta.resultado ?? semAberta.erro} | ${semAberta.leitura}`,
+  );
+  const reabrir = await tentarNoBanco({
+    comando: `update public.vagas set estado = 'aberta' where slug = ${vaga("encerrada")}`,
+    leitura: `select v.estado::text || '|' || (v.aberta_em = now() - interval '5 days')::text from public.vagas v where v.slug = ${vaga("encerrada")}`,
+  });
+  afirmar(
+    "reabrir uma Encerrada é aceito, e `aberta_em` continua o ORIGINAL (o da primeira abertura, não o de agora)",
+    reabrir.ok && reabrir.resultado === "aceito" && reabrir.leitura === "aberta|true",
+    `${reabrir.resultado ?? reabrir.erro} | ${reabrir.leitura}`,
+  );
+  const encerrar = await tentarNoBanco({
+    comando: `update public.vagas set estado = 'encerrada' where slug = ${vaga("aberta")}`,
+    leitura: `select v.estado::text || '|' || (v.aberta_em = now() - interval '2 days')::text from public.vagas v where v.slug = ${vaga("aberta")}`,
+  });
+  afirmar(
+    "encerrar uma Aberta é aceito, com `aberta_em` intacto",
+    encerrar.ok && encerrar.resultado === "aceito" && encerrar.leitura === "encerrada|true",
+    `${encerrar.resultado ?? encerrar.erro} | ${encerrar.leitura}`,
+  );
+  const ACEITOS = [
+    ["editar o título de uma Aberta (sem mudar o Estado)", `update public.vagas set titulo = 'Retitulada' where slug = ${vaga("aberta")}`],
+    ["mudar o `slug` de um Rascunho (nunca aberto)", `update public.vagas set slug = ${vaga("rascunho-renomeado")} where slug = ${vaga("rascunho")}`],
+    ["excluir um Rascunho", `delete from public.vagas where slug = ${vaga("rascunho")}`],
+    ["excluir uma Encerrada", `delete from public.vagas where slug = ${vaga("encerrada")}`],
+    [
+      "inserir um Rascunho sem Estado nem data",
+      `insert into public.vagas (slug, titulo, departamento_id, tipo_id, nivel_id) select ${vaga("novo")}, 'Novo', ${doTesteComum}`,
+    ],
+  ];
+  const recusadosIndevidos = [];
+  for (const [nome, comando] of ACEITOS) {
+    const r = await tentarNoBanco({ comando });
+    if (!(r.ok && r.resultado === "aceito")) recusadosIndevidos.push(`${nome}: ${r.ok ? r.resultado : String(r.erro).slice(0, 80)}`);
+  }
+  afirmar(
+    "e ACEITA o que a máquina permite: editar sem mudar de Estado, mudar o Slug de quem nunca abriu, excluir Rascunho e Encerrada, inserir Rascunho",
+    recusadosIndevidos.length === 0,
+    recusadosIndevidos.join(" | "),
+  );
+  /* CONTROLE do capturador: um comando que o banco recusa por OUTRA razão não
+     pode aparecer como recusa da máquina. */
+  const outraRazao = await tentarNoBanco({ comando: `update public.vagas set titulo = '   ' where slug = ${vaga("rascunho")}` });
+  afirmar(
+    "controle: a recusa de outra restrição (`vagas_titulo_valido`) é 23514 SEM o nome do gatilho, e não conta como recusa da máquina",
+    outraRazao.ok && /^23514\|/.test(outraRazao.resultado ?? "") && !recusadoPelaMaquina(outraRazao),
+    outraRazao.resultado ?? outraRazao.erro,
+  );
+} else {
+  afirmar("o gatilho da máquina pôde ser exercido no banco", false, "sem SUPABASE_ACCESS_TOKEN");
 }
 
 /* ─── (g) A API REST de verdade, com um Rascunho confirmado ──────────────── */
@@ -3028,6 +5112,240 @@ if (temToken && chavePublicavel) {
   );
 }
 
+/* ─── (k) A prova real em produção, só com Rascunho ──────────────────────── */
+
+secao("(k) a escrita de verdade, em produção, SÓ com Rascunho (Story 5.3)");
+
+/**
+ * O handler de `api/carreiras.js`, executado com o ambiente de produção (a
+ * chave de serviço pedida à Management API e mantida em MEMÓRIA, nunca em
+ * arquivo) e o JWT de uma Conta temporária. Cobre criar, editar, Slug em
+ * colisão, a recusa de Classificação em uso, excluir Rascunho e o CRUD das
+ * três Classificações. NUNCA chama `abrir` nem `reabrir`: uma Vaga Aberta
+ * confirmada apareceria em /carreiras, no mapa do site e no Google Vagas. O
+ * caminho de abrir é provado no dublê (seção i) e no banco em transação
+ * desfeita (seção j).
+ */
+const PREFIXO_DA_ESCRITA = "zzz-verificacao-5-3-";
+if (temToken && moduloDoHandler !== null) {
+  const handler = moduloDoHandler.default;
+  const MARCA = `${PREFIXO_DA_ESCRITA}%`;
+  const nonceK = randomUUID();
+  const nome = (sufixo) => `${PREFIXO_DA_ESCRITA}${nonceK} ${sufixo}`;
+  const emailK = `verificacao.carreiras+53-${nonceK}@chatclean.com.br`;
+  const senhaK = `Vf-${nonceK.slice(0, 8)}-${Math.random().toString(36).slice(2, 10)}!aZ9`;
+  registrarSegredo(senhaK);
+
+  /* A LIMPEZA PRÉVIA, em comandos SEQUENCIAIS (revisão da 5.3). Eram CTEs
+     irmãs num só comando: todas enxergam o MESMO instantâneo, então a Vaga
+     apagada numa CTE ainda existe para a chave estrangeira `restrict` quando
+     a CTE irmã apaga a Classificação dela, e a limpeza inteira caía com o
+     resto que ela existia para tirar. Agora: as Vagas primeiro, depois as
+     Classificações, depois as Contas, cada passo com o resultado do anterior
+     já visível. */
+  const passosDaLimpeza = [
+    ["vagas", `with v as (delete from public.vagas where slug like ${literal(MARCA)} and estado <> 'aberta' returning 1) select count(*)::int as n from v`],
+    [
+      "classificações",
+      `with d as (delete from public.departamentos where nome like ${literal(MARCA)} returning 1),
+            x as (delete from public.tipos_de_vaga where nome like ${literal(MARCA)} returning 1),
+            n as (delete from public.niveis where nome like ${literal(MARCA)} returning 1)
+       select ((select count(*) from d) + (select count(*) from x) + (select count(*) from n))::int as n`,
+    ],
+    ["contas", `with u as (delete from auth.users where email like 'verificacao.carreiras+53-%@chatclean.com.br' returning 1) select count(*)::int as n from u`],
+  ];
+  let removidos = 0;
+  const errosDaLimpeza = [];
+  for (const [oQue, comando] of passosDaLimpeza) {
+    const r = await executarSql(token, comando);
+    if (r.ok) removidos += Number(r.dados?.[0]?.n ?? 0);
+    else errosDaLimpeza.push(`${oQue}: ${r.erro}`);
+  }
+  afirmar(
+    "nenhum resto da prova da escrita sobrou de execuções anteriores (limpeza em passos: Vagas, Classificações, Contas)",
+    errosDaLimpeza.length === 0 && removidos === 0,
+    errosDaLimpeza.length > 0 ? errosDaLimpeza.join(" | ") : `${removidos} linha(s) removida(s) agora`,
+  );
+
+  const chaves = await revelarChaves(token);
+  const temChaves = afirmar(
+    "a Management API revelou a chave publicável e a de serviço (mantidas só em memória)",
+    chaves.ok === true && Boolean(chaves.publicavel) && Boolean(chaves.servico),
+    chaves.ok ? "uma das chaves não veio" : (chaves.erro ?? ""),
+  );
+
+  try {
+    if (temChaves) {
+      registrarSegredo(chaves.servico);
+      registrarSegredo(chaves.publicavel);
+      const conta = await executarSql(token, sqlDeCriacaoDeConta({ email: emailK, senha: senhaK, nome: "Conta Temporária da Escrita de Carreiras" }));
+      const contaCriada = afirmar("a Conta temporária da prova foi criada", conta.ok && Boolean(conta.dados?.[0]?.id), conta.erro ?? "");
+      let jwt = null;
+      let statusDoLogin = 0;
+      if (contaCriada) {
+        try {
+          const r = await fetch(`${URL_PROJETO}/auth/v1/token?grant_type=password`, {
+            method: "POST",
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+            headers: { apikey: chaves.publicavel, "Content-Type": "application/json" },
+            body: JSON.stringify({ email: emailK, password: senhaK }),
+          });
+          statusDoLogin = r.status;
+          jwt = (await r.json().catch(() => null))?.access_token ?? null;
+        } catch {
+          jwt = null;
+        }
+        if (jwt) registrarSegredo(jwt);
+      }
+      const PASSOS = [
+        "prova real: as três Classificações de teste são criadas pela função (201 cada)",
+        "prova real: um nome repetido com outra caixa e sem acento é recusado (409)",
+        "prova real: criar um Rascunho (201), Estado rascunho, sem `aberta_em`, Slug derivado do título",
+        "prova real: editar o Rascunho com Descrição suja grava sem a citação, e o descarte é relatado",
+        "prova real: o Slug de outra Vaga é recusado (409), e nada é criado",
+        "prova real: excluir um Departamento em uso é recusado (409, em uso por 1 vaga)",
+        "prova real: `encerrar` um Rascunho é recusado pela máquina (422), sem abrir nada",
+        "prova real: excluir o Rascunho (200), e ele sai do banco",
+        "prova real: renomear um Nível e excluir as três Classificações (200)",
+      ];
+      if (statusDoLogin === 429) {
+        for (const d of PASSOS) adiar(d, "o GoTrue respondeu 429 (limite de taxa): não é defeito, a asserção não pôde ser exercida agora");
+      } else if (!jwt) {
+        afirmar("a sessão da Conta temporária da prova foi aberta", false, `HTTP ${statusDoLogin}`);
+      } else {
+        const AMBIENTE_REAL = {
+          SUPABASE_URL: URL_PROJETO,
+          SUPABASE_CHAVE_PUBLICAVEL: chaves.publicavel,
+          SUPABASE_CHAVE_DE_SERVICO: chaves.servico,
+          VITE_SUPABASE_URL: undefined,
+          VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+        };
+        const enviar = (corpo) =>
+          dirigir(handler, { corpo, cabecalhos: { authorization: `Bearer ${jwt}` }, ambiente: AMBIENTE_REAL });
+        const doBanco = async (sqlTexto) => (await consulta(sqlTexto, "leitura da prova")).linha;
+
+        const dep = await enviar({ operacao: "salvarClassificacao", lista: "departamento", nome: nome("Departamento Ação"), cor: "var(--categoria-ciano-bg)", ordem: 900 });
+        const tip = await enviar({ operacao: "salvarClassificacao", lista: "tipo", nome: nome("Tipo"), equivalente_jobposting: "FULL_TIME", ordem: 900 });
+        const niv = await enviar({ operacao: "salvarClassificacao", lista: "nivel", nome: nome("Nível"), cor: "var(--categoria-verde-bg)", ordem: 900 });
+        const idDe = (r) => r.corpo?.dados?.classificacao?.id ?? null;
+        afirmar(
+          PASSOS[0],
+          [dep, tip, niv].every((r) => r.status === 201 && r.corpo?.dados?.criada === true && typeof idDe(r) === "string"),
+          [dep, tip, niv].map((r) => `${r.status} ${r.corpo?.erro?.mensagem ?? ""}`).join(" | "),
+        );
+        const repetido = await enviar({ operacao: "salvarClassificacao", lista: "departamento", nome: nome("DEPARTAMENTO ACAO") });
+        afirmar(
+          PASSOS[1],
+          repetido.status === 409 && repetido.corpo?.erro?.mensagem?.includes(nome("Departamento Ação")),
+          `HTTP ${repetido.status} ${repetido.corpo?.erro?.mensagem ?? ""}`,
+        );
+
+        const titulo = nome("Vaga de prova");
+        const criada = await enviar({ operacao: "salvarVaga", titulo, departamento_id: idDe(dep), tipo_id: idDe(tip), nivel_id: idDe(niv), estado: "aberta" });
+        const vagaId = criada.corpo?.dados?.vaga?.id ?? null;
+        const gravadaNoBanco = vagaId
+          ? await doBanco(`select v.estado::text as estado, v.aberta_em, v.slug from public.vagas v where v.id = ${literal(vagaId)}`)
+          : null;
+        afirmar(
+          PASSOS[2],
+          criada.status === 201 &&
+            gravadaNoBanco?.estado === "rascunho" &&
+            gravadaNoBanco?.aberta_em === null &&
+            gravadaNoBanco?.slug === regrasDaVaga.slugDaVaga(titulo).slug &&
+            criada.corpo?.dados?.ignorados?.includes("estado"),
+          `HTTP ${criada.status} ${criada.corpo?.erro?.mensagem ?? ""} | ${JSON.stringify(gravadaNoBanco)}`,
+        );
+
+        const editada = await enviar({
+          operacao: "salvarVaga",
+          id: vagaId,
+          resumo: "Resumo da prova.",
+          descricao: {
+            type: "doc",
+            content: [
+              { type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "citado" }] }] },
+              { type: "paragraph", content: [{ type: "text", text: "Texto da prova." }] },
+            ],
+          },
+        });
+        const html = vagaId ? await doBanco(`select v.descricao_html as h from public.vagas v where v.id = ${literal(vagaId)}`) : null;
+        afirmar(
+          PASSOS[3],
+          editada.status === 200 &&
+            (editada.corpo?.dados?.descarte?.total ?? 0) >= 1 &&
+            typeof html?.h === "string" &&
+            html.h.includes("Texto da prova.") &&
+            !/<blockquote/.test(html.h),
+          `HTTP ${editada.status} ${editada.corpo?.erro?.mensagem ?? ""} | ${html?.h}`,
+        );
+
+        const colisao = await enviar({
+          operacao: "salvarVaga",
+          titulo: nome("Outra vaga"),
+          slug: gravadaNoBanco?.slug,
+          departamento_id: idDe(dep),
+          tipo_id: idDe(tip),
+          nivel_id: idDe(niv),
+        });
+        const quantas = await doBanco(`select count(*)::int as n from public.vagas where slug like ${literal(MARCA)}`);
+        afirmar(PASSOS[4], colisao.status === 409 && quantas?.n === 1, `HTTP ${colisao.status} | vagas de teste: ${quantas?.n}`);
+
+        const emUso = await enviar({ operacao: "excluirClassificacao", lista: "departamento", id: idDe(dep) });
+        afirmar(PASSOS[5], emUso.status === 409 && /em uso por 1 vaga\b/i.test(emUso.corpo?.erro?.mensagem ?? ""), `HTTP ${emUso.status} ${emUso.corpo?.erro?.mensagem ?? ""}`);
+
+        const encerrar = await enviar({ operacao: "mudarEstadoDaVaga", id: vagaId, acao: "encerrar" });
+        const aindaRascunho = vagaId ? await doBanco(`select v.estado::text as estado from public.vagas v where v.id = ${literal(vagaId)}`) : null;
+        afirmar(PASSOS[6], encerrar.status === 422 && aindaRascunho?.estado === "rascunho", `HTTP ${encerrar.status} | ${aindaRascunho?.estado}`);
+
+        const excluida = await enviar({ operacao: "excluirVaga", id: vagaId });
+        const sumiu = await doBanco(`select count(*)::int as n from public.vagas where slug like ${literal(MARCA)}`);
+        afirmar(PASSOS[7], excluida.status === 200 && sumiu?.n === 0, `HTTP ${excluida.status} | restantes: ${sumiu?.n}`);
+
+        const renomeado = await enviar({ operacao: "salvarClassificacao", lista: "nivel", id: idDe(niv), nome: nome("Nível Renomeado") });
+        const apagadas = [
+          await enviar({ operacao: "excluirClassificacao", lista: "departamento", id: idDe(dep) }),
+          await enviar({ operacao: "excluirClassificacao", lista: "tipo", id: idDe(tip) }),
+          await enviar({ operacao: "excluirClassificacao", lista: "nivel", id: idDe(niv) }),
+        ];
+        afirmar(
+          PASSOS[8],
+          renomeado.status === 200 &&
+            renomeado.corpo?.dados?.classificacao?.nome === nome("Nível Renomeado") &&
+            apagadas.every((r) => r.status === 200),
+          `${renomeado.status} | ${apagadas.map((r) => `${r.status} ${r.corpo?.erro?.mensagem ?? ""}`).join(" | ")}`,
+        );
+      }
+    }
+  } finally {
+    const remocao = await executarSql(token, sqlDeRemocaoDeConta(emailK));
+    afirmar("limpeza da prova: a remoção da Conta temporária respondeu sem erro", remocao.ok, remocao.erro ?? "");
+    const limpeza = await executarSql(
+      token,
+      `delete from public.vagas where slug like ${literal(MARCA)} and estado <> 'aberta';
+       delete from public.departamentos where nome like ${literal(MARCA)};
+       delete from public.tipos_de_vaga where nome like ${literal(MARCA)};
+       delete from public.niveis where nome like ${literal(MARCA)};
+       select
+         (select count(*)::int from public.vagas where slug like ${literal(MARCA)})
+         + (select count(*)::int from public.departamentos where nome like ${literal(MARCA)})
+         + (select count(*)::int from public.tipos_de_vaga where nome like ${literal(MARCA)})
+         + (select count(*)::int from public.niveis where nome like ${literal(MARCA)})
+         + (select count(*)::int from auth.users where email = ${literal(emailK)}) as sobrou;`,
+    );
+    afirmar(
+      "limpeza da prova: nada sobrou (Vagas, Classificações e a Conta), e nenhuma Vaga de teste está Aberta",
+      limpeza.ok && limpeza.dados?.[0]?.sobrou === 0,
+      limpeza.erro ?? `sobrou: ${JSON.stringify(limpeza.dados?.[0])}`,
+    );
+  }
+} else {
+  afirmar(
+    "a prova real da escrita pôde ser exercida",
+    false,
+    temToken ? "api/carreiras.js não importou" : "sem SUPABASE_ACCESS_TOKEN",
+  );
+}
+
 /* ─── (h) Resíduo zero ───────────────────────────────────────────────────── */
 
 secao("(h) resíduo zero");
@@ -3040,10 +5358,14 @@ if (temToken) {
        (select count(*)::int from public.tipos_de_vaga where nome like ${literal(`${PREFIXO_TESTE}%`)}) as tipos,
        (select count(*)::int from public.niveis where nome like ${literal(`${PREFIXO_TESTE}%`)}) as niveis,
        (select count(*)::int from auth.users where email like ${literal(EMAIL_TESTE)}) as contas,
-       (select count(*)::int from public.vagas where estado = 'aberta' and slug like 'zzz-%') as abertas_de_teste`,
+       (select count(*)::int from public.vagas where estado = 'aberta' and slug like 'zzz-%') as abertas_de_teste,
+       (select count(*)::int from public.vagas where slug like ${literal(`${PREFIXO_DA_ESCRITA}%`)})
+         + (select count(*)::int from public.departamentos where nome like ${literal(`${PREFIXO_DA_ESCRITA}%`)})
+         + (select count(*)::int from public.tipos_de_vaga where nome like ${literal(`${PREFIXO_DA_ESCRITA}%`)})
+         + (select count(*)::int from public.niveis where nome like ${literal(`${PREFIXO_DA_ESCRITA}%`)}) as da_escrita`,
     "resíduo da verificação",
   );
-  const campos = ["vagas", "departamentos", "tipos", "niveis", "contas", "abertas_de_teste"];
+  const campos = ["vagas", "departamentos", "tipos", "niveis", "contas", "abertas_de_teste", "da_escrita"];
   afirmar(
     "nenhum resíduo da verificação ficou no projeto, e nenhuma Vaga Aberta de teste existe",
     !sobrou.falhou && campos.every((c) => sobrou.linha?.[c] === 0),
