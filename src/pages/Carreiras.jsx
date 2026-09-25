@@ -1,11 +1,9 @@
-import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Briefcase, Clock, MapPin, Users, Zap } from "lucide-react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import Reveal from "../components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "../components/animated/StaggerGroup";
-import { getVagas } from "@/lib/vagasStore";
 
 const WHATSAPP_BASE =
   "https://api.whatsapp.com/send?phone=5584998900718&text=";
@@ -41,8 +39,9 @@ const nivelColors = {
 };
 
 export default function Carreiras() {
-  // Lê vagas do store (localStorage), filtra apenas as ativas
-  const [vagas] = useState(() => getVagas().filter((v) => v.ativa !== false));
+  // Sem vagas até a Story 5.7, que reescreve esta página lendo do banco: o
+  // armazenamento do navegador e as vagas de exemplo saíram (Story 5.5).
+  const vagas = [];
 
   return (
     <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">

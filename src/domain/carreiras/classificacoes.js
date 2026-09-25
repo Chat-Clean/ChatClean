@@ -15,7 +15,7 @@
  * `verificar:carreiras`.
  */
 
-import { CORES_DE_CATEGORIA, ehCorDeCategoria } from "../blog/categorias.js";
+import { CORES_DE_CATEGORIA, aparenciaDaCategoria, ehCorDeCategoria } from "../blog/categorias.js";
 
 /**
  * As três listas de Classificação, na ordem em que o formulário as mostra.
@@ -122,6 +122,27 @@ export const CORES_DE_CLASSIFICACAO = CORES_DE_CATEGORIA;
 
 export function ehCorDeClassificacao(valor) {
   return ehCorDeCategoria(valor);
+}
+
+/**
+ * O par de cor de um Departamento ou de um Nível: `{ rotulo, sigla, fundo,
+ * tinta }`, do catálogo das Categorias (Story 5.5).
+ *
+ * **Tolerante, e por delegação.** Quem decide o que é "sem cor" e o que é cor
+ * fora do vocabulário é `aparenciaDaCategoria`, a MESMA função que pinta a
+ * pílula de Categoria: os dois casos caem na cor padrão, neutra, e nada lança.
+ * Uma listagem inteira não pode cair por causa de uma linha, e quem RECUSA cor
+ * fora da lista é a escrita, no servidor. Aceita a Classificação inteira (lê
+ * `cor`), o próprio valor da cor, ou nada.
+ */
+export function aparenciaDaCorDeClassificacao(classificacao) {
+  const cor =
+    typeof classificacao === "string"
+      ? classificacao
+      : classificacao !== null && typeof classificacao === "object"
+        ? classificacao.cor
+        : undefined;
+  return aparenciaDaCategoria({ cor });
 }
 
 /* ─── Nome ───────────────────────────────────────────────────────────────── */

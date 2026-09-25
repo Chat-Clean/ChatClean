@@ -154,11 +154,42 @@ export function sanitizar(texto) {
 const TENTATIVAS = 3;
 const ESPERA_ENTRE_TENTATIVAS_MS = 700;
 
+/**
+ * LIMITE DE TAXA. A Management API recusa rajadas com 429
+ * (`ThrottlerException: Too Many Requests`) ANTES de executar o comando, então
+ * repetir é seguro inclusive para escrita. Sem isto, uma ferramenta grande
+ * (`verificar:carreiras`) acumulava dezenas de falhas que não eram defeito, e
+ * a limpeza barrada deixava de ser conferida. Orçamento próprio, separado das
+ * tentativas de instabilidade, com espera crescente; se esgotar, a recusa sai
+ * dizendo que foi limite de taxa, e não defeito.
+ */
+const TENTATIVAS_NO_LIMITE_DE_TAXA = 6;
+const ESPERA_NO_LIMITE_DE_TAXA_MS = 5000;
+
+export const ehLimiteDeTaxa = (resultado) =>
+  resultado?.ok === false &&
+  (resultado.status === 429 || /ThrottlerException|Too Many Requests/i.test(String(resultado.erro ?? "")));
+
 const ehHtml = (texto) => /^\s*<(?:!doctype|html)\b/i.test(String(texto ?? ""));
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function chamar(token, caminho, opcoes = {}) {
+  let resultado = await chamarComInstabilidade(token, caminho, opcoes);
+  for (let vez = 1; vez <= TENTATIVAS_NO_LIMITE_DE_TAXA && ehLimiteDeTaxa(resultado); vez += 1) {
+    await esperar(ESPERA_NO_LIMITE_DE_TAXA_MS * vez);
+    resultado = await chamarComInstabilidade(token, caminho, opcoes);
+  }
+  if (ehLimiteDeTaxa(resultado)) {
+    return {
+      ...resultado,
+      erro: `${resultado.erro} (limite de taxa da Management API depois de ${TENTATIVAS_NO_LIMITE_DE_TAXA} esperas; infraestrutura, não defeito)`,
+    };
+  }
+  return resultado;
+}
+
+async function chamarComInstabilidade(token, caminho, opcoes = {}) {
   let ultima = null;
   for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa += 1) {
     const resultado = await chamarUmaVez(token, caminho, opcoes);

@@ -223,12 +223,15 @@ for (const [rotulo, padrao] of [
 /**
  * Nenhum caminho em que armazenamento do navegador decida acesso.
  *
- * A varredura é por vizinhança de CÓDIGO, não por arquivo: `vagasStore` usa
- * `localStorage` legitimamente, para conteúdo de Carreiras, e proibir a API
- * inteira apenas empurraria a decisão de acesso para outro nome.
- * (`blogStore` estava nesta frase até a Story 2.15, quando o armazenamento de
- * Post no navegador saiu do projeto. Quem cobra a ausência dele é
- * `verificar:interface`, sem exceção nenhuma.)
+ * A varredura é por vizinhança de CÓDIGO, não por arquivo: o site público usa
+ * `localStorage` legitimamente (o consentimento de cookies, a atribuição de
+ * campanha, o rascunho da assinatura), e proibir a API inteira apenas
+ * empurraria a decisão de acesso para outro nome.
+ * (`blogStore` estava nesta frase até a Story 2.15, e `vagasStore` até a Story
+ * 5.5, quando o armazenamento de Post e depois o de Vaga no navegador saíram
+ * do projeto. TROCA REGISTRADA (Story 5.5): o exemplo legítimo deixou de ser
+ * `vagasStore`. Quem cobra a ausência dos dois é `verificar:interface`, sem
+ * exceção nenhuma, e `verificar:carreiras` cobra a de `vagasStore` também.)
  * O que se proíbe é a coincidência entre armazenamento do navegador e
  * vocabulário de acesso — que é exatamente a forma do defeito removido:
  * `sessionStorage.getItem(AUTH_KEY)`.
@@ -536,6 +539,90 @@ secao("(b) a arquitetura de acesso está onde deveria");
     semImportarAEscrita.length === 0,
     semImportarAEscrita.join(", "),
   );
+
+  /* ─── O BLOCO IRMÃO, DE CARREIRAS (item adiado da Story 5.3, fechado na 5.5)
+     As telas de Carreiras escrevem SÓ por `@/data/carreiras/escrita`. A
+     varredura cobre TODO fonte de `src/admin/carreiras/` (um arquivo novo
+     entra sozinho) e a página que hospeda a aba, e procura as três portas de
+     rede próprias E o prefixo da função de servidor: uma tela que monte o
+     endereço `/api/…` à mão fala com a rede sem passar pela camada, mesmo
+     sem escrever `fetch` (um `navigator` guardado noutro nome, um cliente
+     HTTP de terceiro). O texto é o BRUTO, comentário incluído. */
+  const DIR_TELAS_DE_CARREIRAS = path.join(DIR_SRC, "admin", "carreiras");
+  const telasDeCarreiras = existsSync(DIR_TELAS_DE_CARREIRAS)
+    ? arquivosDe(DIR_TELAS_DE_CARREIRAS, [".js", ".jsx"]).map((a) =>
+        path.relative(raiz, a).split(path.sep).join("/"),
+      )
+    : [];
+  const PAGINA_DO_PAINEL = "src/pages/AdminBlog.jsx";
+  const ESCRITORAS_DE_CARREIRAS = [
+    "src/admin/carreiras/EditorDeVaga.jsx",
+    "src/admin/carreiras/ListaDeVagas.jsx",
+  ];
+  /* Revisão da 5.5: mais as portas que não são `fetch` nem XHR, e o `import(`
+     dinâmico, que busca código (e pode trazer um cliente de rede) em tempo de
+     execução, fora do grafo que a varredura de imports enxerga. */
+  const REDE_PROPRIA =
+    /\bfetch\s*\(|XMLHttpRequest|\bsendBeacon\b|["'`]\/api\/|\bWebSocket\b|\bEventSource\b|\bimport\s*\(/;
+  /* AUTOTESTE do detector, antes de julgar o repositório. */
+  afirmar(
+    "autoteste: o detector de rede própria acusa `fetch(`, `XMLHttpRequest`, `sendBeacon`, o prefixo `\"/api/\"`, `WebSocket`, `EventSource` e `import(` dinâmico, e absolve a importação estática da camada e `import.meta`",
+    [
+      'const r = await fetch("/x");',
+      "const x = new XMLHttpRequest();",
+      "navigator.sendBeacon(u, d);",
+      'const u = "/api/carreiras";',
+      "const u = `/api/${nome}`;",
+      "const r = await fetch (u);",
+      'const s = new WebSocket("wss://exemplo.com/vagas");',
+      'const f = new EventSource("/eventos");',
+      "const Classe = window.WebSocket;",
+      'const m = await import("@/data/supabase/clientes");',
+      "const m = await import (caminho);",
+      "import(`./${nome}.js`).then(usar);",
+    ].every((t) => REDE_PROPRIA.test(t)) &&
+      !REDE_PROPRIA.test('import { excluirVaga } from "@/data/carreiras/escrita";') &&
+      !REDE_PROPRIA.test('import ListaDeVagas from "@/admin/carreiras/ListaDeVagas";') &&
+      !REDE_PROPRIA.test("const ambiente = import.meta.env;") &&
+      !REDE_PROPRIA.test("const buscarVagas = listarVagasDoPainel;"),
+  );
+  const ausentesDeCarreiras = [...ESCRITORAS_DE_CARREIRAS, PAGINA_DO_PAINEL].filter(
+    (r) => !existsSync(path.join(raiz, r)),
+  );
+  afirmar(
+    "as telas de Carreiras que escrevem, e a página que hospeda a aba, existem onde a varredura procura",
+    ausentesDeCarreiras.length === 0 &&
+      ESCRITORAS_DE_CARREIRAS.every((r) => telasDeCarreiras.includes(r)),
+    `${ausentesDeCarreiras.join(", ")} | ${telasDeCarreiras.length} fonte(s) em src/admin/carreiras`,
+  );
+  const comRedeDeCarreiras = [...telasDeCarreiras, PAGINA_DO_PAINEL].filter((relativo) => {
+    const completo = path.join(raiz, relativo);
+    return existsSync(completo) && REDE_PROPRIA.test(readFileSync(completo, "utf8"));
+  });
+  afirmar(
+    "nenhum fonte de `src/admin/carreiras/` nem `AdminBlog.jsx` fala com a rede por conta própria (`fetch(`, `XMLHttpRequest`, `sendBeacon`, `\"/api/\"`, `WebSocket`, `EventSource`, `import(` dinâmico)",
+    telasDeCarreiras.length > 0 && comRedeDeCarreiras.length === 0,
+    comRedeDeCarreiras.join(", ") || "src/admin/carreiras vazio: a varredura não teria objeto",
+  );
+  const semAEscritaDeCarreiras = ESCRITORAS_DE_CARREIRAS.filter((relativo) => {
+    const completo = path.join(raiz, relativo);
+    if (!existsSync(completo)) return true;
+    return !/import\s*\{[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(
+      linhasDeCodigo(readFileSync(completo, "utf8")).join("\n"),
+    );
+  });
+  afirmar(
+    "e as duas telas de Carreiras que escrevem (`EditorDeVaga` e `ListaDeVagas`) importam a escrita de `@/data/carreiras/escrita`",
+    semAEscritaDeCarreiras.length === 0,
+    semAEscritaDeCarreiras.join(", "),
+  );
+  const paginaDoPainel = existsSync(path.join(raiz, PAGINA_DO_PAINEL))
+    ? linhasDeCodigo(readFileSync(path.join(raiz, PAGINA_DO_PAINEL), "utf8")).join("\n")
+    : "";
+  afirmar(
+    "e a página do Painel NÃO importa `data/carreiras/escrita`: a aba escreve pelo módulo dela, e a página só a monta",
+    paginaDoPainel !== "" && !/from\s*["'][^"']*data\/carreiras\/escrita(\.js)?["']/.test(paginaDoPainel),
+  );
 }
 
 const clientes = lerOuFalhar(
@@ -776,9 +863,17 @@ if (pagina !== null) {
       /useSessao\(\)/.test(menuDoAutor) &&
       /await sair\(\)/.test(menuDoAutor),
   );
+  /* TROCA REGISTRADA (Story 5.5): era "Restaurar continua intocado na página
+     (é de Carreiras, AD-15)", que exigia `setConfirmReset(true)` e a palavra
+     Restaurar. Restaurar saiu do repositório com as vagas de exemplo, e a
+     garantia equivalente é a da fronteira: Carreiras continua fora da página,
+     agora como módulo montado, e nenhum resto do Restaurar sobrevive no código. */
+  const codigoDaPagina = linhasDeCodigo(pagina).join("\n");
   afirmar(
-    "Restaurar continua intocado na página (é de Carreiras, AD-15)",
-    /setConfirmReset\(true\)/.test(pagina) && /Restaurar/.test(pagina),
+    "Restaurar saiu da página, e Carreiras está nela só como o módulo `AbaDeCarreiras` montado (AD-15)",
+    !/setConfirmReset|confirmReset|Restaurar|acoesDaAba/.test(codigoDaPagina) &&
+      /import\s+AbaDeCarreiras\s+from\s+["']@\/admin\/carreiras\/AbaDeCarreiras["']/.test(codigoDaPagina) &&
+      /<AbaDeCarreiras\b/.test(codigoDaPagina),
   );
 }
 

@@ -324,25 +324,6 @@ export function vagaInexistente(erro, tipoNaoEncontrado) {
   );
 }
 
-/**
- * A falha pede "Tentar de novo"? Só a PASSAGEIRA, e `tiposPassageiros` chega
- * de quem chama. A tela passa `rede` e `inesperado` (queda, prazo, 5xx,
- * resposta ilegível, exceção: repetir pode dar certo). `configuracao`,
- * `permissao`, `dados_invalidos`, `conflito` e `nao_encontrado` NÃO: repetir o
- * mesmo pedido daria a mesma recusa, e o botão ensinaria a apertar à toa.
- */
-export function falhaPassageira(erro, tiposPassageiros) {
-  return (
-    Array.isArray(tiposPassageiros) &&
-    erro !== null &&
-    typeof erro === "object" &&
-    typeof erro.tipo === "string" &&
-    tiposPassageiros.includes(erro.tipo)
-  );
-}
-
-/** A frase de uma falha, com reserva quando o servidor não mandou nenhuma. */
-export function mensagemDaFalha(erro, reserva) {
-  const mensagem = erro !== null && typeof erro === "object" ? erro.mensagem : null;
-  return typeof mensagem === "string" && mensagem.trim() !== "" ? mensagem : reserva;
-}
+/* `falhaPassageira` e `mensagemDaFalha` moravam aqui e SAÍRAM para
+   `falhas.js` (revisão da Story 5.5): a listagem de Vagas as usa também, e
+   não deve depender do módulo do formulário por uma regra que não é dele. */

@@ -62,6 +62,12 @@
  *       `@/data/carreiras/leitura` e `@/data/carreiras/escrita` por apelido,
  *       num `MemoryRouter`, cobrindo a matriz de I/O da story.
  *
+ * Story 5.5 (a aba Carreiras modular), LOCAL, sem token:
+ *
+ *   (p) o Carreiras antigo fora do repositório, a página só declarando a aba,
+ *       `listagem.js` e a aparência da Cor executados no Node, e
+ *       `AbaDeCarreiras`/`AdminBlog` montados com dublês cobrindo a matriz.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -5652,12 +5658,21 @@ secao("(m) as telas de Carreiras: a lista de permissão de imports e as rotas (S
     "EditorDaDescricao.jsx",
     "formulario.js",
     "EditorDeVaga.jsx",
+    /* TROCA REGISTRADA (Story 5.5): a aba Carreiras modular entra na lista
+       fechada, com os três arquivos dela. */
+    "listagem.js",
+    "ListaDeVagas.jsx",
+    "AbaDeCarreiras.jsx",
+    /* TROCA REGISTRADA (revisão da 5.5): `falhaPassageira` e
+       `mensagemDaFalha` saíram de `formulario.js` para um módulo neutro,
+       importado pelo formulário e pela lista. */
+    "falhas.js",
   ].map((n) => `${DIR_TELAS_DE_CARREIRAS}/${n}`);
   /* TROCA REGISTRADA (revisão da 5.4): era "os esperados EXISTEM" (um
      arquivo a mais passava calado, fora da regra de cor e de raio de
      `verificar-interface`). Agora é IGUALDADE: a lista é fechada. */
   afirmar(
-    "os arquivos de `src/admin/carreiras/` são EXATAMENTE os do formulário de Vaga (nem a menos, nem a mais)",
+    "os arquivos de `src/admin/carreiras/` são EXATAMENTE os do formulário de Vaga e da aba Carreiras (nem a menos, nem a mais)",
     igual(ordenado(arquivos), ordenado(ESPERADOS)),
     `faltam: ${ESPERADOS.filter((a) => !arquivos.includes(a)).join(", ")} | sobram: ${arquivos.filter((a) => !ESPERADOS.includes(a)).join(", ")}`,
   );
@@ -5875,12 +5890,19 @@ if (conteudoDaDescricao !== null) {
 
 if (rotasDaVaga !== null) {
   const UM = "11111111-1111-4111-8111-111111111111";
+  /* TROCA REGISTRADA (Story 5.5): a volta era `/admin` (a aba inicial do
+     Painel, que é o Blog). Agora é `/admin?aba=carreiras`, a aba Carreiras, e
+     o endereço de uma Vaga continua sob `/admin` (não herda o parâmetro). */
   afirmar(
-    "as rotas: `carreiras/vaga/nova`, `carreiras/vaga/:id`, o endereço de uma Vaga e a volta para `/admin`",
+    "as rotas: `carreiras/vaga/nova`, `carreiras/vaga/:id`, o endereço de uma Vaga e a volta para `/admin?aba=carreiras`",
     rotasDaVaga.ROTA_DA_VAGA_NOVA === "carreiras/vaga/nova" &&
       rotasDaVaga.ROTA_DA_VAGA === "carreiras/vaga/:id" &&
       rotasDaVaga.enderecoDaVaga(UM) === `/admin/carreiras/vaga/${UM}` &&
-      rotasDaVaga.ENDERECO_DA_LISTAGEM === "/admin",
+      rotasDaVaga.ENDERECO_DA_VAGA_NOVA === "/admin/carreiras/vaga/nova" &&
+      rotasDaVaga.ENDERECO_DA_LISTAGEM === "/admin?aba=carreiras" &&
+      rotasDaVaga.PARAMETRO_DA_ABA === "aba" &&
+      rotasDaVaga.ABA_DE_CARREIRAS === "carreiras",
+    `${rotasDaVaga.ENDERECO_DA_LISTAGEM} | ${rotasDaVaga.enderecoDaVaga(UM)}`,
   );
   afirmar(
     "sem identificador (vazio, nulo, só espaço), o endereço da Vaga é a listagem, e nunca `/admin/carreiras/vaga/`",
@@ -6153,21 +6175,43 @@ if (formulario !== null) {
       Object.keys(f.classificacoesAusentes({ ...validos, nivel_id: "" }, { departamentos: [{ id: UUID_DEPARTAMENTO }], tipos_de_vaga: [{ id: UUID_TIPO }], niveis: [] })).length === 0,
     JSON.stringify(ausentes),
   );
+  /* TROCA REGISTRADA (revisão da 5.5): as duas funções de leitura de falha
+     saíram de `formulario.js` para `falhas.js` (a lista as usa também). As
+     asserções são as mesmas, feitas ao módulo novo, mais: o formulário não as
+     exporta mais (uma casa só), e `falhas.js` não importa nada. */
+  let fa = null;
+  try {
+    fa = await import(urlDe("src/admin/carreiras/falhas.js"));
+  } catch (erro) {
+    afirmar("`src/admin/carreiras/falhas.js` importa no Node", false, erro.message);
+  }
+  afirmar(
+    "`falhaPassageira` e `mensagemDaFalha` moram SÓ em `falhas.js`: o formulário não as exporta, e o módulo neutro não importa nada (nem `data/`)",
+    fa !== null &&
+      typeof fa.falhaPassageira === "function" &&
+      typeof fa.mensagemDaFalha === "function" &&
+      !("falhaPassageira" in f) &&
+      !("mensagemDaFalha" in f) &&
+      origensDeImport(ler("src/admin/carreiras/falhas.js") ?? "").length === 0,
+    origensDeImport(ler("src/admin/carreiras/falhas.js") ?? "").join(", "),
+  );
   const passageiros = ["rede", "inesperado"];
   afirmar(
     "falha passageira: só os tipos que quem chama passa (`rede`, `inesperado`); `configuracao`, `permissao`, `dados_invalidos` e `conflito` não",
-    f.falhaPassageira({ tipo: "rede" }, passageiros) === true &&
-      f.falhaPassageira({ tipo: "inesperado" }, passageiros) === true &&
-      ["configuracao", "permissao", "dados_invalidos", "conflito", "nao_encontrado"].every((t) => f.falhaPassageira({ tipo: t }, passageiros) === false) &&
-      f.falhaPassageira(null, passageiros) === false &&
-      f.falhaPassageira({ tipo: "rede" }, undefined) === false,
+    fa !== null &&
+      fa.falhaPassageira({ tipo: "rede" }, passageiros) === true &&
+      fa.falhaPassageira({ tipo: "inesperado" }, passageiros) === true &&
+      ["configuracao", "permissao", "dados_invalidos", "conflito", "nao_encontrado"].every((t) => fa.falhaPassageira({ tipo: t }, passageiros) === false) &&
+      fa.falhaPassageira(null, passageiros) === false &&
+      fa.falhaPassageira({ tipo: "rede" }, undefined) === false,
   );
   afirmar(
     "a frase da falha tem reserva: sem mensagem (ou só espaço), a frase de quem chama",
-    f.mensagemDaFalha({ mensagem: "Do servidor." }, "Reserva.") === "Do servidor." &&
-      f.mensagemDaFalha({ mensagem: "  " }, "Reserva.") === "Reserva." &&
-      f.mensagemDaFalha(null, "Reserva.") === "Reserva." &&
-      f.mensagemDaFalha({}, "Reserva.") === "Reserva.",
+    fa !== null &&
+      fa.mensagemDaFalha({ mensagem: "Do servidor." }, "Reserva.") === "Do servidor." &&
+      fa.mensagemDaFalha({ mensagem: "  " }, "Reserva.") === "Reserva." &&
+      fa.mensagemDaFalha(null, "Reserva.") === "Reserva." &&
+      fa.mensagemDaFalha({}, "Reserva.") === "Reserva.",
   );
 
   /* TROCA REGISTRADA (revisão da 5.4): `errosDoServidor` recebe o tipo de
@@ -6499,7 +6543,10 @@ export default function Notificacoes() { return null; }
 
     function Onde() {
       const local = roteador.useLocation();
-      return h("span", { "data-onde": local.pathname });
+      /* TROCA REGISTRADA (Story 5.5): o marcador trazia só o caminho; agora traz
+         também a busca, para a volta à aba Carreiras (`?aba=carreiras`) ser
+         distinguida da volta ao Blog. */
+      return h("span", { "data-onde": `${local.pathname}${local.search}` });
     }
     function Listagem() {
       return h("p", { "data-papel": "listagem-de-mentira" }, "listagem");
@@ -6946,8 +6993,8 @@ export default function Notificacoes() { return null; }
       );
       await nova.clicar(nova.voltar(), "Voltar");
       afirmar(
-        "Voltar sem pendência vai direto para `/admin`, sem diálogo, e a moldura RESTAURA a rolagem do documento",
-        nova.onde() === "/admin" && nova.dialogo() === null && janela.document.body.style.overflow === "auto",
+        "Voltar sem pendência vai direto para `/admin?aba=carreiras` (a aba Carreiras), sem diálogo, e a moldura RESTAURA a rolagem do documento",
+        nova.onde() === "/admin?aba=carreiras" && nova.dialogo() === null && janela.document.body.style.overflow === "auto",
         `${nova.onde()} | overflow: ${janela.document.body.style.overflow}`,
       );
       await nova.desmontar();
@@ -7106,14 +7153,14 @@ export default function Notificacoes() { return null; }
       escrita.respostas.salvarVaga.push(criacaoSegurada.responder);
       await fugiu.clicar(fugiu.acao("salvar"), "Salvar", () => escrita.chamadas.length === 1);
       const sucessosAntesDaFuga = avisos.sucessos.length;
-      await fugiu.irPara("/admin", () => fugiu.onde() === "/admin");
+      await fugiu.irPara("/admin?aba=carreiras", () => fugiu.onde() === "/admin?aba=carreiras");
       criacaoSegurada.controle.soltar();
       await esperarAte(() => escrita.respostas.salvarVaga.length === 0, "Saída durante a criação: a resposta chega");
       await passo();
       await passo();
       afirmar(
         "a resposta de uma criação que chega DEPOIS de a tela sair é ignorada: a pessoa continua onde foi, sem navegação nem notificação fantasma",
-        fugiu.onde() === "/admin" && avisos.sucessos.length === sucessosAntesDaFuga,
+        fugiu.onde() === "/admin?aba=carreiras" && avisos.sucessos.length === sucessosAntesDaFuga,
         `onde: ${fugiu.onde()} | sucessos novos: ${avisos.sucessos.length - sucessosAntesDaFuga}`,
       );
       await fugiu.desmontar();
@@ -7424,10 +7471,10 @@ export default function Notificacoes() { return null; }
       );
       await saida.clicar(saida.voltar(), "Voltar", () => saida.dialogo() !== null);
       const dialogoDeNovo = saida.dialogo();
-      await saida.clicar(saida.acharPorTexto(dialogoDeNovo, "Sair sem salvar"), "Sair sem salvar", () => saida.onde() === "/admin");
+      await saida.clicar(saida.acharPorTexto(dialogoDeNovo, "Sair sem salvar"), "Sair sem salvar", () => saida.onde() === "/admin?aba=carreiras");
       afirmar(
-        "e \"Sair sem salvar\" volta para `/admin`",
-        dialogoDeNovo !== null && saida.onde() === "/admin",
+        "e \"Sair sem salvar\" volta para `/admin?aba=carreiras` (a aba Carreiras)",
+        dialogoDeNovo !== null && saida.onde() === "/admin?aba=carreiras",
         saida.onde(),
       );
       await saida.desmontar();
@@ -7444,8 +7491,8 @@ export default function Notificacoes() { return null; }
           inexistente.campo("titulo") === null,
       );
       const volta = inexistente.alvo.querySelector('[data-papel="voltar-para-listagem"]');
-      await inexistente.clicar(volta, "Voltar para a listagem", () => inexistente.onde() === "/admin");
-      afirmar("e a volta leva a `/admin`", volta !== null && inexistente.onde() === "/admin", inexistente.onde());
+      await inexistente.clicar(volta, "Voltar para a listagem", () => inexistente.onde() === "/admin?aba=carreiras");
+      afirmar("e a volta leva a `/admin?aba=carreiras` (a aba Carreiras)", volta !== null && inexistente.onde() === "/admin?aba=carreiras", inexistente.onde());
       await inexistente.desmontar();
 
       /* ══ Id torto na URL, e Vaga lida como nula ══ */
@@ -7589,6 +7636,1729 @@ export default function Notificacoes() { return null; }
       );
     } catch (erro) {
       afirmar("a tela montada rodou até o fim sem exceção", false, erro?.stack ?? String(erro));
+    } finally {
+      console.error = erroOriginal;
+      try {
+        janela.close();
+      } catch {
+        /* o navegador de mentira já pode ter fechado */
+      }
+    }
+  }
+  try {
+    rmSync(pasta, { recursive: true, force: true });
+  } catch {
+    /* presa pelo processo no Windows: a próxima execução varre na entrada */
+  }
+}
+
+/* ─── (p) A aba Carreiras modular (Story 5.5) ────────────────────────────── */
+
+secao("(p) a aba Carreiras modular: o legado fora, a listagem pura e a aba montada com dublês (Story 5.5)");
+
+/*
+ * Três partes, todas LOCAIS (sem token, sem rede):
+ *
+ * - ESTÁTICA: o Carreiras antigo saiu do repositório (o arquivo e todo nome
+ *   dele, em qualquer fonte de `src/`); a página do Painel só declara a aba,
+ *   guarda `contagemDeVagas` e monta `<AbaDeCarreiras>` no `tabpanel`; a faixa
+ *   do Blog não é mais um ternário; a lista não esconde ação atrás de hover.
+ * - NODE: `listagem.js` e a aparência da Cor, importados e executados.
+ * - MONTADA: `AbaDeCarreiras` e `AdminBlog` compilados pelo empacotador da
+ *   aplicação, com dublês de `@/data/carreiras/leitura`,
+ *   `@/data/carreiras/escrita` e das notificações por apelido, cobrindo a
+ *   matriz de I/O da story.
+ */
+
+{
+  /* ── O legado fora ── */
+  const LEGADO =
+    /\b(vagasStore|getVagas|saveVaga|deleteVaga|resetVagas|QuotaExceededError|ehCotaEstourada|comoResolver)\b/;
+  afirmar(
+    "autoteste: o detector do legado acusa cada nome antigo e absolve os nomes novos da camada",
+    LEGADO.test('import { getVagas } from "@/lib/vagasStore";') &&
+      LEGADO.test("saveVaga(vaga);") &&
+      LEGADO.test("setVagas(deleteVaga(id));") &&
+      LEGADO.test("setVagas(resetVagas());") &&
+      LEGADO.test('if (erro.name === "QuotaExceededError") return;') &&
+      LEGADO.test("ehCotaEstourada(erro)") &&
+      LEGADO.test('comoResolver(erro, "salvar")') &&
+      !LEGADO.test('import { excluirVaga, salvarVaga } from "@/data/carreiras/escrita";') &&
+      !LEGADO.test("const vagas = await listarVagasDoPainel();"),
+  );
+  const fontesDoSrc = arquivosDoDiretorio("src");
+  const citam = fontesDoSrc.filter((arquivo) => LEGADO.test(ler(arquivo) ?? ""));
+  afirmar(
+    "nenhum fonte de `src/` cita `vagasStore`, `getVagas`, `saveVaga`, `deleteVaga`, `resetVagas`, `QuotaExceededError`, `ehCotaEstourada` ou `comoResolver` (nem em comentário)",
+    fontesDoSrc.length > 50 && citam.length === 0,
+    citam.join(", ") || `${fontesDoSrc.length} fonte(s)`,
+  );
+  afirmar("`src/lib/vagasStore.js` não existe", !existsSync(path.join(raiz, "src/lib/vagasStore.js")));
+
+  const publica = semComentarios(ler("src/pages/Carreiras.jsx") ?? "");
+  afirmar(
+    "`src/pages/Carreiras.jsx` não importa o armazenamento antigo e mostra a lista vazia até a Story 5.7",
+    publica !== "" && !/lib\/vagasStore/.test(publica) && /const vagas = \[\];/.test(publica),
+  );
+
+  /* ── A página só declara a aba ── */
+  const fonteDaPagina = ler("src/pages/AdminBlog.jsx") ?? "";
+  const pagina = semComentarios(fonteDaPagina);
+  const estadosDaPagina = [...pagina.matchAll(/const \[(\w+), set\w+\] = useState\(/g)].map((m) => m[1]).sort();
+  /* TROCA REGISTRADA (revisão da 5.5): `activeTab` saiu da lista. A aba
+     ativa deixou de ser estado inicializado pela URL e passou a ser DERIVADA
+     dela a cada renderização (a asserção logo abaixo, e a montada). */
+  const ESTADOS_DA_PAGINA = [
+    "contagemDePosts",
+    "versaoDaLista",
+    "blogView",
+    "editingPost",
+    "contagemDeVagas",
+    "buscaDePosts",
+    "estadosDoFiltro",
+    "periodoDoFiltro",
+    "filtroDeDataAberto",
+  ].sort();
+  afirmar(
+    "`AdminBlog.jsx` guarda de Carreiras só `contagemDeVagas`: os estados da página são exatamente os do Blog, a aba ativa e essa contagem",
+    igual(estadosDaPagina, ESTADOS_DA_PAGINA),
+    `a mais: ${estadosDaPagina.filter((e) => !ESTADOS_DA_PAGINA.includes(e)).join(", ")} | a menos: ${ESTADOS_DA_PAGINA.filter((e) => !estadosDaPagina.includes(e)).join(", ")}`,
+  );
+  afirmar(
+    "a aba ativa é DERIVADA do parâmetro `?aba=` (não é estado), e trocar de aba escreve o parâmetro com `replace`",
+    /const activeTab = parametros\.get\(PARAMETRO_DA_ABA\) === ABA_DE_CARREIRAS \? ABA_DE_CARREIRAS : "blog";/.test(pagina) &&
+      !/\bsetActiveTab\b/.test(pagina) &&
+      /const \[parametros, setParametros\] = useSearchParams\(\)/.test(pagina) &&
+      /setParametros\([\s\S]*?\{\s*replace:\s*true\s*\}\s*,?\s*\)/.test(pagina) &&
+      /aoTrocarAba=\{trocarDeAba\}/.test(pagina),
+  );
+  const RESTOS = [
+    "VagaForm",
+    "VAGA_COLORS",
+    "DEPARTAMENTOS",
+    "NIVEL_COLORS",
+    "EMPTY_VAGA",
+    "acoesDaAba",
+    "Restaurar",
+    "filteredVagas",
+    "vagasSearch",
+    "<DialogoDeConfirmacao",
+    "Buscar vagas",
+    "Nova Vaga",
+    'data-busca="vagas"',
+  ];
+  const restos = RESTOS.filter((termo) => pagina.includes(termo));
+  afirmar(
+    "a página não tem formulário, lista, filtro, busca nem diálogo de Vaga, nem Restaurar nem `acoesDaAba`",
+    restos.length === 0,
+    restos.join(", "),
+  );
+  afirmar(
+    "a página não importa nada de `data/carreiras` (nem a escrita): a aba lê e escreve pelo módulo dela",
+    !/from\s*["'][^"']*data\/carreiras\//.test(pagina),
+  );
+  const inicioDoPainel = pagina.indexOf('role="tabpanel"');
+  const montagemDaAba = pagina.search(/\{activeTab === ABA_DE_CARREIRAS && <AbaDeCarreiras aoContar=\{setContagemDeVagas\} \/>\}/);
+  afirmar(
+    "`<AbaDeCarreiras aoContar={setContagemDeVagas} />` é montada DENTRO do `tabpanel`, só com a aba Carreiras ativa, e a contagem da aba é `contagemDeVagas` formatada",
+    inicioDoPainel !== -1 &&
+      montagemDaAba > inicioDoPainel &&
+      (pagina.match(/<AbaDeCarreiras\b/g) ?? []).length === 1 &&
+      /import AbaDeCarreiras from ["']@\/admin\/carreiras\/AbaDeCarreiras["']/.test(pagina) &&
+      /contagem: contagemDeVagas === null \? null : formatarNumero\(contagemDeVagas\)/.test(pagina),
+  );
+  /* A faixa: a do Blog fica SÓ no ramo do Blog, e não há mais o ternário de
+     dois ramos (`activeTab === "blog" ? (…) : (…)`) em volta dela. */
+  const inicioDaFaixaDoBlog = pagina.search(/\{activeTab === "blog" && \(\s*<motion\.div/);
+  const campoDoBlog = pagina.indexOf('data-busca="posts"');
+  afirmar(
+    "a faixa de busca não é mais um ternário: a do Blog está só no ramo do Blog, antes do `tabpanel`",
+    !/activeTab\s*===\s*["']blog["']\s*\?/.test(pagina) &&
+      !/activeTab\s*===\s*["']carreiras["']\s*\?/.test(pagina) &&
+      inicioDaFaixaDoBlog !== -1 &&
+      campoDoBlog > inicioDaFaixaDoBlog &&
+      campoDoBlog < inicioDoPainel,
+    `faixa ${inicioDaFaixaDoBlog} | campo ${campoDoBlog} | tabpanel ${inicioDoPainel}`,
+  );
+
+  /* ── A lista: nada escondido atrás de hover, e UM diálogo ── */
+  const lista = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/ListaDeVagas.jsx`) ?? "");
+  const aba = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/AbaDeCarreiras.jsx`) ?? "");
+  afirmar(
+    "a lista e a faixa de Vagas não revelam nada só com hover (`group-hover`, `opacity-0`, `invisible`)",
+    lista !== "" && aba !== "" && ![lista, aba].some((t) => /group-hover|\bopacity-0\b|\binvisible\b/.test(t)),
+  );
+  afirmar(
+    "a lista monta UM `DialogoDeConfirmacao`, sempre, controlado por `aberto`, com o rótulo do módulo puro",
+    (lista.match(/<DialogoDeConfirmacao\b/g) ?? []).length === 1 &&
+      /aberto=\{paraExcluir !== null\}/.test(lista) &&
+      /rotuloDeConfirmacao=\{ROTULO_DE_CONFIRMAR_EXCLUSAO\}/.test(lista),
+  );
+  afirmar(
+    "a lista e a aba leem e escrevem pelos apelidos exatos da camada, e as ações de Estado vêm de `listagem.js` (que as lê da tabela do domínio)",
+    /import\s*\{[^}]*\blistarVagasDoPainel\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(lista) &&
+      /import\s*\{[^}]*\blistarClassificacoesDoPainel\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(lista) &&
+      /import\s*\{[^}]*\bmudarEstadoDaVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(lista) &&
+      /import\s*\{[^}]*\bexcluirVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(lista) &&
+      /\bacoesDoEstadoDaVaga\(/.test(semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/listagem.js`) ?? "")),
+  );
+  /* Revisão da 5.5: o tipo "não encontrado" comparado com o erro de uma
+     ESCRITA vem do módulo da escrita; e as funções de falha, do módulo neutro. */
+  afirmar(
+    "a lista compara o erro de escrita com o `ERRO_NAO_ENCONTRADO` de `@/data/carreiras/escrita` (não o da leitura), e lê as falhas de `falhas.js`, não de `formulario.js`",
+    /import\s*\{[^}]*\bERRO_NAO_ENCONTRADO\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(lista) &&
+      !/import\s*\{[^}]*\bERRO_NAO_ENCONTRADO\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(lista) &&
+      /import\s*\{[^}]*\bfalhaPassageira\b[^}]*\}\s*from\s*["']@\/admin\/carreiras\/falhas["']/.test(lista) &&
+      !/from\s*["']@\/admin\/carreiras\/formulario["']/.test(lista),
+  );
+  /* Leitura estática, e só porque a alternativa (fazer a tabela do domínio
+     perder a exclusão para ver a carga não lançar) exigiria compilar o módulo
+     com um domínio de mentira: a reserva existe, com o texto certo. */
+  const fonteDaListagem = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/listagem.js`) ?? "");
+  afirmar(
+    "o rótulo de confirmar a exclusão tem reserva (`?.rotulo ?? \"Excluir vaga\"`): a carga do módulo não lança se a tabela mudar",
+    /\.find\(\(acao\) => acao\.exclui === true\)\?\.rotulo \?\? "Excluir vaga"/.test(fonteDaListagem),
+  );
+}
+
+/* ── Node: `listagem.js` e a aparência da Cor ── */
+
+let listagemDeVagas = null;
+try {
+  listagemDeVagas = await import(urlDe("src/admin/carreiras/listagem.js"));
+} catch (erro) {
+  afirmar("`src/admin/carreiras/listagem.js` importa no Node", false, erro.message);
+}
+
+{
+  const c = classificacoes;
+  const { aparenciaDaCategoria } = await import(urlDe("src/domain/blog/categorias.js"));
+  const neutra = aparenciaDaCategoria({ cor: "" });
+  afirmar(
+    "`aparenciaDaCorDeClassificacao` delega à paleta das Categorias: o MESMO par para cada Cor da paleta, pela Classificação ou pelo valor",
+    typeof c.aparenciaDaCorDeClassificacao === "function" &&
+      c.CORES_DE_CLASSIFICACAO.every(
+        (cor) =>
+          c.aparenciaDaCorDeClassificacao({ cor }) === aparenciaDaCategoria({ cor }) &&
+          c.aparenciaDaCorDeClassificacao(cor) === aparenciaDaCategoria({ cor }),
+      ),
+  );
+  let lancou = false;
+  const tolerados = [];
+  for (const valor of [null, undefined, "", "vermelho", {}, { cor: "#ff0000" }, { cor: null }, 7, []]) {
+    try {
+      tolerados.push(c.aparenciaDaCorDeClassificacao(valor));
+    } catch {
+      lancou = true;
+    }
+  }
+  afirmar(
+    "e é TOLERANTE: sem cor, cor fora do vocabulário ou lixo caem na cor neutra, sem lançar",
+    !lancou && tolerados.length === 9 && tolerados.every((a) => a === neutra) && typeof neutra?.fundo === "string",
+  );
+}
+
+if (listagemDeVagas !== null) {
+  const l = listagemDeVagas;
+  const e = estadosDaVaga;
+  afirmar("a espera da busca é de 250 ms", l.ESPERA_DA_BUSCA_MS === 250);
+  afirmar(
+    "o filtro é de UM Estado, com os rótulos do vocabulário, na ordem do ciclo de vida",
+    igual(
+      l.FILTROS_DE_ESTADO.map((f) => [f.estado, f.rotulo]),
+      e.ESTADOS_DA_VAGA.map((estado) => [estado, e.rotuloDoEstadoDaVaga(estado)]),
+    ) &&
+      l.alternarEstadoDoFiltro(null, "rascunho") === "rascunho" &&
+      l.alternarEstadoDoFiltro("rascunho", "rascunho") === null &&
+      l.alternarEstadoDoFiltro("rascunho", "aberta") === "aberta" &&
+      l.alternarEstadoDoFiltro("aberta", "xpto") === null,
+  );
+  afirmar(
+    "o pedido de busca apara o termo e só leva Estado do vocabulário; busca ativa é termo ou Estado",
+    igual({ ...l.pedidoDeBusca({ termo: "  operacoes ", estado: "rascunho" }) }, { termo: "operacoes", estado: "rascunho" }) &&
+      igual({ ...l.pedidoDeBusca({ termo: 7, estado: "Rascunho" }) }, { termo: "", estado: null }) &&
+      l.haBuscaAtiva({ termo: "   " }) === false &&
+      l.haBuscaAtiva({ estado: "aberta" }) === true &&
+      l.haBuscaAtiva({ termo: "x" }) === true,
+  );
+  const s = (o) => l.situacaoDaLista(o);
+  afirmar(
+    "a situação da lista: carregando, depois erro (antes de qualquer vazio), vazio de busca, vazio e lista",
+    igual([...l.SITUACOES_DA_LISTA], ["carregando", "erro", "vazio-de-busca", "vazio", "lista"]) &&
+      s({ carregando: true, erro: { tipo: "rede" } }) === "carregando" &&
+      s({ erro: { tipo: "rede" }, quantidade: 0, buscando: true }) === "erro" &&
+      s({ erro: { tipo: "rede" }, quantidade: 0 }) === "erro" &&
+      s({ quantidade: 0, buscando: true }) === "vazio-de-busca" &&
+      s({ quantidade: 0 }) === "vazio" &&
+      s({ quantidade: 2, buscando: true }) === "lista",
+  );
+  const okV = { ok: true, dados: [{ id: "a", titulo: "A", slug: "a", estado: "rascunho" }] };
+  const okC = { ok: true, dados: { departamentos: [], tipos_de_vaga: [], niveis: [] } };
+  const falhaV = { ok: false, erro: { tipo: "rede", mensagem: "sem rede" } };
+  afirmar(
+    "a falha de QUALQUER das duas leituras é erro (com o erro da que falhou), nunca lista vazia",
+    l.combinarLeituras(okV, okC).ok === true &&
+      l.combinarLeituras(okV, okC).vagas.length === 1 &&
+      l.combinarLeituras(falhaV, okC).ok === false &&
+      l.combinarLeituras(falhaV, okC).erro.mensagem === "sem rede" &&
+      l.combinarLeituras({ ok: true, dados: [] }, falhaV).ok === false &&
+      l.combinarLeituras(null, okC).ok === false &&
+      l.combinarLeituras(okV, null).ok === false &&
+      l.combinarLeituras({ ok: true, dados: "não é lista" }, okC).ok === false,
+  );
+  /* As ações da linha, como a spec as escreve (matriz I/O): é contra ELA que o
+     módulo é julgado. */
+  const acoes = (estado, extra = {}) =>
+    l.acoesDaLinha({ id: "10000000-0000-4000-8000-000000000001", slug: "vaga-x", estado, ...extra }).map((a) => a.chave);
+  afirmar(
+    "as ações da linha: Rascunho (Editar, Abrir, Excluir), Aberta (Editar, Encerrar, Ver no site), Encerrada (Editar, Reabrir, Ver no site, Excluir), e Estado desconhecido só Editar",
+    igual(acoes("rascunho"), ["editar", "abrir", "excluir"]) &&
+      igual(acoes("aberta"), ["editar", "encerrar", "ver"]) &&
+      igual(acoes("encerrada"), ["editar", "reabrir", "ver", "excluir"]) &&
+      igual(acoes("xpto"), ["editar"]) &&
+      igual(acoes(undefined), ["editar"]),
+    `${acoes("rascunho")} | ${acoes("aberta")} | ${acoes("encerrada")} | ${acoes("xpto")}`,
+  );
+  const aberta = l.acoesDaLinha({ id: "10000000-0000-4000-8000-000000000001", slug: "vaga-x", estado: "aberta" });
+  afirmar(
+    "Editar leva ao formulário da Vaga, e Ver no site ao endereço público pelo Slug (sem Slug, nada)",
+    aberta[0].endereco === "/admin/carreiras/vaga/10000000-0000-4000-8000-000000000001" &&
+      aberta.find((a) => a.chave === "ver")?.endereco === "/carreiras/vaga-x" &&
+      l.enderecoPublicoDaVaga({ estado: "rascunho", slug: "x" }) === null &&
+      l.enderecoPublicoDaVaga({ estado: "encerrada", slug: "" }) === null &&
+      l.enderecoPublicoDaVaga({ estado: "xpto", slug: "x" }) === null,
+  );
+  const indice = l.indiceDasClassificacoes({
+    departamentos: [{ id: "d1", nome: "Operações", cor: "var(--categoria-verde-bg)" }],
+    tipos_de_vaga: [{ id: "t1", nome: "CLT" }],
+    niveis: "não é lista",
+  });
+  let linha = null;
+  let linhaTorta = null;
+  try {
+    linha = l.linhaDaVaga(
+      { id: "v1", titulo: " Vaga ", slug: "v", estado: "aberta", departamento_id: "d1", tipo_id: "t1", nivel_id: "n9", modalidade: "hibrido", localizacao: "Natal, RN" },
+      indice,
+    );
+    linhaTorta = l.linhaDaVaga({ id: "v2", titulo: "T", estado: "xpto", modalidade: "voando" }, null);
+  } catch (erro) {
+    afirmar("a linha é montada sem lançar", false, erro.message);
+  }
+  afirmar(
+    "a linha junta as Classificações pelo identificador (nome e Cor) e dá rótulo neutro, com a cor neutra, à que não tem par",
+    linha !== null &&
+      linha.titulo === "Vaga" &&
+      linha.departamento.rotulo === "Operações" &&
+      linha.departamento.fundo === "var(--categoria-verde-bg)" &&
+      linha.tipo.rotulo === "CLT" &&
+      linha.tipo.fundo === null &&
+      linha.nivel.conhecida === false &&
+      linha.nivel.rotulo === "Nível não encontrado" &&
+      linha.nivel.fundo === classificacoes.aparenciaDaCorDeClassificacao(null).fundo &&
+      linha.local === "Híbrido · Natal, RN" &&
+      linha.aparenciaDoEstado === estadosDaVaga.aparenciaDoEstadoDaVaga("aberta"),
+    JSON.stringify(linha),
+  );
+  afirmar(
+    "Estado e Modalidade fora do vocabulário NÃO lançam na linha: sem aparência de Estado, só Editar, local vazio",
+    linhaTorta !== null &&
+      linhaTorta.estadoValido === false &&
+      linhaTorta.aparenciaDoEstado === null &&
+      igual(linhaTorta.acoes.map((a) => a.chave), ["editar"]) &&
+      linhaTorta.local === "",
+  );
+  const { diagnosticarRotuloDeAcao } = await import(urlDe("src/admin/shell/voz.js"));
+  afirmar(
+    "o rótulo de confirmar a exclusão é o da tabela do domínio (\"Excluir vaga\") e passa pela regra de voz",
+    l.ROTULO_DE_CONFIRMAR_EXCLUSAO === "Excluir vaga" &&
+      l.ROTULO_DE_CONFIRMAR_EXCLUSAO === transicoesDaVaga.acoesDoEstadoDaVaga("encerrada").find((a) => a.exclui).rotulo &&
+      diagnosticarRotuloDeAcao(l.ROTULO_DE_CONFIRMAR_EXCLUSAO) === null,
+  );
+  afirmar(
+    "a pergunta do diálogo nomeia a Vaga, e o vazio de busca diz o que foi procurado",
+    l.tituloDaExclusao({ titulo: "Suporte" }).includes("Suporte") &&
+      l.descricaoDoVazioDeBusca({ termo: "zzz", estado: "rascunho" }).includes("zzz") &&
+      l.descricaoDoVazioDeBusca({ termo: "zzz", estado: "rascunho" }).includes(
+        estadosDaVaga.rotuloDoEstadoDaVaga("rascunho").toLowerCase(),
+      ),
+  );
+  afirmar(
+    "\"Tentar de novo\" é UMA constante (`ROTULO_DE_NOVA_TENTATIVA`), usada pela notificação e pela tela de erro; `ROTULO_DE_RECARREGAR` não existe mais",
+    l.ROTULO_DE_NOVA_TENTATIVA === "Tentar de novo" &&
+      !("ROTULO_DE_RECARREGAR" in l) &&
+      diagnosticarRotuloDeAcao(l.ROTULO_DE_NOVA_TENTATIVA) === null,
+  );
+  {
+    const { diagnosticarMensagem } = await import(urlDe("src/admin/shell/voz.js"));
+    afirmar(
+      "a frase da Vaga que já não existia é própria: passa pela voz, diz que a linha saiu, e não diz que a lista continua como estava",
+      typeof l.TITULO_DA_VAGA_INEXISTENTE === "string" &&
+        typeof l.DESCRICAO_DA_VAGA_INEXISTENTE === "string" &&
+        diagnosticarMensagem("o que houve", l.TITULO_DA_VAGA_INEXISTENTE) === null &&
+        diagnosticarMensagem("o que fazer", l.DESCRICAO_DA_VAGA_INEXISTENTE) === null &&
+        /já não existia/.test(l.TITULO_DA_VAGA_INEXISTENTE) &&
+        /saiu da lista/.test(l.DESCRICAO_DA_VAGA_INEXISTENTE) &&
+        !/continua como estava|tente de novo/i.test(l.TITULO_DA_VAGA_INEXISTENTE + " " + l.DESCRICAO_DA_VAGA_INEXISTENTE) &&
+        l.TITULO_DA_VAGA_INEXISTENTE !== l.FALHA_DA_EXCLUSAO,
+      `${l.TITULO_DA_VAGA_INEXISTENTE} | ${l.DESCRICAO_DA_VAGA_INEXISTENTE}`,
+    );
+  }
+  const travessoes = Object.entries(l).filter(([, v]) => typeof v === "string" && v.includes("—"));
+  afirmar("nenhum texto exportado por `listagem.js` tem travessão", travessoes.length === 0, travessoes.map(([k]) => k).join(", "));
+}
+
+/* ── A aba montada ── */
+
+{
+  const { writeFileSync, rmSync } = await import("node:fs");
+  const montagem = await import("./montagem-comum.mjs");
+  const pasta = montagem.criarPastaDeCompilacao("verificar-carreiras-aba-");
+
+  const ID_R = "10000000-0000-4000-8000-000000000001";
+  const ID_A = "10000000-0000-4000-8000-000000000002";
+  const ID_E = "10000000-0000-4000-8000-000000000003";
+  const ID_S = "10000000-0000-4000-8000-000000000004";
+  const ID_X = "10000000-0000-4000-8000-000000000005";
+  const DEP_OPERACOES = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+  const DEP_TECNOLOGIA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab1";
+  const TIPO_CLT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+  const NIVEL_PLENO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
+  const NIVEL_SENIOR = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab3";
+  const SEM_PAR = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaff";
+
+  const arquivoDaLeitura = path.join(pasta, "duble-leitura.js");
+  writeFileSync(
+    arquivoDaLeitura,
+    `export { ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const controle = {
+  vagas: [],
+  classificacoes: null,
+  falharVagas: false,
+  falharClassificacoes: false,
+  lancar: false,
+  segurar: null,
+  trancar: false,
+  trancadas: [],
+  pedidos: [],
+  instantes: [],
+  classificacoesLidas: 0,
+  outras: [],
+};
+const normalizar = (t) => String(t ?? "").normalize("NFD").replace(/\\p{Diacritic}/gu, "").toLowerCase();
+/* A resposta é CALCULADA NA CHAMADA (o banco respondeu naquele instante) e
+   só ENTREGUE depois das travas: é assim que uma resposta atrasada traz o
+   estado de antes de uma escrita. Com \`trancar\`, cada pedido ganha a SUA
+   trava, em \`trancadas\`, e o caso solta uma por uma, na ordem que quiser. */
+export async function listarVagasDoPainel(pedido) {
+  const copia = JSON.parse(JSON.stringify(pedido ?? null));
+  controle.pedidos.push(copia);
+  controle.instantes.push(Date.now());
+  const lancar = controle.lancar;
+  let resposta;
+  if (controle.falharVagas) {
+    resposta = { ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o banco para listar as vagas. Confira a conexão." } };
+  } else {
+    const termo = normalizar(pedido?.termo).trim();
+    const departamentos = controle.classificacoes?.departamentos ?? [];
+    let dados = controle.vagas.filter((v) => {
+      if (termo === "") return true;
+      const dep = departamentos.find((d) => d.id === v.departamento_id)?.nome ?? "";
+      const texto = normalizar(v.titulo + " " + dep + " " + (v.localizacao ?? ""));
+      return termo.split(/\\s+/).every((palavra) => texto.includes(palavra));
+    });
+    if (pedido?.estado) dados = dados.filter((v) => v.estado === pedido.estado);
+    resposta = { ok: true, dados: JSON.parse(JSON.stringify(dados)) };
+  }
+  if (controle.trancar) {
+    await new Promise((soltar) => controle.trancadas.push({ pedido: copia, soltar }));
+  }
+  if (controle.segurar) await controle.segurar;
+  if (lancar) throw new Error("dublê: a leitura lançou");
+  return resposta;
+}
+export async function listarClassificacoesDoPainel() {
+  controle.classificacoesLidas += 1;
+  if (controle.segurar) await controle.segurar;
+  if (controle.lancar) throw new Error("dublê: a leitura lançou");
+  if (controle.falharClassificacoes) {
+    return { ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos ler as classificações. Confira a conexão." } };
+  }
+  return { ok: true, dados: JSON.parse(JSON.stringify(controle.classificacoes)) };
+}
+export async function lerVagaDoPainelPorId(id) {
+  controle.outras.push(["lerVagaDoPainelPorId", id]);
+  return { ok: false, erro: { tipo: "nao_encontrado", mensagem: "Esta vaga não foi encontrada." } };
+}
+export async function listarVagasAbertas() { controle.outras.push(["listarVagasAbertas"]); return { ok: true, dados: [] }; }
+export async function lerSituacaoDaVaga() { controle.outras.push(["lerSituacaoDaVaga"]); return { ok: true, dados: null }; }
+export async function listarClassificacoes() { controle.outras.push(["listarClassificacoes"]); return { ok: true, dados: {} }; }
+`,
+  );
+  /* O dublê de escrita tem FILA para as duas escritas da lista (mudar o Estado
+     e excluir), e registra toda chamada, inclusive as que a lista nunca deveria
+     fazer. */
+  const arquivoDaEscrita = path.join(pasta, "duble-escrita.js");
+  writeFileSync(
+    arquivoDaEscrita,
+    `export { ERRO_REDE, ERRO_INESPERADO, ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const ERRO_CONFLITO = "conflito";
+export const controle = { todas: [], respostas: { mudarEstadoDaVaga: [], excluirVaga: [] } };
+function responder(fila, argumentos) {
+  const resposta = fila.shift();
+  if (typeof resposta === "function") return resposta(...argumentos);
+  return resposta ?? { ok: false, erro: { tipo: "dados_invalidos", mensagem: "O dublê não tinha resposta preparada para este pedido." } };
+}
+export async function mudarEstadoDaVaga(id, acao) {
+  controle.todas.push({ op: "mudarEstadoDaVaga", id, acao });
+  return responder(controle.respostas.mudarEstadoDaVaga, [id, acao]);
+}
+export async function excluirVaga(id) {
+  controle.todas.push({ op: "excluirVaga", id });
+  return responder(controle.respostas.excluirVaga, [id]);
+}
+export async function salvarVaga() { controle.todas.push({ op: "salvarVaga" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+export async function salvarClassificacao() { controle.todas.push({ op: "salvarClassificacao" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+export async function excluirClassificacao() { controle.todas.push({ op: "excluirClassificacao" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+`,
+  );
+  const arquivoDasNotificacoes = path.join(pasta, "duble-notificacoes.js");
+  writeFileSync(
+    arquivoDasNotificacoes,
+    `import { diagnosticarMensagem, diagnosticarRotuloDeAcao } from ${montagem.caminhoDeModulo("src/admin/shell/voz.js")};
+export const controle = { erros: [], sucessos: [], problemasDeVoz: [] };
+function conferir(rotulo, texto) {
+  const problema = diagnosticarMensagem(rotulo, texto);
+  if (problema) controle.problemasDeVoz.push(problema);
+}
+export function notificarErro(oQueHouve, oQueFazer, saida = null) {
+  conferir("o que houve", oQueHouve);
+  conferir("o que fazer", oQueFazer);
+  if (saida) {
+    const problema = diagnosticarRotuloDeAcao(saida.rotulo);
+    if (problema) controle.problemasDeVoz.push(problema);
+    if (typeof saida.aoAcionar !== "function") controle.problemasDeVoz.push("saída sem aoAcionar: " + saida.rotulo);
+  }
+  controle.erros.push([oQueHouve, oQueFazer, saida]);
+}
+export function notificarSucesso(oQueAconteceu, detalhe) {
+  conferir("o que aconteceu", oQueAconteceu);
+  controle.sucessos.push([oQueAconteceu, detalhe ?? ""]);
+}
+export default function Notificacoes() { return null; }
+`,
+  );
+  /* Os dublês do Blog, só para a página montar: a leitura de Posts registra o
+     pedido (é por ele que "a busca do Blog não muda" é observada). */
+  const arquivoDosPosts = path.join(pasta, "duble-posts.js");
+  writeFileSync(
+    arquivoDosPosts,
+    `export const controle = { pedidos: [] };
+export async function listarPostsDoPainel(pedido) {
+  controle.pedidos.push(JSON.parse(JSON.stringify(pedido ?? null)));
+  return { ok: true, dados: [] };
+}
+export function ordenarListagem(posts) { return posts; }
+`,
+  );
+  const arquivoDaEscritaDoBlog = path.join(pasta, "duble-escrita-blog.js");
+  writeFileSync(
+    arquivoDaEscritaDoBlog,
+    `export async function definirDestaque() { return { ok: true, dados: {} }; }
+export async function excluirPost() { return { ok: true, dados: {} }; }
+`,
+  );
+  /* A SESSÃO de mentira: o provedor real cria o cliente do supabase-js (o
+     `.env` entra no pacote pelo empacotador), e o relógio de renovação dele
+     segura o processo vivo depois do veredito. O dublê entrega o MESMO
+     contexto (`ContextoDeSessao`, do módulo real) com uma Conta autenticada. */
+  const arquivoDaSessao = path.join(pasta, "duble-sessao.js");
+  writeFileSync(
+    arquivoDaSessao,
+    `import { createElement } from "react";
+import { ContextoDeSessao } from ${montagem.caminhoDeModulo("src/admin/shell/useSessao.js")};
+const VALOR = {
+  estado: "autenticado",
+  email: "autora@exemplo.com",
+  perfil: { carregando: false, nome: "Autora de Teste", erro: null },
+  erroDeAmbiente: null,
+  erroDeSessao: null,
+  entrar: async () => ({ ok: true }),
+  sair: async () => {},
+};
+export default function SessaoDeMentira({ children }) {
+  return createElement(ContextoDeSessao.Provider, { value: VALOR }, children);
+}
+`,
+  );
+  const arquivoDoEditorDePost = path.join(pasta, "duble-editor.jsx");
+  writeFileSync(arquivoDoEditorDePost, "export default function EditorDePostDuble() { return null; }\n");
+
+  const fonte =
+    `export { default as AbaDeCarreiras } from ${montagem.caminhoDeModulo("src/admin/carreiras/AbaDeCarreiras.jsx")};\n` +
+    `export { default as AdminBlog } from ${montagem.caminhoDeModulo("src/pages/AdminBlog.jsx")};\n` +
+    `export { default as SessaoProvider } from ${montagem.comoModulo(arquivoDaSessao)};\n` +
+    `export { ESPERA_DA_BUSCA_MS } from ${montagem.caminhoDeModulo("src/admin/carreiras/listagem.js")};\n` +
+    `export * as dubleDaEscrita from ${montagem.comoModulo(arquivoDaEscrita)};\n` +
+    `export { controle as controleDaLeitura } from ${montagem.comoModulo(arquivoDaLeitura)};\n` +
+    `export { controle as controleDaEscrita } from ${montagem.comoModulo(arquivoDaEscrita)};\n` +
+    `export { controle as controleDasNotificacoes } from ${montagem.comoModulo(arquivoDasNotificacoes)};\n` +
+    `export { controle as controleDosPosts } from ${montagem.comoModulo(arquivoDosPosts)};\n`;
+
+  let compilado = null;
+  try {
+    compilado = await montagem.compilarParaNode({
+      pasta,
+      fonte,
+      alias: {
+        "@/data/carreiras/leitura": arquivoDaLeitura,
+        "@/data/carreiras/escrita": arquivoDaEscrita,
+        "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
+        "@/data/blog/posts": arquivoDosPosts,
+        "@/data/blog/escrita": arquivoDaEscritaDoBlog,
+        "@/admin/blog/EditorDePost": arquivoDoEditorDePost,
+      },
+    });
+  } catch (erro) {
+    afirmar("a aba Carreiras e a página compilam pelo empacotador da aplicação", false, erro?.message ?? String(erro));
+  }
+
+  if (compilado !== null) {
+    afirmar("a aba Carreiras e a página compilam pelo empacotador da aplicação", true);
+
+    const janela = montagem.montarNavegador({ url: "https://painel.local/admin" });
+    /* A seção (o) já subiu (e fechou) um navegador de mentira neste processo, e
+       `montarNavegador` não sobrescreve o que já existe em `globalThis`: o
+       relógio de quadro e as classes de elemento seriam os da janela FECHADA
+       (e o quadro nunca chegaria). Estes nomes são religados à janela nova. */
+    for (const nome of [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "getComputedStyle",
+      "HTMLElement",
+      "HTMLInputElement",
+      "HTMLButtonElement",
+      "HTMLAnchorElement",
+      "Element",
+      "Node",
+      "DocumentFragment",
+    ]) {
+      const valor = typeof janela[nome] === "function" && /^[a-z]/.test(nome) ? janela[nome].bind(janela) : janela[nome];
+      if (valor !== undefined) {
+        Object.defineProperty(globalThis, nome, { value: valor, configurable: true, writable: true });
+      }
+    }
+    const modulo = await import(pathToFileURL(compilado.arquivo).href);
+    const React = (await import("react")).default;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const roteador = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true, writable: true });
+    const h = React.createElement;
+    const leitura = modulo.controleDaLeitura;
+    const escrita = modulo.controleDaEscrita;
+    const avisos = modulo.controleDasNotificacoes;
+    const posts = modulo.controleDosPosts;
+    const ESPERA = modulo.ESPERA_DA_BUSCA_MS;
+
+    afirmar(
+      "os literais de tipo de erro do dublê de escrita são os do módulo REAL",
+      clienteDaEscritaDeCarreiras !== null &&
+        modulo.dubleDaEscrita.ERRO_REDE === clienteDaEscritaDeCarreiras.ERRO_REDE &&
+        modulo.dubleDaEscrita.ERRO_INESPERADO === clienteDaEscritaDeCarreiras.ERRO_INESPERADO &&
+        typeof clienteDaEscritaDeCarreiras.ERRO_NAO_ENCONTRADO === "string" &&
+        modulo.dubleDaEscrita.ERRO_NAO_ENCONTRADO === clienteDaEscritaDeCarreiras.ERRO_NAO_ENCONTRADO,
+    );
+
+    leitura.classificacoes = {
+      departamentos: [
+        { id: DEP_OPERACOES, nome: "Operações", cor: "var(--categoria-verde-bg)", ordem: 0, vagas: 2 },
+        { id: DEP_TECNOLOGIA, nome: "Tecnologia", cor: "var(--categoria-azul-bg)", ordem: 1, vagas: 1 },
+      ],
+      tipos_de_vaga: [{ id: TIPO_CLT, nome: "CLT", equivalente_jobposting: "FULL_TIME", ordem: 0, vagas: 3 }],
+      niveis: [
+        { id: NIVEL_PLENO, nome: "Pleno", cor: "var(--categoria-azul-bg)", ordem: 0, vagas: 2 },
+        { id: NIVEL_SENIOR, nome: "Sênior", cor: "var(--categoria-roxo-bg)", ordem: 1, vagas: 1 },
+      ],
+    };
+    const vaga = (id, extra) => ({
+      id,
+      titulo: "Vaga",
+      slug: "vaga",
+      estado: "rascunho",
+      departamento_id: DEP_OPERACOES,
+      tipo_id: TIPO_CLT,
+      nivel_id: NIVEL_PLENO,
+      modalidade: "remoto",
+      localizacao: "",
+      resumo: "Resumo.",
+      link_de_candidatura: null,
+      aberta_em: null,
+      criado_em: "2026-09-01T00:00:00Z",
+      atualizado_em: "2026-09-01T00:00:00Z",
+      ...extra,
+    });
+    const R = vaga(ID_R, { titulo: "Analista de Operações", slug: "analista-de-operacoes" });
+    const A = vaga(ID_A, {
+      titulo: "Desenvolvedora Front-end",
+      slug: "desenvolvedora-front-end",
+      estado: "aberta",
+      departamento_id: DEP_TECNOLOGIA,
+      nivel_id: NIVEL_SENIOR,
+      modalidade: "hibrido",
+      localizacao: "Natal, RN",
+      aberta_em: "2026-09-10T12:00:00Z",
+      link_de_candidatura: "https://exemplo.com/a",
+    });
+    const E = vaga(ID_E, {
+      titulo: "Suporte Noturno",
+      slug: "suporte-noturno",
+      estado: "encerrada",
+      modalidade: "presencial",
+      localizacao: "São Paulo, SP",
+      aberta_em: "2026-08-01T12:00:00Z",
+      link_de_candidatura: "https://exemplo.com/e",
+    });
+    const TRES = [R, A, E];
+    leitura.vagas = TRES;
+
+    const passo = async () => {
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 0));
+      });
+    };
+    const esperarAte = async (condicao, descricao, prazo = 4000) => {
+      const limite = Date.now() + prazo;
+      for (;;) {
+        await passo();
+        let pronto = false;
+        try {
+          pronto = Boolean(condicao());
+        } catch {
+          pronto = false;
+        }
+        if (pronto) return true;
+        if (Date.now() > limite) {
+          afirmar(`espera com prazo: ${descricao} (${prazo} ms)`, false);
+          return false;
+        }
+      }
+    };
+    const segurar = () => {
+      let soltar = null;
+      leitura.segurar = new Promise((resolver) => {
+        soltar = resolver;
+      });
+      return () => {
+        leitura.segurar = null;
+        soltar();
+      };
+    };
+    const segurada = (resposta) => {
+      const controle = { soltar: null };
+      const promessa = new Promise((resolver) => {
+        controle.soltar = () => resolver(typeof resposta === "function" ? resposta() : resposta);
+      });
+      return { controle, responder: () => promessa };
+    };
+
+    const reclamacoes = [];
+    const erroOriginal = console.error;
+    console.error = (...partes) => reclamacoes.push(partes.map(String).join(" "));
+
+    function Onde() {
+      const local = roteador.useLocation();
+      return h("span", { "data-onde": `${local.pathname}${local.search}` });
+    }
+    /* O `navigate` do roteador da montagem, para o caso navegar com a página
+       MONTADA (como o voltar do navegador faria), sem remontar nada. */
+    let navegarNaMontagem = null;
+    function Navegador() {
+      navegarNaMontagem = roteador.useNavigate();
+      return null;
+    }
+    function Formulario() {
+      return h("p", { "data-papel": "formulario-de-mentira" }, "formulário");
+    }
+
+    /**
+     * Monta a aba sozinha (`"aba"`) ou a página inteira (`"pagina"`), num
+     * `MemoryRouter` com as rotas do formulário de mentira. `toleradas` são as
+     * reclamações que o CASO espera (com o motivo escrito ao lado), e cada uma
+     * precisa aparecer.
+     */
+    const montar = async (caminho, { caso, alvoDaMontagem = "aba", toleradas = [], ateQue = null } = {}) => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+      const raizReact = createRoot(alvo);
+      const inicioDasReclamacoes = reclamacoes.length;
+      const inicioDasEscritas = escrita.todas.length;
+      const contagens = [];
+      function ComContador() {
+        return h(modulo.AbaDeCarreiras, { aoContar: (n) => contagens.push(n) });
+      }
+      const elemento =
+        alvoDaMontagem === "pagina" ? h(modulo.SessaoProvider, null, h(modulo.AdminBlog)) : h(ComContador);
+      await act(async () => {
+        raizReact.render(
+          h(
+            roteador.MemoryRouter,
+            { initialEntries: [caminho] },
+            h(Onde),
+            h(Navegador),
+            h(
+              roteador.Routes,
+              null,
+              h(roteador.Route, { path: "/admin", element: elemento }),
+              h(roteador.Route, { path: "/admin/carreiras/vaga/:id", element: h(Formulario) }),
+            ),
+          ),
+        );
+      });
+      const tela = {
+        caso,
+        alvo,
+        contagens,
+        onde: () => alvo.querySelector("[data-onde]")?.getAttribute("data-onde") ?? null,
+        async navegar(destino) {
+          await act(async () => {
+            navegarNaMontagem?.(destino);
+          });
+          await passo();
+        },
+        situacao: () => alvo.querySelector("[data-estado-da-lista]")?.getAttribute("data-estado-da-lista") ?? null,
+        linhas: () => [...alvo.querySelectorAll("li[data-vaga]")].map((li) => li.getAttribute("data-vaga")),
+        linha: (id) => alvo.querySelector(`li[data-vaga="${id}"]`),
+        acoesDe: (id) =>
+          [...(alvo.querySelector(`li[data-vaga="${id}"]`)?.querySelectorAll("[data-acao]") ?? [])].map((a) =>
+            a.getAttribute("data-acao"),
+          ),
+        acao: (id, chave) => alvo.querySelector(`li[data-vaga="${id}"] [data-acao="${chave}"]`),
+        pilula: (id) => alvo.querySelector(`li[data-vaga="${id}"] [data-estado]`)?.getAttribute("data-estado") ?? null,
+        busca: () => alvo.querySelector('input[data-busca="vagas"]'),
+        filtro: (estado) => alvo.querySelector(`[data-filtro-de-estado-da-vaga="${estado}"]`),
+        dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+        emCurso: () => alvo.querySelector('[data-papel="acao-em-curso"]')?.textContent ?? "",
+        ocioso: () => alvo.querySelector('[aria-busy="true"]') === null,
+        async clicar(elemento, nome, ateQueClique = null) {
+          if (!elemento) {
+            afirmar(`${caso}: o elemento "${nome}" existe na tela para ser clicado`, false);
+            return false;
+          }
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+          });
+          return esperarAte(ateQueClique ?? tela.ocioso, `${caso}: a tela assenta depois de clicar em ${nome}`);
+        },
+        async digitar(texto) {
+          const campo = tela.busca();
+          if (!campo) {
+            afirmar(`${caso}: o campo de busca de vagas existe`, false);
+            return;
+          }
+          const setter = Object.getOwnPropertyDescriptor(janela.HTMLInputElement.prototype, "value").set;
+          await act(async () => {
+            setter.call(campo, texto);
+            campo.dispatchEvent(new janela.Event("input", { bubbles: true }));
+          });
+        },
+        async acionarSaida(ateQueSaida) {
+          const saida = avisos.erros.at(-1)?.[2] ?? null;
+          if (!saida || typeof saida.aoAcionar !== "function") {
+            afirmar(`${caso}: a última notificação de erro tem a ação de resolver`, false);
+            return false;
+          }
+          await act(async () => {
+            saida.aoAcionar();
+          });
+          return esperarAte(ateQueSaida, `${caso}: a tela assenta depois de "${saida.rotulo}"`);
+        },
+        async desmontar({ escritasEsperadas = null } = {}) {
+          await act(async () => raizReact.unmount());
+          await passo();
+          alvo.remove();
+          const sobras = {
+            mudarEstadoDaVaga: escrita.respostas.mudarEstadoDaVaga.length,
+            excluirVaga: escrita.respostas.excluirVaga.length,
+          };
+          const feitas = escrita.todas.slice(inicioDasEscritas).map((c) => c.op);
+          const inesperadas = feitas.filter((op) => op !== "mudarEstadoDaVaga" && op !== "excluirVaga");
+          afirmar(
+            `${caso}: toda resposta preparada foi consumida, nenhuma escrita fora da lista aconteceu${escritasEsperadas === null ? "" : `, e as escritas foram ${escritasEsperadas}`}`,
+            sobras.mudarEstadoDaVaga === 0 &&
+              sobras.excluirVaga === 0 &&
+              inesperadas.length === 0 &&
+              (escritasEsperadas === null || feitas.length === escritasEsperadas),
+            `sobras: ${JSON.stringify(sobras)} | feitas: ${feitas.join(", ")}`,
+          );
+          escrita.respostas.mudarEstadoDaVaga.length = 0;
+          escrita.respostas.excluirVaga.length = 0;
+          const doCaso = reclamacoes.slice(inicioDasReclamacoes);
+          const naoToleradas = doCaso.filter((r) => !toleradas.some((t) => t.padrao.test(r)));
+          const ausentes = toleradas.filter((t) => !doCaso.some((r) => t.padrao.test(r)));
+          afirmar(
+            `${caso}: o React não reclamou de nada fora do esperado, e o que era esperado apareceu`,
+            naoToleradas.length === 0 && ausentes.length === 0,
+            `${naoToleradas.slice(0, 2).map((r) => r.slice(0, 300)).join(" | ")} | ausentes: ${ausentes.map((t) => t.motivo).join(", ")}`,
+          );
+        },
+      };
+      await esperarAte(
+        ateQue ?? (() => tela.situacao() !== null && tela.situacao() !== "carregando"),
+        `${caso}: a tela monta e assenta em ${caminho}`,
+      );
+      return tela;
+    };
+    const estiloDe = (el) => el?.getAttribute("style") ?? "";
+
+    try {
+      /* ══ Abrir a aba: esqueleto, depois a lista do banco, e a contagem ══ */
+      const soltarCarga = segurar();
+      const pedidosAntes = leitura.pedidos.length;
+      const aba = await montar("/admin?aba=carreiras", {
+        caso: "Abrir a aba",
+        ateQue: () => janela.document.querySelector('[data-estado-da-lista="carregando"]') !== null,
+      });
+      afirmar(
+        "Abrir a aba: enquanto as leituras não voltam, esqueleto (com o anúncio) e nenhuma linha, e nenhuma contagem anunciada",
+        aba.situacao() === "carregando" &&
+          aba.linhas().length === 0 &&
+          aba.alvo.querySelector('[data-estado-da-lista="carregando"] [role="status"]') !== null &&
+          aba.contagens.length === 0,
+      );
+      soltarCarga();
+      await esperarAte(() => aba.situacao() === "lista", "Abrir a aba: a lista aparece");
+      afirmar(
+        "e depois a lista do banco, na ordem que a camada devolve (atualizada primeiro), com `listarVagasDoPainel({termo: \"\", estado: null})` e as Classificações lidas",
+        igual(aba.linhas(), [ID_R, ID_A, ID_E]) &&
+          igual(leitura.pedidos[pedidosAntes], { termo: "", estado: null }) &&
+          leitura.classificacoesLidas > 0,
+        `linhas: ${aba.linhas().join(", ")} | pedido: ${JSON.stringify(leitura.pedidos[pedidosAntes])}`,
+      );
+      afirmar(
+        "a contagem crua sobe para a página por `aoContar` (3)",
+        aba.contagens.at(-1) === 3,
+        JSON.stringify(aba.contagens),
+      );
+      const linhaR = aba.linha(ID_R);
+      const linhaA = aba.linha(ID_A);
+      const depR = linhaR?.querySelector('[data-papel="departamento"]');
+      const nivR = linhaR?.querySelector('[data-papel="nivel"]');
+      const nivA = linhaA?.querySelector('[data-papel="nivel"]');
+      afirmar(
+        "cada linha mostra o título, a pílula comum do Estado, Departamento e Nível com a Cor por `style`, o Tipo e Modalidade/Localização",
+        (linhaR?.querySelector('[data-papel="titulo"]')?.textContent ?? "") === "Analista de Operações" &&
+          aba.pilula(ID_R) === "rascunho" &&
+          aba.pilula(ID_A) === "aberta" &&
+          aba.pilula(ID_E) === "encerrada" &&
+          (linhaR?.querySelector("[data-estado]")?.textContent ?? "").includes(estadosDaVaga.rotuloDoEstadoDaVaga("rascunho")) &&
+          depR?.textContent === "Operações" &&
+          estiloDe(depR).includes("var(--categoria-verde-bg)") &&
+          estiloDe(depR).includes("var(--categoria-verde-ink)") &&
+          nivR?.textContent === "Pleno" &&
+          estiloDe(nivR).includes("var(--categoria-azul-bg)") &&
+          nivA?.textContent === "Sênior" &&
+          estiloDe(nivA).includes("var(--categoria-roxo-bg)") &&
+          linhaR?.querySelector('[data-papel="tipo"]')?.textContent === "CLT" &&
+          linhaR?.querySelector('[data-papel="local"]')?.textContent === "Remoto" &&
+          linhaA?.querySelector('[data-papel="local"]')?.textContent === "Híbrido · Natal, RN" &&
+          !/\bclass/.test(estiloDe(depR)),
+        `${depR?.outerHTML?.slice(0, 200)} | ${nivA?.outerHTML?.slice(0, 200)}`,
+      );
+      afirmar(
+        "as ações por linha: Rascunho (Editar, Abrir vaga, Excluir vaga), Aberta (Editar, Encerrar vaga, Ver no site), Encerrada (Editar, Reabrir vaga, Ver no site, Excluir vaga)",
+        igual(aba.acoesDe(ID_R), ["editar", "abrir", "excluir"]) &&
+          igual(aba.acoesDe(ID_A), ["editar", "encerrar", "ver"]) &&
+          igual(aba.acoesDe(ID_E), ["editar", "reabrir", "ver", "excluir"]) &&
+          (aba.acao(ID_R, "abrir")?.textContent ?? "").includes("Abrir vaga") &&
+          (aba.acao(ID_E, "reabrir")?.textContent ?? "").includes("Reabrir vaga") &&
+          (aba.acao(ID_A, "encerrar")?.textContent ?? "").includes("Encerrar vaga") &&
+          (aba.acao(ID_E, "excluir")?.textContent ?? "").includes("Excluir vaga"),
+        `${aba.acoesDe(ID_R)} | ${aba.acoesDe(ID_A)} | ${aba.acoesDe(ID_E)}`,
+      );
+      const verA = aba.acao(ID_A, "ver");
+      const editarR = aba.acao(ID_R, "editar");
+      afirmar(
+        "Editar é link para o formulário da Vaga, e Ver no site abre `/carreiras/<slug>` em nova aba com `rel=\"noopener noreferrer\"`",
+        editarR?.tagName === "A" &&
+          editarR.getAttribute("href") === `/admin/carreiras/vaga/${ID_R}` &&
+          verA?.tagName === "A" &&
+          verA.getAttribute("href") === "/carreiras/desenvolvedora-front-end" &&
+          verA.getAttribute("target") === "_blank" &&
+          (verA.getAttribute("rel") ?? "").split(/\s+/).includes("noopener") &&
+          (verA.getAttribute("rel") ?? "").split(/\s+/).includes("noreferrer") &&
+          aba.acao(ID_E, "ver")?.getAttribute("href") === "/carreiras/suporte-noturno",
+      );
+      const todasAsAcoes = [...aba.alvo.querySelectorAll("li[data-vaga] [data-acao]")];
+      const escondidas = todasAsAcoes.filter((el) => {
+        const classes = [...el.classList];
+        return (
+          classes.some((c) => /(^|:)opacity-0$|(^|:)invisible$|(^|:)hidden$|^group-hover:/.test(c)) ||
+          el.getAttribute("aria-hidden") === "true" ||
+          el.hidden === true ||
+          el.tabIndex < 0 ||
+          (el.tagName === "BUTTON" && el.disabled) ||
+          (el.tagName === "A" && !el.hasAttribute("href")) ||
+          !["A", "BUTTON"].includes(el.tagName) ||
+          !(el.getAttribute("aria-label") ?? "").includes(":")
+        );
+      });
+      afirmar(
+        "todas as ações ficam visíveis sem hover, alcançáveis por teclado (link com endereço ou botão habilitado) e com nome acessível que nomeia a Vaga",
+        todasAsAcoes.length === 10 && escondidas.length === 0,
+        escondidas.map((el) => `${el.getAttribute("data-acao")}: ${el.className}`).join(" | ") || `${todasAsAcoes.length} ação(ões)`,
+      );
+      const novaNaFaixa = aba.alvo.querySelector('[data-acao="nova-vaga"]');
+      afirmar(
+        "a faixa da aba: busca com rótulo, filtro de UM Estado (um botão por Estado, `aria-pressed`, rótulo do vocabulário) e Nova Vaga",
+        aba.busca() !== null &&
+          (aba.busca().getAttribute("aria-label") ?? "").length > 10 &&
+          estadosDaVaga.ESTADOS_DA_VAGA.every(
+            (estado) =>
+              aba.filtro(estado)?.getAttribute("aria-pressed") === "false" &&
+              aba.filtro(estado)?.textContent === estadosDaVaga.rotuloDoEstadoDaVaga(estado),
+          ) &&
+          aba.alvo.querySelector('[role="group"]')?.getAttribute("aria-label") !== null &&
+          novaNaFaixa?.getAttribute("href") === "/admin/carreiras/vaga/nova",
+      );
+      {
+        /* A hierarquia de títulos (revisão da 5.5): um `<h2>` da aba ANTES de
+           todo `<h3>` (as linhas, o vazio e o erro), para quem navega por
+           cabeçalhos não pular do `<h1>` da barra direto para o `<h3>`. */
+        const titulos = [...aba.alvo.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+        const primeiroH3 = titulos.findIndex((t) => t.tagName === "H3");
+        const h2s = titulos.filter((t) => t.tagName === "H2");
+        afirmar(
+          "a aba tem UM `<h2>` (o título da aba) acima dos `<h3>` das linhas, e nenhum `<h3>` vem antes dele",
+          h2s.length === 1 &&
+            (h2s[0].textContent ?? "").trim() !== "" &&
+            primeiroH3 > titulos.indexOf(h2s[0]) &&
+            titulos.filter((t) => t.tagName === "H3").length === 3,
+          titulos.map((t) => `${t.tagName}:${(t.textContent ?? "").slice(0, 20)}`).join(" | "),
+        );
+      }
+
+      /* ══ Busca e filtro ══ */
+      const contagensAntes = aba.contagens.length;
+      const pedidosAntesDaBusca = leitura.pedidos.length;
+      await aba.digitar("ope");
+      await passo();
+      /* O instante ANTES da última tecla: o relógio da espera só começa depois
+         dela, então o pedido não pode sair antes de `digitouEm + ESPERA`. O
+         instante do pedido é o que o DUBLÊ registrou ao ser chamado (e não o
+         de quando esta espera notou), sem folga de sondagem a favor. */
+      const digitouEm = Date.now();
+      await aba.digitar("operacoes");
+      await passo();
+      afirmar(
+        "Busca: a digitação não vira consulta na hora (a espera de 250 ms ainda corre)",
+        leitura.pedidos.length === pedidosAntesDaBusca,
+        `${leitura.pedidos.length - pedidosAntesDaBusca} pedido(s) cedo demais`,
+      );
+      const soltarBusca = segurar();
+      await esperarAte(() => leitura.pedidos.length > pedidosAntesDaBusca, "Busca: a consulta sai depois da espera");
+      /* TROCA REGISTRADA (revisão da 5.5): era `esperou >= ESPERA * 0.5`,
+         medido do fim da digitação até a SONDAGEM notar o pedido (a folga da
+         sondagem jogava a favor, e metade da espera passava). Agora é do
+         instante antes da última tecla até o instante em que o dublê foi
+         CHAMADO, contra 90% da espera real. */
+      const esperou = (leitura.instantes[pedidosAntesDaBusca] ?? 0) - digitouEm;
+      afirmar(
+        "depois da espera, UMA consulta com o termo final (`listarVagasDoPainel({termo: \"operacoes\", estado: null})`), e sem esqueleto: as linhas de antes ficam na tela até a resposta",
+        leitura.pedidos.length === pedidosAntesDaBusca + 1 &&
+          igual(leitura.pedidos.at(-1), { termo: "operacoes", estado: null }) &&
+          aba.situacao() === "lista" &&
+          aba.linhas().length === 3,
+        `${JSON.stringify(leitura.pedidos.slice(pedidosAntesDaBusca))} | ${aba.situacao()}`,
+      );
+      afirmar(
+        "e a consulta só sai depois de a digitação parar pela espera INTEIRA (pelo menos 90% de `ESPERA_DA_BUSCA_MS`, do instante da última tecla ao da chamada)",
+        ESPERA === 250 && esperou >= ESPERA * 0.9,
+        `${esperou} ms`,
+      );
+      soltarBusca();
+      await esperarAte(() => aba.linhas().length === 2, "Busca: a lista traz só as de Operações");
+      afirmar("e a lista traz as Vagas que a camada devolveu", igual(aba.linhas(), [ID_R, ID_E]), aba.linhas().join(", "));
+      const soltarFiltro = segurar();
+      await aba.clicar(aba.filtro("rascunho"), "filtro Rascunho", () => leitura.pedidos.length === pedidosAntesDaBusca + 2);
+      afirmar(
+        "Filtro: escolher um Estado consulta `{termo: \"operacoes\", estado: \"rascunho\"}` sem esqueleto, e o botão fica `aria-pressed`",
+        igual(leitura.pedidos.at(-1), { termo: "operacoes", estado: "rascunho" }) &&
+          aba.situacao() === "lista" &&
+          aba.filtro("rascunho")?.getAttribute("aria-pressed") === "true" &&
+          aba.filtro("aberta")?.getAttribute("aria-pressed") === "false",
+        `${JSON.stringify(leitura.pedidos.at(-1))} | ${aba.situacao()}`,
+      );
+      soltarFiltro();
+      await esperarAte(() => aba.linhas().length === 1, "Filtro: só o Rascunho de Operações");
+      await aba.clicar(aba.filtro("aberta"), "filtro Aberta", () => igual(leitura.pedidos.at(-1), { termo: "operacoes", estado: "aberta" }));
+      afirmar(
+        "o filtro é de UM Estado: escolher outro troca (não soma), e só ele fica marcado",
+        aba.filtro("aberta")?.getAttribute("aria-pressed") === "true" &&
+          aba.filtro("rascunho")?.getAttribute("aria-pressed") === "false",
+      );
+      await esperarAte(() => aba.situacao() === "vazio-de-busca", "Filtro: nenhuma Aberta de Operações");
+      afirmar(
+        "a busca não mexe na contagem da aba (ela conta quantas Vagas EXISTEM)",
+        aba.contagens.length === contagensAntes,
+        JSON.stringify(aba.contagens.slice(contagensAntes)),
+      );
+
+      /* ══ Vazio de busca ══ */
+      const vazioDeBusca = aba.alvo.querySelector('[data-estado-da-lista="vazio-de-busca"]');
+      afirmar(
+        "Vazio de busca: tela própria, dizendo o que foi procurado, com \"limpar busca\" e SEM o convite de criar",
+        vazioDeBusca !== null &&
+          (vazioDeBusca.textContent ?? "").includes("operacoes") &&
+          vazioDeBusca.querySelector('[data-papel="limpar-busca"]') !== null &&
+          vazioDeBusca.querySelector('[data-papel="nova-vaga"]') === null &&
+          aba.alvo.querySelector('[data-estado-da-lista="vazio"]') === null,
+      );
+      const pedidosAntesDeLimpar = leitura.pedidos.length;
+      await aba.clicar(vazioDeBusca?.querySelector('[data-papel="limpar-busca"]'), "Limpar busca", () => aba.situacao() === "lista" && aba.linhas().length === 3);
+      afirmar(
+        "\"limpar busca\" zera o campo e o filtro, a lista volta inteira, e a contagem é anunciada de novo",
+        aba.busca()?.value === "" &&
+          estadosDaVaga.ESTADOS_DA_VAGA.every((estado) => aba.filtro(estado)?.getAttribute("aria-pressed") === "false") &&
+          igual(leitura.pedidos.at(-1), { termo: "", estado: null }) &&
+          aba.contagens.at(-1) === 3,
+        `${aba.busca()?.value} | ${JSON.stringify(leitura.pedidos.at(-1))} | ${JSON.stringify(aba.contagens)}`,
+      );
+      /* Revisão da 5.5: CONTAR os pedidos, não só olhar o último. Zerar só o
+         termo digitado aplicaria primeiro o filtro limpo com o termo velho
+         (`{termo:"operacoes", estado:null}`), e o termo vazio só depois da
+         espera. Espera-se uma espera e meia a mais para um pedido atrasado ter
+         tempo de aparecer. */
+      await new Promise((resolver) => setTimeout(resolver, ESPERA * 1.5));
+      await passo();
+      afirmar(
+        "e \"limpar busca\" faz UMA consulta só, já sem termo e sem filtro: nenhuma consulta intermediária com o termo velho, e nenhuma atrasada depois",
+        igual(leitura.pedidos.slice(pedidosAntesDeLimpar), [{ termo: "", estado: null }]),
+        JSON.stringify(leitura.pedidos.slice(pedidosAntesDeLimpar)),
+      );
+      await aba.desmontar({ escritasEsperadas: 0 });
+
+      /* ══ Vazio inicial ══ */
+      leitura.vagas = [];
+      const vazio = await montar("/admin?aba=carreiras", { caso: "Vazio inicial" });
+      const blocoVazio = vazio.alvo.querySelector('[data-estado-da-lista="vazio"]');
+      const novaDoVazio = blocoVazio?.querySelector('[data-papel="nova-vaga"]');
+      afirmar(
+        "Vazio inicial: tela própria com Nova Vaga (link para `/admin/carreiras/vaga/nova`), sem \"limpar busca\", e contagem 0",
+        blocoVazio !== null &&
+          novaDoVazio?.getAttribute("href") === "/admin/carreiras/vaga/nova" &&
+          blocoVazio.querySelector('[data-papel="limpar-busca"]') === null &&
+          vazio.contagens.at(-1) === 0,
+        JSON.stringify(vazio.contagens),
+      );
+      await vazio.clicar(novaDoVazio, "Nova Vaga", () => vazio.onde() === "/admin/carreiras/vaga/nova");
+      afirmar("e Nova Vaga leva ao formulário novo", vazio.onde() === "/admin/carreiras/vaga/nova", vazio.onde());
+      await vazio.desmontar({ escritasEsperadas: 0 });
+      leitura.vagas = TRES;
+
+      /* ══ Erro: a leitura das Vagas, a das Classificações e a exceção ══ */
+      for (const [rotulo, ligar, desligar, trecho] of [
+        ["das Vagas", () => (leitura.falharVagas = true), () => (leitura.falharVagas = false), "listar as vagas"],
+        ["das Classificações", () => (leitura.falharClassificacoes = true), () => (leitura.falharClassificacoes = false), "classificações"],
+        ["que lança", () => (leitura.lancar = true), () => (leitura.lancar = false), "Confira a conexão"],
+      ]) {
+        ligar();
+        const falhou = await montar("/admin?aba=carreiras", {
+          caso: `Erro na leitura ${rotulo}`,
+          toleradas:
+            rotulo === "que lança"
+              ? [
+                  {
+                    padrao: /^\[Painel\] A leitura da lista de vagas lançou.*dublê: a leitura lançou/,
+                    motivo: "o `catch` da leitura REGISTRA a exceção no console (revisão da 5.5), além de virar erro tipado",
+                  },
+                ]
+              : [],
+        });
+        const bloco = falhou.alvo.querySelector('[data-estado-da-lista="erro"]');
+        afirmar(
+          `Erro na leitura ${rotulo}: tela de erro (com a frase da falha e "tentar de novo"), nunca o vazio, e a contagem é desanunciada`,
+          bloco !== null &&
+            bloco.getAttribute("role") === "alert" &&
+            (bloco.querySelector('[data-papel="motivo-do-erro"]')?.textContent ?? "").includes(trecho) &&
+            bloco.querySelector('[data-papel="tentar-de-novo"]') !== null &&
+            falhou.alvo.querySelector('[data-estado-da-lista="vazio"]') === null &&
+            falhou.linhas().length === 0 &&
+            falhou.contagens.at(-1) === null,
+          `${falhou.situacao()} | ${bloco?.textContent?.slice(0, 160)}`,
+        );
+        desligar();
+        await falhou.clicar(bloco?.querySelector('[data-papel="tentar-de-novo"]'), "Tentar de novo", () => falhou.situacao() === "lista");
+        afirmar(`e "tentar de novo" relê e mostra a lista (${rotulo})`, falhou.linhas().length === 3 && falhou.contagens.at(-1) === 3);
+        await falhou.desmontar({ escritasEsperadas: 0 });
+      }
+      leitura.vagas = [];
+      leitura.falharVagas = true;
+      const erroSemVagas = await montar("/admin?aba=carreiras", { caso: "Erro com a lista vazia" });
+      afirmar(
+        "e a falha continua sendo erro mesmo quando não haveria Vaga nenhuma para mostrar",
+        erroSemVagas.situacao() === "erro",
+        erroSemVagas.situacao(),
+      );
+      leitura.falharVagas = false;
+      await erroSemVagas.desmontar({ escritasEsperadas: 0 });
+      leitura.vagas = TRES;
+
+      /* ══ Abrir pela linha, a trava global, a recusa, a rede e a exceção ══ */
+      const acoes = await montar("/admin?aba=carreiras", {
+        caso: "Ações de Estado pela linha",
+        toleradas: [
+          {
+            padrao: /^\[Painel\] A mudança de Estado da vaga lançou.*dublê: a escrita lançou/,
+            motivo: "o `catch` da mudança de Estado REGISTRA a exceção no console (revisão da 5.5), além de virar erro tipado",
+          },
+        ],
+      });
+      const abrirSegurado = segurada(() => ({
+        ok: true,
+        dados: {
+          operacao: "mudarEstadoDaVaga",
+          vaga: { ...R, estado: "aberta", aberta_em: "2026-09-25T12:00:00Z", titulo: "Analista de Operações Pleno" },
+        },
+      }));
+      escrita.respostas.mudarEstadoDaVaga.push(abrirSegurado.responder);
+      const escritasAntes = escrita.todas.length;
+      const botaoAbrir = acoes.acao(ID_R, "abrir");
+      await act(async () => {
+        botaoAbrir.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+        botaoAbrir.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+      });
+      await esperarAte(() => acoes.acao(ID_R, "abrir")?.getAttribute("aria-busy") === "true", "Abrir pela linha: a ação entra em voo");
+      const escritoras = [...acoes.alvo.querySelectorAll('li[data-vaga] button[data-acao]')];
+      afirmar(
+        "Abrir pela linha: UM pedido mesmo com clique duplo, `mudarEstadoDaVaga(id, \"abrir\")`, e a trava é GLOBAL (toda ação que escreve, em toda linha, desabilita) com `aria-busy` e o anúncio",
+        escrita.todas.length === escritasAntes + 1 &&
+          igual(escrita.todas.at(-1), { op: "mudarEstadoDaVaga", id: ID_R, acao: "abrir" }) &&
+          escritoras.length === 5 &&
+          escritoras.every((b) => b.disabled) &&
+          acoes.acao(ID_R, "abrir")?.getAttribute("aria-busy") === "true" &&
+          acoes.acao(ID_R, "editar")?.tagName === "A" &&
+          acoes.emCurso().includes("Analista de Operações"),
+        `${escrita.todas.length - escritasAntes} pedido(s) | desabilitadas ${escritoras.filter((b) => b.disabled).length}/${escritoras.length} | ${acoes.emCurso()}`,
+      );
+      abrirSegurado.controle.soltar();
+      await esperarAte(() => acoes.pilula(ID_R) === "aberta" && acoes.ocioso(), "Abrir pela linha: a linha reflete a Vaga devolvida");
+      afirmar(
+        "e a linha passa a refletir a Vaga DEVOLVIDA (pílula Aberta, título do servidor, ações da Aberta), com a notificação de sucesso da tabela",
+        acoes.pilula(ID_R) === "aberta" &&
+          (acoes.linha(ID_R)?.querySelector('[data-papel="titulo"]')?.textContent ?? "") === "Analista de Operações Pleno" &&
+          igual(acoes.acoesDe(ID_R), ["editar", "encerrar", "ver"]) &&
+          acoes.acao(ID_R, "ver")?.getAttribute("href") === "/carreiras/analista-de-operacoes" &&
+          igual(avisos.sucessos.at(-1), ["Vaga aberta", "Analista de Operações Pleno"]) &&
+          [...acoes.alvo.querySelectorAll('li[data-vaga] button[data-acao]')].every((b) => !b.disabled),
+        JSON.stringify(avisos.sucessos.at(-1)),
+      );
+
+      const errosAntes = avisos.erros.length;
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: { tipo: "dados_invalidos", mensagem: "Falta o Link de Candidatura para reabrir esta vaga." },
+      });
+      await acoes.clicar(acoes.acao(ID_E, "reabrir"), "Reabrir vaga");
+      afirmar(
+        "Recusa: a notificação traz a frase do SERVIDOR, sem \"Tentar de novo\" (repetir daria a mesma recusa), e a linha fica intacta",
+        avisos.erros.length === errosAntes + 1 &&
+          avisos.erros.at(-1)[0] === "Não deu para mudar o estado da vaga" &&
+          avisos.erros.at(-1)[1] === "Falta o Link de Candidatura para reabrir esta vaga." &&
+          avisos.erros.at(-1)[2] === null &&
+          acoes.pilula(ID_E) === "encerrada" &&
+          igual(acoes.acoesDe(ID_E), ["editar", "reabrir", "ver", "excluir"]),
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor. Confira a conexão e tente de novo." },
+      });
+      await acoes.clicar(acoes.acao(ID_A, "encerrar"), "Encerrar vaga");
+      afirmar(
+        "Rede: a notificação (com o título da falha de Estado) oferece \"Tentar de novo\", e a linha fica como estava",
+        avisos.erros.at(-1)?.[0] === "Não deu para mudar o estado da vaga" &&
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+          acoes.pilula(ID_A) === "aberta",
+        JSON.stringify(avisos.erros.at(-1)?.[2]?.rotulo),
+      );
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: true,
+        dados: { operacao: "mudarEstadoDaVaga", vaga: { ...A, estado: "encerrada" } },
+      });
+      const antesDaRepeticao = escrita.todas.length;
+      await acoes.acionarSaida(() => acoes.pilula(ID_A) === "encerrada" && acoes.ocioso());
+      afirmar(
+        "e \"Tentar de novo\" repete a MESMA mudança, e a linha passa a Encerrada",
+        igual(escrita.todas.slice(antesDaRepeticao), [{ op: "mudarEstadoDaVaga", id: ID_A, acao: "encerrar" }]) &&
+          acoes.pilula(ID_A) === "encerrada" &&
+          igual(avisos.sucessos.at(-1), ["Vaga encerrada", "Desenvolvedora Front-end"]),
+      );
+      escrita.respostas.mudarEstadoDaVaga.push(() => {
+        throw new Error("dublê: a escrita lançou");
+      });
+      await acoes.clicar(acoes.acao(ID_A, "reabrir"), "Reabrir vaga (exceção)");
+      afirmar(
+        "Exceção na escrita: vira notificação com o título da falha, frase de reserva e \"Tentar de novo\", e a trava é solta (nada fica desabilitado)",
+        avisos.erros.at(-1)?.[0] === "Não deu para mudar o estado da vaga" &&
+          (avisos.erros.at(-1)?.[1] ?? "").length > 10 &&
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+          acoes.pilula(ID_A) === "encerrada" &&
+          [...acoes.alvo.querySelectorAll('li[data-vaga] button[data-acao]')].every((b) => !b.disabled),
+      );
+      await acoes.desmontar({ escritasEsperadas: 5 });
+
+      /* ══ Excluir ══ */
+      const exclusao = await montar("/admin?aba=carreiras", { caso: "Excluir" });
+      await exclusao.clicar(exclusao.acao(ID_R, "excluir"), "Excluir vaga", () => exclusao.dialogo() !== null);
+      const dialogo = exclusao.dialogo();
+      afirmar(
+        "Excluir: abre UM diálogo que nomeia a Vaga, com o botão \"Excluir vaga\", e nada é excluído antes de confirmar",
+        dialogo !== null &&
+          janela.document.querySelectorAll('[role="alertdialog"]').length === 1 &&
+          (dialogo.textContent ?? "").includes("Analista de Operações") &&
+          (dialogo.querySelector('[data-papel="confirmar"]')?.textContent ?? "") === "Excluir vaga" &&
+          !escrita.todas.some((c) => c.op === "excluirVaga"),
+        (dialogo?.textContent ?? "").slice(0, 200),
+      );
+      const cancelar = [...(dialogo?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "Cancelar");
+      await exclusao.clicar(cancelar, "Cancelar", () => exclusao.dialogo() === null);
+      afirmar(
+        "Cancelar fecha o diálogo sem excluir, e a linha fica",
+        exclusao.dialogo() === null && !escrita.todas.some((c) => c.op === "excluirVaga") && exclusao.linha(ID_R) !== null,
+      );
+      await exclusao.clicar(exclusao.acao(ID_R, "excluir"), "Excluir vaga", () => exclusao.dialogo() !== null);
+      const excluirSegurado = segurada({ ok: true, dados: { operacao: "excluirVaga", id: ID_R } });
+      escrita.respostas.excluirVaga.push(excluirSegurado.responder);
+      await exclusao.clicar(exclusao.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar", () =>
+        escrita.todas.some((c) => c.op === "excluirVaga"),
+      );
+      afirmar(
+        "ao confirmar, `excluirVaga(id)` UMA vez, e o diálogo diz o que está acontecendo enquanto a resposta não vem",
+        igual(escrita.todas.filter((c) => c.op === "excluirVaga"), [{ op: "excluirVaga", id: ID_R }]) &&
+          (exclusao.dialogo()?.querySelector('[data-papel="dialogo-em-curso"]')?.textContent ?? "").includes("Excluindo"),
+      );
+      excluirSegurado.controle.soltar();
+      await esperarAte(() => exclusao.linha(ID_R) === null && exclusao.dialogo() === null, "Excluir: a linha sai");
+      await esperarAte(
+        () => janela.document.activeElement === exclusao.acao(ID_A, "editar"),
+        "Excluir: o foco volta ao primeiro Editar que sobrou",
+      );
+      afirmar(
+        "a linha sai, o diálogo fecha, o foco volta a um lugar previsível (o primeiro Editar), a contagem desce e a notificação é a da tabela",
+        exclusao.linha(ID_R) === null &&
+          igual(exclusao.linhas(), [ID_A, ID_E]) &&
+          janela.document.activeElement === exclusao.acao(ID_A, "editar") &&
+          exclusao.contagens.at(-1) === 2 &&
+          igual(avisos.sucessos.at(-1), ["Vaga excluída", "Analista de Operações"]),
+        `foco: ${janela.document.activeElement?.getAttribute?.("data-acao")} | ${JSON.stringify(exclusao.contagens)}`,
+      );
+      afirmar("a Aberta não oferece Excluir", exclusao.acao(ID_A, "excluir") === null);
+      await exclusao.clicar(exclusao.acao(ID_E, "excluir"), "Excluir vaga (recusa)", () => exclusao.dialogo() !== null);
+      escrita.respostas.excluirVaga.push({
+        ok: false,
+        erro: { tipo: "dados_invalidos", mensagem: "Esta vaga não pode ser excluída agora. Encerre a vaga antes." },
+      });
+      await exclusao.clicar(exclusao.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar (recusa)", () =>
+        exclusao.dialogo() === null && exclusao.ocioso(),
+      );
+      afirmar(
+        "Recusa na exclusão: a notificação traz a frase do servidor, e a linha fica",
+        avisos.erros.at(-1)?.[0] === "Não deu para excluir a vaga" &&
+          avisos.erros.at(-1)?.[1] === "Esta vaga não pode ser excluída agora. Encerre a vaga antes." &&
+          exclusao.linha(ID_E) !== null &&
+          exclusao.contagens.at(-1) === 2,
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+      await exclusao.desmontar({ escritasEsperadas: 2 });
+
+      /* ══ Revisão da 5.5: a Vaga que já não existia, a rede na exclusão ══ */
+      {
+        const sumida = await montar("/admin?aba=carreiras", { caso: "Excluir a Vaga que já não existia" });
+        const errosAntes = avisos.erros.length;
+        const sucessosAntes = avisos.sucessos.length;
+        await sumida.clicar(sumida.acao(ID_E, "excluir"), "Excluir vaga", () => sumida.dialogo() !== null);
+        escrita.respostas.excluirVaga.push({
+          ok: false,
+          erro: { tipo: "nao_encontrado", mensagem: "Esta vaga já não está no Painel, alguém pode tê-la excluído antes." },
+        });
+        await sumida.clicar(sumida.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar (inexistente)", () =>
+          sumida.linha(ID_E) === null && sumida.dialogo() === null && sumida.ocioso(),
+        );
+        await esperarAte(
+          () => janela.document.activeElement === sumida.acao(ID_R, "editar"),
+          "Excluir a Vaga que já não existia: o foco volta ao primeiro Editar",
+        );
+        const aviso = avisos.erros.at(-1) ?? [];
+        afirmar(
+          "Exclusão de Vaga que já não existia (`nao_encontrado`): a linha sai, a contagem cai, o foco volta, e UMA notificação com frase PRÓPRIA (\"A vaga já não existia\"), sem \"a lista continua como estava\" e sem \"Tentar de novo\"",
+          sumida.linha(ID_E) === null &&
+            igual(sumida.linhas(), [ID_R, ID_A]) &&
+            sumida.contagens.at(-1) === 2 &&
+            janela.document.activeElement === sumida.acao(ID_R, "editar") &&
+            avisos.erros.length === errosAntes + 1 &&
+            avisos.sucessos.length === sucessosAntes &&
+            aviso[0] === "A vaga já não existia" &&
+            /saiu da lista/.test(aviso[1] ?? "") &&
+            !/continua como estava/.test(`${aviso[0]} ${aviso[1]}`) &&
+            aviso[2] === null,
+          `${JSON.stringify(aviso)} | ${JSON.stringify(sumida.contagens)} | foco: ${janela.document.activeElement?.getAttribute?.("data-acao")}`,
+        );
+
+        await sumida.clicar(sumida.acao(ID_R, "excluir"), "Excluir vaga (rede)", () => sumida.dialogo() !== null);
+        escrita.respostas.excluirVaga.push({
+          ok: false,
+          erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para excluir a vaga. Confira a conexão e tente excluir de novo." },
+        });
+        await sumida.clicar(sumida.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar (rede)", () =>
+          sumida.dialogo() === null && sumida.ocioso(),
+        );
+        afirmar(
+          "Rede na exclusão: a linha fica, e a notificação (com o título da falha de exclusão) oferece \"Tentar de novo\"",
+          sumida.linha(ID_R) !== null &&
+            avisos.erros.at(-1)?.[0] === "Não deu para excluir a vaga" &&
+            avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo",
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        escrita.respostas.excluirVaga.push({ ok: true, dados: { operacao: "excluirVaga", id: ID_R } });
+        const antesDaRepeticao = escrita.todas.length;
+        await sumida.acionarSaida(() => sumida.linha(ID_R) === null && sumida.ocioso());
+        afirmar(
+          "e \"Tentar de novo\" repete `excluirVaga(id)` exatamente UMA vez, sem reabrir o diálogo (a pessoa já confirmou), e a linha sai",
+          igual(escrita.todas.slice(antesDaRepeticao), [{ op: "excluirVaga", id: ID_R }]) &&
+            sumida.dialogo() === null &&
+            sumida.linha(ID_R) === null &&
+            sumida.contagens.at(-1) === 1 &&
+            igual(avisos.sucessos.at(-1), ["Vaga excluída", "Analista de Operações"]),
+          `${JSON.stringify(escrita.todas.slice(antesDaRepeticao))} | ${JSON.stringify(sumida.contagens)}`,
+        );
+        await sumida.desmontar({ escritasEsperadas: 3 });
+      }
+
+      /* ══ Revisão da 5.5: mudar o Estado da Vaga que já não existia ══ */
+      {
+        const sumida = await montar("/admin?aba=carreiras", { caso: "Mudar o Estado da Vaga que já não existia" });
+        const errosAntes = avisos.erros.length;
+        escrita.respostas.mudarEstadoDaVaga.push({
+          ok: false,
+          erro: { tipo: "nao_encontrado", mensagem: "Esta vaga já não está no Painel, então não dá para mudar o estado dela." },
+        });
+        await sumida.clicar(sumida.acao(ID_R, "abrir"), "Abrir vaga (inexistente)", () => sumida.linha(ID_R) === null && sumida.ocioso());
+        await esperarAte(
+          () => janela.document.activeElement === sumida.acao(ID_A, "editar"),
+          "Mudar o Estado da Vaga que já não existia: o foco volta ao primeiro Editar",
+        );
+        const aviso = avisos.erros.at(-1) ?? [];
+        afirmar(
+          "Mudança de Estado com `nao_encontrado`: a linha SAI (não fica mostrando o que o banco não tem), a contagem cai, o foco volta, e a notificação diz que ela saiu, sem \"Tentar de novo\"",
+          sumida.linha(ID_R) === null &&
+            igual(sumida.linhas(), [ID_A, ID_E]) &&
+            sumida.contagens.at(-1) === 2 &&
+            janela.document.activeElement === sumida.acao(ID_A, "editar") &&
+            avisos.erros.length === errosAntes + 1 &&
+            aviso[0] === "Não deu para mudar o estado da vaga" &&
+            /saiu da lista/.test(aviso[1] ?? "") &&
+            !/continua como estava/.test(aviso[1] ?? "") &&
+            aviso[2] === null,
+          `${JSON.stringify(aviso)} | ${sumida.linhas().join(", ")}`,
+        );
+        await sumida.desmontar({ escritasEsperadas: 1 });
+      }
+
+      /* ══ Revisão da 5.5: com filtro de Estado, a linha que muda para fora dele sai ══ */
+      {
+        const filtrada = await montar("/admin?aba=carreiras", { caso: "Filtro Rascunho e Abrir" });
+        await filtrada.clicar(filtrada.filtro("rascunho"), "filtro Rascunho", () => igual(filtrada.linhas(), [ID_R]) && filtrada.ocioso());
+        const contagensAntes = filtrada.contagens.length;
+        escrita.respostas.mudarEstadoDaVaga.push({
+          ok: true,
+          dados: { operacao: "mudarEstadoDaVaga", vaga: { ...R, estado: "aberta", aberta_em: "2026-09-25T12:00:00Z" } },
+        });
+        await filtrada.clicar(filtrada.acao(ID_R, "abrir"), "Abrir vaga (filtro Rascunho)", () => filtrada.linha(ID_R) === null && filtrada.ocioso());
+        afirmar(
+          "Filtro Rascunho + Abrir: a linha que passou a Aberta SAI da lista filtrada (sobra o vazio de busca), a contagem da aba (quantas existem) não muda, e o sucesso é notificado",
+          filtrada.linha(ID_R) === null &&
+            filtrada.situacao() === "vazio-de-busca" &&
+            filtrada.contagens.length === contagensAntes &&
+            filtrada.contagens.at(-1) === 3 &&
+            igual(avisos.sucessos.at(-1), ["Vaga aberta", "Analista de Operações"]),
+          `${filtrada.situacao()} | ${filtrada.linhas().join(", ")} | ${JSON.stringify(filtrada.contagens)}`,
+        );
+        await filtrada.desmontar({ escritasEsperadas: 1 });
+      }
+
+      /* ══ Revisão da 5.5: "Tentar de novo" depois de a aba sair da tela ══ */
+      {
+        const saindo = await montar("/admin?aba=carreiras", { caso: "Tentar de novo depois de desmontar" });
+        escrita.respostas.mudarEstadoDaVaga.push({ ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor. Confira a conexão e tente de novo." } });
+        await saindo.clicar(saindo.acao(ID_A, "encerrar"), "Encerrar vaga (rede)");
+        const saidaDoEstado = avisos.erros.at(-1)?.[2] ?? null;
+        await saindo.clicar(saindo.acao(ID_E, "excluir"), "Excluir vaga (rede)", () => saindo.dialogo() !== null);
+        escrita.respostas.excluirVaga.push({ ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor. Confira a conexão e tente excluir de novo." } });
+        await saindo.clicar(saindo.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar (rede)", () =>
+          saindo.dialogo() === null && saindo.ocioso(),
+        );
+        const saidaDaExclusao = avisos.erros.at(-1)?.[2] ?? null;
+        await saindo.desmontar({ escritasEsperadas: 2 });
+        const antes = escrita.todas.length;
+        await act(async () => {
+          saidaDoEstado?.aoAcionar?.();
+          saidaDaExclusao?.aoAcionar?.();
+        });
+        await passo();
+        afirmar(
+          "\"Tentar de novo\" acionado DEPOIS de a aba sair da tela não chama escrita nenhuma (nem a mudança de Estado, nem a exclusão)",
+          typeof saidaDoEstado?.aoAcionar === "function" &&
+            typeof saidaDaExclusao?.aoAcionar === "function" &&
+            escrita.todas.length === antes,
+          JSON.stringify(escrita.todas.slice(antes)),
+        );
+      }
+
+      /* ══ Revisão da 5.5: leituras sobrepostas, soltas em ordem inversa ══ */
+      {
+        const sobrepostas = await montar("/admin?aba=carreiras", { caso: "Leituras sobrepostas" });
+        await sobrepostas.clicar(sobrepostas.filtro("rascunho"), "filtro Rascunho", () => igual(sobrepostas.linhas(), [ID_R]) && sobrepostas.ocioso());
+        leitura.trancar = true;
+        leitura.trancadas.length = 0;
+        /* #1: sem recorte, com as TRÊS Vagas que o banco tinha naquele instante. */
+        await sobrepostas.clicar(sobrepostas.filtro("rascunho"), "desmarcar Rascunho", () => leitura.trancadas.length === 1);
+        /* O banco muda: agora são duas. */
+        leitura.vagas = [R, A];
+        /* #2: com o termo "zzz" (nada). #3: sem recorte, já com as DUAS. */
+        await sobrepostas.digitar("zzz");
+        await esperarAte(() => leitura.trancadas.length === 2, "Leituras sobrepostas: a segunda sai");
+        await sobrepostas.digitar("");
+        await esperarAte(() => leitura.trancadas.length === 3, "Leituras sobrepostas: a terceira sai");
+        const [primeira, segunda, terceira] = leitura.trancadas;
+        afirmar(
+          "Leituras sobrepostas: três pedidos em voo ao mesmo tempo, cada um com a SUA trava",
+          igual(primeira?.pedido, { termo: "", estado: null }) &&
+            igual(segunda?.pedido, { termo: "zzz", estado: null }) &&
+            igual(terceira?.pedido, { termo: "", estado: null }),
+          JSON.stringify(leitura.trancadas.map((t) => t.pedido)),
+        );
+        terceira?.soltar();
+        await esperarAte(
+          () => igual(sobrepostas.linhas(), [ID_R, ID_A]) && sobrepostas.alvo.querySelector("[data-atualizando]") === null,
+          "Leituras sobrepostas: a mais nova pousa",
+        );
+        segunda?.soltar();
+        primeira?.soltar();
+        for (let i = 0; i < 4; i += 1) await passo();
+        afirmar(
+          "soltas em ordem INVERSA, as linhas e a contagem são as da leitura MAIS NOVA: as atrasadas (a do termo \"zzz\" e a de três Vagas) são descartadas",
+          igual(sobrepostas.linhas(), [ID_R, ID_A]) &&
+            sobrepostas.situacao() === "lista" &&
+            sobrepostas.contagens.at(-1) === 2 &&
+            sobrepostas.alvo.querySelector("[data-atualizando]") === null,
+          `${sobrepostas.linhas().join(", ")} | ${JSON.stringify(sobrepostas.contagens)}`,
+        );
+        leitura.trancar = false;
+        leitura.trancadas.length = 0;
+        leitura.vagas = TRES;
+        await sobrepostas.desmontar({ escritasEsperadas: 0 });
+      }
+
+      /* ══ Revisão da 5.5: leitura em voo e mudança de Estado bem-sucedida ══ */
+      {
+        const emVoo = await montar("/admin?aba=carreiras", { caso: "Leitura em voo e mudança de Estado" });
+        leitura.trancar = true;
+        leitura.trancadas.length = 0;
+        /* A leitura pedida ANTES da escrita: responde com o Rascunho. */
+        await emVoo.digitar("analista");
+        await esperarAte(() => leitura.trancadas.length === 1, "Leitura em voo: a busca sai e fica presa");
+        const RAberta = { ...R, estado: "aberta", aberta_em: "2026-09-25T12:00:00Z" };
+        /* A escrita muda o banco NO SERVIDOR: quando ela responde, o banco já
+           tem a Aberta, e uma leitura pedida dali em diante a vê. */
+        escrita.respostas.mudarEstadoDaVaga.push(() => {
+          leitura.vagas = [RAberta, A, E];
+          return { ok: true, dados: { operacao: "mudarEstadoDaVaga", vaga: RAberta } };
+        });
+        await emVoo.clicar(emVoo.acao(ID_R, "abrir"), "Abrir vaga (leitura em voo)", () => emVoo.pilula(ID_R) === "aberta" && emVoo.ocioso());
+        await esperarAte(() => leitura.trancadas.length === 2, "Leitura em voo: a escrita faz a lista reler");
+        leitura.trancadas[0]?.soltar();
+        for (let i = 0; i < 4; i += 1) await passo();
+        afirmar(
+          "Leitura em voo + mudança de Estado bem-sucedida: a resposta ATRASADA (pedida antes da escrita, com o Rascunho) não desfaz a linha",
+          emVoo.pilula(ID_R) === "aberta" && igual(emVoo.acoesDe(ID_R), ["editar", "encerrar", "ver"]),
+          `${emVoo.pilula(ID_R)} | ${emVoo.linhas().join(", ")}`,
+        );
+        leitura.trancadas[1]?.soltar();
+        await esperarAte(
+          () => igual(emVoo.linhas(), [ID_R]) && emVoo.alvo.querySelector("[data-atualizando]") === null,
+          "Leitura em voo: a releitura pousa",
+        );
+        afirmar(
+          "e a lista é RELIDA depois da escrita: pousa a busca pedida (só \"analista\"), com a Vaga como o banco a tem agora, e nada fica \"atualizando\"",
+          igual(emVoo.linhas(), [ID_R]) &&
+            emVoo.pilula(ID_R) === "aberta" &&
+            igual(leitura.trancadas.map((t) => t.pedido), [
+              { termo: "analista", estado: null },
+              { termo: "analista", estado: null },
+            ]),
+          `${emVoo.linhas().join(", ")} | ${JSON.stringify(leitura.trancadas.map((t) => t.pedido))}`,
+        );
+        leitura.trancar = false;
+        leitura.trancadas.length = 0;
+        leitura.vagas = TRES;
+        await emVoo.desmontar({ escritasEsperadas: 1 });
+      }
+
+      /* ══ Classificação sem par e Estado desconhecido ══ */
+      leitura.vagas = [
+        R,
+        vaga(ID_S, { titulo: "Vaga órfã", slug: "vaga-orfa", departamento_id: SEM_PAR, nivel_id: SEM_PAR }),
+        vaga(ID_X, { titulo: "Vaga torta", slug: "vaga-torta", estado: "xpto" }),
+      ];
+      const tortas = await montar("/admin?aba=carreiras", {
+        caso: "Classificação sem par e Estado desconhecido",
+        toleradas: [
+          {
+            padrao: /\[voz do Painel\] Estado de Vaga desconhecido na listagem: "xpto"/,
+            motivo: "a guarda do vocabulário ACUSA o Estado desconhecido (política de `exigir`, registrada em produção)",
+          },
+        ],
+      });
+      const orfa = tortas.linha(ID_S);
+      afirmar(
+        "Classificação sem par: rótulo neutro, com a cor neutra, e a lista inteira de pé",
+        tortas.situacao() === "lista" &&
+          igual(tortas.linhas(), [ID_R, ID_S, ID_X]) &&
+          orfa?.querySelector('[data-papel="nivel"]')?.textContent === "Nível não encontrado" &&
+          orfa?.querySelector('[data-papel="nivel"]')?.getAttribute("data-conhecida") === "false" &&
+          orfa?.querySelector('[data-papel="departamento"]')?.textContent === "Departamento não encontrado" &&
+          estiloDe(orfa?.querySelector('[data-papel="nivel"]')).includes(
+            classificacoes.aparenciaDaCorDeClassificacao(null).fundo,
+          ),
+        orfa?.outerHTML?.slice(0, 300),
+      );
+      afirmar(
+        "Estado desconhecido: a linha aparece só com Editar e sem pílula, e a guarda o ACUSA pela política de voz",
+        igual(tortas.acoesDe(ID_X), ["editar"]) && tortas.pilula(ID_X) === null && tortas.pilula(ID_R) === "rascunho",
+      );
+      await tortas.desmontar({ escritasEsperadas: 0 });
+      leitura.vagas = TRES;
+
+      /* ══ A página: aba pela URL, montagem só com a aba ativa, contagem na aba ══ */
+      const RECLAMACOES_DA_PAGINA = [];
+      const abaDe = (tela, id) => tela.alvo.querySelector(`#aba-do-painel-${id}`);
+      const pedidosAntesDaPagina = leitura.pedidos.length;
+      const noBlog = await montar("/admin", {
+        caso: "Página em /admin",
+        alvoDaMontagem: "pagina",
+        toleradas: RECLAMACOES_DA_PAGINA,
+        ateQue: () => janela.document.querySelector("#aba-do-painel-blog") !== null,
+      });
+      await passo();
+      afirmar(
+        "`/admin` abre a aba Blog: a aba Carreiras NÃO é montada, e a leitura de Carreiras não é chamada",
+        abaDe(noBlog, "blog")?.getAttribute("aria-selected") === "true" &&
+          abaDe(noBlog, "carreiras")?.getAttribute("aria-selected") === "false" &&
+          noBlog.alvo.querySelector('input[data-busca="posts"]') !== null &&
+          noBlog.alvo.querySelector('[data-papel="aba-de-carreiras"]') === null &&
+          leitura.pedidos.length === pedidosAntesDaPagina &&
+          !/\d/.test(abaDe(noBlog, "carreiras")?.textContent ?? ""),
+        `pedidos de Carreiras: ${leitura.pedidos.length - pedidosAntesDaPagina} | aba: ${abaDe(noBlog, "carreiras")?.textContent}`,
+      );
+      await noBlog.clicar(abaDe(noBlog, "carreiras"), "aba Carreiras", () => noBlog.alvo.querySelector('[data-estado-da-lista="lista"]') !== null);
+      afirmar(
+        "trocar para a aba Carreiras monta o módulo dentro do `tabpanel`, lê o banco e a aba ganha a contagem formatada",
+        abaDe(noBlog, "carreiras")?.getAttribute("aria-selected") === "true" &&
+          noBlog.alvo.querySelector('[role="tabpanel"] [data-papel="aba-de-carreiras"]') !== null &&
+          noBlog.alvo.querySelector('input[data-busca="posts"]') === null &&
+          leitura.pedidos.length > pedidosAntesDaPagina &&
+          (abaDe(noBlog, "carreiras")?.textContent ?? "").includes("3"),
+        abaDe(noBlog, "carreiras")?.textContent,
+      );
+      const pedidosDoBlogAntes = posts.pedidos.length;
+      await noBlog.digitar("operacoes");
+      await noBlog.clicar(abaDe(noBlog, "blog"), "aba Blog", () => noBlog.alvo.querySelector('input[data-busca="posts"]') !== null);
+      await passo();
+      afirmar(
+        "a busca de Carreiras não muda a do Blog: de volta ao Blog, o campo dele está vazio e a leitura de Posts vai sem termo",
+        noBlog.alvo.querySelector('input[data-busca="posts"]')?.value === "" &&
+          posts.pedidos.length > pedidosDoBlogAntes &&
+          (posts.pedidos.at(-1)?.termo ?? "") === "",
+        JSON.stringify(posts.pedidos.at(-1)),
+      );
+      await noBlog.desmontar({ escritasEsperadas: 0 });
+
+      for (const [caminho, esperada] of [
+        ["/admin?aba=carreiras", "carreiras"],
+        ["/admin?aba=xpto", "blog"],
+        ["/admin?aba=Carreiras", "blog"],
+      ]) {
+        const pedidosAntesDaUrl = leitura.pedidos.length;
+        const pelaUrl = await montar(caminho, {
+          caso: `Página em ${caminho}`,
+          alvoDaMontagem: "pagina",
+          toleradas: RECLAMACOES_DA_PAGINA,
+          ateQue: () => janela.document.querySelector("#aba-do-painel-blog") !== null,
+        });
+        if (esperada === "carreiras") {
+          await esperarAte(() => pelaUrl.situacao() === "lista", `${caminho}: a lista de Vagas aparece`);
+        } else {
+          await passo();
+        }
+        afirmar(
+          `\`${caminho}\` abre a aba ${esperada === "carreiras" ? "Carreiras (esqueleto e depois a lista, com a contagem na aba)" : "Blog, sem ler Carreiras"}`,
+          abaDe(pelaUrl, esperada)?.getAttribute("aria-selected") === "true" &&
+            (esperada === "carreiras"
+              ? pelaUrl.linhas().length === 3 &&
+                (abaDe(pelaUrl, "carreiras")?.textContent ?? "").includes("3") &&
+                pelaUrl.alvo.querySelector('input[data-busca="posts"]') === null
+              : leitura.pedidos.length === pedidosAntesDaUrl &&
+                pelaUrl.alvo.querySelector('[data-papel="aba-de-carreiras"]') === null),
+          `${abaDe(pelaUrl, esperada)?.getAttribute("aria-selected")} | ${abaDe(pelaUrl, "carreiras")?.textContent}`,
+        );
+        if (esperada === "carreiras") {
+          /* Revisão da 5.5: a aba é DERIVADA da URL, e trocar de aba escreve a
+             URL. Com a página montada: clicar no Blog tira o parâmetro, e
+             navegar para `?aba=carreiras` (voltar do navegador, um link) troca
+             a aba sem remontar nada. */
+          await pelaUrl.clicar(abaDe(pelaUrl, "blog"), "aba Blog", () => pelaUrl.alvo.querySelector('input[data-busca="posts"]') !== null);
+          afirmar(
+            "trocar para a aba Blog TIRA o `?aba=carreiras` da URL (o Blog é a aba de quem não pede nenhuma)",
+            pelaUrl.onde() === "/admin" && abaDe(pelaUrl, "blog")?.getAttribute("aria-selected") === "true",
+            pelaUrl.onde(),
+          );
+          await pelaUrl.clicar(abaDe(pelaUrl, "carreiras"), "aba Carreiras", () => pelaUrl.situacao() === "lista");
+          afirmar(
+            "e trocar para Carreiras PÕE `?aba=carreiras` de volta",
+            pelaUrl.onde() === "/admin?aba=carreiras" && abaDe(pelaUrl, "carreiras")?.getAttribute("aria-selected") === "true",
+            pelaUrl.onde(),
+          );
+          await pelaUrl.navegar("/admin");
+          await esperarAte(
+            () => abaDe(pelaUrl, "blog")?.getAttribute("aria-selected") === "true",
+            "navegar para /admin com a página montada volta ao Blog",
+          );
+          await pelaUrl.navegar("/admin?aba=carreiras");
+          await esperarAte(() => pelaUrl.situacao() === "lista", "navegar para ?aba=carreiras com a página montada abre a lista");
+          afirmar(
+            "navegar para `/admin` e depois para `/admin?aba=carreiras` com a página MONTADA troca a aba as duas vezes (a aba segue a URL, não só a primeira)",
+            pelaUrl.onde() === "/admin?aba=carreiras" &&
+              abaDe(pelaUrl, "carreiras")?.getAttribute("aria-selected") === "true" &&
+              pelaUrl.alvo.querySelector('[role="tabpanel"] [data-papel="aba-de-carreiras"]') !== null,
+            `${pelaUrl.onde()} | ${abaDe(pelaUrl, "carreiras")?.getAttribute("aria-selected")}`,
+          );
+        }
+        await pelaUrl.desmontar({ escritasEsperadas: 0 });
+      }
+
+      afirmar(
+        "nenhuma outra leitura de Carreiras foi chamada pela aba (nem a Vaga por id, nem as públicas)",
+        leitura.outras.length === 0,
+        JSON.stringify(leitura.outras),
+      );
+      afirmar(
+        "toda notificação da aba passou pela regra de voz (nenhuma frase vaga, nenhum rótulo de ação genérico)",
+        avisos.problemasDeVoz.length === 0 && avisos.erros.length > 0 && avisos.sucessos.length > 0,
+        avisos.problemasDeVoz.join(" | "),
+      );
+    } catch (erro) {
+      afirmar("a aba montada rodou até o fim sem exceção", false, erro?.stack ?? String(erro));
     } finally {
       console.error = erroOriginal;
       try {

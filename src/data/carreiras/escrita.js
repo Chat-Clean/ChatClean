@@ -57,6 +57,13 @@ export const ERRO_CONFLITO = "conflito";
  */
 export { ERRO_INESPERADO, ERRO_REDE };
 
+/**
+ * E o tipo "não encontrado", pela MESMA razão (revisão da Story 5.5): a
+ * listagem compara o erro de uma ESCRITA com ele, e o nome vem do módulo da
+ * escrita, não do da leitura, ainda que a grafia seja a mesma.
+ */
+export { ERRO_NAO_ENCONTRADO };
+
 /** O vocabulário completo que uma escrita de Carreiras pode devolver. */
 export const TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS = Object.freeze([
   ERRO_REDE,

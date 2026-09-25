@@ -68,8 +68,6 @@ import {
   classificacoesComoListas,
   corpoParaSalvar,
   errosDoServidor,
-  falhaPassageira,
-  mensagemDaFalha,
   problemasLocais,
   slugDoTitulo,
   slugTravado,
@@ -78,6 +76,7 @@ import {
   valoresGravados,
   valoresVazios,
 } from "@/admin/carreiras/formulario";
+import { falhaPassageira, mensagemDaFalha } from "@/admin/carreiras/falhas";
 import {
   ENDERECO_DA_LISTAGEM,
   PARAMETRO_DA_VAGA,
