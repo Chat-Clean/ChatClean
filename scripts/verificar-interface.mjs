@@ -521,6 +521,18 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_GAVETA,
   CAMINHO_MODULO_DA_CAPA,
   CAMINHO_ARQUIVOS_DO_DOMINIO,
+  /* TROCA REGISTRADA (Story 5.4): o formulário de Vaga nasce sob as mesmas
+     regras (nenhum hex solto, nenhuma paleta aposentada, só os raios da
+     direção). São os arquivos de `src/admin/carreiras/`, um a um: lista
+     fechada, e um arquivo que suma acusa "os arquivos novos da entrega
+     existem". */
+  "src/admin/carreiras/rotas.js",
+  "src/admin/carreiras/configuracaoDaDescricao.js",
+  "src/admin/carreiras/conteudoDaDescricao.js",
+  "src/admin/carreiras/BarraDaDescricao.jsx",
+  "src/admin/carreiras/EditorDaDescricao.jsx",
+  "src/admin/carreiras/formulario.js",
+  "src/admin/carreiras/EditorDeVaga.jsx",
 ];
 
 function acharCssCompilado() {

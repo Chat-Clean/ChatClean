@@ -17,6 +17,8 @@ import {
   ROTA_DA_PREVIA,
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
+import EditorDeVaga from "@/admin/carreiras/EditorDeVaga";
+import { ROTA_DA_VAGA, ROTA_DA_VAGA_NOVA } from "@/admin/carreiras/rotas";
 import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
@@ -88,6 +90,11 @@ createRoot(document.getElementById("root")).render(
           }
         >
           <Route index element={<AdminBlog />} />
+          {/* O formulário de Vaga (Story 5.4): duas filhas do mesmo portão,
+              sem propriedade nenhuma. O identificador vem da rota, e a tela
+              troca de Vaga pela `key` por dentro. */}
+          <Route path={ROTA_DA_VAGA_NOVA} element={<EditorDeVaga />} />
+          <Route path={ROTA_DA_VAGA} element={<EditorDeVaga />} />
           {/* A pré-visualização (Story 2.13): por identificador, porque
               rascunho pode não ter endereço nenhum. */}
           <Route path={ROTA_DA_PREVIA} element={<PreVisualizacaoDePost />} />

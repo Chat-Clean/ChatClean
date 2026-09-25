@@ -55,6 +55,13 @@ import {
   sucesso,
 } from "../blog/resultado.js";
 
+/**
+ * O tipo de falha de "não existe" (Story 5.4): o formulário de Vaga distingue
+ * a Vaga inexistente da leitura que falhou, e lê o nome daqui em vez de
+ * escrever a palavra à mão ou importar `data/blog`.
+ */
+export { ERRO_NAO_ENCONTRADO } from "../blog/resultado.js";
+
 /* ─── Os nomes que viajam ────────────────────────────────────────────────── */
 
 /** As funções de banco que este módulo chama. Nome escrito uma vez só. */

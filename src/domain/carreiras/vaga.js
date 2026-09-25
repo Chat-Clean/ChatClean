@@ -11,6 +11,14 @@
  */
 
 import { FORMATO_DE_SLUG, TAMANHO_MAXIMO_DO_SLUG, gerarSlug } from "../blog/slug.js";
+
+/**
+ * O formato do Slug e a frase que o explica, os MESMOS do Post (a regra do
+ * endereço é uma só). Reexportados daqui (Story 5.4) para o formulário de Vaga
+ * julgar o endereço pela regra do domínio sem importar `domain/blog/slug`,
+ * que fica fora da lista de permissão de `admin/carreiras`.
+ */
+export { FORMATO_DE_SLUG, problemaNoSlug } from "../blog/slug.js";
 import { decodificarEntidades, textoDoDocumento } from "../blog/schema.js";
 import { ehModalidade, MODALIDADE_REMOTA } from "./classificacoes.js";
 

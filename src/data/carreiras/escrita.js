@@ -49,6 +49,14 @@ import {
 export const ERRO_DADOS_INVALIDOS = "dados_invalidos";
 export const ERRO_CONFLITO = "conflito";
 
+/**
+ * Os tipos de falha passageira, com a grafia de `resultado.js`, expostos por
+ * AQUI (Story 5.4): o formulário de Vaga decide se oferece "Tentar de novo"
+ * comparando com estes nomes, sem escrever a palavra à mão e sem importar
+ * `data/blog`.
+ */
+export { ERRO_INESPERADO, ERRO_REDE };
+
 /** O vocabulário completo que uma escrita de Carreiras pode devolver. */
 export const TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS = Object.freeze([
   ERRO_REDE,

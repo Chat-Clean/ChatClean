@@ -51,6 +51,17 @@
  * a seleção de frase da tradução do banco, e o transporte recusando local
  * como `dados_invalidos`.
  *
+ * Story 5.4 (o formulário de Vaga), todas LOCAIS, sem token:
+ *
+ *   (m) ESTÁTICA: a lista de permissão de imports de `src/admin/carreiras/**`
+ *       (pelo apelido e pelo caminho relativo, com autoteste), os dados pelos
+ *       apelidos exatos e as rotas novas em `main.jsx`;
+ *   (n) NODE: `formulario.js`, a configuração da Descrição (os 7 controles da
+ *       projeção, sem imagem nem destaque), o saneamento e as rotas;
+ *   (o) MONTADA: `EditorDeVaga` compilado com dublês de
+ *       `@/data/carreiras/leitura` e `@/data/carreiras/escrita` por apelido,
+ *       num `MemoryRouter`, cobrindo a matriz de I/O da story.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -3125,6 +3136,11 @@ if (moduloDoHandler !== null) {
 
 secao("(l) o cliente do Painel (`src/data/carreiras/escrita.js`) e as regras estáticas da escrita");
 
+/* Guardados para a seção (n) e (o) (Story 5.4, revisão): o resultado REAL
+   com `faltando`, e o módulo real, para conferir os literais dos dublês. */
+let resultadoComFaltandoDoCliente = null;
+let clienteDaEscritaDeCarreiras = null;
+
 {
   let cliente = null;
   try {
@@ -3270,6 +3286,39 @@ secao("(l) o cliente do Painel (`src/data/carreiras/escrita.js`) e as regras est
       semSessao.ok === false && semSessao.erro.tipo === "permissao" && /excluir a vaga/.test(semSessao.erro.mensagem),
       semSessao.erro?.mensagem,
     );
+
+    /* REVISÃO DA 5.4: o `faltando` do 422 ATRAVESSA o cliente real. O
+       formulário marca os campos a partir dele; um cliente que o perdesse
+       deixaria a tela só com a notificação. O mesmo resultado é passado a
+       `errosDoServidor` na seção (n). */
+    const comFaltando = await cliente.mudarEstadoDaVaga(UM, "abrir", {
+      buscar: buscarQueResponde(422, {
+        ok: false,
+        erro: {
+          tipo: "dados_invalidos",
+          mensagem: "Para abrir a vaga faltam o link de candidatura e o resumo.",
+          faltando: ["link_de_candidatura", "resumo"],
+        },
+      }),
+      obterToken,
+    });
+    resultadoComFaltandoDoCliente = comFaltando;
+    afirmar(
+      "o cliente REAL repassa `faltando` do 422 (`mudarEstadoDaVaga(id, \"abrir\")`), igual ao do servidor, com a frase dele",
+      comFaltando.ok === false &&
+        comFaltando.erro.tipo === "dados_invalidos" &&
+        igual([...(comFaltando.erro.faltando ?? [])], ["link_de_candidatura", "resumo"]) &&
+        comFaltando.erro.mensagem === "Para abrir a vaga faltam o link de candidatura e o resumo.",
+      JSON.stringify(comFaltando.erro ?? {}),
+    );
+    afirmar(
+      "o cliente expõe os tipos passageiros (`rede`, `inesperado`) com a grafia do contrato de resultado",
+      cliente.ERRO_REDE === "rede" &&
+        cliente.ERRO_INESPERADO === "inesperado" &&
+        cliente.TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS.includes(cliente.ERRO_REDE) &&
+        cliente.TIPOS_DE_ERRO_DA_ESCRITA_DE_CARREIRAS.includes(cliente.ERRO_INESPERADO),
+    );
+    clienteDaEscritaDeCarreiras = cliente;
   }
 
   /* NENHUM TRAVESSÃO fora de comentário nos arquivos novos da 5.3. */
@@ -5373,6 +5422,2187 @@ if (temToken) {
   );
 } else {
   afirmar("o resíduo pôde ser conferido", false, "sem SUPABASE_ACCESS_TOKEN");
+}
+
+/* ═══ Story 5.4: o formulário de Vaga ═══════════════════════════════════════
+ *
+ *   (m) ESTÁTICA: a lista de permissão de imports de `src/admin/carreiras/**`,
+ *       pelo apelido e pelo caminho relativo, com autoteste; as rotas novas
+ *       em `main.jsx`, sem propriedade, depois do índice.
+ *   (n) NODE: `formulario.js`, a configuração e o saneamento da Descrição e
+ *       as rotas, importados e executados.
+ *   (o) MONTADA: a tela compilada pelo empacotador da aplicação, com dublês
+ *       de `@/data/carreiras/leitura` e `@/data/carreiras/escrita` por
+ *       apelido, dentro de um `MemoryRouter`, cobrindo a matriz de I/O.
+ *
+ * As três são LOCAIS: rodam sem token e sem rede.
+ */
+
+const DIR_TELAS_DE_CARREIRAS = "src/admin/carreiras";
+
+/** Os `.js`/`.jsx` de um diretório, recursivamente, relativos à raiz, com `/`. */
+function arquivosDoDiretorio(relativo) {
+  const saida = [];
+  const varrer = (atual) => {
+    let entradas = [];
+    try {
+      entradas = readdirSync(path.join(raiz, atual), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entrada of entradas) {
+      const filho = `${atual}/${entrada.name}`;
+      if (entrada.isDirectory()) varrer(filho);
+      else if (/\.(js|jsx|mjs)$/.test(entrada.name)) saida.push(filho);
+    }
+  };
+  varrer(relativo);
+  return saida.sort();
+}
+
+/**
+ * Cada import de um fonte de tela, com a CLÁUSULA: `import { a, b as c } from
+ * "x"` devolve `{ origem: "x", nomes: ["a", "b"] }`. Default, namespace,
+ * `export … from`, `import "x"` e import dinâmico devolvem `nomes: null` (não
+ * é importação nomeada). Import dinâmico ou `require` com argumento que não é
+ * literal, ou modelo com interpolação, volta como `(não literal)`, que
+ * nenhuma lista de permissão aceita. Espaço em volta de `import`/`from` é
+ * opcional, como na linguagem.
+ */
+function importsDaTela(fonte) {
+  const codigo = semComentarios(fonte);
+  const achados = [];
+  for (const m of codigo.matchAll(
+    /(?<![\w$.])(import|export)\s*([^'"`;()]*?)\s*\bfrom\s*["']([^"']+)["']/g,
+  )) {
+    const [, palavra, clausula, origem] = m;
+    let nomes = null;
+    const nomeada = /^\{([^}]*)\}$/.exec(clausula.trim());
+    if (palavra === "import" && nomeada) {
+      nomes = nomeada[1]
+        .split(",")
+        .map((parte) => parte.trim().split(/\s+as\s+/)[0].trim())
+        .filter(Boolean);
+    }
+    achados.push({ origem, nomes });
+  }
+  for (const m of codigo.matchAll(/(?<![\w$.])import\s*["']([^"']+)["']/g)) {
+    achados.push({ origem: m[1], nomes: null });
+  }
+  for (const m of codigo.matchAll(
+    /(?<![\w$.])(?:import|require)\s*\(\s*(["'`])((?:(?!\1)[^\\]|\\.)*)\1\s*\)/g,
+  )) {
+    const [, aspa, texto] = m;
+    achados.push({
+      origem: aspa === "`" && texto.includes("${") ? `(não literal: ${texto})` : texto,
+      nomes: null,
+    });
+  }
+  for (const m of codigo.matchAll(/(?<![\w$.])(?:import|require)\s*\(\s*([^"'`\s)])/g)) {
+    achados.push({ origem: `(não literal: ${m[1]}…)`, nomes: null });
+  }
+  /* REVISÃO DA 5.4: as duas outras portas de módulo do Vite. `import.meta.glob`
+     traz um conjunto de arquivos por padrão de caminho, e `new URL(x,
+     import.meta.url)` resolve um arquivo do projeto sem `import`: nenhuma das
+     duas tem uma origem que a lista de permissão consiga julgar, então as duas
+     são RECUSADAS como não literais. */
+  for (const m of codigo.matchAll(/(?<![\w$])import\s*\.\s*meta\s*\.\s*(glob\w*)\s*\(/g)) {
+    achados.push({ origem: `(não literal: import.meta.${m[1]})`, nomes: null });
+  }
+  for (const m of codigo.matchAll(/(?<![\w$.])new\s+URL\s*\(([^)]*)import\s*\.\s*meta\s*\.\s*url/g)) {
+    achados.push({ origem: `(não literal: new URL(${m[1].trim()} import.meta.url))`, nomes: null });
+  }
+  return achados;
+}
+
+/** A origem como caminho do projeto (`src/…`, sem extensão), ou `null` para pacote. */
+function caminhoDaOrigem(origem, arquivoRelativo) {
+  let resolvido = null;
+  if (origem.startsWith("@/")) {
+    /* Apelido com `.` ou `..` depois do prefixo é RECUSADO, e não
+       normalizado: `@/lib/../admin/blog/x` começa com um prefixo permitido. */
+    if (/(^|\/)\.{1,2}(\/|$)/.test(origem.slice(2))) return "(apelido que sobe diretório)";
+    resolvido = `src/${origem.slice(2)}`;
+  } else if (origem.startsWith("./") || origem.startsWith("../")) {
+    resolvido = path.posix.normalize(path.posix.join(path.posix.dirname(arquivoRelativo), origem));
+  } else {
+    return null;
+  }
+  return resolvido.replace(/\.(jsx?|mjs)$/, "");
+}
+
+const PACOTES_DAS_TELAS = Object.freeze(["react", "react-router-dom", "lucide-react"]);
+const DIRETORIOS_DAS_TELAS = Object.freeze([
+  "src/components/ui/",
+  "src/lib/",
+  "src/admin/shell/",
+  "src/admin/comum/",
+  "src/admin/carreiras/",
+  "src/domain/carreiras/",
+  "src/data/carreiras/",
+]);
+/** Os módulos de fora de Carreiras que a tela pode usar, e SÓ com estes nomes. */
+const NOMES_RESTRITOS = Object.freeze({
+  "src/domain/blog/schema": Object.freeze(["documentoVazio"]),
+  "src/data/blog/comum": Object.freeze(["ehUuid"]),
+});
+
+/** As recusas de um fonte de `admin/carreiras`: origem fora da lista, ou nome fora do permitido. */
+function recusasDaTela(fonte, arquivoRelativo) {
+  const recusas = [];
+  for (const { origem, nomes } of importsDaTela(fonte)) {
+    if (origem.startsWith("(não literal")) {
+      recusas.push(origem);
+      continue;
+    }
+    const caminho = caminhoDaOrigem(origem, arquivoRelativo);
+    if (caminho === null) {
+      if (!PACOTES_DAS_TELAS.includes(origem)) recusas.push(origem);
+      continue;
+    }
+    if (DIRETORIOS_DAS_TELAS.some((d) => caminho.startsWith(d) && /^[\w./-]+$/.test(caminho))) continue;
+    const permitidos = NOMES_RESTRITOS[caminho];
+    if (permitidos === undefined) {
+      recusas.push(origem);
+      continue;
+    }
+    if (nomes === null || nomes.length === 0 || nomes.some((n) => !permitidos.includes(n))) {
+      recusas.push(`${origem} {${(nomes ?? ["(não nomeado)"]).join(", ")}}`);
+    }
+  }
+  return recusas;
+}
+
+secao("(m) as telas de Carreiras: a lista de permissão de imports e as rotas (Story 5.4)");
+
+{
+  /* AUTOTESTE: o detector acusa cada origem recusada pela spec, pelo apelido
+     e pelo caminho relativo, e absolve a lista de permissão. */
+  const deTela = `${DIR_TELAS_DE_CARREIRAS}/Qualquer.jsx`;
+  const recusadas = [
+    'import x from "@/admin/blog/x";',
+    'import EditorDePost from "@/admin/blog/EditorDePost";',
+    'import x from "../blog/configuracao.js";',
+    'import Pagina from "@/pages/Blog";',
+    'import Pagina from "../../pages/AdminBlog.jsx";',
+    'import { lerPostDoPainelPorId } from "@/data/blog/posts";',
+    'import { gerarSlug } from "@/domain/blog/slug";',
+    'import { gerarSlug } from "../../domain/blog/slug.js";',
+    'import { validarDocumento } from "@/domain/blog/schema";',
+    'import { documentoVazio, validarDocumento } from "../../domain/blog/schema.js";',
+    'import * as schema from "@/domain/blog/schema";',
+    'import schema from "@/domain/blog/schema";',
+    'import { tokenDoPainelOuFalha } from "@/data/blog/comum";',
+    'export { ehUuid } from "@/data/blog/comum";',
+    'import { y } from "@/lib/../admin/blog/x";',
+    'import x from "@/admin/comum/../blog/x";',
+    'import{ y }from"@/admin/blog/x";',
+    'export*from"@/pages/Blog";',
+    'const m = await import("@/admin/blog/x");',
+    "const m = await import(caminho);",
+    "const m = await import(`@/admin/carreiras/${nome}`);",
+    'import "@/data/supabase/clientes";',
+    'import { motion } from "framer-motion";',
+    'import { useEditor } from "@tiptap/react";',
+    'const telas = import.meta.glob("../blog/*.jsx");',
+    'const telas = import.meta.globEager("@/pages/*.jsx");',
+    'const telas = import . meta . glob("./*.js", { eager: true });',
+    'const endereco = new URL("../blog/EditorDePost.jsx", import.meta.url);',
+    'const endereco = new URL(`./${nome}.js`, import.meta.url).href;',
+  ];
+  const absolvidas = [
+    'import { useState } from "react";',
+    'import { useParams } from "react-router-dom";',
+    'import { X } from "lucide-react";',
+    'import { Button } from "@/components/ui/button";',
+    'import { cn } from "@/lib/utils";',
+    'import DialogoDeConfirmacao from "@/admin/shell/DialogoDeConfirmacao";',
+    'import EditorDeTexto from "@/admin/comum/EditorDeTexto";',
+    'import { criarPrepararConteudo } from "../comum/conteudo.js";',
+    'import x from "./formulario.js";',
+    'import x from "@/admin/carreiras/formulario";',
+    'import { acoesDoEstadoDaVaga } from "@/domain/carreiras/transicoes";',
+    'import { VOCABULARIO_DA_VAGA } from "../../domain/carreiras/descricao.js";',
+    'import { documentoVazio } from "@/domain/blog/schema";',
+    'import { documentoVazio as vazio } from "../../domain/blog/schema.js";',
+    'import { ehUuid } from "@/data/blog/comum";',
+    'import { salvarVaga } from "@/data/carreiras/escrita";',
+    'import { ERRO_CONFLITO } from "../../data/carreiras/escrita.js";',
+    '// import x from "@/admin/blog/x";\nimport { cn } from "@/lib/utils";',
+  ];
+  const acusadas = recusadas.filter((fonte) => recusasDaTela(fonte, deTela).length > 0);
+  afirmar(
+    "autoteste: a varredura de imports de `admin/carreiras` ACUSA admin/blog, pages, outros módulos de domain/blog e data/blog, nome fora do permitido, namespace, default, reexportação, apelido que sobe diretório, import sem espaço, import não literal, `import.meta.glob`, `new URL(…, import.meta.url)` e pacote fora da lista",
+    acusadas.length === recusadas.length,
+    `passaram sem acusar: ${recusadas.filter((f) => !acusadas.includes(f)).join(" | ")}`,
+  );
+  const semRazao = absolvidas.filter((fonte) => recusasDaTela(fonte, deTela).length > 0);
+  afirmar(
+    "autoteste: e ABSOLVE a lista de permissão (react, react-router-dom, lucide-react, ui, lib, shell, comum, carreiras, domain/carreiras, data/carreiras, `documentoVazio` e `ehUuid`) e o import que só existe em comentário",
+    semRazao.length === 0 && absolvidas.every((f) => importsDaTela(f).length > 0),
+    `acusadas sem razão: ${semRazao.map((f) => `${f} → ${recusasDaTela(f, deTela).join(", ")}`).join(" | ")}`,
+  );
+
+  const arquivos = arquivosDoDiretorio(DIR_TELAS_DE_CARREIRAS);
+  const ESPERADOS = [
+    "rotas.js",
+    "configuracaoDaDescricao.js",
+    "conteudoDaDescricao.js",
+    "BarraDaDescricao.jsx",
+    "EditorDaDescricao.jsx",
+    "formulario.js",
+    "EditorDeVaga.jsx",
+  ].map((n) => `${DIR_TELAS_DE_CARREIRAS}/${n}`);
+  /* TROCA REGISTRADA (revisão da 5.4): era "os esperados EXISTEM" (um
+     arquivo a mais passava calado, fora da regra de cor e de raio de
+     `verificar-interface`). Agora é IGUALDADE: a lista é fechada. */
+  afirmar(
+    "os arquivos de `src/admin/carreiras/` são EXATAMENTE os do formulário de Vaga (nem a menos, nem a mais)",
+    igual(ordenado(arquivos), ordenado(ESPERADOS)),
+    `faltam: ${ESPERADOS.filter((a) => !arquivos.includes(a)).join(", ")} | sobram: ${arquivos.filter((a) => !ESPERADOS.includes(a)).join(", ")}`,
+  );
+  /* E todo arquivo dali está em `ARQUIVOS_NOVOS` de `verificar-interface`
+     (conjuntos iguais): lido do TEXTO daquela ferramenta, porque a lista não
+     é exportada, e só do bloco da lista, não do arquivo inteiro. */
+  const fonteDaInterface = ler("scripts/verificar-interface.mjs") ?? "";
+  const blocoDosNovos = /const ARQUIVOS_NOVOS = \[([\s\S]*?)\n\];/.exec(fonteDaInterface)?.[1] ?? "";
+  const carreirasNaInterface = [
+    ...semComentarios(blocoDosNovos).matchAll(/["'](src\/admin\/carreiras\/[^"']+)["']/g),
+  ].map((m) => m[1]);
+  afirmar(
+    "todo arquivo de `src/admin/carreiras/` está em `ARQUIVOS_NOVOS` de `verificar-interface`, e nenhum a mais (conjuntos iguais)",
+    blocoDosNovos !== "" &&
+      carreirasNaInterface.length === new Set(carreirasNaInterface).size &&
+      igual(ordenado(carreirasNaInterface), ordenado(arquivos)),
+    `só na interface: ${carreirasNaInterface.filter((a) => !arquivos.includes(a)).join(", ")} | só no disco: ${arquivos.filter((a) => !carreirasNaInterface.includes(a)).join(", ")}`,
+  );
+  const foraDaLista = [];
+  let totalDeOrigens = 0;
+  for (const arquivo of arquivos) {
+    const fonte = ler(arquivo) ?? "";
+    totalDeOrigens += importsDaTela(fonte).length;
+    for (const recusa of recusasDaTela(fonte, arquivo)) foraDaLista.push(`${arquivo}: ${recusa}`);
+  }
+  afirmar(
+    "`src/admin/carreiras/**` só importa da lista de permissão: nunca `admin/blog` nem `pages`",
+    arquivos.length >= ESPERADOS.length && totalDeOrigens > 0 && foraDaLista.length === 0,
+    foraDaLista.join(" | ") || `${arquivos.length} arquivo(s), ${totalDeOrigens} origem(ns)`,
+  );
+
+  /* Os DADOS entram pelos apelidos exatos, para o dublê poder entrar.
+     TROCA REGISTRADA (revisão da 5.4): antes, um `.js` puro podia ler
+     constante `ERRO_*` de `data/carreiras` pelo caminho relativo. Mas o
+     relativo puxa o módulo de dados REAL para dentro do pacote montado, por
+     baixo do dublê; agora `formulario.js` recebe os tipos por parâmetro, e
+     QUALQUER import de `data/carreiras` que não seja pelos dois apelidos
+     exatos é recusado. */
+  const dadosFora = [];
+  for (const arquivo of arquivos) {
+    for (const { origem, nomes } of importsDaTela(ler(arquivo) ?? "")) {
+      const caminho = caminhoDaOrigem(origem, arquivo);
+      if (caminho === null || !caminho.startsWith("src/data/carreiras/")) continue;
+      const exato = origem === "@/data/carreiras/leitura" || origem === "@/data/carreiras/escrita";
+      if (!exato) dadosFora.push(`${arquivo}: ${origem} {${(nomes ?? []).join(", ")}}`);
+    }
+  }
+  const tela = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/EditorDeVaga.jsx`) ?? "");
+  afirmar(
+    "tudo de `data/carreiras` entra pelos apelidos EXATOS `@/data/carreiras/leitura` e `@/data/carreiras/escrita` (nada pelo caminho relativo, nem constante), e a tela traz as quatro funções de lá",
+    dadosFora.length === 0 &&
+      /import\s*\{[^}]*\blerVagaDoPainelPorId\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(tela) &&
+      /import\s*\{[^}]*\blistarClassificacoesDoPainel\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(tela) &&
+      /import\s*\{[^}]*\bsalvarVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(tela) &&
+      /import\s*\{[^}]*\bmudarEstadoDaVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(tela),
+    dadosFora.join(" | "),
+  );
+
+  const TERMOS_PROIBIDOS = ["localStorage", "sessionStorage", "indexedDB", "useBlocker"];
+  const proibidos = [];
+  for (const arquivo of arquivos) {
+    const codigo = semComentarios(ler(arquivo) ?? "");
+    for (const termo of TERMOS_PROIBIDOS) if (codigo.includes(termo)) proibidos.push(`${arquivo}: ${termo}`);
+    if (codigo.includes("—")) proibidos.push(`${arquivo}: travessão`);
+  }
+  afirmar(
+    "nada em `admin/carreiras` toca armazenamento do navegador, usa `useBlocker` ou escreve travessão fora de comentário",
+    proibidos.length === 0,
+    proibidos.join(" | "),
+  );
+  afirmar(
+    "a tela é `EditorDeVaga()` SEM propriedade: o identificador vem de `useParams`, e a troca de Vaga troca a `key`",
+    /export\s+default\s+function\s+EditorDeVaga\s*\(\s*\)/.test(tela) &&
+      /\buseParams\s*\(/.test(tela) &&
+      /<TelaDaVaga\s+key=\{/.test(tela),
+  );
+
+  /* As rotas novas em `main.jsx`: filhas de `/admin`, depois do índice, com
+     `<EditorDeVaga />` sem propriedade. */
+  const principal = semComentarios(ler("src/main.jsx") ?? "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\s+/g, " ");
+  /* TROCA REGISTRADA (revisão da 5.4): a regex antiga casava as rotas em
+     QUALQUER ponto depois do índice, e um `</Route>` qualquer depois delas; o
+     import das rotas bastava trazer `ROTA_DA_VAGA`. Agora o bloco de `/admin`
+     é recortado (do `path="/admin"` ao primeiro `</Route>` depois dele, já que
+     as filhas se fecham sozinhas), as duas rotas têm de estar DENTRO dele,
+     depois do índice, e o import tem de trazer os DOIS nomes. */
+  const inicioDoAdmin = principal.indexOf('<Route path="/admin"');
+  const fimDoAdmin = inicioDoAdmin < 0 ? -1 : principal.indexOf("</Route>", inicioDoAdmin);
+  const blocoDoAdmin = fimDoAdmin < 0 ? "" : principal.slice(inicioDoAdmin, fimDoAdmin);
+  const nomesDoImportDasRotas = (
+    /import \{([^}]*)\} from ["']@\/admin\/carreiras\/rotas["']/.exec(principal)?.[1] ?? ""
+  )
+    .split(",")
+    .map((n) => n.trim().split(/\s+as\s+/)[0].trim())
+    .filter(Boolean);
+  afirmar(
+    "`main.jsx` monta `<EditorDeVaga />` sem propriedade em `ROTA_DA_VAGA_NOVA` e `ROTA_DA_VAGA`, DENTRO do bloco de `/admin` e depois do índice, importando os dois nomes das rotas",
+    /<Route index element=\{<AdminBlog \/>\} \/>.*<Route path=\{ROTA_DA_VAGA_NOVA\} element=\{<EditorDeVaga \/>\} \/>.*<Route path=\{ROTA_DA_VAGA\} element=\{<EditorDeVaga \/>\} \/>/.test(blocoDoAdmin) &&
+      (blocoDoAdmin.match(/<EditorDeVaga\b/g) ?? []).length === 2 &&
+      /import EditorDeVaga from ["']@\/admin\/carreiras\/EditorDeVaga["']/.test(principal) &&
+      nomesDoImportDasRotas.includes("ROTA_DA_VAGA") &&
+      nomesDoImportDasRotas.includes("ROTA_DA_VAGA_NOVA") &&
+      (principal.match(/<EditorDeVaga\b[^>]*\/>/g) ?? []).every((t) => t === "<EditorDeVaga />") &&
+      (principal.match(/<EditorDeVaga\b/g) ?? []).length === 2,
+    `bloco de /admin: ${blocoDoAdmin.length} caractere(s) | import: ${nomesDoImportDasRotas.join(", ")}`,
+  );
+}
+
+/* ─── (n) Os módulos puros do formulário, executados ─────────────────────── */
+
+secao("(n) o formulário de Vaga no Node: regras, configuração e saneamento da Descrição (Story 5.4)");
+
+let formulario = null;
+let configuracaoDaDescricao = null;
+let conteudoDaDescricao = null;
+let rotasDaVaga = null;
+try {
+  formulario = await import(urlDe("src/admin/carreiras/formulario.js"));
+  configuracaoDaDescricao = await import(urlDe("src/admin/carreiras/configuracaoDaDescricao.js"));
+  conteudoDaDescricao = await import(urlDe("src/admin/carreiras/conteudoDaDescricao.js"));
+  rotasDaVaga = await import(urlDe("src/admin/carreiras/rotas.js"));
+} catch (erro) {
+  afirmar("os módulos puros de `admin/carreiras` importam no Node", false, erro.message);
+}
+
+/* Os SETE controles da projeção, como a spec os lista: título 2 e 3, negrito,
+   itálico, as duas listas e link. Escritos aqui à mão de propósito: é contra a
+   spec que o código é julgado, não contra ele mesmo. */
+const CONTROLES_DA_PROJECAO = Object.freeze([
+  "titulo2",
+  "titulo3",
+  "negrito",
+  "italico",
+  "listaOrdenada",
+  "listaComMarcadores",
+  "link",
+]);
+const UUID_DEPARTAMENTO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const UUID_TIPO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+const UUID_NIVEL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3";
+
+if (configuracaoDaDescricao !== null) {
+  const config = configuracaoDaDescricao.configuracaoDaDescricao;
+  const chaves = config.controlesDaBarra().map((c) => c.chave);
+  afirmar(
+    "os controles da barra da Descrição são EXATAMENTE os 7 da projeção, na ordem dela",
+    igual(chaves, CONTROLES_DA_PROJECAO) &&
+      igual(chaves, descricaoDaVaga.VOCABULARIO_DA_VAGA.elementos.map((e) => e.chave)),
+    chaves.join(", "),
+  );
+  afirmar(
+    "`comImagem` e `comDestaque` são falsos, e não há cor de destaque",
+    config.comImagem === false &&
+      config.comDestaque === false &&
+      config.coresDeDestaque.length === 0 &&
+      configuracaoDaDescricao.comImagem === false &&
+      configuracaoDaDescricao.comDestaque === false,
+  );
+  const kit = config.configuracaoDoKit();
+  const nomesDasExtensoes = config.extensoesDoEditor().map((e) => e.name);
+  afirmar(
+    "o kit desliga citação, bloco de código e linha divisória, e não entra imagem, destaque nem alinhamento",
+    kit.blockquote === false &&
+      kit.codeBlock === false &&
+      kit.horizontalRule === false &&
+      !nomesDasExtensoes.some((n) => ["image", "highlight", "textAlign"].includes(n)),
+    `${JSON.stringify({ blockquote: kit.blockquote, codeBlock: kit.codeBlock, horizontalRule: kit.horizontalRule })} | ${nomesDasExtensoes.join(", ")}`,
+  );
+  const fonteDaConfiguracao = semComentarios(ler("src/admin/carreiras/configuracaoDaDescricao.js") ?? "");
+  afirmar(
+    "a configuração é criada UMA vez, no topo do módulo, com `VOCABULARIO_DA_VAGA`, e as exportações são dela",
+    (fonteDaConfiguracao.match(/criarConfiguracaoDoEditor\s*\(/g) ?? []).length === 1 &&
+      /^export const configuracaoDaDescricao = criarConfiguracaoDoEditor\(VOCABULARIO_DA_VAGA\);/m.test(fonteDaConfiguracao) &&
+      configuracaoDaDescricao.controlesDaDescricao === config.controlesDaBarra &&
+      Object.isFrozen(config),
+  );
+  afirmar(
+    "o rótulo padrão do editor é o da Descrição da vaga",
+    config.opcoesDoEditor().editorProps.attributes["aria-label"] ===
+      descricaoDaVaga.VOCABULARIO_DA_VAGA.mensagens.rotuloDoConteudo,
+  );
+}
+
+if (conteudoDaDescricao !== null) {
+  const preparar = conteudoDaDescricao.prepararConteudoDaDescricao;
+  const comCitacao = {
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "Texto que fica" }] },
+      { type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "citação" }] }] },
+    ],
+  };
+  const limpo = preparar(comCitacao);
+  afirmar(
+    "a Descrição gravada com citação abre SEM ela, e com o aviso de conteúdo limpo que fala da vaga",
+    limpo.aviso?.gravidade === "limpo" &&
+      !JSON.stringify(limpo.documento).includes("blockquote") &&
+      JSON.stringify(limpo.documento).includes("Texto que fica") &&
+      /vaga/.test(limpo.aviso.mensagem) &&
+      !/post/i.test(limpo.aviso.mensagem),
+    JSON.stringify(limpo.aviso),
+  );
+  const recusado = preparar("não sou documento");
+  const ausente = preparar(undefined);
+  afirmar(
+    "o que não é documento abre vazio com o aviso de recusa; ausência abre vazio sem aviso",
+    recusado.aviso?.gravidade === "recusado" &&
+      igual(recusado.documento, schema.documentoVazio()) &&
+      ausente.aviso === null &&
+      igual(ausente.documento, schema.documentoVazio()),
+  );
+}
+
+if (rotasDaVaga !== null) {
+  const UM = "11111111-1111-4111-8111-111111111111";
+  afirmar(
+    "as rotas: `carreiras/vaga/nova`, `carreiras/vaga/:id`, o endereço de uma Vaga e a volta para `/admin`",
+    rotasDaVaga.ROTA_DA_VAGA_NOVA === "carreiras/vaga/nova" &&
+      rotasDaVaga.ROTA_DA_VAGA === "carreiras/vaga/:id" &&
+      rotasDaVaga.enderecoDaVaga(UM) === `/admin/carreiras/vaga/${UM}` &&
+      rotasDaVaga.ENDERECO_DA_LISTAGEM === "/admin",
+  );
+  afirmar(
+    "sem identificador (vazio, nulo, só espaço), o endereço da Vaga é a listagem, e nunca `/admin/carreiras/vaga/`",
+    ["", null, undefined, "   "].every((id) => rotasDaVaga.enderecoDaVaga(id) === rotasDaVaga.ENDERECO_DA_LISTAGEM),
+    ["", null, undefined, "   "].map((id) => rotasDaVaga.enderecoDaVaga(id)).join(" | "),
+  );
+}
+
+if (formulario !== null) {
+  const f = formulario;
+  const vazios = f.valoresVazios();
+  afirmar(
+    "`valoresVazios()`: os campos do formulário, todos vazios, sem Estado nem `aberta_em`",
+    Object.values(vazios).every((v) => v === "") &&
+      !Object.hasOwn(vazios, "estado") &&
+      !Object.hasOwn(vazios, "aberta_em") &&
+      ["titulo", "slug", "departamento_id", "tipo_id", "nivel_id", "modalidade", "localizacao", "resumo", "link_de_candidatura"].every((c) => Object.hasOwn(vazios, c)),
+    JSON.stringify(vazios),
+  );
+  const daVaga = f.valoresDaVaga({
+    id: "x",
+    titulo: "Analista",
+    slug: "analista",
+    estado: "aberta",
+    aberta_em: "2026-09-01T00:00:00Z",
+    modalidade: null,
+    link_de_candidatura: null,
+    departamento_id: UUID_DEPARTAMENTO,
+  });
+  afirmar(
+    "`valoresDaVaga`: nulo vira texto vazio, e Estado e `aberta_em` não entram no formulário",
+    daVaga.titulo === "Analista" &&
+      daVaga.modalidade === "" &&
+      daVaga.link_de_candidatura === "" &&
+      daVaga.departamento_id === UUID_DEPARTAMENTO &&
+      !Object.hasOwn(daVaga, "estado") &&
+      !Object.hasOwn(daVaga, "aberta_em"),
+    JSON.stringify(daVaga),
+  );
+  afirmar(
+    "`slugTravado`: livre no Rascunho nunca aberto; travado com `aberta_em`, na Aberta e na Encerrada",
+    f.slugTravado(null) === false &&
+      f.slugTravado({ estado: "rascunho", aberta_em: null }) === false &&
+      f.slugTravado({ estado: "rascunho", aberta_em: "2026-09-01T00:00:00Z" }) === true &&
+      f.slugTravado({ estado: "aberta", aberta_em: "2026-09-01T00:00:00Z" }) === true &&
+      f.slugTravado({ estado: "encerrada", aberta_em: null }) === true,
+  );
+  afirmar(
+    "o Slug derivado do título é o da regra do domínio: \"Analista de CS\" dá `analista-de-cs`",
+    f.slugDoTitulo("Analista de CS") === "analista-de-cs" &&
+      f.slugDoTitulo("Analista de CS") === regrasDaVaga.slugDaVaga("Analista de CS").slug &&
+      f.slugDoTitulo("!!!") === "",
+  );
+
+  const cheios = {
+    ...f.valoresVazios(),
+    titulo: " Analista de CS ",
+    slug: "analista-de-cs",
+    departamento_id: UUID_DEPARTAMENTO,
+    tipo_id: UUID_TIPO,
+    nivel_id: UUID_NIVEL,
+    estado: "aberta",
+    aberta_em: "2026-01-01T00:00:00Z",
+    xpto: 1,
+  };
+  const corpo = f.corpoParaSalvar(cheios, null, {});
+  afirmar(
+    "`corpoParaSalvar` monta as colunas à mão: sem `estado`, sem `aberta_em`, sem campo estranho, título aparado, vazio vira nulo no Link e na Modalidade, e a Descrição ausente vira o documento vazio",
+    igual(ordenado(Object.keys(corpo)), ordenado([
+      "titulo", "slug", "departamento_id", "tipo_id", "nivel_id", "modalidade", "localizacao", "resumo", "link_de_candidatura", "descricao",
+    ])) &&
+      corpo.titulo === "Analista de CS" &&
+      corpo.link_de_candidatura === null &&
+      corpo.modalidade === null &&
+      igual(corpo.descricao, schema.documentoVazio()),
+    JSON.stringify(corpo),
+  );
+  afirmar(
+    "o Slug fica de FORA quando travado, e quando a Vaga nasce sem ele (o servidor deriva); na edição livre ele viaja",
+    !Object.hasOwn(f.corpoParaSalvar(cheios, null, { travado: true }), "slug") &&
+      !Object.hasOwn(f.corpoParaSalvar({ ...cheios, slug: "" }, null, { criando: true }), "slug") &&
+      f.corpoParaSalvar(cheios, null, { criando: false }).slug === "analista-de-cs",
+  );
+
+  const rotulos = regrasDaVaga.ROTULOS_DOS_CAMPOS;
+  const semNada = f.problemasLocais(f.valoresVazios(), { criando: true });
+  afirmar(
+    "local: sem título e sem as Classificações, as quatro marcas, com o rótulo do domínio na frase",
+    igual(ordenado(Object.keys(semNada)), ordenado(["titulo", "departamento_id", "tipo_id", "nivel_id"])) &&
+      semNada.titulo.includes(rotulos.titulo) &&
+      semNada.nivel_id.includes(rotulos.nivel_id),
+    JSON.stringify(semNada),
+  );
+  const validos = { ...f.valoresVazios(), titulo: "Analista", departamento_id: UUID_DEPARTAMENTO, tipo_id: UUID_TIPO, nivel_id: UUID_NIVEL };
+  afirmar(
+    "local: o mínimo de um Rascunho (título e as três Classificações) passa, sem Link e sem Resumo",
+    Object.keys(f.problemasLocais(validos, { criando: true })).length === 0,
+  );
+  const L = regrasDaVaga.LIMITES_DA_VAGA;
+  const tamanhos = f.problemasLocais({
+    ...validos,
+    titulo: "t".repeat(L.titulo + 1),
+    resumo: "r".repeat(L.resumo + 1),
+    localizacao: "l".repeat(L.localizacao + 1),
+  }, { criando: true });
+  const noTeto = f.problemasLocais({
+    ...validos,
+    titulo: "t".repeat(L.titulo),
+    resumo: "r".repeat(L.resumo),
+    localizacao: "l".repeat(L.localizacao),
+  }, { criando: true });
+  afirmar(
+    "local: os tetos de `LIMITES_DA_VAGA` (Resumo com 201 recusado, com 200 aceito; título e Localização idem)",
+    igual(ordenado(Object.keys(tamanhos)), ordenado(["titulo", "resumo", "localizacao"])) &&
+      tamanhos.resumo.includes(String(L.resumo)) &&
+      tamanhos.resumo.includes(rotulos.resumo) &&
+      Object.keys(noTeto).length === 0,
+    JSON.stringify(tamanhos),
+  );
+  /* TROCA REGISTRADA (revisão da 5.4): os casos de link passavam sem
+     `{ criando }`, ao contrário dos outros, e o Slug vazio caía na regra da
+     edição. Agora vão com `{ criando: true }`, como os demais casos. */
+  const links = ["javascript:x", "mailto:a@b.c", "https:x", "/relativo"].map(
+    (link) => f.problemasLocais({ ...validos, link_de_candidatura: link }, { criando: true }).link_de_candidatura ?? null,
+  );
+  afirmar(
+    "local: o Link de Candidatura é julgado por `linkDeCandidaturaValido` quando preenchido (`javascript:x` recusado, `https://` aceito, vazio aceito)",
+    links.every((l) => typeof l === "string" && l.includes(rotulos.link_de_candidatura)) &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, link_de_candidatura: "https://exemplo.com/vaga" }, { criando: true }), "link_de_candidatura") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, link_de_candidatura: "" }, { criando: true }), "link_de_candidatura"),
+    links.join(" | "),
+  );
+
+  /* ── REVISÃO DA 5.4: as regras que faltavam, executadas ── */
+  const comSlug = { ...validos, slug: "analista" };
+  const slugVazioNaEdicao = f.problemasLocais({ ...validos, slug: "" }, { criando: false });
+  afirmar(
+    "local: na EDIÇÃO o Slug vazio é recusado com o rótulo do domínio; travado ou na criação, não",
+    typeof slugVazioNaEdicao.slug === "string" &&
+      slugVazioNaEdicao.slug.includes(rotulos.slug) &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "" }, { travado: true }), "slug") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "" }, { criando: true }), "slug") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "   " }, { criando: true }), "slug"),
+    JSON.stringify(slugVazioNaEdicao),
+  );
+  const slugsTortos = ["Meu Slug", "-analista", "analista-", "a--b", "ação", "a_b"];
+  const recusasDeFormato = slugsTortos.map((slug) => f.problemasLocais({ ...validos, slug }, { criando: false }).slug ?? null);
+  afirmar(
+    "local: o FORMATO do Slug é o do domínio (`FORMATO_DE_SLUG`), com a frase do domínio (`problemaNoSlug`); o formato bom passa; travado, não é julgado",
+    recusasDeFormato.every((frase, i) => typeof frase === "string" && frase === regrasDaVaga.problemaNoSlug(slugsTortos[i].trim())) &&
+      regrasDaVaga.FORMATO_DE_SLUG instanceof RegExp &&
+      slugsTortos.every((s) => !regrasDaVaga.FORMATO_DE_SLUG.test(s)) &&
+      !Object.hasOwn(f.problemasLocais(comSlug, { criando: false }), "slug") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: " analista-de-cs " }, { criando: false }), "slug") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "Meu Slug" }, { travado: true }), "slug"),
+    recusasDeFormato.join(" | "),
+  );
+  const slugLongo = f.problemasLocais({ ...validos, slug: "a".repeat(L.slug + 1) }, { criando: false });
+  afirmar(
+    "local: o Slug além do teto (`LIMITES_DA_VAGA.slug`) é recusado com o teto na frase; no teto, aceito; travado (não viaja), não é julgado",
+    typeof slugLongo.slug === "string" &&
+      slugLongo.slug.includes(String(L.slug)) &&
+      slugLongo.slug.includes(rotulos.slug) &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "a".repeat(L.slug) }, { criando: false }), "slug") &&
+      !Object.hasOwn(f.problemasLocais({ ...validos, slug: "a".repeat(L.slug + 1) }, { travado: true }), "slug"),
+    JSON.stringify(slugLongo),
+  );
+  const tituloEmBranco = f.problemasLocais({ ...validos, titulo: "   \t " }, { criando: true });
+  afirmar(
+    "local: título só com espaços conta como vazio",
+    typeof tituloEmBranco.titulo === "string" && tituloEmBranco.titulo.includes(rotulos.titulo),
+    JSON.stringify(tituloEmBranco),
+  );
+  const linksRuins = ["JAVASCRIPT:x", "http://", `https://exemplo.com/${"x".repeat(L.link_de_candidatura)}`];
+  const recusasDeLink = linksRuins.map(
+    (link) => f.problemasLocais({ ...validos, link_de_candidatura: link }, { criando: true }).link_de_candidatura ?? null,
+  );
+  afirmar(
+    "local: Link `JAVASCRIPT:x` (caixa alta), `http://` sem endereço e Link além de 2048 caracteres são recusados (o longo, com o teto na frase)",
+    recusasDeLink.every((l) => typeof l === "string" && l.includes(rotulos.link_de_candidatura)) &&
+      recusasDeLink[2].includes(String(L.link_de_candidatura)),
+    recusasDeLink.join(" | "),
+  );
+
+  const gravadosLimpos = f.valoresGravados(
+    { ...validos, resumo: null, xpto: "estranho", estado: "aberta" },
+    { titulo: "Do servidor", link_de_candidatura: null, modalidade: null, aberta_em: "2026-01-01T00:00:00Z", outro: 1 },
+  );
+  afirmar(
+    "`valoresGravados` devolve SÓ os campos do formulário (nada de `estado`, `aberta_em` ou campo estranho de qualquer lado) e nulo vira texto vazio",
+    igual(ordenado(Object.keys(gravadosLimpos)), ordenado([...f.CAMPOS_DO_FORMULARIO])) &&
+      Object.values(gravadosLimpos).every((v) => typeof v === "string") &&
+      gravadosLimpos.resumo === "" &&
+      gravadosLimpos.link_de_candidatura === "" &&
+      gravadosLimpos.titulo === "Do servidor" &&
+      gravadosLimpos.departamento_id === UUID_DEPARTAMENTO,
+    JSON.stringify(gravadosLimpos),
+  );
+
+  const corpoDosVazios = f.corpoParaSalvar(
+    {
+      ...f.valoresVazios(),
+      titulo: "  Analista  ",
+      slug: " analista ",
+      departamento_id: ` ${UUID_DEPARTAMENTO} `,
+      tipo_id: UUID_TIPO,
+      nivel_id: UUID_NIVEL,
+      modalidade: "   ",
+      localizacao: "",
+      resumo: " \n ",
+      link_de_candidatura: "",
+    },
+    null,
+    { criando: false },
+  );
+  const corpoCheio = f.corpoParaSalvar(
+    { ...validos, modalidade: " remoto ", localizacao: " Recife ", resumo: " Um resumo ", link_de_candidatura: " https://exemplo.com/v " },
+    null,
+    { criando: true },
+  );
+  afirmar(
+    "`corpoParaSalvar`: os quatro opcionais vazios (`OPCIONAIS_NULOS_QUANDO_VAZIOS`) viajam como `null`, e todo texto vai aparado",
+    igual([...f.OPCIONAIS_NULOS_QUANDO_VAZIOS], ["modalidade", "localizacao", "resumo", "link_de_candidatura"]) &&
+      f.OPCIONAIS_NULOS_QUANDO_VAZIOS.every((c) => corpoDosVazios[c] === null) &&
+      corpoDosVazios.titulo === "Analista" &&
+      corpoDosVazios.slug === "analista" &&
+      corpoDosVazios.departamento_id === UUID_DEPARTAMENTO &&
+      corpoCheio.modalidade === "remoto" &&
+      corpoCheio.localizacao === "Recife" &&
+      corpoCheio.resumo === "Um resumo" &&
+      corpoCheio.link_de_candidatura === "https://exemplo.com/v",
+    `${JSON.stringify({ ...corpoDosVazios, descricao: "(doc)" })} | ${JSON.stringify({ ...corpoCheio, descricao: "(doc)" })}`,
+  );
+
+  const TIPO_DE_CONFLITO = clienteDaEscritaDeCarreiras?.ERRO_CONFLITO ?? "conflito";
+  afirmar(
+    "o `faltando` do cliente REAL (seção l), passado a `errosDoServidor`, marca Link e Resumo com o rótulo do domínio",
+    resultadoComFaltandoDoCliente !== null &&
+      igual(ordenado(Object.keys(f.errosDoServidor(resultadoComFaltandoDoCliente.erro, { tipoDeConflito: TIPO_DE_CONFLITO }))), ["link_de_candidatura", "resumo"]) &&
+      f.errosDoServidor(resultadoComFaltandoDoCliente.erro, { tipoDeConflito: TIPO_DE_CONFLITO }).resumo.includes(rotulos.resumo),
+    JSON.stringify(resultadoComFaltandoDoCliente?.erro ?? null),
+  );
+  afirmar(
+    "`formulario.js` não importa `data/`: os tipos de erro chegam por parâmetro (sem o tipo, nenhum erro é tomado por conflito nem por inexistente)",
+    !origensDeImport(ler("src/admin/carreiras/formulario.js") ?? "").some((o) => /(^|\/)data\//.test(o)) &&
+      Object.keys(f.errosDoServidor({ tipo: "conflito", mensagem: "x" })).length === 0 &&
+      f.vagaInexistente({ tipo: "nao_encontrado" }) === false,
+    origensDeImport(ler("src/admin/carreiras/formulario.js") ?? "").join(", "),
+  );
+  const listasSujas = { departamentos: [{ id: UUID_DEPARTAMENTO, nome: "Operações" }, null, { nome: "sem id" }], tipos_de_vaga: "não é lista", niveis: null };
+  const comoListas = f.classificacoesComoListas(listasSujas);
+  afirmar(
+    "Classificações que não são lista viram lista vazia, e item sem identificador fica de fora",
+    igual(Object.keys(comoListas).sort(), ["departamentos", "niveis", "tipos_de_vaga"]) &&
+      comoListas.departamentos.length === 1 &&
+      igual(comoListas.tipos_de_vaga, []) &&
+      igual(comoListas.niveis, []) &&
+      igual(f.classificacoesComoListas(null).departamentos, []),
+    JSON.stringify(comoListas),
+  );
+  const ausentes = f.classificacoesAusentes({ ...validos, nivel_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaff" }, {
+    departamentos: [{ id: UUID_DEPARTAMENTO }],
+    tipos_de_vaga: [{ id: UUID_TIPO }],
+    niveis: [{ id: UUID_NIVEL }],
+  });
+  afirmar(
+    "a Classificação gravada que saiu da lista é acusada, com o rótulo do domínio; vazia não é (a obrigatoriedade é outra regra)",
+    igual(Object.keys(ausentes), ["nivel_id"]) &&
+      ausentes.nivel_id.includes(rotulos.nivel_id) &&
+      Object.keys(f.classificacoesAusentes({ ...validos, nivel_id: "" }, { departamentos: [{ id: UUID_DEPARTAMENTO }], tipos_de_vaga: [{ id: UUID_TIPO }], niveis: [] })).length === 0,
+    JSON.stringify(ausentes),
+  );
+  const passageiros = ["rede", "inesperado"];
+  afirmar(
+    "falha passageira: só os tipos que quem chama passa (`rede`, `inesperado`); `configuracao`, `permissao`, `dados_invalidos` e `conflito` não",
+    f.falhaPassageira({ tipo: "rede" }, passageiros) === true &&
+      f.falhaPassageira({ tipo: "inesperado" }, passageiros) === true &&
+      ["configuracao", "permissao", "dados_invalidos", "conflito", "nao_encontrado"].every((t) => f.falhaPassageira({ tipo: t }, passageiros) === false) &&
+      f.falhaPassageira(null, passageiros) === false &&
+      f.falhaPassageira({ tipo: "rede" }, undefined) === false,
+  );
+  afirmar(
+    "a frase da falha tem reserva: sem mensagem (ou só espaço), a frase de quem chama",
+    f.mensagemDaFalha({ mensagem: "Do servidor." }, "Reserva.") === "Do servidor." &&
+      f.mensagemDaFalha({ mensagem: "  " }, "Reserva.") === "Reserva." &&
+      f.mensagemDaFalha(null, "Reserva.") === "Reserva." &&
+      f.mensagemDaFalha({}, "Reserva.") === "Reserva.",
+  );
+
+  /* TROCA REGISTRADA (revisão da 5.4): `errosDoServidor` recebe o tipo de
+     conflito por parâmetro (antes o importava de `data/carreiras`). */
+  const doServidor = f.errosDoServidor({
+    tipo: "dados_invalidos",
+    mensagem: "Falta o link.",
+    faltando: ["link_de_candidatura", "resumo", "campo_que_nao_existe"],
+  }, { tipoDeConflito: TIPO_DE_CONFLITO });
+  afirmar(
+    "servidor: cada campo de `faltando` vira marca com a frase do rótulo do domínio (campo desconhecido não marca nada)",
+    igual(ordenado(Object.keys(doServidor)), ["link_de_candidatura", "resumo"]) &&
+      doServidor.link_de_candidatura.includes(rotulos.link_de_candidatura) &&
+      doServidor.resumo.includes(rotulos.resumo),
+    JSON.stringify(doServidor),
+  );
+  const conflito = f.errosDoServidor({ tipo: "conflito", mensagem: "Já existe uma vaga com este endereço." }, { tipoDeConflito: TIPO_DE_CONFLITO });
+  afirmar(
+    "servidor: o conflito marca o Slug com a frase do servidor; rede não marca campo nenhum",
+    igual(Object.keys(conflito), ["slug"]) &&
+      conflito.slug === "Já existe uma vaga com este endereço." &&
+      Object.keys(f.errosDoServidor({ tipo: "rede", mensagem: "x" }, { tipoDeConflito: TIPO_DE_CONFLITO })).length === 0 &&
+      Object.keys(f.errosDoServidor(null, { tipoDeConflito: TIPO_DE_CONFLITO })).length === 0,
+  );
+  /* TROCA REGISTRADA (revisão da 5.4): o tipo "não encontrado" chega por
+     parâmetro, o da leitura real. */
+  const leituraReal = await import(urlDe("src/data/carreiras/leitura.js")).catch(() => null);
+  const NAO_ENCONTRADO = leituraReal?.ERRO_NAO_ENCONTRADO;
+  afirmar(
+    "a Vaga inexistente é distinguida da leitura que falhou",
+    NAO_ENCONTRADO === "nao_encontrado" &&
+      f.vagaInexistente({ tipo: "nao_encontrado" }, NAO_ENCONTRADO) === true &&
+      f.vagaInexistente({ tipo: "rede" }, NAO_ENCONTRADO) === false &&
+      f.vagaInexistente(null, NAO_ENCONTRADO) === false,
+  );
+  const gravados = f.valoresGravados({ ...validos, resumo: "digitado" }, { titulo: "Do servidor", slug: "do-servidor" });
+  afirmar(
+    "depois de salvar, a tela mostra o que o servidor gravou, e o campo que a resposta não traz fica como estava",
+    gravados.titulo === "Do servidor" && gravados.slug === "do-servidor" && gravados.resumo === "digitado",
+  );
+}
+
+/* ─── (o) A tela montada ─────────────────────────────────────────────────── */
+
+secao("(o) a tela `EditorDeVaga` montada, com dublês de leitura e escrita, cobrindo a matriz de I/O (Story 5.4)");
+
+/*
+ * A INFRAESTRUTURA (revisão da 5.4):
+ *
+ * - Cada montagem é um CASO com nome. Ao desmontar, o caso confere que as
+ *   respostas preparadas nos dublês foram TODAS consumidas, que nenhuma escrita
+ *   inesperada aconteceu (`excluir*`, Classificação) e que o React não
+ *   reclamou de nada (act, key, estado depois de desmontar), salvo as exceções
+ *   de `RECLAMACOES_TOLERADAS`, cada uma com o motivo.
+ * - `console.error` é trocado UMA vez e restaurado num `finally` externo:
+ *   uma exceção no meio não deixa o processo mudo.
+ * - Nenhuma espera fixa: cada passo espera por uma CONDIÇÃO, com prazo, e o
+ *   prazo estourado é uma falha com nome, não um silêncio.
+ * - Clicar num elemento que não existe é uma falha com nome, e o resto do caso
+ *   segue.
+ */
+
+{
+  const { writeFileSync, rmSync } = await import("node:fs");
+  const montagem = await import("./montagem-comum.mjs");
+  const pasta = montagem.criarPastaDeCompilacao("verificar-carreiras-formulario-");
+
+  const ID_NOVA = "22222222-2222-4222-8222-222222222222";
+  const ID_RASCUNHO = "33333333-3333-4333-8333-333333333333";
+  const ID_ENCERRADA = "44444444-4444-4444-8444-444444444444";
+  const ID_COM_CITACAO = "55555555-5555-4555-8555-555555555555";
+  const ID_QUE_NAO_EXISTE = "66666666-6666-4666-8666-666666666666";
+  const ID_ABERTA = "77777777-7777-4777-8777-777777777777";
+  const ID_OUTRA = "88888888-8888-4888-8888-888888888888";
+  const ID_NIVEL_SUMIDO = "99999999-9999-4999-8999-999999999999";
+  const ID_DADOS_NULOS = "abababab-abab-4bab-8bab-abababababab";
+  const UUID_NIVEL_QUE_SUMIU = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaff";
+
+  const arquivoDaLeitura = path.join(pasta, "duble-leitura.js");
+  writeFileSync(
+    arquivoDaLeitura,
+    `export { ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const controle = {
+  classificacoes: null,
+  vagas: {},
+  falharLeitura: false,
+  falharClassificacoes: false,
+  lancar: false,
+  dadosNulos: [],
+  segurar: null,
+  chamadas: [],
+};
+export async function listarClassificacoesDoPainel() {
+  controle.chamadas.push(["classificacoes"]);
+  if (controle.segurar) await controle.segurar;
+  if (controle.lancar) throw new Error("dublê: a leitura lançou");
+  if (controle.falharClassificacoes) {
+    return { ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos ler as classificações. Confira a conexão." } };
+  }
+  return { ok: true, dados: JSON.parse(JSON.stringify(controle.classificacoes)) };
+}
+export async function lerVagaDoPainelPorId(id) {
+  controle.chamadas.push(["vaga", id]);
+  if (controle.segurar) await controle.segurar;
+  if (controle.lancar) throw new Error("dublê: a leitura lançou");
+  if (controle.falharLeitura) {
+    return { ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o banco. Confira a conexão." } };
+  }
+  if (controle.dadosNulos.includes(id)) return { ok: true, dados: null };
+  const vaga = controle.vagas[id];
+  if (!vaga) return { ok: false, erro: { tipo: "nao_encontrado", mensagem: "Esta vaga não foi encontrada." } };
+  return { ok: true, dados: JSON.parse(JSON.stringify(vaga)) };
+}
+`,
+  );
+  /* Os literais de tipo de erro do dublê de escrita: `ERRO_REDE` e
+     `ERRO_INESPERADO` vêm do contrato de resultado real; `ERRO_CONFLITO` é
+     escrito aqui e CONFERIDO contra o módulo real logo abaixo. */
+  const arquivoDaEscrita = path.join(pasta, "duble-escrita.js");
+  writeFileSync(
+    arquivoDaEscrita,
+    `export { ERRO_REDE, ERRO_INESPERADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const ERRO_CONFLITO = "conflito";
+export const controle = { chamadas: [], todas: [], respostas: { salvarVaga: [], mudarEstadoDaVaga: [] } };
+function registrar(chamada) {
+  controle.chamadas.push(chamada);
+  controle.todas.push(chamada);
+}
+function responder(fila, argumentos) {
+  const resposta = fila.shift();
+  if (typeof resposta === "function") return resposta(...argumentos);
+  return resposta ?? { ok: false, erro: { tipo: "dados_invalidos", mensagem: "O dublê não tinha resposta preparada para este pedido." } };
+}
+export async function salvarVaga(campos, opcoes = {}) {
+  registrar({ op: "salvarVaga", campos: JSON.parse(JSON.stringify(campos)), id: opcoes.id ?? null });
+  return responder(controle.respostas.salvarVaga, [campos, opcoes]);
+}
+export async function mudarEstadoDaVaga(id, acao) {
+  registrar({ op: "mudarEstadoDaVaga", id, acao });
+  return responder(controle.respostas.mudarEstadoDaVaga, [id, acao]);
+}
+export async function excluirVaga(id) {
+  registrar({ op: "excluirVaga", id });
+  return { ok: true, dados: {} };
+}
+export async function salvarClassificacao() {
+  registrar({ op: "salvarClassificacao" });
+  return { ok: true, dados: {} };
+}
+export async function excluirClassificacao() {
+  registrar({ op: "excluirClassificacao" });
+  return { ok: true, dados: {} };
+}
+`,
+  );
+  /* As notificações são observadas por um dublê que PASSA pela regra de voz
+     de verdade: frase vaga numa notificação da tela acusa aqui. A saída (a
+     ação de resolver) é guardada, para o teste acioná-la. */
+  const arquivoDasNotificacoes = path.join(pasta, "duble-notificacoes.js");
+  writeFileSync(
+    arquivoDasNotificacoes,
+    `import { diagnosticarMensagem, diagnosticarRotuloDeAcao } from ${montagem.caminhoDeModulo("src/admin/shell/voz.js")};
+export const controle = { erros: [], sucessos: [], problemasDeVoz: [], lancarUmaVez: false };
+function conferir(rotulo, texto) {
+  const problema = diagnosticarMensagem(rotulo, texto);
+  if (problema) controle.problemasDeVoz.push(problema);
+}
+export function notificarErro(oQueHouve, oQueFazer, saida = null) {
+  if (controle.lancarUmaVez) {
+    controle.lancarUmaVez = false;
+    throw new Error("dublê: a notificação lançou");
+  }
+  conferir("o que houve", oQueHouve);
+  conferir("o que fazer", oQueFazer);
+  if (saida) {
+    const problema = diagnosticarRotuloDeAcao(saida.rotulo);
+    if (problema) controle.problemasDeVoz.push(problema);
+    if (typeof saida.aoAcionar !== "function") controle.problemasDeVoz.push("saída sem aoAcionar: " + saida.rotulo);
+  }
+  controle.erros.push([oQueHouve, oQueFazer, saida]);
+}
+export function notificarSucesso(oQueAconteceu, detalhe) {
+  conferir("o que aconteceu", oQueAconteceu);
+  controle.sucessos.push([oQueAconteceu, detalhe ?? ""]);
+}
+export default function Notificacoes() { return null; }
+`,
+  );
+
+  const fonte =
+    `export { default as EditorDeVaga } from ${montagem.caminhoDeModulo("src/admin/carreiras/EditorDeVaga.jsx")};\n` +
+    `export { ROTA_DA_VAGA, ROTA_DA_VAGA_NOVA } from ${montagem.caminhoDeModulo("src/admin/carreiras/rotas.js")};\n` +
+    `export * as dubleDaEscrita from ${montagem.comoModulo(arquivoDaEscrita)};\n` +
+    `export { controle as controleDaLeitura } from ${montagem.comoModulo(arquivoDaLeitura)};\n` +
+    `export { controle as controleDaEscrita } from ${montagem.comoModulo(arquivoDaEscrita)};\n` +
+    `export { controle as controleDasNotificacoes } from ${montagem.comoModulo(arquivoDasNotificacoes)};\n`;
+
+  let compilado = null;
+  try {
+    compilado = await montagem.compilarParaNode({
+      pasta,
+      fonte,
+      alias: {
+        "@/data/carreiras/leitura": arquivoDaLeitura,
+        "@/data/carreiras/escrita": arquivoDaEscrita,
+        "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
+      },
+    });
+  } catch (erro) {
+    afirmar("a tela de Vaga compila pelo empacotador da aplicação", false, erro?.message ?? String(erro));
+  }
+
+  if (compilado !== null) {
+    afirmar("a tela de Vaga compila pelo empacotador da aplicação", true);
+
+    const janela = montagem.montarNavegador({ url: "https://painel.local/admin" });
+    const modulo = await import(pathToFileURL(compilado.arquivo).href);
+    const React = (await import("react")).default;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const roteador = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+      value: true,
+      configurable: true,
+      writable: true,
+    });
+    const h = React.createElement;
+    const leitura = modulo.controleDaLeitura;
+    const escrita = modulo.controleDaEscrita;
+    const avisos = modulo.controleDasNotificacoes;
+
+    afirmar(
+      "os literais de tipo de erro do dublê de escrita são os do módulo REAL (`conflito`, `rede`, `inesperado`)",
+      clienteDaEscritaDeCarreiras !== null &&
+        modulo.dubleDaEscrita.ERRO_CONFLITO === clienteDaEscritaDeCarreiras.ERRO_CONFLITO &&
+        modulo.dubleDaEscrita.ERRO_REDE === clienteDaEscritaDeCarreiras.ERRO_REDE &&
+        modulo.dubleDaEscrita.ERRO_INESPERADO === clienteDaEscritaDeCarreiras.ERRO_INESPERADO,
+    );
+
+    const CLASSIFICACOES_DO_BANCO = {
+      departamentos: [
+        { id: UUID_DEPARTAMENTO, nome: "Operações", cor: "var(--categoria-verde-bg)", ordem: 0, vagas: 0 },
+        { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab1", nome: "Tecnologia", cor: "var(--categoria-azul-bg)", ordem: 1, vagas: 0 },
+      ],
+      tipos_de_vaga: [{ id: UUID_TIPO, nome: "CLT", equivalente_jobposting: "FULL_TIME", ordem: 0, vagas: 0 }],
+      niveis: [
+        { id: UUID_NIVEL, nome: "Pleno", cor: "var(--categoria-azul-bg)", ordem: 0, vagas: 0 },
+        { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab3", nome: "Sênior", cor: "var(--categoria-roxo-bg)", ordem: 1, vagas: 0 },
+      ],
+    };
+    leitura.classificacoes = CLASSIFICACOES_DO_BANCO;
+    const docSimples = (texto) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: texto }] }] });
+    const vagaBase = (id, extra) => ({
+      id,
+      titulo: "Analista de Suporte",
+      slug: "analista-de-suporte",
+      estado: "rascunho",
+      departamento_id: UUID_DEPARTAMENTO,
+      tipo_id: UUID_TIPO,
+      nivel_id: UUID_NIVEL,
+      modalidade: "remoto",
+      localizacao: "",
+      resumo: "Atender clientes.",
+      descricao: docSimples("Descrição da vaga."),
+      descricao_html: "<p>Descrição da vaga.</p>",
+      link_de_candidatura: null,
+      aberta_em: null,
+      criado_em: "2026-09-01T00:00:00Z",
+      atualizado_em: "2026-09-01T00:00:00Z",
+      ...extra,
+    });
+    leitura.vagas[ID_RASCUNHO] = vagaBase(ID_RASCUNHO, {});
+    leitura.vagas[ID_ENCERRADA] = vagaBase(ID_ENCERRADA, {
+      titulo: "Vaga encerrada",
+      slug: "vaga-encerrada",
+      estado: "encerrada",
+      aberta_em: "2026-08-01T12:00:00Z",
+      link_de_candidatura: "https://exemplo.com/candidatura",
+    });
+    leitura.vagas[ID_ABERTA] = vagaBase(ID_ABERTA, {
+      titulo: "Vaga aberta de verdade",
+      slug: "vaga-aberta-de-verdade",
+      estado: "aberta",
+      aberta_em: "2026-09-10T12:00:00Z",
+      link_de_candidatura: "https://exemplo.com/aberta",
+    });
+    leitura.vagas[ID_OUTRA] = vagaBase(ID_OUTRA, {
+      titulo: "Outra vaga qualquer",
+      slug: "outra-vaga-qualquer",
+      resumo: "Resumo da outra.",
+      descricao: docSimples("Descrição da outra vaga."),
+    });
+    leitura.vagas[ID_NIVEL_SUMIDO] = vagaBase(ID_NIVEL_SUMIDO, {
+      titulo: "Vaga com nível sumido",
+      slug: "vaga-com-nivel-sumido",
+      nivel_id: UUID_NIVEL_QUE_SUMIU,
+    });
+    leitura.vagas[ID_COM_CITACAO] = vagaBase(ID_COM_CITACAO, {
+      descricao: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Texto que fica" }] },
+          { type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "Citação gravada à força" }] }] },
+        ],
+      },
+    });
+    leitura.dadosNulos.push(ID_DADOS_NULOS);
+
+    /** A Vaga que o servidor devolve, a partir do que foi mandado. */
+    const vagaGravada = (id, campos, extra = {}) => ({
+      ...vagaBase(id, {}),
+      ...campos,
+      slug: campos.slug ?? "analista-de-cs",
+      id,
+      ...extra,
+    });
+    /** Uma resposta que só chega quando o teste solta. */
+    const segurada = (resposta) => {
+      const controle = { soltar: null };
+      const promessa = new Promise((resolver) => {
+        controle.soltar = () => resolver(typeof resposta === "function" ? resposta() : resposta);
+      });
+      return { controle, responder: () => promessa };
+    };
+
+    /* As reclamações do React que se toleram, cada uma com o MOTIVO. Vazia de
+       propósito: qualquer reclamação é defeito até prova em contrário. */
+    const RECLAMACOES_TOLERADAS = [];
+
+    function Onde() {
+      const local = roteador.useLocation();
+      return h("span", { "data-onde": local.pathname });
+    }
+    function Listagem() {
+      return h("p", { "data-papel": "listagem-de-mentira" }, "listagem");
+    }
+    /* A ponte para o teste navegar DENTRO do roteador montado, como um clique
+       num link da listagem faria. */
+    const ponte = { navegar: null };
+    function Navegador() {
+      const navegar = roteador.useNavigate();
+      React.useEffect(() => {
+        ponte.navegar = navegar;
+      });
+      return null;
+    }
+
+    /** Um passo de relógio dentro do `act`: efeitos, promessas e redesenho. */
+    const passo = async () => {
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 0));
+      });
+    };
+    /** Espera uma CONDIÇÃO, com prazo; o prazo estourado é falha com nome. */
+    const esperarAte = async (condicao, descricao, prazo = 4000) => {
+      const limite = Date.now() + prazo;
+      for (;;) {
+        await passo();
+        let pronto = false;
+        try {
+          pronto = Boolean(condicao());
+        } catch {
+          pronto = false;
+        }
+        if (pronto) return true;
+        if (Date.now() > limite) {
+          afirmar(`espera com prazo: ${descricao} (${prazo} ms)`, false);
+          return false;
+        }
+      }
+    };
+
+    const reclamacoes = [];
+    const erroOriginal = console.error;
+    console.error = (...partes) => reclamacoes.push(partes.map(String).join(" "));
+
+    const montar = async (caminho, { caso, ateQue = null } = {}) => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+      const raizReact = createRoot(alvo);
+      const inicioDasReclamacoes = reclamacoes.length;
+      const inicioDasEscritas = escrita.todas.length;
+      escrita.chamadas.length = 0;
+      leitura.chamadas.length = 0;
+      await act(async () => {
+        raizReact.render(
+          h(
+            roteador.MemoryRouter,
+            { initialEntries: [caminho] },
+            h(Onde),
+            h(Navegador),
+            h(
+              roteador.Routes,
+              null,
+              h(
+                roteador.Route,
+                { path: "/admin", element: h(roteador.Outlet) },
+                h(roteador.Route, { index: true, element: h(Listagem) }),
+                h(roteador.Route, { path: modulo.ROTA_DA_VAGA_NOVA, element: h(modulo.EditorDeVaga) }),
+                h(roteador.Route, { path: modulo.ROTA_DA_VAGA, element: h(modulo.EditorDeVaga) }),
+              ),
+            ),
+          ),
+        );
+      });
+      const acharPorTexto = (dentro, texto) =>
+        [...(dentro?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === texto) ?? null;
+      const tela = {
+        caso,
+        alvo,
+        onde: () => alvo.querySelector("[data-onde]")?.getAttribute("data-onde") ?? null,
+        situacao: () =>
+          alvo.querySelector("[data-situacao]:not([data-situacao='sem-identificador'])")?.getAttribute("data-situacao") ?? null,
+        campo: (nome) => alvo.querySelector(`[data-campo="${nome}"]`),
+        acoes: () => [...alvo.querySelectorAll("button[data-acao]")].map((b) => b.getAttribute("data-acao")),
+        acao: (chave) => alvo.querySelector(`button[data-acao="${chave}"]`),
+        pilula: () => alvo.querySelector("[data-estado]")?.getAttribute("data-estado") ?? null,
+        voltar: () => alvo.querySelector('button[aria-label="Voltar para a listagem"]'),
+        dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+        textoDoEditor: () => alvo.querySelector('[role="textbox"]')?.textContent ?? null,
+        ocioso: () => alvo.querySelector('[aria-busy="true"]') === null,
+        acharPorTexto,
+        /** A recusa ligada ao campo, por um dos ids do `aria-describedby`, quando ele está inválido. */
+        recusaDe(nome) {
+          const el = alvo.querySelector(`[data-campo="${nome}"]`);
+          if (!el || el.getAttribute("aria-invalid") !== "true") return null;
+          for (const id of (el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean)) {
+            const descritor = janela.document.getElementById(id);
+            if (descritor && descritor.getAttribute("role") === "alert" && (descritor.textContent ?? "").trim() !== "") {
+              return (descritor.textContent ?? "").trim();
+            }
+          }
+          return null;
+        },
+        /** Clica e espera a tela assentar (ou a condição dada). Elemento ausente é falha com nome. */
+        async clicar(elemento, nome, ateQue = null) {
+          if (!elemento) {
+            afirmar(`${caso}: o elemento "${nome}" existe na tela para ser clicado`, false);
+            return false;
+          }
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+          });
+          return esperarAte(ateQue ?? tela.ocioso, `${caso}: a tela assenta depois de clicar em ${nome}`);
+        },
+        /** Dois cliques no MESMO instante: o segundo chega antes de qualquer redesenho. */
+        async clicarDuasVezes(elemento, nome, ateQue) {
+          if (!elemento) {
+            afirmar(`${caso}: o elemento "${nome}" existe na tela para o clique duplo`, false);
+            return false;
+          }
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true }));
+          });
+          return esperarAte(ateQue, `${caso}: a tela reage ao clique duplo em ${nome}`);
+        },
+        async digitar(elemento, texto, nome = "campo") {
+          if (!elemento) {
+            afirmar(`${caso}: o ${nome} existe na tela para receber texto`, false);
+            return;
+          }
+          const prototipo =
+            elemento.tagName === "TEXTAREA"
+              ? janela.HTMLTextAreaElement.prototype
+              : elemento.tagName === "SELECT"
+                ? janela.HTMLSelectElement.prototype
+                : janela.HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(prototipo, "value").set;
+          await act(async () => {
+            setter.call(elemento, texto);
+            elemento.dispatchEvent(
+              new janela.Event(elemento.tagName === "SELECT" ? "change" : "input", { bubbles: true }),
+            );
+          });
+        },
+        async irPara(caminhoNovo, ateQueNovo) {
+          if (typeof ponte.navegar !== "function") {
+            afirmar(`${caso}: a ponte de navegação existe`, false);
+            return false;
+          }
+          await act(async () => {
+            ponte.navegar(caminhoNovo);
+          });
+          return esperarAte(ateQueNovo, `${caso}: a tela assenta depois de ir para ${caminhoNovo}`);
+        },
+        /** Aciona a ação de resolver da última notificação de erro. */
+        async acionarSaida(ateQue = null) {
+          const saida = avisos.erros.at(-1)?.[2] ?? null;
+          if (!saida || typeof saida.aoAcionar !== "function") {
+            afirmar(`${caso}: a última notificação de erro tem a ação de resolver`, false);
+            return false;
+          }
+          await act(async () => {
+            saida.aoAcionar();
+          });
+          return esperarAte(ateQue ?? tela.ocioso, `${caso}: a tela assenta depois de "${saida.rotulo}"`);
+        },
+        /** O navegador perguntaria ao fechar a aba? */
+        perguntariaAoSair() {
+          const evento = new janela.Event("beforeunload", { cancelable: true });
+          janela.dispatchEvent(evento);
+          return evento.defaultPrevented;
+        },
+        async desmontar() {
+          await act(async () => raizReact.unmount());
+          await passo();
+          alvo.remove();
+          const sobras = {
+            salvarVaga: escrita.respostas.salvarVaga.length,
+            mudarEstadoDaVaga: escrita.respostas.mudarEstadoDaVaga.length,
+          };
+          const inesperadas = escrita.todas
+            .slice(inicioDasEscritas)
+            .filter((c) => c.op !== "salvarVaga" && c.op !== "mudarEstadoDaVaga");
+          afirmar(
+            `${caso}: toda resposta preparada nos dublês foi consumida, e nenhuma escrita inesperada (excluir, Classificação) aconteceu`,
+            sobras.salvarVaga === 0 && sobras.mudarEstadoDaVaga === 0 && inesperadas.length === 0,
+            `sobras: ${JSON.stringify(sobras)} | inesperadas: ${JSON.stringify(inesperadas.map((c) => c.op))}`,
+          );
+          escrita.respostas.salvarVaga.length = 0;
+          escrita.respostas.mudarEstadoDaVaga.length = 0;
+          const doCaso = reclamacoes
+            .slice(inicioDasReclamacoes)
+            .filter((r) => !RECLAMACOES_TOLERADAS.some((t) => t.padrao.test(r)));
+          afirmar(
+            `${caso}: o React não reclamou de nada (act, key, estado depois de desmontar)`,
+            doCaso.length === 0,
+            doCaso.slice(0, 2).map((r) => r.slice(0, 300)).join(" | "),
+          );
+        },
+      };
+      await esperarAte(
+        ateQue ?? (() => tela.ocioso() && tela.situacao() !== null && tela.situacao() !== "carregando"),
+        `${caso}: a tela monta e assenta em ${caminho}`,
+      );
+      return tela;
+    };
+
+    const preencherMinimo = async (tela) => {
+      await tela.digitar(tela.campo("titulo"), "Analista de CS", "título");
+      await tela.digitar(tela.campo("departamento_id"), UUID_DEPARTAMENTO, "Departamento");
+      await tela.digitar(tela.campo("tipo_id"), UUID_TIPO, "Tipo");
+      await tela.digitar(tela.campo("nivel_id"), UUID_NIVEL, "Nível");
+    };
+    const rotulos = regrasDaVaga.ROTULOS_DOS_CAMPOS;
+    const FALHA_DE_REDE_AO_SALVAR = {
+      ok: false,
+      erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para salvar a vaga. Confira a conexão e tente salvar de novo." },
+    };
+
+    try {
+      /* ══ Nova: esqueleto, campos vazios, Classificações do banco, só Salvar ══ */
+      let soltar = null;
+      leitura.segurar = new Promise((resolver) => {
+        soltar = resolver;
+      });
+      janela.document.body.style.overflow = "auto";
+      const nova = await montar("/admin/carreiras/vaga/nova", {
+        caso: "Nova",
+        ateQue: () => janela.document.querySelector('[data-situacao="carregando"]') !== null,
+      });
+      afirmar(
+        "Nova: enquanto carrega, esqueleto e nenhum campo (nunca tela em branco)",
+        nova.alvo.querySelector('[data-situacao="carregando"]') !== null && nova.campo("titulo") === null,
+      );
+      afirmar(
+        "a moldura trava a rolagem do documento enquanto a tela está montada",
+        janela.document.body.style.overflow === "hidden",
+        janela.document.body.style.overflow,
+      );
+      soltar();
+      leitura.segurar = null;
+      await esperarAte(() => nova.situacao() === "pronta", "Nova: o formulário aparece depois da carga");
+      const opcoesDe = (tela, nome) => [...(tela.campo(nome)?.querySelectorAll("option") ?? [])].map((o) => o.textContent);
+      afirmar(
+        "Nova: campos vazios, as Classificações do banco nos `<select>` (na ordem de lá), Estado nenhum e só a ação Salvar",
+        nova.campo("titulo")?.value === "" &&
+          nova.campo("slug")?.value === "" &&
+          igual(opcoesDe(nova, "departamento_id").slice(1), ["Operações", "Tecnologia"]) &&
+          igual(opcoesDe(nova, "tipo_id").slice(1), ["CLT"]) &&
+          igual(opcoesDe(nova, "nivel_id").slice(1), ["Pleno", "Sênior"]) &&
+          nova.pilula() === null &&
+          igual(nova.acoes(), ["salvar"]) &&
+          !leitura.chamadas.some((c) => c[0] === "vaga"),
+        `ações: ${nova.acoes().join(", ")} | departamentos: ${opcoesDe(nova, "departamento_id").join(", ")}`,
+      );
+      afirmar(
+        "os campos são nativos, com rótulo, e o título e as três Classificações dizem \"(obrigatório)\" por extenso",
+        ["titulo", "departamento_id", "tipo_id", "nivel_id"].every((nome) => {
+          const el = nova.campo(nome);
+          const rotulo = el ? nova.alvo.querySelector(`label[for="${el.id}"]`) : null;
+          return rotulo !== null && (rotulo.textContent ?? "").includes("(obrigatório)");
+        }) &&
+          nova.campo("titulo")?.tagName === "INPUT" &&
+          nova.campo("nivel_id")?.tagName === "SELECT" &&
+          nova.campo("resumo")?.tagName === "TEXTAREA",
+      );
+      const recusasMontadas = [...nova.alvo.querySelectorAll('[data-papel="recusa"]')];
+      afirmar(
+        "a região de recusa de CADA campo (e da Descrição) já nasce montada, como região viva (`role=alert`, `aria-live`), e vazia",
+        recusasMontadas.length === 10 &&
+          recusasMontadas.every(
+            (r) => r.getAttribute("role") === "alert" && r.getAttribute("aria-live") === "assertive" && (r.textContent ?? "").trim() === "" && !r.hidden,
+          ),
+        `${recusasMontadas.length} região(ões): ${recusasMontadas.map((r) => `${r.getAttribute("role")}/${r.getAttribute("aria-live")}`).join(", ")}`,
+      );
+
+      /* A barra da Descrição: só os controles da projeção. O link mora na
+         barra flutuante, então a barra FIXA mostra os outros seis. */
+      const rotulosDaBarra = [...nova.alvo.querySelectorAll('[role="toolbar"] button[aria-label]')].map((b) =>
+        b.getAttribute("aria-label"),
+      );
+      const esperadosNaBarra = descricaoDaVaga.VOCABULARIO_DA_VAGA.elementos
+        .filter((e) => e.chave !== "link")
+        .map((e) => e.rotulo);
+      const PROIBIDOS_NA_BARRA = ["Citação", "Bloco de código", "Linha divisória", "Alinhar à esquerda", "Centralizar", "Alinhar à direita", "Inserir imagem", "Destaque de cor"];
+      afirmar(
+        "Descrição reduzida: a barra tem só título 2/3, negrito, itálico e as duas listas (o link vai na flutuante), sem citação, código, imagem, destaque, alinhamento nem linha",
+        igual(rotulosDaBarra.filter((r) => r !== "Desfazer" && r !== "Refazer"), esperadosNaBarra) &&
+          esperadosNaBarra.length === 6 &&
+          !rotulosDaBarra.some((r) => PROIBIDOS_NA_BARRA.includes(r)),
+        rotulosDaBarra.join(", "),
+      );
+      const caixa = nova.alvo.querySelector('[role="textbox"]');
+      const editorMontado = caixa?.editor ?? null;
+      const nosDoEditor = Object.keys(editorMontado?.schema?.nodes ?? {});
+      const marcasDoEditor = Object.keys(editorMontado?.schema?.marks ?? {});
+      afirmar(
+        "e o EDITOR montado não tem nó nem marca fora da projeção (nada de citação, código, linha, imagem, destaque)",
+        editorMontado !== null &&
+          caixa.getAttribute("aria-label") === descricaoDaVaga.VOCABULARIO_DA_VAGA.mensagens.rotuloDoConteudo &&
+          nosDoEditor.every((n) => Object.hasOwn(descricaoDaVaga.VOCABULARIO_DA_VAGA.nos, n) || n === "text") &&
+          marcasDoEditor.every((m) => Object.hasOwn(descricaoDaVaga.VOCABULARIO_DA_VAGA.marcas, m)) &&
+          !nosDoEditor.some((n) => ["blockquote", "codeBlock", "horizontalRule", "image"].includes(n)) &&
+          !marcasDoEditor.includes("highlight"),
+        `nós: ${nosDoEditor.join(", ")} | marcas: ${marcasDoEditor.join(", ")}`,
+      );
+
+      /* ── A ajuda da Localização segue a Modalidade ── */
+      const ajudaDaLocalizacao = () => nova.alvo.querySelector('[data-papel="ajuda-da-localizacao"]')?.textContent ?? "";
+      const semModalidade = ajudaDaLocalizacao();
+      await nova.digitar(nova.campo("modalidade"), "remoto", "Modalidade");
+      const naRemota = ajudaDaLocalizacao();
+      await nova.digitar(nova.campo("modalidade"), "presencial", "Modalidade");
+      const naPresencial = ajudaDaLocalizacao();
+      await nova.digitar(nova.campo("modalidade"), "", "Modalidade");
+      afirmar(
+        "a ajuda da Localização segue a Modalidade escolhida: sem Modalidade, remota e presencial dizem coisas diferentes, e só a remota diz que é opcional",
+        new Set([semModalidade, naRemota, naPresencial]).size === 3 &&
+          /opcional/i.test(naRemota) &&
+          !/opcional/i.test(naPresencial) &&
+          !/opcional/i.test(semModalidade) &&
+          /remota/.test(semModalidade),
+        `${semModalidade} | ${naRemota} | ${naPresencial}`,
+      );
+
+      /* ── Slug automático ── */
+      await nova.digitar(nova.campo("titulo"), "Analista de CS", "título");
+      const derivado = nova.campo("slug")?.value;
+      await nova.digitar(nova.campo("slug"), "vaga-escolhida", "Slug");
+      await nova.digitar(nova.campo("titulo"), "Analista de CS Sênior", "título");
+      afirmar(
+        "Slug automático: \"Analista de CS\" dá `analista-de-cs`; depois de editado à mão, o título deixa de reescrevê-lo",
+        derivado === "analista-de-cs" && nova.campo("slug")?.value === "vaga-escolhida",
+        `${derivado} | ${nova.campo("slug")?.value}`,
+      );
+      afirmar(
+        "com alteração pendente, o navegador pergunta ao fechar a aba",
+        nova.perguntariaAoSair() === true,
+      );
+
+      /* ── Local: obrigatórios ── */
+      await nova.digitar(nova.campo("titulo"), "", "título");
+      const errosAntes = avisos.erros.length;
+      await nova.clicar(nova.acao("salvar"), "Salvar");
+      afirmar(
+        "Local: Salvar sem título e sem Nível marca os dois (aria-invalid, aria-describedby, role=alert), notifica, e NÃO chama o servidor",
+        nova.recusaDe("titulo")?.includes(rotulos.titulo) === true &&
+          nova.recusaDe("nivel_id")?.includes(rotulos.nivel_id) === true &&
+          escrita.chamadas.length === 0 &&
+          avisos.erros.length === errosAntes + 1,
+        `título: ${nova.recusaDe("titulo")} | nível: ${nova.recusaDe("nivel_id")} | chamadas: ${escrita.chamadas.length}`,
+      );
+      await nova.digitar(nova.campo("titulo"), "Analista de CS", "título");
+      afirmar(
+        "a marca do campo some assim que a pessoa o preenche",
+        nova.recusaDe("titulo") === null && nova.recusaDe("nivel_id") !== null,
+      );
+
+      /* ── Local: link ── */
+      await preencherMinimo(nova);
+      await nova.digitar(nova.campo("slug"), "analista-de-cs", "Slug");
+      await nova.digitar(nova.campo("link_de_candidatura"), "javascript:x", "Link");
+      await nova.clicar(nova.acao("salvar"), "Salvar");
+      afirmar(
+        "Local: `javascript:x` no Link marca o campo, e nada é enviado",
+        nova.recusaDe("link_de_candidatura")?.includes(rotulos.link_de_candidatura) === true &&
+          escrita.chamadas.length === 0,
+        nova.recusaDe("link_de_candidatura"),
+      );
+
+      /* ── Local: Slug torto ── */
+      await nova.digitar(nova.campo("link_de_candidatura"), "https://exemplo.com/vaga", "Link");
+      await nova.digitar(nova.campo("slug"), "Analista De CS", "Slug");
+      await nova.clicar(nova.acao("salvar"), "Salvar");
+      afirmar(
+        "Local: Slug fora do formato do domínio marca o Endereço com a frase do domínio, e nada é enviado",
+        nova.recusaDe("slug") === regrasDaVaga.problemaNoSlug("Analista De CS") && escrita.chamadas.length === 0,
+        nova.recusaDe("slug"),
+      );
+      await nova.digitar(nova.campo("slug"), "analista-de-cs", "Slug");
+
+      /* ── Local: tamanho ── */
+      await nova.digitar(nova.campo("resumo"), "r".repeat(regrasDaVaga.LIMITES_DA_VAGA.resumo + 1), "Resumo");
+      await nova.clicar(nova.acao("salvar"), "Salvar");
+      const descritoresDoResumo = (nova.campo("resumo")?.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+      afirmar(
+        "Local: Resumo com 201 caracteres marca o Resumo, e nada é enviado",
+        nova.recusaDe("resumo")?.includes(String(regrasDaVaga.LIMITES_DA_VAGA.resumo)) === true &&
+          nova.recusaDe("link_de_candidatura") === null &&
+          escrita.chamadas.length === 0,
+        nova.recusaDe("resumo"),
+      );
+      afirmar(
+        "o campo com ajuda E erro descreve-se pelos DOIS (`aria-describedby` com a ajuda e a recusa)",
+        descritoresDoResumo.length === 2 &&
+          descritoresDoResumo.every((id) => janela.document.getElementById(id) !== null) &&
+          descritoresDoResumo.some((id) => janela.document.getElementById(id)?.getAttribute("role") === "alert") &&
+          descritoresDoResumo.some((id) => /Necessário para abrir/.test(janela.document.getElementById(id)?.textContent ?? "")),
+        descritoresDoResumo.join(" "),
+      );
+
+      /* ── Salvar nova ── */
+      await nova.digitar(nova.campo("resumo"), "Atender clientes pelo WhatsApp.", "Resumo");
+      escrita.respostas.salvarVaga.push((campos) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: true, vaga: vagaGravada(ID_NOVA, campos, { estado: "rascunho", aberta_em: null }) },
+      }));
+      const chamadasDeLeituraAntes = leitura.chamadas.length;
+      await nova.clicar(nova.acao("salvar"), "Salvar", () => nova.ocioso() && nova.onde() !== "/admin/carreiras/vaga/nova");
+      const primeira = escrita.chamadas[0];
+      afirmar(
+        "Salvar nova: `salvarVaga(campos)` sem id, com as colunas à mão (sem `estado` nem `aberta_em`) e a Descrição como documento",
+        escrita.chamadas.length === 1 &&
+          primeira?.op === "salvarVaga" &&
+          primeira.id === null &&
+          primeira.campos.titulo === "Analista de CS" &&
+          primeira.campos.slug === "analista-de-cs" &&
+          primeira.campos.departamento_id === UUID_DEPARTAMENTO &&
+          primeira.campos.link_de_candidatura === "https://exemplo.com/vaga" &&
+          primeira.campos.modalidade === null &&
+          primeira.campos.localizacao === null &&
+          !Object.hasOwn(primeira.campos, "estado") &&
+          !Object.hasOwn(primeira.campos, "aberta_em") &&
+          primeira.campos.descricao?.type === "doc",
+        JSON.stringify(primeira ?? {}),
+      );
+      afirmar(
+        "ao voltar `criada`, a URL passa a `/admin/carreiras/vaga/<id>`, a tela NÃO é relida do banco, e o Estado aparece com Abrir vaga",
+        nova.onde() === `/admin/carreiras/vaga/${ID_NOVA}` &&
+          leitura.chamadas.length === chamadasDeLeituraAntes &&
+          nova.pilula() === "rascunho" &&
+          nova.campo("resumo")?.value === "Atender clientes pelo WhatsApp." &&
+          igual(nova.acoes(), ["salvar", "abrir"]),
+        `onde: ${nova.onde()} | leituras: ${leitura.chamadas.length - chamadasDeLeituraAntes} | ações: ${nova.acoes().join(", ")}`,
+      );
+      afirmar(
+        "e a pendência zera: o navegador não pergunta mais, e Voltar sai sem diálogo",
+        nova.perguntariaAoSair() === false,
+      );
+      afirmar(
+        "a notificação de sucesso nomeia o que aconteceu",
+        avisos.sucessos.at(-1)?.[0] === "Vaga criada",
+        JSON.stringify(avisos.sucessos.at(-1)),
+      );
+      await nova.clicar(nova.voltar(), "Voltar");
+      afirmar(
+        "Voltar sem pendência vai direto para `/admin`, sem diálogo, e a moldura RESTAURA a rolagem do documento",
+        nova.onde() === "/admin" && nova.dialogo() === null && janela.document.body.style.overflow === "auto",
+        `${nova.onde()} | overflow: ${janela.document.body.style.overflow}`,
+      );
+      await nova.desmontar();
+
+      /* ══ Duplo clique: nem duas Vagas, nem duas mudanças de Estado ══ */
+      const dupla = await montar("/admin/carreiras/vaga/nova", { caso: "Duplo clique" });
+      await preencherMinimo(dupla);
+      const salvarSegurado = segurada(() => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: true, vaga: vagaGravada(ID_NOVA, escrita.chamadas[0]?.campos ?? {}, { estado: "rascunho", aberta_em: null }) },
+      }));
+      escrita.respostas.salvarVaga.push(salvarSegurado.responder);
+      await dupla.clicarDuasVezes(dupla.acao("salvar"), "Salvar", () => escrita.chamadas.length >= 1 && !dupla.ocioso());
+      afirmar(
+        "duplo clique em Salvar numa Vaga nova manda UM `salvarVaga` (a trava é síncrona, antes do redesenho)",
+        escrita.chamadas.filter((c) => c.op === "salvarVaga").length === 1,
+        JSON.stringify(escrita.chamadas.map((c) => c.op)),
+      );
+      afirmar(
+        "enquanto a criação está em voo: campos, Salvar e Voltar desabilitados",
+        dupla.campo("titulo")?.disabled === true &&
+          dupla.campo("nivel_id")?.disabled === true &&
+          dupla.acao("salvar")?.disabled === true &&
+          dupla.voltar()?.disabled === true,
+        `título ${dupla.campo("titulo")?.disabled} | salvar ${dupla.acao("salvar")?.disabled} | voltar ${dupla.voltar()?.disabled}`,
+      );
+      salvarSegurado.controle.soltar();
+      await esperarAte(() => dupla.ocioso() && dupla.onde() === `/admin/carreiras/vaga/${ID_NOVA}`, "Duplo clique: a criação termina");
+      afirmar(
+        "e ao terminar: a URL é a da Vaga criada, com um único pedido, e os campos voltam a aceitar edição",
+        dupla.onde() === `/admin/carreiras/vaga/${ID_NOVA}` &&
+          escrita.chamadas.length === 1 &&
+          dupla.campo("titulo")?.disabled === false &&
+          dupla.voltar()?.disabled === false,
+        dupla.onde(),
+      );
+      const abrirSegurado = segurada({
+        ok: true,
+        dados: {
+          operacao: "mudarEstadoDaVaga",
+          acao: "abrir",
+          vaga: vagaGravada(ID_NOVA, {}, { titulo: "Analista de CS", slug: "analista-de-cs", estado: "aberta", aberta_em: "2026-09-25T12:00:00Z" }),
+        },
+      });
+      escrita.respostas.mudarEstadoDaVaga.push(abrirSegurado.responder);
+      escrita.chamadas.length = 0;
+      await dupla.clicarDuasVezes(dupla.acao("abrir"), "Abrir vaga", () => escrita.chamadas.length >= 1 && !dupla.ocioso());
+      afirmar(
+        "duplo clique numa ação de Estado manda UM `mudarEstadoDaVaga`",
+        igual(escrita.chamadas.map((c) => [c.op, c.acao ?? null]), [["mudarEstadoDaVaga", "abrir"]]),
+        JSON.stringify(escrita.chamadas.map((c) => c.op)),
+      );
+      abrirSegurado.controle.soltar();
+      await esperarAte(() => dupla.ocioso() && dupla.pilula() === "aberta", "Duplo clique: a abertura termina");
+
+      /* ── Troca: da Vaga criada para `/nova` recarrega formulário e editor ── */
+      await dupla.digitar(dupla.campo("resumo"), "Resumo que não pode vazar para a nova.", "Resumo");
+      await dupla.irPara("/admin/carreiras/vaga/nova", () => dupla.situacao() === "pronta" && dupla.onde() === "/admin/carreiras/vaga/nova");
+      afirmar(
+        "Troca de Vaga: da Vaga criada para `/nova`, o formulário e o editor RECOMEÇAM vazios (nada da anterior vaza)",
+        dupla.onde() === "/admin/carreiras/vaga/nova" &&
+          dupla.campo("titulo")?.value === "" &&
+          dupla.campo("resumo")?.value === "" &&
+          dupla.pilula() === null &&
+          igual(dupla.acoes(), ["salvar"]) &&
+          (dupla.textoDoEditor() ?? "x").trim() === "",
+        `título "${dupla.campo("titulo")?.value}" | resumo "${dupla.campo("resumo")?.value}" | editor "${dupla.textoDoEditor()}"`,
+      );
+      await dupla.desmontar();
+
+      /* ══ Falha ao salvar uma Vaga nova, e "Tentar de novo" ══ */
+      const falhaNova = await montar("/admin/carreiras/vaga/nova", { caso: "Falha ao salvar a nova" });
+      await preencherMinimo(falhaNova);
+      escrita.respostas.salvarVaga.push({
+        ok: false,
+        erro: { tipo: "configuracao", mensagem: "A função de servidor não respondeu neste ambiente. Reinicie o servidor de desenvolvimento." },
+      });
+      await falhaNova.clicar(falhaNova.acao("salvar"), "Salvar");
+      afirmar(
+        "falha de CONFIGURAÇÃO ao salvar: notifica com a frase do servidor e SEM \"Tentar de novo\" (repetir daria o mesmo)",
+        avisos.erros.at(-1)?.[1] === "A função de servidor não respondeu neste ambiente. Reinicie o servidor de desenvolvimento." &&
+          avisos.erros.at(-1)?.[2] === null,
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+      escrita.respostas.salvarVaga.push(FALHA_DE_REDE_AO_SALVAR);
+      await falhaNova.clicar(falhaNova.acao("salvar"), "Salvar");
+      afirmar(
+        "falha de REDE ao salvar a Vaga nova: fica em `/nova`, não navega, a pendência continua, e a notificação traz \"Tentar de novo\"",
+        falhaNova.onde() === "/admin/carreiras/vaga/nova" &&
+          falhaNova.campo("titulo")?.value === "Analista de CS" &&
+          falhaNova.perguntariaAoSair() === true &&
+          escrita.chamadas.filter((c) => c.op === "salvarVaga").length === 2 &&
+          avisos.erros.at(-1)?.[1] === FALHA_DE_REDE_AO_SALVAR.erro.mensagem &&
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo",
+        `${falhaNova.onde()} | ${JSON.stringify(avisos.erros.at(-1)?.[2]?.rotulo ?? null)}`,
+      );
+      escrita.respostas.salvarVaga.push(() => {
+        throw new Error("dublê: a escrita lançou");
+      });
+      await falhaNova.clicar(falhaNova.acao("salvar"), "Salvar");
+      afirmar(
+        "exceção dentro do salvar: vira notificação (com \"Tentar de novo\", é `inesperado`), e a tela NÃO fica ocupada",
+        falhaNova.ocioso() &&
+          falhaNova.acao("salvar")?.disabled === false &&
+          falhaNova.campo("titulo")?.disabled === false &&
+          typeof avisos.erros.at(-1)?.[1] === "string" &&
+          avisos.erros.at(-1)?.[1].trim() !== "" &&
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo",
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+      /* Uma exceção que ESCAPA da escrita (aqui, a própria notificação de
+         falha lança uma vez): a trava é solta no `finally`, e a tela avisa. */
+      const errosAntesDoEscape = avisos.erros.length;
+      avisos.lancarUmaVez = true;
+      escrita.respostas.salvarVaga.push(FALHA_DE_REDE_AO_SALVAR);
+      await falhaNova.clicar(falhaNova.acao("salvar"), "Salvar");
+      afirmar(
+        "exceção que escapa da escrita: a trava é solta (nada fica ocupado nem desabilitado) e a falha vira notificação",
+        avisos.lancarUmaVez === false &&
+          falhaNova.ocioso() &&
+          falhaNova.acao("salvar")?.disabled === false &&
+          falhaNova.campo("titulo")?.disabled === false &&
+          falhaNova.voltar()?.disabled === false &&
+          avisos.erros.length === errosAntesDoEscape + 1,
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+      escrita.respostas.salvarVaga.push(() => {
+        throw new Error("dublê: a escrita lançou");
+      });
+      await falhaNova.clicar(falhaNova.acao("salvar"), "Salvar");
+      await falhaNova.digitar(falhaNova.campo("resumo"), "Resumo digitado depois da falha.", "Resumo");
+      escrita.respostas.salvarVaga.push((campos) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: true, vaga: vagaGravada(ID_NOVA, campos, { estado: "rascunho", aberta_em: null }) },
+      }));
+      await falhaNova.acionarSaida(() => falhaNova.ocioso() && falhaNova.onde() !== "/admin/carreiras/vaga/nova");
+      const repetida = escrita.chamadas.filter((c) => c.op === "salvarVaga").at(-1);
+      afirmar(
+        "\"Tentar de novo\" REPETE o salvar, com o que está na tela AGORA, e a Vaga nasce",
+        escrita.chamadas.filter((c) => c.op === "salvarVaga").length === 6 &&
+          repetida?.id === null &&
+          repetida?.campos?.resumo === "Resumo digitado depois da falha." &&
+          falhaNova.onde() === `/admin/carreiras/vaga/${ID_NOVA}` &&
+          falhaNova.perguntariaAoSair() === false,
+        `${falhaNova.onde()} | ${JSON.stringify(repetida?.campos?.resumo)}`,
+      );
+      await falhaNova.desmontar();
+
+      /* ══ A tela sai no meio da criação ══ */
+      const fugiu = await montar("/admin/carreiras/vaga/nova", { caso: "Saída durante a criação" });
+      await preencherMinimo(fugiu);
+      const criacaoSegurada = segurada(() => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: true, vaga: vagaGravada(ID_NOVA, {}, { estado: "rascunho", aberta_em: null }) },
+      }));
+      escrita.respostas.salvarVaga.push(criacaoSegurada.responder);
+      await fugiu.clicar(fugiu.acao("salvar"), "Salvar", () => escrita.chamadas.length === 1);
+      const sucessosAntesDaFuga = avisos.sucessos.length;
+      await fugiu.irPara("/admin", () => fugiu.onde() === "/admin");
+      criacaoSegurada.controle.soltar();
+      await esperarAte(() => escrita.respostas.salvarVaga.length === 0, "Saída durante a criação: a resposta chega");
+      await passo();
+      await passo();
+      afirmar(
+        "a resposta de uma criação que chega DEPOIS de a tela sair é ignorada: a pessoa continua onde foi, sem navegação nem notificação fantasma",
+        fugiu.onde() === "/admin" && avisos.sucessos.length === sucessosAntesDaFuga,
+        `onde: ${fugiu.onde()} | sucessos novos: ${avisos.sucessos.length - sucessosAntesDaFuga}`,
+      );
+      await fugiu.desmontar();
+
+      /* ══ A Vaga nasce, mas a resposta não traz o identificador ══ */
+      const semId = await montar("/admin/carreiras/vaga/nova", { caso: "Criada sem identificador" });
+      await preencherMinimo(semId);
+      escrita.respostas.salvarVaga.push({ ok: true, dados: { operacao: "salvarVaga", criada: true, vaga: { titulo: "Analista de CS" } } });
+      await semId.clicar(semId.acao("salvar"), "Salvar");
+      afirmar(
+        "criada SEM identificador na resposta: não navega, não fica editando com id nulo, e Salvar para (o próximo criaria outra Vaga)",
+        semId.onde() === "/admin/carreiras/vaga/nova" &&
+          semId.alvo.querySelector('[data-situacao="sem-identificador"]') !== null &&
+          semId.acao("salvar")?.disabled === true &&
+          semId.campo("titulo")?.value === "Analista de CS" &&
+          escrita.chamadas.length === 1,
+        `${semId.onde()} | salvar ${semId.acao("salvar")?.disabled}`,
+      );
+      await semId.clicar(semId.acao("salvar"), "Salvar (desabilitado)");
+      afirmar("e o Salvar desabilitado não manda nada", escrita.chamadas.length === 1);
+      await semId.desmontar();
+
+      /* ══ Rascunho: faltando do servidor, Abrir com pendência, conflito ══ */
+      const rascunho = await montar(`/admin/carreiras/vaga/${ID_RASCUNHO}`, { caso: "Rascunho" });
+      afirmar(
+        "Rascunho aberto: os valores do banco, a pílula de Estado do catálogo da Vaga e as ações da máquina SEM Excluir",
+        rascunho.campo("titulo")?.value === "Analista de Suporte" &&
+          rascunho.pilula() === "rascunho" &&
+          igual(rascunho.acoes(), ["salvar", "abrir"]) &&
+          rascunho.acharPorTexto(rascunho.alvo, "Excluir vaga") === null &&
+          ![...rascunho.alvo.querySelectorAll("button")].some((b) => /Excluir/.test(b.textContent ?? "")) &&
+          rascunho.perguntariaAoSair() === false,
+        rascunho.acoes().join(", "),
+      );
+      await rascunho.digitar(rascunho.campo("resumo"), "Resumo editado e não salvo.", "Resumo");
+      escrita.respostas.salvarVaga.push((campos, opcoes) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: false, vaga: vagaGravada(opcoes.id, campos, { estado: "rascunho" }) },
+      }));
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: {
+          tipo: "dados_invalidos",
+          mensagem: "Para abrir a vaga faltam o link de candidatura e o resumo.",
+          faltando: ["link_de_candidatura", "resumo"],
+        },
+      });
+      await rascunho.clicar(rascunho.acao("abrir"), "Abrir vaga");
+      afirmar(
+        "Abrir com pendência: `salvarVaga` e depois `mudarEstadoDaVaga(id, \"abrir\")`, nessa ordem",
+        igual(
+          escrita.chamadas.map((c) => [c.op, c.id ?? null, c.acao ?? null]),
+          [
+            ["salvarVaga", ID_RASCUNHO, null],
+            ["mudarEstadoDaVaga", ID_RASCUNHO, "abrir"],
+          ],
+        ),
+        JSON.stringify(escrita.chamadas.map((c) => [c.op, c.acao ?? null])),
+      );
+      afirmar(
+        "Faltando do servidor: erro em Link e Resumo com o rótulo do domínio, os valores mantidos, e uma notificação sem \"Tentar de novo\"",
+        rascunho.recusaDe("link_de_candidatura")?.includes(rotulos.link_de_candidatura) === true &&
+          rascunho.recusaDe("resumo")?.includes(rotulos.resumo) === true &&
+          rascunho.campo("resumo")?.value === "Resumo editado e não salvo." &&
+          rascunho.pilula() === "rascunho" &&
+          avisos.erros.at(-1)?.[1] === "Para abrir a vaga faltam o link de candidatura e o resumo." &&
+          avisos.erros.at(-1)?.[2] === null,
+        `${rascunho.recusaDe("link_de_candidatura")} | ${rascunho.recusaDe("resumo")} | ${JSON.stringify(avisos.erros.at(-1)?.slice(0, 2))}`,
+      );
+
+      escrita.chamadas.length = 0;
+      await rascunho.digitar(rascunho.campo("resumo"), "Outra edição.", "Resumo");
+      escrita.respostas.salvarVaga.push(FALHA_DE_REDE_AO_SALVAR);
+      await rascunho.clicar(rascunho.acao("abrir"), "Abrir vaga");
+      afirmar(
+        "se o salvar falha, NÃO tenta abrir, e o que foi digitado continua na tela",
+        igual(escrita.chamadas.map((c) => c.op), ["salvarVaga"]) &&
+          rascunho.campo("resumo")?.value === "Outra edição." &&
+          rascunho.perguntariaAoSair() === true,
+        JSON.stringify(escrita.chamadas.map((c) => c.op)),
+      );
+
+      /* ── Conflito ── */
+      escrita.chamadas.length = 0;
+      await rascunho.digitar(rascunho.campo("slug"), "endereco-de-outra-vaga", "Slug");
+      escrita.respostas.salvarVaga.push({
+        ok: false,
+        erro: { tipo: "conflito", mensagem: "Já existe uma vaga com este endereço. Escolha outro antes de salvar." },
+      });
+      await rascunho.clicar(rascunho.acao("salvar"), "Salvar");
+      afirmar(
+        "Conflito: o 409 no salvar marca o Slug com a frase do servidor, e o Slug digitado continua",
+        rascunho.recusaDe("slug") === "Já existe uma vaga com este endereço. Escolha outro antes de salvar." &&
+          rascunho.campo("slug")?.value === "endereco-de-outra-vaga" &&
+          escrita.chamadas.length === 1,
+        rascunho.recusaDe("slug"),
+      );
+
+      /* ── Abrir sem pendência, que dá certo: o Slug trava no GRAVADO ── */
+      await rascunho.digitar(rascunho.campo("slug"), "analista-de-suporte", "Slug");
+      await rascunho.digitar(rascunho.campo("resumo"), "Resumo editado e não salvo.", "Resumo");
+      escrita.chamadas.length = 0;
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: true,
+        dados: {
+          operacao: "mudarEstadoDaVaga",
+          acao: "abrir",
+          estadoAnterior: "rascunho",
+          vaga: vagaGravada(ID_RASCUNHO, {}, {
+            titulo: "Analista de Suporte (como gravado)",
+            resumo: "Resumo editado e não salvo.",
+            slug: "analista-de-suporte-2",
+            estado: "aberta",
+            aberta_em: "2026-09-25T12:00:00Z",
+          }),
+        },
+      });
+      await rascunho.clicar(rascunho.acao("abrir"), "Abrir vaga");
+      afirmar(
+        "Abrir sem pendência muda o Estado direto (sem salvar antes), e depois da abertura o Slug fica só leitura, com o motivo, e as ações passam a Encerrar",
+        igual(escrita.chamadas.map((c) => c.op), ["mudarEstadoDaVaga"]) &&
+          rascunho.pilula() === "aberta" &&
+          rascunho.campo("slug")?.readOnly === true &&
+          igual(rascunho.acoes(), ["salvar", "encerrar"]),
+        `${JSON.stringify(escrita.chamadas.map((c) => c.op))} | ${rascunho.pilula()} | ${rascunho.acoes().join(", ")}`,
+      );
+      afirmar(
+        "depois da ação, a tela mostra a Vaga DEVOLVIDA: o título do servidor, o Slug GRAVADO no campo travado, sem pendência, e a notificação usa o título devolvido",
+        rascunho.campo("titulo")?.value === "Analista de Suporte (como gravado)" &&
+          rascunho.campo("slug")?.value === "analista-de-suporte-2" &&
+          rascunho.perguntariaAoSair() === false &&
+          avisos.sucessos.at(-1)?.[0] === "Vaga aberta" &&
+          avisos.sucessos.at(-1)?.[1] === "Analista de Suporte (como gravado)",
+        `${rascunho.campo("titulo")?.value} | ${rascunho.campo("slug")?.value} | ${JSON.stringify(avisos.sucessos.at(-1))}`,
+      );
+      await rascunho.desmontar();
+
+      /* ══ Encerrada: Slug travado, recusa em Reabrir, Reabrir com pendência ══ */
+      const encerrada = await montar(`/admin/carreiras/vaga/${ID_ENCERRADA}`, { caso: "Encerrada" });
+      const ajudaDoSlug = encerrada.alvo.querySelector('[data-papel="ajuda-do-slug"]')?.textContent ?? "";
+      await encerrada.digitar(encerrada.campo("titulo"), "Vaga encerrada com novo título", "título");
+      afirmar(
+        "Slug travado: na Encerrada o Slug é só leitura, com o motivo ao lado, e o título não o reescreve",
+        encerrada.campo("slug")?.readOnly === true &&
+          encerrada.campo("slug")?.getAttribute("aria-readonly") === "true" &&
+          encerrada.campo("slug")?.value === "vaga-encerrada" &&
+          ajudaDoSlug === formulario?.MOTIVO_DO_SLUG_TRAVADO,
+        ajudaDoSlug,
+      );
+      afirmar(
+        "na Encerrada: Reabrir vaga disponível e Excluir AUSENTE",
+        igual(encerrada.acoes(), ["salvar", "reabrir"]) &&
+          encerrada.pilula() === "encerrada" &&
+          ![...encerrada.alvo.querySelectorAll("button")].some((b) => /Excluir/.test(b.textContent ?? "")) &&
+          encerrada.alvo.querySelector('button[data-acao="excluir"]') === null,
+        encerrada.acoes().join(", "),
+      );
+      escrita.respostas.salvarVaga.push((campos, opcoes) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: false, vaga: vagaGravada(opcoes.id, campos, { slug: "vaga-encerrada", estado: "encerrada", aberta_em: "2026-08-01T12:00:00Z" }) },
+      }));
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: { tipo: "dados_invalidos", mensagem: "Para reabrir a vaga falta o link de candidatura.", faltando: ["link_de_candidatura"] },
+      });
+      await encerrada.clicar(encerrada.acao("reabrir"), "Reabrir vaga");
+      const doReabrir = escrita.chamadas[0];
+      afirmar(
+        "Reabrir com pendência também salva antes, e o corpo do salvamento NÃO leva o Slug travado",
+        igual(escrita.chamadas.map((c) => [c.op, c.acao ?? null]), [["salvarVaga", null], ["mudarEstadoDaVaga", "reabrir"]]) &&
+          doReabrir?.campos?.titulo === "Vaga encerrada com novo título" &&
+          !Object.hasOwn(doReabrir?.campos ?? { slug: 1 }, "slug"),
+        JSON.stringify(escrita.chamadas.map((c) => [c.op, c.acao ?? null, c.campos ? Object.keys(c.campos) : null])),
+      );
+      afirmar(
+        "recusa em REABRIR: a Vaga continua Encerrada, o campo do servidor é marcado, e os valores ficam na tela",
+        encerrada.pilula() === "encerrada" &&
+          encerrada.campo("titulo")?.value === "Vaga encerrada com novo título" &&
+          encerrada.recusaDe("link_de_candidatura")?.includes(rotulos.link_de_candidatura) === true &&
+          igual(encerrada.acoes(), ["salvar", "reabrir"]),
+        `${encerrada.pilula()} | ${encerrada.campo("titulo")?.value}`,
+      );
+      escrita.chamadas.length = 0;
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: true,
+        dados: { operacao: "mudarEstadoDaVaga", acao: "reabrir", vaga: vagaGravada(ID_ENCERRADA, {}, { titulo: "Vaga encerrada com novo título", slug: "vaga-encerrada", estado: "aberta", aberta_em: "2026-08-01T12:00:00Z" }) },
+      });
+      await encerrada.clicar(encerrada.acao("reabrir"), "Reabrir vaga");
+      afirmar(
+        "e Reabrir de novo, já sem pendência (o salvar anterior gravou), só muda o Estado",
+        igual(escrita.chamadas.map((c) => c.op), ["mudarEstadoDaVaga"]) && encerrada.pilula() === "aberta",
+        JSON.stringify(escrita.chamadas.map((c) => c.op)),
+      );
+      await encerrada.desmontar();
+
+      /* ══ Aberta: Encerrar com pendência salva antes, recusa em Encerrar, e "Tentar de novo" ══ */
+      const aberta = await montar(`/admin/carreiras/vaga/${ID_ABERTA}`, { caso: "Aberta" });
+      afirmar(
+        "Aberta: Slug só leitura com o gravado, e a ação é Encerrar",
+        aberta.pilula() === "aberta" &&
+          aberta.campo("slug")?.readOnly === true &&
+          aberta.campo("slug")?.value === "vaga-aberta-de-verdade" &&
+          igual(aberta.acoes(), ["salvar", "encerrar"]),
+        aberta.acoes().join(", "),
+      );
+      await aberta.digitar(aberta.campo("titulo"), "Vaga aberta com título novo", "título");
+      escrita.respostas.salvarVaga.push({
+        ok: false,
+        erro: { tipo: "dados_invalidos", mensagem: "O título da vaga passa do tamanho permitido. Encurte antes de salvar.", faltando: ["titulo"] },
+      });
+      await aberta.clicar(aberta.acao("encerrar"), "Encerrar vaga");
+      afirmar(
+        "Encerrar com pendência SALVA ANTES; se o salvar falha, não tenta encerrar, e a Vaga continua Aberta",
+        igual(escrita.chamadas.map((c) => c.op), ["salvarVaga"]) &&
+          aberta.pilula() === "aberta" &&
+          aberta.campo("titulo")?.value === "Vaga aberta com título novo" &&
+          aberta.recusaDe("titulo")?.includes(rotulos.titulo) === true,
+        JSON.stringify(escrita.chamadas.map((c) => c.op)),
+      );
+      escrita.chamadas.length = 0;
+      escrita.respostas.salvarVaga.push((campos, opcoes) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: false, vaga: vagaGravada(opcoes.id, campos, { slug: "vaga-aberta-de-verdade", estado: "aberta", aberta_em: "2026-09-10T12:00:00Z" }) },
+      }));
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: { tipo: "dados_invalidos", mensagem: "A vaga mudou de estado em outra aba. Recarregue antes de encerrar." },
+      });
+      await aberta.clicar(aberta.acao("encerrar"), "Encerrar vaga");
+      afirmar(
+        "Encerrar com pendência: `salvarVaga` e depois `mudarEstadoDaVaga(id, \"encerrar\")`; a recusa em ENCERRAR mantém a Vaga Aberta, os valores na tela, e notifica sem \"Tentar de novo\"",
+        igual(escrita.chamadas.map((c) => [c.op, c.acao ?? null]), [["salvarVaga", null], ["mudarEstadoDaVaga", "encerrar"]]) &&
+          aberta.pilula() === "aberta" &&
+          aberta.campo("titulo")?.value === "Vaga aberta com título novo" &&
+          avisos.erros.at(-1)?.[1] === "A vaga mudou de estado em outra aba. Recarregue antes de encerrar." &&
+          avisos.erros.at(-1)?.[2] === null,
+        JSON.stringify(escrita.chamadas.map((c) => [c.op, c.acao ?? null])),
+      );
+      escrita.chamadas.length = 0;
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: false,
+        erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para encerrar a vaga. Confira a conexão e tente de novo." },
+      });
+      await aberta.clicar(aberta.acao("encerrar"), "Encerrar vaga");
+      afirmar(
+        "falha de REDE ao encerrar (sem pendência): só `mudarEstadoDaVaga`, a Vaga continua Aberta, e a notificação traz \"Tentar de novo\"",
+        igual(escrita.chamadas.map((c) => c.op), ["mudarEstadoDaVaga"]) &&
+          aberta.pilula() === "aberta" &&
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo",
+        JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+      );
+      escrita.chamadas.length = 0;
+      escrita.respostas.mudarEstadoDaVaga.push({
+        ok: true,
+        dados: { operacao: "mudarEstadoDaVaga", acao: "encerrar", vaga: vagaGravada(ID_ABERTA, {}, { titulo: "Vaga aberta com título novo", slug: "vaga-aberta-de-verdade", estado: "encerrada", aberta_em: "2026-09-10T12:00:00Z" }) },
+      });
+      await aberta.acionarSaida();
+      afirmar(
+        "\"Tentar de novo\" REPETE a mudança de Estado, e a Vaga fica Encerrada",
+        igual(escrita.chamadas.map((c) => [c.op, c.acao ?? null]), [["mudarEstadoDaVaga", "encerrar"]]) &&
+          aberta.pilula() === "encerrada" &&
+          igual(aberta.acoes(), ["salvar", "reabrir"]) &&
+          avisos.sucessos.at(-1)?.[0] === "Vaga encerrada",
+        `${JSON.stringify(escrita.chamadas.map((c) => c.op))} | ${aberta.pilula()}`,
+      );
+      await aberta.desmontar();
+
+      /* ══ Documento fora da projeção ══ */
+      const errosAntesDaCitacao = avisos.erros.length;
+      const citacao = await montar(`/admin/carreiras/vaga/${ID_COM_CITACAO}`, { caso: "Documento fora da projeção" });
+      const textoDoEditor = citacao.alvo.querySelector('[role="textbox"]');
+      /* TROCA REGISTRADA (revisão da 5.4): antes, o aviso também virava
+         notificação (+1 em `erros`). Agora ele fica SÓ no editor, que já o
+         desenha: a mesma frase em dois lugares era ruído. */
+      afirmar(
+        "Documento fora da projeção: a Vaga com citação gravada à força abre SEM ela, com o aviso de conteúdo limpo NO EDITOR (e nenhuma notificação por cima)",
+        textoDoEditor !== null &&
+          textoDoEditor.querySelector("blockquote") === null &&
+          (textoDoEditor.textContent ?? "").includes("Texto que fica") &&
+          !(textoDoEditor.textContent ?? "").includes("Citação gravada à força") &&
+          citacao.alvo.querySelector('[data-gravidade="limpo"]') !== null &&
+          avisos.erros.length === errosAntesDaCitacao,
+        `${textoDoEditor?.innerHTML?.slice(0, 160)} | notificações: ${avisos.erros.length - errosAntesDaCitacao}`,
+      );
+      await citacao.desmontar();
+
+      /* ══ Sair com pendência ══ */
+      const saida = await montar(`/admin/carreiras/vaga/${ID_RASCUNHO}`, { caso: "Sair com pendência" });
+      await saida.digitar(saida.campo("resumo"), "Algo que ainda não foi salvo.", "Resumo");
+      await saida.clicar(saida.voltar(), "Voltar");
+      const dialogo = saida.dialogo();
+      afirmar(
+        "Sair com pendência: Voltar abre o diálogo com as frases de `pendencia.js` e fica na tela",
+        dialogo !== null &&
+          (dialogo.textContent ?? "").includes("Sair sem salvar?") &&
+          (dialogo.textContent ?? "").includes("Analista de Suporte") &&
+          saida.acharPorTexto(dialogo, "Sair sem salvar") !== null &&
+          saida.acharPorTexto(dialogo, "Continuar editando") !== null &&
+          saida.onde() === `/admin/carreiras/vaga/${ID_RASCUNHO}`,
+        (dialogo?.textContent ?? "").slice(0, 200),
+      );
+      await saida.clicar(saida.acharPorTexto(dialogo, "Continuar editando"), "Continuar editando", () => saida.dialogo() === null);
+      afirmar(
+        "\"Continuar editando\" fecha o diálogo e mantém tudo",
+        saida.dialogo() === null &&
+          saida.campo("resumo")?.value === "Algo que ainda não foi salvo." &&
+          saida.onde() === `/admin/carreiras/vaga/${ID_RASCUNHO}`,
+      );
+      await saida.clicar(saida.voltar(), "Voltar", () => saida.dialogo() !== null);
+      const dialogoDeNovo = saida.dialogo();
+      await saida.clicar(saida.acharPorTexto(dialogoDeNovo, "Sair sem salvar"), "Sair sem salvar", () => saida.onde() === "/admin");
+      afirmar(
+        "e \"Sair sem salvar\" volta para `/admin`",
+        dialogoDeNovo !== null && saida.onde() === "/admin",
+        saida.onde(),
+      );
+      await saida.desmontar();
+
+      /* ══ Id inexistente ══ */
+      const inexistente = await montar(`/admin/carreiras/vaga/${ID_QUE_NAO_EXISTE}`, { caso: "Id inexistente" });
+      const blocoInexistente = inexistente.alvo.querySelector('[data-situacao="inexistente"]');
+      afirmar(
+        "Id inexistente: estado de erro PRÓPRIO (distinto de vazio e da falha de leitura), com volta à listagem",
+        blocoInexistente !== null &&
+          blocoInexistente.getAttribute("role") === "alert" &&
+          inexistente.alvo.querySelector('[data-situacao="erro"]') === null &&
+          inexistente.alvo.querySelector('[data-papel="tentar-de-novo"]') === null &&
+          inexistente.campo("titulo") === null,
+      );
+      const volta = inexistente.alvo.querySelector('[data-papel="voltar-para-listagem"]');
+      await inexistente.clicar(volta, "Voltar para a listagem", () => inexistente.onde() === "/admin");
+      afirmar("e a volta leva a `/admin`", volta !== null && inexistente.onde() === "/admin", inexistente.onde());
+      await inexistente.desmontar();
+
+      /* ══ Id torto na URL, e Vaga lida como nula ══ */
+      const torto = await montar("/admin/carreiras/vaga/nao-e-um-uuid", { caso: "Id torto" });
+      afirmar(
+        "Id torto na URL: estado \"inexistente\" SEM ir à rede (nem a Vaga, nem as Classificações são lidas)",
+        torto.situacao() === "inexistente" && leitura.chamadas.length === 0,
+        `${torto.situacao()} | leituras: ${JSON.stringify(leitura.chamadas)}`,
+      );
+      await torto.desmontar();
+      const nula = await montar(`/admin/carreiras/vaga/${ID_DADOS_NULOS}`, { caso: "Vaga lida como nula" });
+      afirmar(
+        "leitura que responde `ok` com a Vaga nula: estado \"inexistente\", e não formulário vazio nem exceção",
+        nula.situacao() === "inexistente" && nula.campo("titulo") === null,
+        nula.situacao(),
+      );
+      await nula.desmontar();
+
+      /* ══ Erro de carga: a Vaga, as Classificações e a exceção ══ */
+      leitura.falharLeitura = true;
+      const falha = await montar(`/admin/carreiras/vaga/${ID_RASCUNHO}`, { caso: "Erro de carga da Vaga" });
+      const tentar = falha.alvo.querySelector('[data-papel="tentar-de-novo"]');
+      afirmar(
+        "Erro de carga: a leitura que falha por rede mostra o erro com \"tentar de novo\", e não o formulário vazio",
+        falha.alvo.querySelector('[data-situacao="erro"]') !== null &&
+          tentar !== null &&
+          falha.campo("titulo") === null &&
+          falha.alvo.querySelector('[data-situacao="inexistente"]') === null,
+      );
+      leitura.falharLeitura = false;
+      await falha.clicar(tentar, "Tentar de novo", () => falha.situacao() === "pronta");
+      afirmar(
+        "e \"tentar de novo\" relê e abre o formulário",
+        falha.alvo.querySelector('[data-situacao="pronta"]') !== null &&
+          falha.campo("titulo")?.value === "Analista de Suporte",
+      );
+      await falha.desmontar();
+
+      leitura.falharClassificacoes = true;
+      const semListas = await montar("/admin/carreiras/vaga/nova", { caso: "Falha ao ler as Classificações" });
+      afirmar(
+        "falha ao ler as CLASSIFICAÇÕES: erro de carga com a frase da leitura e \"tentar de novo\", nunca o formulário sem listas",
+        semListas.situacao() === "erro" &&
+          semListas.campo("titulo") === null &&
+          (semListas.alvo.querySelector('[data-papel="motivo-da-carga"]')?.textContent ?? "").includes("classificações") &&
+          semListas.alvo.querySelector('[data-papel="tentar-de-novo"]') !== null,
+        semListas.situacao(),
+      );
+      leitura.falharClassificacoes = false;
+      await semListas.clicar(semListas.alvo.querySelector('[data-papel="tentar-de-novo"]'), "Tentar de novo", () => semListas.situacao() === "pronta");
+      afirmar("e \"tentar de novo\" carrega as listas", semListas.situacao() === "pronta" && opcoesDe(semListas, "nivel_id").length === 3);
+      await semListas.desmontar();
+
+      leitura.lancar = true;
+      const lancou = await montar(`/admin/carreiras/vaga/${ID_RASCUNHO}`, { caso: "Leitura que lança" });
+      afirmar(
+        "leitura que LANÇA: erro de carga com frase de reserva e \"tentar de novo\", nunca esqueleto eterno",
+        lancou.situacao() === "erro" &&
+          (lancou.alvo.querySelector('[data-papel="motivo-da-carga"]')?.textContent ?? "").trim().length > 10 &&
+          lancou.alvo.querySelector('[data-papel="tentar-de-novo"]') !== null,
+        lancou.situacao(),
+      );
+      leitura.lancar = false;
+      await lancou.desmontar();
+
+      /* ══ Lista de Classificação vazia (e o que não é lista) ══ */
+      leitura.classificacoes = { ...CLASSIFICACOES_DO_BANCO, niveis: [], tipos_de_vaga: "não é lista" };
+      const listaVazia = await montar("/admin/carreiras/vaga/nova", { caso: "Lista de Classificação vazia" });
+      afirmar(
+        "lista de Classificação vazia (ou que não é lista): o `<select>` só tem o texto de escolha, e a tela abre",
+        listaVazia.situacao() === "pronta" &&
+          opcoesDe(listaVazia, "nivel_id").length === 1 &&
+          opcoesDe(listaVazia, "tipo_id").length === 1 &&
+          opcoesDe(listaVazia, "departamento_id").length === 3,
+        `${opcoesDe(listaVazia, "nivel_id").join(", ")} | ${opcoesDe(listaVazia, "tipo_id").join(", ")}`,
+      );
+      await listaVazia.digitar(listaVazia.campo("titulo"), "Analista de CS", "título");
+      await listaVazia.digitar(listaVazia.campo("departamento_id"), UUID_DEPARTAMENTO, "Departamento");
+      await listaVazia.clicar(listaVazia.acao("salvar"), "Salvar");
+      afirmar(
+        "e salvar sem Nível e sem Tipo marca os dois, sem ir ao servidor",
+        listaVazia.recusaDe("nivel_id") !== null && listaVazia.recusaDe("tipo_id") !== null && escrita.chamadas.length === 0,
+      );
+      await listaVazia.desmontar();
+      leitura.classificacoes = CLASSIFICACOES_DO_BANCO;
+
+      /* ══ Classificação gravada que não está mais na lista ══ */
+      const sumido = await montar(`/admin/carreiras/vaga/${ID_NIVEL_SUMIDO}`, { caso: "Classificação fora da lista" });
+      const opcaoAusente = sumido.campo("nivel_id")?.querySelector('[data-papel="classificacao-ausente"]') ?? null;
+      afirmar(
+        "Classificação gravada fora da lista: o `<select>` mostra \"(não existe mais)\" com o id gravado, e o campo já abre marcado",
+        sumido.campo("nivel_id")?.value === UUID_NIVEL_QUE_SUMIU &&
+          opcaoAusente !== null &&
+          (opcaoAusente.textContent ?? "").includes("(não existe mais)") &&
+          (opcaoAusente.textContent ?? "").includes(UUID_NIVEL_QUE_SUMIU) &&
+          sumido.recusaDe("nivel_id")?.includes(rotulos.nivel_id) === true,
+        `${sumido.campo("nivel_id")?.value} | ${opcaoAusente?.textContent} | ${sumido.recusaDe("nivel_id")}`,
+      );
+      await sumido.digitar(sumido.campo("resumo"), "Resumo mexido.", "Resumo");
+      await sumido.clicar(sumido.acao("salvar"), "Salvar");
+      afirmar(
+        "e salvar com ela NÃO manda o id oculto: a recusa é local",
+        escrita.chamadas.length === 0 && sumido.recusaDe("nivel_id") !== null,
+      );
+      await sumido.digitar(sumido.campo("nivel_id"), UUID_NIVEL, "Nível");
+      escrita.respostas.salvarVaga.push((campos, opcoes) => ({
+        ok: true,
+        dados: { operacao: "salvarVaga", criada: false, vaga: vagaGravada(opcoes.id, campos, { slug: "vaga-com-nivel-sumido" }) },
+      }));
+      await sumido.clicar(sumido.acao("salvar"), "Salvar");
+      afirmar(
+        "escolhido um Nível da lista, salva com ele, e a opção \"(não existe mais)\" some",
+        escrita.chamadas.length === 1 &&
+          escrita.chamadas[0].campos.nivel_id === UUID_NIVEL &&
+          sumido.campo("nivel_id")?.querySelector('[data-papel="classificacao-ausente"]') === null,
+        JSON.stringify(escrita.chamadas.map((c) => c.campos?.nivel_id)),
+      );
+      await sumido.desmontar();
+
+      /* ══ Troca de Vaga dentro do mesmo roteador ══ */
+      const troca = await montar(`/admin/carreiras/vaga/${ID_RASCUNHO}`, { caso: "Troca de Vaga" });
+      const textoAntes = troca.textoDoEditor();
+      await troca.irPara(`/admin/carreiras/vaga/${ID_OUTRA}`, () => troca.situacao() === "pronta" && troca.campo("titulo")?.value === "Outra vaga qualquer");
+      afirmar(
+        "Troca de Vaga: navegar de uma Vaga para outra RELÊ e recarrega o formulário E o editor (comportamento, não a `key` no texto)",
+        troca.onde() === `/admin/carreiras/vaga/${ID_OUTRA}` &&
+          troca.campo("titulo")?.value === "Outra vaga qualquer" &&
+          troca.campo("resumo")?.value === "Resumo da outra." &&
+          (textoAntes ?? "").includes("Descrição da vaga.") &&
+          (troca.textoDoEditor() ?? "").includes("Descrição da outra vaga.") &&
+          !(troca.textoDoEditor() ?? "").includes("Descrição da vaga.") &&
+          leitura.chamadas.some((c) => c[0] === "vaga" && c[1] === ID_OUTRA),
+        `título ${troca.campo("titulo")?.value} | editor ${troca.textoDoEditor()}`,
+      );
+      await troca.desmontar();
+
+      afirmar(
+        "toda notificação da tela passou pela regra de voz (nenhuma frase vaga, nenhum rótulo de ação genérico)",
+        avisos.problemasDeVoz.length === 0 && avisos.erros.length > 0 && avisos.sucessos.length > 0,
+        avisos.problemasDeVoz.join(" | "),
+      );
+    } catch (erro) {
+      afirmar("a tela montada rodou até o fim sem exceção", false, erro?.stack ?? String(erro));
+    } finally {
+      console.error = erroOriginal;
+      try {
+        janela.close();
+      } catch {
+        /* o navegador de mentira já pode ter fechado */
+      }
+    }
+  }
+  try {
+    rmSync(pasta, { recursive: true, force: true });
+  } catch {
+    /* presa pelo processo no Windows: a próxima execução varre na entrada */
+  }
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */
