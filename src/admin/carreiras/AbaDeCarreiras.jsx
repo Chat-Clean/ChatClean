@@ -23,9 +23,10 @@
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Tags } from "lucide-react";
 
 import ListaDeVagas from "@/admin/carreiras/ListaDeVagas";
+import { ROTULO_ACESSIVEL_DO_LINK_DA_ABA, ROTULO_DO_LINK_DA_ABA } from "@/admin/carreiras/classificacoesDoPainel";
 import {
   DICA_DA_BUSCA,
   ESPERA_DA_BUSCA_MS,
@@ -36,7 +37,7 @@ import {
   TITULO_DA_ABA,
   alternarEstadoDoFiltro,
 } from "@/admin/carreiras/listagem";
-import { ENDERECO_DA_VAGA_NOVA } from "@/admin/carreiras/rotas";
+import { ENDERECO_DAS_CLASSIFICACOES, ENDERECO_DA_VAGA_NOVA } from "@/admin/carreiras/rotas";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,23 @@ export default function AbaDeCarreiras({ aoContar }) {
         </div>
 
         <div className="flex-1" />
+
+        {/* A entrada para Departamentos, Tipos e Níveis (Story 5.6): mudar a
+            estrutura da empresa sem desenvolvedor. */}
+        <Link
+          to={ENDERECO_DAS_CLASSIFICACOES}
+          data-acao="abrir-classificacoes"
+          aria-label={ROTULO_ACESSIVEL_DO_LINK_DA_ABA}
+          className={cn(
+            ANEL_DE_FOCO,
+            ALVO_DE_TOQUE,
+            "inline-flex items-center gap-2 rounded-controle border border-border-strong bg-surface px-3",
+            "text-sm font-semibold text-ink-secondary",
+          )}
+        >
+          <Tags aria-hidden="true" className="size-4" />
+          {ROTULO_DO_LINK_DA_ABA}
+        </Link>
 
         <Button asChild className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2 rounded-controle font-bold")}>
           <Link to={ENDERECO_DA_VAGA_NOVA} data-acao="nova-vaga">

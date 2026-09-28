@@ -18,7 +18,12 @@ import {
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
 import EditorDeVaga from "@/admin/carreiras/EditorDeVaga";
-import { ROTA_DA_VAGA, ROTA_DA_VAGA_NOVA } from "@/admin/carreiras/rotas";
+import TelaDeClassificacoes from "@/admin/carreiras/TelaDeClassificacoes";
+import {
+  ROTA_DAS_CLASSIFICACOES,
+  ROTA_DA_VAGA,
+  ROTA_DA_VAGA_NOVA,
+} from "@/admin/carreiras/rotas";
 import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
@@ -95,6 +100,9 @@ createRoot(document.getElementById("root")).render(
               troca de Vaga pela `key` por dentro. */}
           <Route path={ROTA_DA_VAGA_NOVA} element={<EditorDeVaga />} />
           <Route path={ROTA_DA_VAGA} element={<EditorDeVaga />} />
+          {/* Departamentos, Tipos e Níveis (Story 5.6): filha do mesmo
+              portão, sem propriedade, antes da apanha-tudo. */}
+          <Route path={ROTA_DAS_CLASSIFICACOES} element={<TelaDeClassificacoes />} />
           {/* A pré-visualização (Story 2.13): por identificador, porque
               rascunho pode não ter endereço nenhum. */}
           <Route path={ROTA_DA_PREVIA} element={<PreVisualizacaoDePost />} />

@@ -5667,6 +5667,10 @@ secao("(m) as telas de Carreiras: a lista de permissão de imports e as rotas (S
        `mensagemDaFalha` saíram de `formulario.js` para um módulo neutro,
        importado pelo formulário e pela lista. */
     "falhas.js",
+    /* TROCA REGISTRADA (Story 5.6): a tela de Departamentos, Tipos e Níveis
+       entra na lista fechada, com o módulo puro dela. */
+    "classificacoesDoPainel.js",
+    "TelaDeClassificacoes.jsx",
   ].map((n) => `${DIR_TELAS_DE_CARREIRAS}/${n}`);
   /* TROCA REGISTRADA (revisão da 5.4): era "os esperados EXISTEM" (um
      arquivo a mais passava calado, fora da regra de cor e de raio de
@@ -9359,6 +9363,2172 @@ export default function SessaoDeMentira({ children }) {
       );
     } catch (erro) {
       afirmar("a aba montada rodou até o fim sem exceção", false, erro?.stack ?? String(erro));
+    } finally {
+      console.error = erroOriginal;
+      try {
+        janela.close();
+      } catch {
+        /* o navegador de mentira já pode ter fechado */
+      }
+    }
+  }
+  try {
+    rmSync(pasta, { recursive: true, force: true });
+  } catch {
+    /* presa pelo processo no Windows: a próxima execução varre na entrada */
+  }
+}
+
+/* ─── (q) Departamentos, Tipos e Níveis editáveis (Story 5.6) ────────────── */
+
+secao("(q) a tela de Departamentos, Tipos e Níveis: o módulo puro, a tela montada com dublês e as listas fechadas (Story 5.6)");
+
+/*
+ * Três partes, todas LOCAIS (sem token, sem rede):
+ *
+ * - NODE: o domínio novo (rótulos dos Equivalentes iguais aos códigos, a Cor
+ *   padrão igual à do banco, o teto da Ordem) e o módulo puro da tela,
+ *   importados e executados; o teto do SERVIDOR é conferido executando a
+ *   leitura do corpo dele, e não lendo o número.
+ * - MONTADA: `TelaDeClassificacoes` e `AbaDeCarreiras` compiladas pelo
+ *   empacotador da aplicação, com dublês de `@/data/carreiras/leitura`,
+ *   `@/data/carreiras/escrita` e das notificações, cobrindo cada linha da
+ *   matriz de I/O da story.
+ * - ESTÁTICA: as listas fechadas (situações, campos, imports, rede, rota).
+ */
+
+const DEP_Q = classificacoes.listaDeClassificacao("departamento");
+const TIPO_Q = classificacoes.listaDeClassificacao("tipo");
+const NIVEL_Q = classificacoes.listaDeClassificacao("nivel");
+
+/* ── Node: o domínio novo ── */
+{
+  const c = classificacoes;
+  const rotulos = c.ROTULOS_DOS_EQUIVALENTES ?? {};
+  afirmar(
+    "os rótulos legíveis dos Equivalentes são lista FECHADA com EXATAMENTE as chaves de `EQUIVALENTES_JOBPOSTING` (nos dois sentidos), congelada, cada um texto próprio",
+    Object.isFrozen(rotulos) &&
+      igual(ordenado(Object.keys(rotulos)), ordenado(c.EQUIVALENTES_JOBPOSTING)) &&
+      Object.values(rotulos).every((r) => typeof r === "string" && r.trim() !== "" && !r.includes("—")) &&
+      new Set(Object.values(rotulos)).size === c.EQUIVALENTES_JOBPOSTING.length,
+    JSON.stringify(rotulos),
+  );
+  afirmar(
+    "`rotuloDoEquivalente` devolve o rótulo de cada código e é tolerante fora da lista (sem lançar, `null`), inclusive para nome herdado de objeto",
+    c.EQUIVALENTES_JOBPOSTING.every((codigo) => c.rotuloDoEquivalente(codigo) === rotulos[codigo]) &&
+      [undefined, null, "", "full_time", "SEASONAL", "constructor", "toString", 7].every((v) => c.rotuloDoEquivalente(v) === null),
+  );
+  /* A Cor padrão é a do BANCO: o `default` VIGENTE das duas colunas `cor`, ou
+     seja, a ÚLTIMA definição dele nas migrações, na ordem do carimbo (TROCA
+     REGISTRADA na revisão da 5.6: antes só a primeira migração era lida, e um
+     `alter column cor set default` posterior passaria despercebido). */
+  /* Comentários de SQL fora de aspas trocados por espaço: `'var(--x)'` tem
+     `--` DENTRO da aspa, e não é comentário. */
+  const semComentariosSql = (sql) =>
+    String(sql).replace(/('(?:[^']|'')*')|--[^\n]*|\/\*[\s\S]*?\*\//g, (trecho, aspa) => aspa ?? " ");
+  const padraoVigenteDaCor = (migracoes, tabela) => {
+    /* `undefined` = nenhuma definição; `null` = coluna sem `default`. */
+    let vigente;
+    const t = `(?:public\\.)?"?${tabela}"?`;
+    for (const sql of migracoes) {
+      for (const comando of semComentariosSql(sql).split(";")) {
+        if (new RegExp(`create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?${t}\\s*\\(`, "i").test(comando)) {
+          /* Só o PRIMEIRO `create` define: um `create table if not exists`
+             posterior não faz nada no banco (a tabela já existe), então não
+             pode mudar o `default` lido aqui. Revisão da 5.6: a sabotagem que
+             fixava "fica com a primeira criação" não acusava porque ERA a
+             semântica certa; o leitor passou a segui-la, e o autoteste abaixo
+             cobre duas criações. */
+          const coluna = /(?:^|[(,])\s*cor\s+text\b([^,]*)/i.exec(comando);
+          if (coluna && vigente === undefined) vigente = /default\s+'([^']+)'/i.exec(coluna[1])?.[1] ?? null;
+        } else if (new RegExp(`alter\\s+table\\s+(?:if\\s+exists\\s+)?(?:only\\s+)?${t}\\b`, "i").test(comando)) {
+          for (const acao of comando.matchAll(/(?:alter\s+column\s+cor\s+(?:set\s+default\s+'([^']+)'|(drop\s+default))|add\s+column\s+(?:if\s+not\s+exists\s+)?cor\s+text\b([^,]*))/gi)) {
+            if (acao[1] !== undefined) vigente = acao[1];
+            else if (acao[2] !== undefined) vigente = null;
+            else vigente = /default\s+'([^']+)'/i.exec(acao[3] ?? "")?.[1] ?? null;
+          }
+        }
+      }
+    }
+    return vigente;
+  };
+  const CRIA =
+    "-- a tabela, com cor text default 'var(--z)' só no comentário\ncreate table if not exists public.departamentos (\n  id uuid,\n  cor text not null default 'var(--a)', -- e aqui\n  ordem integer\n);";
+  afirmar(
+    "autoteste: o leitor do `default` vigente da Cor fica com a ÚLTIMA definição (criação, `set default` posterior, `drop default`), ignora um `create if not exists` repetido (no banco ele não faz nada) e não confunde tabelas",
+    padraoVigenteDaCor([CRIA], "departamentos") === "var(--a)" &&
+      padraoVigenteDaCor([CRIA, CRIA.replace("var(--a)", "var(--c)")], "departamentos") === "var(--a)" &&
+      padraoVigenteDaCor([CRIA, "alter table public.departamentos alter column cor set default 'var(--b)';", CRIA.replace("var(--a)", "var(--c)")], "departamentos") === "var(--b)" &&
+      padraoVigenteDaCor([CRIA, "alter table public.departamentos alter column cor set default 'var(--b)';"], "departamentos") === "var(--b)" &&
+      padraoVigenteDaCor([CRIA, "alter table only departamentos alter column cor drop default;"], "departamentos") === null &&
+      padraoVigenteDaCor([CRIA, "alter table public.niveis alter column cor set default 'var(--b)';"], "departamentos") === "var(--a)" &&
+      padraoVigenteDaCor([CRIA], "niveis") === undefined,
+  );
+  const todasAsMigracoes = existsSync(path.join(raiz, "supabase/migrations"))
+    ? readdirSync(path.join(raiz, "supabase/migrations"))
+        .filter((n) => n.endsWith(".sql"))
+        .sort()
+        .map((n) => ler(`supabase/migrations/${n}`) ?? "")
+    : [];
+  const padroesDoBanco = ["departamentos", "niveis"].map((t) => padraoVigenteDaCor(todasAsMigracoes, t));
+  afirmar(
+    "`COR_PADRAO_DE_CLASSIFICACAO` é o `default` VIGENTE de `cor` do banco (a última definição nas migrações, o cinza, nas duas tabelas) e é uma Cor da paleta",
+    todasAsMigracoes.length > 0 &&
+      padroesDoBanco.every((p) => p === c.COR_PADRAO_DE_CLASSIFICACAO) &&
+      c.ehCorDeClassificacao(c.COR_PADRAO_DE_CLASSIFICACAO) &&
+      c.aparenciaDaCorDeClassificacao(c.COR_PADRAO_DE_CLASSIFICACAO).rotulo === "Cinza",
+    `banco: ${padroesDoBanco.join(", ")} | domínio: ${c.COR_PADRAO_DE_CLASSIFICACAO}`,
+  );
+  /* O TETO DA ORDEM tem um dono só: o domínio. O do servidor é conferido
+     EXECUTANDO a leitura do corpo dele no teto e um acima. */
+  const TETO = c.ORDEM_MAXIMA_DA_CLASSIFICACAO;
+  const lerNoServidor = (ordem) => nucleoDaClassificacao.lerCorpoDaClassificacao({ ordem }, DEP_Q, { criando: false });
+  const noTeto = lerNoServidor(TETO);
+  const acima = lerNoServidor(TETO + 1);
+  const textoNoTeto = lerNoServidor(String(TETO));
+  const textoAcima = lerNoServidor(String(TETO + 1));
+  afirmar(
+    "o teto da Ordem é 100000 no domínio, e o SERVIDOR aceita exatamente até ele (executado: o teto passa, um acima é recusado, em número e em texto)",
+    TETO === 100_000 &&
+      noTeto.ok === true &&
+      noTeto.campos.ordem === TETO &&
+      textoNoTeto.ok === true &&
+      acima.ok === false &&
+      textoAcima.ok === false,
+    `${JSON.stringify(noTeto)} | ${JSON.stringify(acima)}`,
+  );
+  const servidor = semComentarios(ler("api/_nucleo/operacoesDaClassificacao.js") ?? "");
+  afirmar(
+    "o servidor IMPORTA o teto do domínio, sem constante própria (leitura estática, porque um valor igual escrito à mão passaria no teste executado)",
+    /import\s*\{[^}]*\bORDEM_MAXIMA_DA_CLASSIFICACAO\b[^}]*\}\s*from\s*["']\.\.\/\.\.\/src\/domain\/carreiras\/classificacoes\.js["']/.test(servidor) &&
+      !/\b(const|let|var)\s+ORDEM_MAXIMA_DA_CLASSIFICACAO\b/.test(servidor) &&
+      nucleoDaClassificacao.ORDEM_MAXIMA_DA_CLASSIFICACAO === TETO,
+  );
+  /* A FRASE DA ORDEM e as de NOME REPETIDO também têm um dono só (revisão da
+     5.6): o domínio. O servidor recusa com elas (executado), e as importa. */
+  afirmar(
+    "`FRASE_DA_ORDEM` mora no domínio, cita o teto, e é EXATAMENTE a recusa do servidor para a Ordem fora da regra (executado)",
+    typeof c.FRASE_DA_ORDEM === "string" &&
+      c.FRASE_DA_ORDEM.includes(String(TETO)) &&
+      acima.mensagem === c.FRASE_DA_ORDEM &&
+      lerNoServidor("abc").mensagem === c.FRASE_DA_ORDEM,
+    `${acima.mensagem} | ${c.FRASE_DA_ORDEM}`,
+  );
+  const telaBruta = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/TelaDeClassificacoes.jsx`) ?? "");
+  const moduloBruto = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/classificacoesDoPainel.js`) ?? "");
+  const importaDoDominio = (fonte, nome, origem) =>
+    new RegExp(`import\\s*\\{[^}]*\\b${nome}\\b[^}]*\\}\\s*from\\s*["']${origem}["']`).test(fonte);
+  const defineLocal = (fonte, nome) => new RegExp(`\\b(const|let|var|function)\\s+${nome}\\b`).test(fonte);
+  afirmar(
+    "a TELA e o SERVIDOR importam `FRASE_DA_ORDEM` do domínio, e ninguém fora dele a define nem repete o texto dela",
+    importaDoDominio(telaBruta, "FRASE_DA_ORDEM", "@/domain/carreiras/classificacoes") &&
+      importaDoDominio(servidor, "FRASE_DA_ORDEM", "\\.\\./\\.\\./src/domain/carreiras/classificacoes\\.js") &&
+      [telaBruta, moduloBruto, servidor].every((f) => !defineLocal(f, "FRASE_DA_ORDEM") && !f.includes("A ordem é um número")),
+  );
+  const LISTAS_DO_DOMINIO = c.LISTAS_DE_CLASSIFICACAO;
+  const reconhece = (lista, frase) => c.ehFraseDeNomeRepetido(lista, frase);
+  afirmar(
+    "as frases de nome repetido moram no domínio; o servidor reexporta a MESMA função, e reconhecê-las é pela forma: as duas (com o nome existente e a do índice do banco) de cada lista, com qualquer nome",
+    nucleoDaClassificacao.fraseDeNomeRepetido === c.fraseDeNomeRepetido &&
+      LISTAS_DO_DOMINIO.every(
+        (l) =>
+          ["Operações", "x", "Já existe", "“aspas”"].every((n) => reconhece(l, c.fraseDeNomeRepetido(l, n))) &&
+          reconhece(l, c.fraseDeNomeRepetidoNoBanco(l)),
+      ) &&
+      importaDoDominio(servidor, "fraseDeNomeRepetidoNoBanco", "\\.\\./\\.\\./src/domain/carreiras/classificacoes\\.js") &&
+      !defineLocal(servidor, "fraseDeNomeRepetido") &&
+      !servidor.includes("sem contar maiúsculas") &&
+      !servidor.includes("chamado “"),
+  );
+  afirmar(
+    "e NÃO reconhece outro conflito: a recusa por uso, o conflito genérico, a frase de OUTRA lista, frase vazia, texto que não é frase e lista torta (sem lançar)",
+    !reconhece(DEP_Q, nucleoDaClassificacao.fraseDeClassificacaoEmUso(DEP_Q, "Operações", 2)) &&
+      !reconhece(DEP_Q, "Houve um conflito com outro registro ao salvar o Departamento. Recarregue o Painel e tente de novo.") &&
+      !reconhece(DEP_Q, c.fraseDeNomeRepetido(NIVEL_Q, "Pleno")) &&
+      !reconhece(DEP_Q, c.fraseDeNomeRepetidoNoBanco(TIPO_Q)) &&
+      !reconhece(DEP_Q, c.fraseDeNomeRepetido(DEP_Q, "")) &&
+      !reconhece(DEP_Q, "") &&
+      !reconhece(DEP_Q, null) &&
+      !reconhece(null, c.fraseDeNomeRepetido(DEP_Q, "X")) &&
+      !reconhece({}, c.fraseDeNomeRepetido(DEP_Q, "X")),
+  );
+}
+
+/* ── Node: o módulo puro da tela ── */
+
+let doPainel = null;
+try {
+  doPainel = await import(urlDe("src/admin/carreiras/classificacoesDoPainel.js"));
+} catch (erro) {
+  afirmar("`src/admin/carreiras/classificacoesDoPainel.js` importa no Node", false, erro.message);
+}
+
+if (doPainel !== null) {
+  const m = doPainel;
+  const { diagnosticarMensagem, diagnosticarRotuloDeAcao } = await import(urlDe("src/admin/shell/voz.js"));
+  afirmar(
+    "as situações da tela são EXATAMENTE carregando, erro, lista e formulário; o formulário vem antes de tudo e o erro antes da lista",
+    igual([...m.SITUACOES_DA_TELA], ["carregando", "erro", "lista", "formulario"]) &&
+      m.situacaoDaTela({ editando: true, carregando: true, erro: { tipo: "rede" } }) === "formulario" &&
+      m.situacaoDaTela({ carregando: true, erro: { tipo: "rede" } }) === "carregando" &&
+      m.situacaoDaTela({ erro: { tipo: "rede" } }) === "erro" &&
+      m.situacaoDaTela({}) === "lista",
+  );
+  afirmar(
+    "o uso por extenso: \"Nenhuma vaga\", \"1 vaga\", \"N vagas\", e \"Uso desconhecido\" para `null` (e para negativo, fração, texto ou ausência): `null` nunca vira zero",
+    m.textoDoUso({ vagas: 0 }) === "Nenhuma vaga" &&
+      m.textoDoUso({ vagas: 1 }) === "1 vaga" &&
+      m.textoDoUso({ vagas: 2 }) === "2 vagas" &&
+      [null, undefined, -1, 1.5, "2", NaN].every((v) => m.textoDoUso({ vagas: v }) === "Uso desconhecido") &&
+      m.textoDoUso(null) === "Uso desconhecido" &&
+      m.usoDaClassificacao({ vagas: null }) === null &&
+      m.usoDaClassificacao({ vagas: 0 }) === 0,
+  );
+  afirmar(
+    "só o item SABIDAMENTE sem Vaga pode ser excluído (uso 0); uso > 0 e uso desconhecido, não",
+    m.podeExcluir({ vagas: 0 }) === true &&
+      m.podeExcluir({ vagas: 2 }) === false &&
+      m.podeExcluir({ vagas: null }) === false &&
+      m.podeExcluir({}) === false,
+  );
+  const emUso = m.motivoDeNaoExcluir(DEP_Q, { nome: "Operações", vagas: 2 });
+  const emUsoUma = m.motivoDeNaoExcluir(DEP_Q, { nome: "Operações", vagas: 1 });
+  const semSaber = m.motivoDeNaoExcluir(NIVEL_Q, { nome: "Pleno", vagas: null });
+  afirmar(
+    "o motivo de não excluir: \"Em uso por N vaga(s)\" nomeando o item, e um motivo PRÓPRIO para o uso desconhecido; uso 0 não tem motivo",
+    emUso !== null &&
+      emUso.oQueHouve.includes("Em uso por 2 vagas") &&
+      emUso.oQueHouve.includes("Operações") &&
+      emUsoUma.oQueHouve.includes("Em uso por 1 vaga") &&
+      semSaber !== null &&
+      semSaber.oQueHouve.includes("Uso desconhecido") &&
+      !semSaber.oQueHouve.includes("Em uso") &&
+      semSaber.oQueFazer !== emUso.oQueFazer &&
+      m.motivoDeNaoExcluir(DEP_Q, { nome: "X", vagas: 0 }) === null &&
+      [emUso, emUsoUma, semSaber].every(
+        (mo) => diagnosticarMensagem("o que houve", mo.oQueHouve) === null && diagnosticarMensagem("o que fazer", mo.oQueFazer) === null,
+      ),
+    JSON.stringify([emUso, semSaber]),
+  );
+  afirmar(
+    "os rótulos das ações nomeiam o item (e o de excluir diz quando está indisponível e por quê)",
+    m.rotuloDeEditar(DEP_Q, { nome: "Operações" }).includes("Operações") &&
+      m.rotuloDeExcluir(DEP_Q, { nome: "Operações", vagas: 0 }).includes("Operações") &&
+      !m.rotuloDeExcluir(DEP_Q, { nome: "Operações", vagas: 0 }).includes("indisponível") &&
+      m.rotuloDeExcluir(DEP_Q, { nome: "Operações", vagas: 2 }).includes("Em uso por 2 vagas") &&
+      m.rotuloDeEditar(TIPO_Q, { nome: "" }).includes("sem nome"),
+  );
+  afirmar(
+    "a confirmação nomeia o item, e o botão de confirmar diz o que faz (aprovado pela regra de voz, também a reserva)",
+    m.tituloDaExclusao(NIVEL_Q, { nome: "Estágio" }).includes("Estágio") &&
+      LISTAS_Q().every((l) => diagnosticarRotuloDeAcao(m.rotuloDeConfirmarExclusao(l)) === null) &&
+      diagnosticarRotuloDeAcao(m.ROTULO_DE_CONFIRMAR_EXCLUSAO_PADRAO) === null &&
+      diagnosticarRotuloDeAcao(m.ROTULO_DE_NOVA_TENTATIVA) === null,
+  );
+  afirmar(
+    "as frases de sucesso e de falha passam pela regra de voz e nomeiam o item",
+    LISTAS_Q().every((l) => {
+      const item = { nome: "Parcerias" };
+      return [
+        m.confirmacaoDaExclusao(l, item),
+        m.falhaDaExclusao(l, item),
+        m.confirmacaoDoSalvamento(l, item, true),
+        m.confirmacaoDoSalvamento(l, item, false),
+        m.falhaDoSalvamento(l, item),
+      ].every((f) => f.includes("Parcerias") && diagnosticarMensagem("frase", f) === null);
+    }) &&
+      diagnosticarMensagem("o que fazer", m.RESERVA_DA_ACAO) === null &&
+      diagnosticarMensagem("o que fazer", m.FRASE_DO_EQUIVALENTE_AUSENTE) === null,
+  );
+  afirmar(
+    "os campos do formulário, por lista: nome, Cor (Departamento e Nível), Equivalente (Tipo) e Ordem",
+    igual([...m.camposDoFormulario(DEP_Q)], ["nome", "cor", "ordem"]) &&
+      igual([...m.camposDoFormulario(TIPO_Q)], ["nome", "equivalente_jobposting", "ordem"]) &&
+      igual([...m.camposDoFormulario(NIVEL_Q)], ["nome", "cor", "ordem"]),
+  );
+  afirmar(
+    "o Equivalente por extenso é o rótulo legível com o código; o legado aparece cru, sem lançar",
+    classificacoes.EQUIVALENTES_JOBPOSTING.every(
+      (codigo) => m.textoDoEquivalente(codigo) === `${classificacoes.ROTULOS_DOS_EQUIVALENTES[codigo]} (${codigo})`,
+    ) &&
+      m.textoDoEquivalente("SEASONAL").includes("SEASONAL") &&
+      m.textoDoEquivalente(undefined) !== "",
+  );
+  afirmar(
+    "a Cor do item traz o NOME da cor (a cor nunca é o único portador); a legada cai no par neutro, dita como fora da paleta",
+    classificacoes.CORES_DE_CLASSIFICACAO.every((cor) => {
+      const a = m.corDoItem({ cor });
+      const p = classificacoes.aparenciaDaCorDeClassificacao(cor);
+      return a.rotulo === p.rotulo && a.fundo === p.fundo && a.tinta === p.tinta && a.conhecida === true;
+    }) &&
+      m.corDoItem({ cor: "#ff0000" }).conhecida === false &&
+      m.corDoItem({ cor: "#ff0000" }).fundo === classificacoes.aparenciaDaCorDeClassificacao(null).fundo &&
+      m.corDoItem({ cor: "#ff0000" }).rotulo !== "",
+  );
+  const VERDE = "var(--categoria-verde-bg)";
+  const corpo = (lista, valores, original = null) => m.corpoDaClassificacao(lista, valores, { original });
+  const criarDep = corpo(DEP_Q, { ...m.valoresVazios(DEP_Q), nome: "  Parcerias  ", cor: VERDE });
+  afirmar(
+    "criar Departamento: vão nome (aparado), Cor e Ordem (vazia vale 0), e a Cor nasce na padrão do banco",
+    criarDep.ok === true &&
+      igual(criarDep.corpo, { nome: "Parcerias", cor: VERDE, ordem: 0 }) &&
+      m.valoresVazios(DEP_Q).cor === classificacoes.COR_PADRAO_DE_CLASSIFICACAO &&
+      m.valoresVazios(TIPO_Q).equivalente_jobposting === "",
+    JSON.stringify(criarDep),
+  );
+  const tipoSem = corpo(TIPO_Q, { ...m.valoresVazios(TIPO_Q), nome: "Temporário" });
+  const tipoCom = corpo(TIPO_Q, { ...m.valoresVazios(TIPO_Q), nome: "Temporário", equivalente_jobposting: "TEMPORARY", ordem: "4" });
+  afirmar(
+    "criar Tipo SEM Equivalente é recusado localmente no campo Equivalente; com ele, vão nome, Equivalente e Ordem, sem Cor",
+    tipoSem.ok === false &&
+      tipoSem.campo === "equivalente_jobposting" &&
+      tipoCom.ok === true &&
+      igual(tipoCom.corpo, { nome: "Temporário", equivalente_jobposting: "TEMPORARY", ordem: 4 }) &&
+      corpo(TIPO_Q, { ...m.valoresVazios(TIPO_Q), nome: "X", equivalente_jobposting: "SEASONAL" }).campo === "equivalente_jobposting",
+    `${JSON.stringify(tipoSem)} | ${JSON.stringify(tipoCom)}`,
+  );
+  const tecnologia = { id: "t", nome: "Tecnologia", cor: "var(--categoria-azul-bg)", ordem: 1, vagas: 1 };
+  const renomear = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, tecnologia), nome: "Engenharia" }, tecnologia);
+  const rh = { id: "r", nome: "rh", cor: VERDE, ordem: 2, vagas: 0 };
+  const caixa = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, rh), nome: "RH" }, rh);
+  const nada = corpo(DEP_Q, m.valoresDaClassificacao(DEP_Q, tecnologia), tecnologia);
+  afirmar(
+    "editar manda SÓ o que mudou: renomear leva só `nome`, mudar a caixa (\"rh\" para \"RH\") leva o nome, e nada mudado não viaja",
+    renomear.ok === true &&
+      igual(renomear.corpo, { nome: "Engenharia" }) &&
+      caixa.ok === true &&
+      igual(caixa.corpo, { nome: "RH" }) &&
+      nada.ok === true &&
+      nada.vazio === true &&
+      igual(nada.corpo, {}),
+    `${JSON.stringify(renomear)} | ${JSON.stringify(caixa)} | ${JSON.stringify(nada)}`,
+  );
+  const legadoCor = { id: "l", nome: "Legado", cor: "#ff0000", ordem: 3, vagas: null };
+  const legadoTipo = { id: "s", nome: "Sazonal", equivalente_jobposting: "SEASONAL", ordem: 0, vagas: 0 };
+  const renomearLegadoCor = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, legadoCor), nome: "Legado 2" }, legadoCor);
+  const trocarCorLegada = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, legadoCor), cor: VERDE }, legadoCor);
+  const renomearLegadoTipo = corpo(TIPO_Q, { ...m.valoresDaClassificacao(TIPO_Q, legadoTipo), nome: "Sazonal 2" }, legadoTipo);
+  afirmar(
+    "uma Cor ou um Equivalente LEGADO não é reenviado sem mudar (renomear continua possível); trocar a Cor legada por uma da paleta envia a nova",
+    renomearLegadoCor.ok === true &&
+      igual(renomearLegadoCor.corpo, { nome: "Legado 2" }) &&
+      trocarCorLegada.ok === true &&
+      igual(trocarCorLegada.corpo, { cor: VERDE }) &&
+      renomearLegadoTipo.ok === true &&
+      igual(renomearLegadoTipo.corpo, { nome: "Sazonal 2" }),
+    `${JSON.stringify(renomearLegadoCor)} | ${JSON.stringify(trocarCorLegada)} | ${JSON.stringify(renomearLegadoTipo)}`,
+  );
+  const tipoLimpo = corpo(TIPO_Q, { ...m.valoresDaClassificacao(TIPO_Q, legadoTipo), equivalente_jobposting: "" }, legadoTipo);
+  afirmar(
+    "tirar o Equivalente de um Tipo na edição também é recusado localmente (ele é obrigatório para Tipo)",
+    tipoLimpo.ok === false && tipoLimpo.campo === "equivalente_jobposting",
+  );
+  const TETO = classificacoes.ORDEM_MAXIMA_DA_CLASSIFICACAO;
+  const ordemAcima = corpo(NIVEL_Q, { ...m.valoresVazios(NIVEL_Q), nome: "Estagiário", ordem: String(TETO + 1) });
+  const ordemNoTeto = corpo(NIVEL_Q, { ...m.valoresVazios(NIVEL_Q), nome: "Estagiário", ordem: String(TETO) });
+  const fraseDoServidor = nucleoDaClassificacao.lerCorpoDaClassificacao({ ordem: TETO + 1 }, NIVEL_Q, { criando: false }).mensagem;
+  afirmar(
+    "Ordem acima do teto do DOMÍNIO é recusada localmente no campo Ordem, com a MESMA frase do servidor; o teto passa; lixo e negativo também são recusados",
+    ordemAcima.ok === false &&
+      ordemAcima.campo === "ordem" &&
+      ordemAcima.motivo === fraseDoServidor &&
+      ordemAcima.motivo.includes(String(TETO)) &&
+      ordemNoTeto.ok === true &&
+      ordemNoTeto.corpo.ordem === TETO &&
+      ["-1", "1.5", "abc", "1e3", "99999999"].every(
+        (o) => corpo(NIVEL_Q, { ...m.valoresVazios(NIVEL_Q), nome: "N", ordem: o }).campo === "ordem",
+      ),
+    `${JSON.stringify(ordemAcima)} | servidor: ${fraseDoServidor}`,
+  );
+  afirmar(
+    "nome vazio ou acima de 80 caracteres é recusado localmente no campo nome, pela regra do domínio",
+    corpo(DEP_Q, { ...m.valoresVazios(DEP_Q), nome: "   " }).campo === "nome" &&
+      corpo(DEP_Q, { ...m.valoresVazios(DEP_Q), nome: "x".repeat(81) }).campo === "nome" &&
+      corpo(DEP_Q, { ...m.valoresVazios(DEP_Q), nome: "x".repeat(80) }).ok === true &&
+      corpo(DEP_Q, { ...m.valoresVazios(DEP_Q), nome: "   " }).motivo === classificacoes.problemaNoNomeDaClassificacao(""),
+  );
+  let lancou = false;
+  try {
+    for (const lixo of [null, undefined, 7, "x", [], {}]) {
+      m.textoDoUso(lixo);
+      m.corDoItem(lixo);
+      m.nomeParaFrase(lixo);
+      m.valoresDaClassificacao(DEP_Q, lixo);
+      m.corpoDaClassificacao(DEP_Q, lixo, { original: null });
+      m.motivoDeNaoExcluir(DEP_Q, lixo);
+    }
+  } catch {
+    lancou = true;
+  }
+  afirmar("nada no módulo puro lança com dado torto", !lancou);
+
+  /* ── Revisão da 5.6: a Ordem desconhecida, o legado, o nome normalizado ── */
+  afirmar(
+    "a Ordem na linha: \"Ordem N\" para inteiro de 0 para cima, e \"Ordem não definida\" (NUNCA \"0\") para ordem ausente, nula, fracionária, em texto ou negativa",
+    m.textoDaOrdem({ ordem: 0 }) === "Ordem 0" &&
+      m.textoDaOrdem({ ordem: 7 }) === "Ordem 7" &&
+      [null, undefined, 1.5, "2", -1, NaN].every((o) => m.textoDaOrdem({ ordem: o }) === "Ordem não definida") &&
+      m.textoDaOrdem(null) === "Ordem não definida" &&
+      m.TEXTO_DA_ORDEM_DESCONHECIDA === "Ordem não definida",
+  );
+  const semOrdem = { id: "o", nome: "Operações", cor: VERDE, ordem: null, vagas: 0 };
+  const renomearSemOrdem = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, semOrdem), nome: "Operação" }, semOrdem);
+  const darOrdem = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, semOrdem), ordem: "4" }, semOrdem);
+  const acimaDoTeto = { id: "a", nome: "Antigo", equivalente_jobposting: "OTHER", ordem: TETO + 5, vagas: 0 };
+  const renomearAcima = corpo(TIPO_Q, { ...m.valoresDaClassificacao(TIPO_Q, acimaDoTeto), nome: "Antigo 2" }, acimaDoTeto);
+  const mexerAcima = corpo(TIPO_Q, { ...m.valoresDaClassificacao(TIPO_Q, acimaDoTeto), ordem: String(TETO + 6) }, acimaDoTeto);
+  const trazerAcima = corpo(TIPO_Q, { ...m.valoresDaClassificacao(TIPO_Q, acimaDoTeto), ordem: "3" }, acimaDoTeto);
+  afirmar(
+    "Ordem desconhecida: renomear sem tocar na Ordem manda SÓ o nome (vazio não vira 0); dar uma Ordem manda a Ordem",
+    renomearSemOrdem.ok === true &&
+      igual(renomearSemOrdem.corpo, { nome: "Operação" }) &&
+      darOrdem.ok === true &&
+      igual(darOrdem.corpo, { ordem: 4 }),
+    `${JSON.stringify(renomearSemOrdem)} | ${JSON.stringify(darOrdem)}`,
+  );
+  afirmar(
+    "Ordem legada acima do teto: renomear sem tocar nela NÃO é bloqueado (e ela não viaja); mexer nela para outro valor acima é recusado, e trazê-la para a regra envia",
+    renomearAcima.ok === true &&
+      igual(renomearAcima.corpo, { nome: "Antigo 2" }) &&
+      mexerAcima.ok === false &&
+      mexerAcima.campo === "ordem" &&
+      trazerAcima.ok === true &&
+      igual(trazerAcima.corpo, { ordem: 3 }),
+    `${JSON.stringify(renomearAcima)} | ${JSON.stringify(mexerAcima)}`,
+  );
+  const espacado = { id: "e", nome: "  Recursos   Humanos ", cor: VERDE, ordem: 1, vagas: 0 };
+  const intocado = corpo(DEP_Q, m.valoresDaClassificacao(DEP_Q, espacado), espacado);
+  const AZUL_Q = "var(--categoria-azul-bg)";
+  const soCor = corpo(DEP_Q, { ...m.valoresDaClassificacao(DEP_Q, espacado), cor: AZUL_Q }, espacado);
+  afirmar(
+    "o nome só vai no corpo se for DIFERENTE do original normalizado: um nome gravado com espaço sobrando, intocado, não viaja (nada mudou; trocar só a Cor leva só a Cor)",
+    intocado.ok === true && intocado.vazio === true && soCor.ok === true && igual(soCor.corpo, { cor: AZUL_Q }),
+    `${JSON.stringify(intocado)} | ${JSON.stringify(soCor)}`,
+  );
+  afirmar(
+    "a leitura só é legível com UMA LISTA em cada tabela de `LISTAS_DE_CLASSIFICACAO`; tabela ausente, nula, objeto ou texto não é lista vazia",
+    m.leituraLegivel({ departamentos: [], tipos_de_vaga: [], niveis: [] }) === true &&
+      classificacoes.LISTAS_DE_CLASSIFICACAO.every((l) => {
+        const base = { departamentos: [], tipos_de_vaga: [], niveis: [] };
+        return [undefined, null, {}, "x", 0].every((torto) => m.leituraLegivel({ ...base, [l.tabela]: torto }) === false);
+      }) &&
+      [null, undefined, [], "x"].every((d) => m.leituraLegivel(d) === false),
+  );
+  afirmar(
+    "o id do item só vale como texto não vazio (ausente, número, vazio e objeto torto dão `null`)",
+    m.idDoItem({ id: "abc" }) === "abc" &&
+      [{}, { id: 7 }, { id: "" }, { id: "  " }, { id: null }, null, "abc"].every((i) => m.idDoItem(i) === null),
+  );
+  afirmar(
+    "os textos visíveis da tela moram no módulo puro: o teto do nome vem do domínio, a Cor e o Equivalente da linha e a Cor escolhida vêm por extenso",
+    m.AJUDA_DO_NOME.includes(String(classificacoes.TAMANHO_MAXIMO_DO_NOME_DE_CLASSIFICACAO)) &&
+      m.textoDaCorNaLinha({ cor: VERDE }) === `Cor: ${classificacoes.aparenciaDaCorDeClassificacao(VERDE).rotulo}` &&
+      m.textoDoEquivalenteNaLinha({ equivalente_jobposting: "INTERN" }) === `Google Vagas: ${m.textoDoEquivalente("INTERN")}` &&
+      m.textoDoEquivalenteNaLinha({ equivalente_jobposting: "SEASONAL" }) === "Google Vagas: Fora da lista: SEASONAL" &&
+      m.textoDaCorEscolhida(VERDE) === `Cor escolhida: ${classificacoes.aparenciaDaCorDeClassificacao(VERDE).rotulo}` &&
+      m.rotuloDoGrupoDeCor(NIVEL_Q) === "Cor do Nível" &&
+      [m.TEXTO_DE_EDITAR, m.TEXTO_DE_EXCLUIR, m.ROTULO_DO_NOME, m.ROTULO_DA_COR, m.ROTULO_DO_EQUIVALENTE, m.MARCA_DE_OBRIGATORIO, m.OPCAO_SEM_EQUIVALENTE, m.ROTULO_DA_ORDEM, m.COMPLEMENTO_DA_AJUDA_DA_ORDEM, m.EXEMPLO_DA_ORDEM].every(
+        (t) => typeof t === "string" && t.trim() !== "",
+      ),
+  );
+  afirmar(
+    "as frases novas passam pela regra de voz (item sem id, ação ocupada, item que já não existia) e nomeiam o item",
+    diagnosticarMensagem("o que fazer", m.FRASE_DO_ITEM_SEM_ID) === null &&
+      diagnosticarMensagem("o que fazer", m.FRASE_DA_ACAO_OCUPADA) === null &&
+      LISTAS_Q().every((l) => {
+        const f = m.ausenciaNaExclusao(l, { nome: "Parcerias" });
+        return f.includes("Parcerias") && f.includes("já não existia") && diagnosticarMensagem("o que houve", f) === null;
+      }),
+  );
+  const saidasDeTexto = LISTAS_Q().flatMap((l) => [
+    m.textoDaCorNaLinha({ cor: VERDE }),
+    m.textoDoEquivalenteNaLinha({ equivalente_jobposting: "SEASONAL" }),
+    m.textoDaOrdem({ ordem: null }),
+    m.textoDaOrdem({ ordem: 3 }),
+    m.rotuloDoGrupoDeCor(l),
+    m.textoDaCorEscolhida("#fff"),
+    m.ausenciaNaExclusao(l, { nome: "N" }),
+  ]);
+  afirmar(
+    "nenhum texto DEVOLVIDO pelas funções novas do módulo puro tem travessão",
+    saidasDeTexto.every((t) => typeof t === "string" && !t.includes("—")),
+  );
+  const travessoes = Object.entries(m).filter(([, v]) => typeof v === "string" && v.includes("—"));
+  afirmar("nenhum texto exportado pelo módulo puro tem travessão", travessoes.length === 0, travessoes.map(([k]) => k).join(", "));
+}
+
+/* ── Estática: as listas fechadas ── */
+{
+  const tela = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/TelaDeClassificacoes.jsx`) ?? "");
+  const brutos = [`${DIR_TELAS_DE_CARREIRAS}/TelaDeClassificacoes.jsx`, `${DIR_TELAS_DE_CARREIRAS}/classificacoesDoPainel.js`].map(
+    (a) => ler(a) ?? "",
+  );
+  afirmar(
+    "a tela lê por `listarClassificacoesDoPainel` e escreve só por `salvarClassificacao` e `excluirClassificacao`, pelos apelidos EXATOS",
+    /import\s*\{[^}]*\blistarClassificacoesDoPainel\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(tela) &&
+      /import\s*\{[^}]*\bsalvarClassificacao\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(tela) &&
+      /import\s*\{[^}]*\bexcluirClassificacao\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(tela) &&
+      !/\b(salvarVaga|excluirVaga|mudarEstadoDaVaga|listarVagasDoPainel)\b/.test(tela),
+  );
+  afirmar(
+    "a tela itera `LISTAS_DE_CLASSIFICACAO` e lê cada lista pela TABELA (`dados[lista.tabela]`)",
+    /LISTAS_DE_CLASSIFICACAO\.map\(/.test(tela) && /dados\?\.\[lista\.tabela\]/.test(tela),
+  );
+  const PROIBIDOS_NAS_TELAS = [
+    ["admin/blog", /["'][^"']*admin\/blog[^"']*["']/],
+    ["domain/blog/categorias", /["'][^"']*domain\/blog\/categorias[^"']*["']/],
+    ["domain/blog/formato", /["'][^"']*domain\/blog\/formato[^"']*["']/],
+    ["framer-motion", /["']framer-motion["']/],
+    ["/api/", /["'`]\/api\//],
+    ["fetch", /\bfetch\b/],
+    ["import(", /\bimport\s*\(/],
+    ["WebSocket", /\bWebSocket\b/],
+  ];
+  const achados = [];
+  for (const [i, bruto] of brutos.entries()) {
+    for (const [nome, padrao] of PROIBIDOS_NAS_TELAS) if (padrao.test(bruto)) achados.push(`${i === 0 ? "tela" : "módulo"}: ${nome}`);
+  }
+  afirmar(
+    "autoteste: o detector acusa cada proibição (Blog, categorias e formato do Blog, `framer-motion`, `\"/api/\"`, `fetch`, `import(`, `WebSocket`) e absolve os imports da tela",
+    [
+      'import x from "@/admin/blog/categorias";',
+      'import { COR_PADRAO } from "@/domain/blog/categorias";',
+      'import { formatarNumero } from "../../domain/blog/formato.js";',
+      'import { motion } from "framer-motion";',
+      'const u = "/api/carreiras";',
+      "// fetch no comentário também",
+      "const m = import (x);",
+      "new WebSocket(u);",
+    ].every((t) => PROIBIDOS_NAS_TELAS.some(([, p]) => p.test(t))) &&
+      !PROIBIDOS_NAS_TELAS.some(([, p]) => p.test('import { salvarClassificacao } from "@/data/carreiras/escrita";')) &&
+      !PROIBIDOS_NAS_TELAS.some(([, p]) => p.test('import { aparenciaDaCorDeClassificacao } from "@/domain/carreiras/classificacoes";')),
+  );
+  afirmar(
+    "a tela e o módulo puro não importam `admin/blog`, `domain/blog/categorias`, `domain/blog/formato` nem `framer-motion`, e não citam `\"/api/\"`, `fetch`, `import(` nem `WebSocket` (texto BRUTO, comentário incluído)",
+    brutos.every((b) => b !== "") && achados.length === 0,
+    achados.join(" | "),
+  );
+  afirmar(
+    "a tela não revela nada por hover nem esconde alvo (`hover:`, `group-hover`, `opacity-0`, `invisible`)",
+    tela !== "" && !/\bhover:|group-hover|\bopacity-0\b|\binvisible\b/.test(tela),
+  );
+  afirmar(
+    "a tela monta UM `DialogoDeConfirmacao`, sempre, controlado por `aberto={paraExcluir !== null}`",
+    (tela.match(/<DialogoDeConfirmacao\b/g) ?? []).length === 1 && /aberto=\{paraExcluir !== null\}/.test(tela),
+  );
+  /* Todo `catch` registra `console.error("[Painel] …", <o erro capturado>)`
+     como primeira instrução. */
+  const registra = (fonte) =>
+    [...fonte.matchAll(/catch\s*\(\s*(\w+)\s*\)\s*\{\s*([^;]*;)/g)].map(([, variavel, primeira]) =>
+      new RegExp(`^console\\.error\\(\\s*"\\[Painel\\][^"]*",\\s*${variavel}\\s*\\)`).test(primeira.trim()),
+    );
+  afirmar(
+    "autoteste: o detector de registro no `catch` absolve o registro certo e acusa o mudo, o sem prefixo e o de outra variável",
+    igual(registra('try{}catch (e) { console.error("[Painel] x", e); }'), [true]) &&
+      igual(registra("try{}catch (e) { resultado = 1; }"), [false]) &&
+      igual(registra('try{}catch (e) { console.error("x", e); }'), [false]) &&
+      igual(registra('try{}catch (e) { console.error("[Painel] x", outra); }'), [false]),
+  );
+  /* TROCA REGISTRADA (revisão da 5.6): era `catches.length === 3`, número
+     mágico. Agora: há `catch`, TODO `catch` da tela foi visto pelo detector
+     (a contagem dele é a de `catch` no texto) e todos registram. */
+  const catches = registra(tela);
+  const catchesNoTexto = (tela.match(/\bcatch\b/g) ?? []).length;
+  afirmar(
+    "todo `catch` da tela registra `console.error(\"[Painel] …\", <erro capturado>)`: cada `catch` do texto foi lido pelo detector, e não há `catch` sem variável",
+    catches.length > 0 && catches.length === catchesNoTexto && catches.every(Boolean) && !/catch\s*\{/.test(tela),
+    `${JSON.stringify(catches)} | ${catchesNoTexto} no texto`,
+  );
+  /* Os textos visíveis saem do JSX (revisão da 5.6): nenhum nó de texto com
+     letra entre marcas, e nenhum atributo de texto visível ou acessível com
+     letra escrito à mão. Tudo vem do módulo puro, que passa pelas checagens
+     de voz e de travessão. */
+  const textosNoJsx = (fonte) => [
+    /* texto depois de uma marca, até outra marca ou uma expressão */
+    ...[...fonte.matchAll(/(?<![=-])>([^<>{}]*\p{L}[^<>{}]*)(?=<\/?[A-Za-z]|\{)/gu)].map((x) => x[1].trim()),
+    /* texto depois de uma expressão, na mesma linha, até uma marca */
+    ...[...fonte.matchAll(/\}([^<>{}=;\n]*\p{L}[^<>{}=;\n]*)(?=<\/?[A-Za-z])/gu)].map((x) => x[1].trim()),
+    ...[...fonte.matchAll(/\b(?:placeholder|aria-label|title|alt)="([^"]*\p{L}[^"]*)"/gu)].map((x) => x[1]),
+  ];
+  afirmar(
+    "autoteste: o detector de texto no JSX acusa nó de texto e atributo escritos à mão, e absolve a expressão, a seta, o código entre chaves e o atributo técnico",
+    textosNoJsx("<span>Editar</span>").length === 1 &&
+      textosNoJsx('<b className="x">\n  Cor: {a}\n</b>').length === 1 &&
+      textosNoJsx("<span>{n} vagas</span>").length === 1 &&
+      textosNoJsx('x: 1 },\n  classe: cn("a"),\n  conteudo: (\n<span>{y}</span>').length === 0 &&
+      textosNoJsx('<input placeholder="Nome" />').length === 1 &&
+      textosNoJsx('<p title="Ordem">{x}</p>').length === 1 &&
+      textosNoJsx("<span>{TEXTO_DE_EDITAR}</span>").length === 0 &&
+      textosNoJsx("onClick={() => aoEditar?.()}>\n  {x}\n</b>").length === 0 &&
+      textosNoJsx('<p className="text-xs" data-papel="cor">{t}</p>').length === 0,
+  );
+  const escritosAMao = textosNoJsx(tela);
+  afirmar(
+    "a tela não escreve texto visível à mão no JSX (rótulos, \"Editar\", \"Excluir\", \"Cor:\", \"Google Vagas:\", ajuda da Ordem): todos vêm do módulo puro",
+    tela !== "" && escritosAMao.length === 0,
+    escritosAMao.slice(0, 5).join(" | "),
+  );
+  const principal = semComentarios(ler("src/main.jsx") ?? "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\s+/g, " ");
+  const inicioDoAdmin = principal.indexOf('<Route path="/admin"');
+  const fimDoAdmin = inicioDoAdmin < 0 ? -1 : principal.indexOf("</Route>", inicioDoAdmin);
+  const blocoDoAdmin = fimDoAdmin < 0 ? "" : principal.slice(inicioDoAdmin, fimDoAdmin);
+  const posDaTela = blocoDoAdmin.indexOf("<Route path={ROTA_DAS_CLASSIFICACOES} element={<TelaDeClassificacoes />} />");
+  const posDoIndice = blocoDoAdmin.indexOf("<Route index element={<AdminBlog />} />");
+  const posDaApanhaTudo = blocoDoAdmin.indexOf("<Route path={ROTA_DESCONHECIDA}");
+  const nomesDoImportDasRotas = (/import \{([^}]*)\} from ["']@\/admin\/carreiras\/rotas["']/.exec(principal)?.[1] ?? "")
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);
+  afirmar(
+    "`main.jsx` monta `<TelaDeClassificacoes />` SEM propriedade em `ROTA_DAS_CLASSIFICACOES`, dentro de `/admin`, depois do índice e ANTES da apanha-tudo, uma vez só",
+    posDaTela > posDoIndice &&
+      posDoIndice >= 0 &&
+      posDaApanhaTudo > posDaTela &&
+      (principal.match(/<TelaDeClassificacoes\b/g) ?? []).length === 1 &&
+      /import TelaDeClassificacoes from ["']@\/admin\/carreiras\/TelaDeClassificacoes["']/.test(principal) &&
+      nomesDoImportDasRotas.includes("ROTA_DAS_CLASSIFICACOES"),
+    `tela ${posDaTela} | índice ${posDoIndice} | apanha-tudo ${posDaApanhaTudo}`,
+  );
+  let rotas = null;
+  try {
+    rotas = await import(urlDe("src/admin/carreiras/rotas.js"));
+  } catch {
+    rotas = null;
+  }
+  afirmar(
+    "as rotas: `ROTA_DAS_CLASSIFICACOES` é `carreiras/classificacoes` (relativa ao pai) e `ENDERECO_DAS_CLASSIFICACOES` é `/admin/carreiras/classificacoes`; a volta da tela é `ENDERECO_DA_LISTAGEM`",
+    rotas?.ROTA_DAS_CLASSIFICACOES === "carreiras/classificacoes" &&
+      rotas?.ENDERECO_DAS_CLASSIFICACOES === "/admin/carreiras/classificacoes" &&
+      /<Link\s+to=\{ENDERECO_DA_LISTAGEM\}\s+data-acao="voltar"/.test(tela),
+  );
+  const aba = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/AbaDeCarreiras.jsx`) ?? "");
+  afirmar(
+    "a faixa da aba Carreiras tem o link para a tela (`data-acao=\"abrir-classificacoes\"`, `to={ENDERECO_DAS_CLASSIFICACOES}`)",
+    /<Link\s+to=\{ENDERECO_DAS_CLASSIFICACOES\}\s+data-acao="abrir-classificacoes"/.test(aba),
+  );
+}
+
+function LISTAS_Q() {
+  return [DEP_Q, TIPO_Q, NIVEL_Q];
+}
+
+/* ── A tela montada ── */
+{
+  const { writeFileSync, rmSync } = await import("node:fs");
+  const montagem = await import("./montagem-comum.mjs");
+  const pasta = montagem.criarPastaDeCompilacao("verificar-carreiras-classificacoes-");
+
+  const DEP_OPE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
+  const DEP_TEC = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
+  const DEP_RH = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3";
+  const DEP_LEG = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4";
+  const DEP_NOVO = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb5";
+  const TIPO_CLT = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+  const TIPO_EST = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+  const NIV_PLENO = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+  const NIV_SENIOR = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2";
+  const VERDE = "var(--categoria-verde-bg)";
+  const AZUL = "var(--categoria-azul-bg)";
+  const ROXO = "var(--categoria-roxo-bg)";
+
+  const arquivoDaLeitura = path.join(pasta, "duble-leitura.js");
+  writeFileSync(
+    arquivoDaLeitura,
+    `export const controle = { dados: null, falhar: false, lancar: false, segurar: null, lidas: 0, vagasLidas: 0 };
+export async function listarClassificacoesDoPainel() {
+  controle.lidas += 1;
+  const resposta = controle.falhar
+    ? { ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos ler as classificações. Confira a conexão." } }
+    : { ok: true, dados: JSON.parse(JSON.stringify(controle.dados)) };
+  if (controle.segurar) await controle.segurar;
+  if (controle.lancar) throw new Error("dublê: a leitura lançou");
+  return resposta;
+}
+export async function listarVagasDoPainel() { controle.vagasLidas += 1; return { ok: true, dados: [] }; }
+export async function lerVagaDoPainelPorId() { return { ok: false, erro: { tipo: "nao_encontrado", mensagem: "Esta vaga não foi encontrada." } }; }
+export { ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+`,
+  );
+  const arquivoDaEscrita = path.join(pasta, "duble-escrita.js");
+  writeFileSync(
+    arquivoDaEscrita,
+    `export { ERRO_REDE, ERRO_INESPERADO, ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const ERRO_CONFLITO = "conflito";
+export const controle = { todas: [], respostas: { salvarClassificacao: [], excluirClassificacao: [] } };
+function responder(fila, argumentos) {
+  const resposta = fila.shift();
+  if (typeof resposta === "function") return resposta(...argumentos);
+  return resposta ?? { ok: false, erro: { tipo: "dados_invalidos", mensagem: "O dublê não tinha resposta preparada para este pedido." } };
+}
+export async function salvarClassificacao(lista, campos, opcoes) {
+  controle.todas.push({ op: "salvarClassificacao", lista, campos: JSON.parse(JSON.stringify(campos ?? null)), id: opcoes?.id ?? null });
+  return responder(controle.respostas.salvarClassificacao, [lista, campos, opcoes]);
+}
+export async function excluirClassificacao(lista, id) {
+  controle.todas.push({ op: "excluirClassificacao", lista, id });
+  return responder(controle.respostas.excluirClassificacao, [lista, id]);
+}
+export async function salvarVaga() { controle.todas.push({ op: "salvarVaga" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+export async function mudarEstadoDaVaga() { controle.todas.push({ op: "mudarEstadoDaVaga" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+export async function excluirVaga() { controle.todas.push({ op: "excluirVaga" }); return { ok: false, erro: { tipo: "dados_invalidos", mensagem: "inesperado" } }; }
+`,
+  );
+  const arquivoDasNotificacoes = path.join(pasta, "duble-notificacoes.js");
+  writeFileSync(
+    arquivoDasNotificacoes,
+    `import { diagnosticarMensagem, diagnosticarRotuloDeAcao } from ${montagem.caminhoDeModulo("src/admin/shell/voz.js")};
+export const controle = { erros: [], sucessos: [], problemasDeVoz: [] };
+function conferir(rotulo, texto) {
+  const problema = diagnosticarMensagem(rotulo, texto);
+  if (problema) controle.problemasDeVoz.push(problema);
+}
+export function notificarErro(oQueHouve, oQueFazer, saida = null) {
+  conferir("o que houve", oQueHouve);
+  conferir("o que fazer", oQueFazer);
+  if (saida) {
+    const problema = diagnosticarRotuloDeAcao(saida.rotulo);
+    if (problema) controle.problemasDeVoz.push(problema);
+    if (typeof saida.aoAcionar !== "function") controle.problemasDeVoz.push("saída sem aoAcionar: " + saida.rotulo);
+  }
+  controle.erros.push([oQueHouve, oQueFazer, saida]);
+}
+export function notificarSucesso(oQueAconteceu, detalhe) {
+  conferir("o que aconteceu", oQueAconteceu);
+  controle.sucessos.push([oQueAconteceu, detalhe ?? ""]);
+}
+export default function Notificacoes() { return null; }
+`,
+  );
+
+  const fonte =
+    `export { default as TelaDeClassificacoes } from ${montagem.caminhoDeModulo("src/admin/carreiras/TelaDeClassificacoes.jsx")};\n` +
+    `export { default as AbaDeCarreiras } from ${montagem.caminhoDeModulo("src/admin/carreiras/AbaDeCarreiras.jsx")};\n` +
+    `export { controle as controleDaLeitura } from ${montagem.comoModulo(arquivoDaLeitura)};\n` +
+    `export { controle as controleDaEscrita } from ${montagem.comoModulo(arquivoDaEscrita)};\n` +
+    `export { controle as controleDasNotificacoes } from ${montagem.comoModulo(arquivoDasNotificacoes)};\n`;
+
+  let compilado = null;
+  try {
+    compilado = await montagem.compilarParaNode({
+      pasta,
+      fonte,
+      alias: {
+        "@/data/carreiras/leitura": arquivoDaLeitura,
+        "@/data/carreiras/escrita": arquivoDaEscrita,
+        "@/admin/shell/Notificacoes": arquivoDasNotificacoes,
+      },
+    });
+  } catch (erro) {
+    afirmar("a tela de Classificações e a aba compilam pelo empacotador da aplicação", false, erro?.message ?? String(erro));
+  }
+
+  if (compilado !== null) {
+    afirmar("a tela de Classificações e a aba compilam pelo empacotador da aplicação", true);
+
+    const janela = montagem.montarNavegador({ url: "https://painel.local/admin/carreiras/classificacoes" });
+    /* Como na seção (p): as seções anteriores já subiram (e fecharam) um
+       navegador de mentira, e `montarNavegador` não sobrescreve o que já
+       existe em `globalThis`. Estes nomes são religados à janela nova. */
+    for (const nome of [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "getComputedStyle",
+      "HTMLElement",
+      "HTMLInputElement",
+      "HTMLSelectElement",
+      "HTMLButtonElement",
+      "HTMLAnchorElement",
+      "Element",
+      "Node",
+      "DocumentFragment",
+    ]) {
+      const valor = typeof janela[nome] === "function" && /^[a-z]/.test(nome) ? janela[nome].bind(janela) : janela[nome];
+      if (valor !== undefined) {
+        Object.defineProperty(globalThis, nome, { value: valor, configurable: true, writable: true });
+      }
+    }
+    const modulo = await import(pathToFileURL(compilado.arquivo).href);
+    const React = (await import("react")).default;
+    const { act } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const roteador = await import("react-router-dom");
+    Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true, writable: true });
+    const h = React.createElement;
+    const leitura = modulo.controleDaLeitura;
+    const escrita = modulo.controleDaEscrita;
+    const avisos = modulo.controleDasNotificacoes;
+
+    const fixture = () => ({
+      departamentos: [
+        { id: DEP_OPE, nome: "Operações", cor: VERDE, ordem: 0, vagas: 2 },
+        { id: DEP_TEC, nome: "Tecnologia", cor: AZUL, ordem: 1, vagas: 1 },
+        { id: DEP_RH, nome: "rh", cor: VERDE, ordem: 2, vagas: 0 },
+        { id: DEP_LEG, nome: "Legado", cor: "var(--cor-que-saiu-da-paleta)", ordem: 3, vagas: null },
+      ],
+      tipos_de_vaga: [
+        { id: TIPO_CLT, nome: "CLT", equivalente_jobposting: "FULL_TIME", ordem: 0, vagas: 3 },
+        { id: TIPO_EST, nome: "Estágio", equivalente_jobposting: "INTERN", ordem: 1, vagas: 0 },
+      ],
+      niveis: [
+        { id: NIV_PLENO, nome: "Pleno", cor: AZUL, ordem: 0, vagas: 0 },
+        { id: NIV_SENIOR, nome: "Sênior", cor: ROXO, ordem: 1, vagas: 0 },
+      ],
+    });
+    leitura.dados = fixture();
+
+    const passo = async () => {
+      await act(async () => {
+        await new Promise((resolver) => setTimeout(resolver, 0));
+      });
+    };
+    const esperarAte = async (condicao, descricao, prazo = 4000) => {
+      const limite = Date.now() + prazo;
+      for (;;) {
+        await passo();
+        let pronto = false;
+        try {
+          pronto = Boolean(condicao());
+        } catch {
+          pronto = false;
+        }
+        if (pronto) return true;
+        if (Date.now() > limite) {
+          afirmar(`espera com prazo: ${descricao} (${prazo} ms)`, false);
+          return false;
+        }
+      }
+    };
+    const segurar = () => {
+      let soltar = null;
+      leitura.segurar = new Promise((resolver) => {
+        soltar = resolver;
+      });
+      return () => {
+        leitura.segurar = null;
+        soltar();
+      };
+    };
+    const segurada = (resposta) => {
+      const controle = { soltar: null };
+      const promessa = new Promise((resolver) => {
+        controle.soltar = () => resolver(typeof resposta === "function" ? resposta() : resposta);
+      });
+      return { controle, responder: () => promessa };
+    };
+
+    const reclamacoes = [];
+    const erroOriginal = console.error;
+    console.error = (...partes) => reclamacoes.push(partes.map(String).join(" "));
+
+    function Onde() {
+      const local = roteador.useLocation();
+      return h("span", { "data-onde": `${local.pathname}${local.search}` });
+    }
+
+    const CAMINHO = "/admin/carreiras/classificacoes";
+    const montar = async (caminho, { caso, toleradas = [], ateQue = null } = {}) => {
+      const alvo = janela.document.createElement("div");
+      janela.document.body.appendChild(alvo);
+      const raizReact = createRoot(alvo);
+      const inicioDasReclamacoes = reclamacoes.length;
+      const inicioDasEscritas = escrita.todas.length;
+      await act(async () => {
+        raizReact.render(
+          h(
+            roteador.MemoryRouter,
+            { initialEntries: [caminho] },
+            h(Onde),
+            h(
+              roteador.Routes,
+              null,
+              h(roteador.Route, { path: "/admin", element: h(modulo.AbaDeCarreiras, { aoContar: () => {} }) }),
+              h(roteador.Route, { path: CAMINHO, element: h(modulo.TelaDeClassificacoes) }),
+            ),
+          ),
+        );
+      });
+      const tela = {
+        caso,
+        alvo,
+        onde: () => alvo.querySelector("[data-onde]")?.getAttribute("data-onde") ?? null,
+        situacao: () =>
+          alvo.querySelector('[data-tela="classificacoes"] main[data-estado-da-lista]')?.getAttribute("data-estado-da-lista") ?? null,
+        secoes: () => [...alvo.querySelectorAll("section[data-lista]")].map((s) => s.getAttribute("data-lista")),
+        secao: (chave) => alvo.querySelector(`section[data-lista="${chave}"]`),
+        itens: (chave) =>
+          [...(alvo.querySelector(`section[data-lista="${chave}"]`)?.querySelectorAll("li[data-classificacao]") ?? [])].map((li) =>
+            li.getAttribute("data-classificacao"),
+          ),
+        item: (id) => alvo.querySelector(`li[data-classificacao="${id}"]`),
+        papel: (id, papel) => alvo.querySelector(`li[data-classificacao="${id}"] [data-papel="${papel}"]`),
+        acao: (id, chave) => alvo.querySelector(`li[data-classificacao="${id}"] [data-acao="${chave}"]`),
+        nova: (chave) => alvo.querySelector(`section[data-lista="${chave}"] [data-acao="nova"]`),
+        formulario: () => alvo.querySelector('form[data-papel="formulario"]'),
+        campo: (nome) => alvo.querySelector(`form[data-papel="formulario"] [data-campo="${nome}"]`),
+        erroDoCampo: (nome) => {
+          const p = alvo.querySelector(`[data-erro-do-campo="${nome}"]`);
+          return p && !p.hidden ? (p.textContent ?? "") : "";
+        },
+        dialogo: () => janela.document.querySelector('[role="alertdialog"]'),
+        emCurso: () => alvo.querySelector('[data-papel="acao-em-curso"]')?.textContent ?? "",
+        ocioso: () => alvo.querySelector('[aria-busy="true"]') === null,
+        async clicar(elemento, nome, ateQueClique = null) {
+          if (!elemento) {
+            afirmar(`${caso}: o elemento "${nome}" existe na tela para ser clicado`, false);
+            return false;
+          }
+          await act(async () => {
+            elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+          });
+          return esperarAte(ateQueClique ?? tela.ocioso, `${caso}: a tela assenta depois de clicar em ${nome}`);
+        },
+        async escrever(nome, texto) {
+          const campo = tela.campo(nome);
+          if (!campo) {
+            afirmar(`${caso}: o campo "${nome}" existe no formulário`, false);
+            return;
+          }
+          const setter = Object.getOwnPropertyDescriptor(janela.HTMLInputElement.prototype, "value").set;
+          await act(async () => {
+            setter.call(campo, texto);
+            campo.dispatchEvent(new janela.Event("input", { bubbles: true }));
+          });
+        },
+        async escolherNaLista(nome, valor) {
+          const campo = tela.campo(nome);
+          if (!campo) {
+            afirmar(`${caso}: a lista "${nome}" existe no formulário`, false);
+            return;
+          }
+          const setter = Object.getOwnPropertyDescriptor(janela.HTMLSelectElement.prototype, "value").set;
+          await act(async () => {
+            setter.call(campo, valor);
+            campo.dispatchEvent(new janela.Event("change", { bubbles: true }));
+          });
+        },
+        async salvar(ateQueSalvo = null) {
+          return tela.clicar(tela.alvo.querySelector('[data-acao="salvar"]'), "salvar", ateQueSalvo);
+        },
+        async acionarSaida(ateQueSaida) {
+          const saida = avisos.erros.at(-1)?.[2] ?? null;
+          if (!saida || typeof saida.aoAcionar !== "function") {
+            afirmar(`${caso}: a última notificação de erro tem a ação de resolver`, false);
+            return false;
+          }
+          await act(async () => {
+            saida.aoAcionar();
+          });
+          return esperarAte(ateQueSaida, `${caso}: a tela assenta depois de "${saida.rotulo}"`);
+        },
+        async desmontar() {
+          await act(async () => raizReact.unmount());
+          await passo();
+          alvo.remove();
+          const sobras = {
+            salvarClassificacao: escrita.respostas.salvarClassificacao.length,
+            excluirClassificacao: escrita.respostas.excluirClassificacao.length,
+          };
+          const feitas = escrita.todas.slice(inicioDasEscritas).map((c) => c.op);
+          const inesperadas = feitas.filter((op) => op !== "salvarClassificacao" && op !== "excluirClassificacao");
+          afirmar(
+            `${caso}: toda resposta preparada foi consumida, e nenhuma escrita fora das Classificações aconteceu`,
+            sobras.salvarClassificacao === 0 && sobras.excluirClassificacao === 0 && inesperadas.length === 0,
+            `sobras: ${JSON.stringify(sobras)} | feitas: ${feitas.join(", ")}`,
+          );
+          escrita.respostas.salvarClassificacao.length = 0;
+          escrita.respostas.excluirClassificacao.length = 0;
+          const doCaso = reclamacoes.slice(inicioDasReclamacoes);
+          const naoToleradas = doCaso.filter((r) => !toleradas.some((t) => t.padrao.test(r)));
+          const ausentes = toleradas.filter((t) => !doCaso.some((r) => t.padrao.test(r)));
+          afirmar(
+            `${caso}: o React não reclamou de nada fora do esperado, e o que era esperado apareceu`,
+            naoToleradas.length === 0 && ausentes.length === 0,
+            `${naoToleradas.slice(0, 2).map((r) => r.slice(0, 300)).join(" | ")} | ausentes: ${ausentes.map((t) => t.motivo).join(", ")}`,
+          );
+        },
+      };
+      await esperarAte(
+        ateQue ?? (() => tela.situacao() !== null && tela.situacao() !== "carregando"),
+        `${caso}: a tela monta e assenta em ${caminho}`,
+      );
+      return tela;
+    };
+    const estiloDe = (el) => el?.getAttribute("style") ?? "";
+    const rotuloDaCor = (cor) => classificacoes.aparenciaDaCorDeClassificacao(cor).rotulo;
+    const ultimaEscrita = () => escrita.todas.at(-1) ?? null;
+
+    try {
+      /* ══ Abrir: esqueleto, depois as três seções ══ */
+      {
+        const soltar = segurar();
+        const lidasAntes = leitura.lidas;
+        const abrir = await montar(CAMINHO, {
+          caso: "Abrir",
+          ateQue: () => janela.document.querySelector('[data-tela="classificacoes"] main[data-estado-da-lista="carregando"]') !== null,
+        });
+        afirmar(
+          "Abrir: enquanto a leitura não volta, esqueleto com o anúncio em texto para leitor de tela, e nenhum item",
+          abrir.situacao() === "carregando" &&
+            (abrir.alvo.querySelector('[data-papel="esqueleto"] [role="status"].sr-only')?.textContent ?? "").trim() !== "" &&
+            abrir.alvo.querySelectorAll("li[data-classificacao]").length === 0,
+        );
+        soltar();
+        await esperarAte(() => abrir.situacao() === "lista", "Abrir: as listas aparecem");
+        afirmar(
+          "e depois as três seções, na ordem de `LISTAS_DE_CLASSIFICACAO`, cada uma com o `<h2>` do plural e os itens na ordem da camada",
+          igual(abrir.secoes(), classificacoes.LISTAS_DE_CLASSIFICACAO.map((l) => l.chave)) &&
+            classificacoes.LISTAS_DE_CLASSIFICACAO.every((l) => abrir.secao(l.chave)?.querySelector("h2")?.textContent === l.plural) &&
+            igual(abrir.itens("departamento"), [DEP_OPE, DEP_TEC, DEP_RH, DEP_LEG]) &&
+            igual(abrir.itens("tipo"), [TIPO_CLT, TIPO_EST]) &&
+            igual(abrir.itens("nivel"), [NIV_PLENO, NIV_SENIOR]) &&
+            leitura.lidas === lidasAntes + 1,
+          `${abrir.secoes().join(", ")} | ${abrir.itens("departamento").join(", ")}`,
+        );
+        const nomeOpe = abrir.papel(DEP_OPE, "nome");
+        const corOpe = abrir.papel(DEP_OPE, "cor");
+        afirmar(
+          "cada Departamento e Nível mostra o nome com a Cor por `style` E o nome da cor em texto (a cor nunca é o único portador)",
+          nomeOpe?.textContent === "Operações" &&
+            estiloDe(nomeOpe).includes(VERDE) &&
+            estiloDe(nomeOpe).includes("var(--categoria-verde-ink)") &&
+            (corOpe?.textContent ?? "").includes(rotuloDaCor(VERDE)) &&
+            (abrir.papel(NIV_SENIOR, "cor")?.textContent ?? "").includes(rotuloDaCor(ROXO)) &&
+            estiloDe(abrir.papel(NIV_SENIOR, "nome")).includes(ROXO) &&
+            [...abrir.alvo.querySelectorAll('section[data-lista="departamento"] li, section[data-lista="nivel"] li')].every(
+              (li) => (li.querySelector('[data-papel="cor"]')?.textContent ?? "").replace(/^Cor:\s*/, "").trim() !== "",
+            ) &&
+            (abrir.papel(DEP_LEG, "cor")?.textContent ?? "").trim() !== "" &&
+            abrir.alvo.querySelector('section[data-lista="tipo"] [data-papel="cor"]') === null,
+          `${nomeOpe?.outerHTML?.slice(0, 200)} | ${corOpe?.textContent}`,
+        );
+        afirmar(
+          "cada Tipo mostra o Equivalente com o rótulo legível (e o código), e Departamento e Nível não mostram Equivalente",
+          (abrir.papel(TIPO_CLT, "equivalente")?.textContent ?? "").includes(
+            `${classificacoes.ROTULOS_DOS_EQUIVALENTES.FULL_TIME} (FULL_TIME)`,
+          ) &&
+            (abrir.papel(TIPO_EST, "equivalente")?.textContent ?? "").includes(classificacoes.ROTULOS_DOS_EQUIVALENTES.INTERN) &&
+            abrir.alvo.querySelector('section[data-lista="departamento"] [data-papel="equivalente"]') === null,
+        );
+        afirmar(
+          "o uso por extenso: \"2 vagas\", \"1 vaga\", \"Nenhuma vaga\", e \"Uso desconhecido\" para `vagas: null` (nunca zero)",
+          abrir.papel(DEP_OPE, "uso")?.textContent === "2 vagas" &&
+            abrir.papel(DEP_TEC, "uso")?.textContent === "1 vaga" &&
+            abrir.papel(DEP_RH, "uso")?.textContent === "Nenhuma vaga" &&
+            abrir.papel(DEP_LEG, "uso")?.textContent === "Uso desconhecido" &&
+            abrir.papel(DEP_LEG, "uso")?.getAttribute("data-uso") === "desconhecido",
+        );
+        const alvos = [
+          ...abrir.alvo.querySelectorAll('[data-tela="classificacoes"] button, [data-tela="classificacoes"] a'),
+        ];
+        const semRegra = alvos.filter((el) => {
+          const classes = String(el.getAttribute("class") ?? "");
+          return (
+            !classes.includes("min-h-10") ||
+            !classes.includes("min-w-10") ||
+            !classes.includes("focus-visible:ring-2") ||
+            /(^|\s)group-hover/.test(classes) ||
+            /(^|\s)(opacity-0|invisible|hidden)(\s|$)/.test(classes) ||
+            el.tabIndex < 0 ||
+            el.getAttribute("aria-hidden") === "true"
+          );
+        });
+        const daLinha = [...abrir.alvo.querySelectorAll("li[data-classificacao] [data-acao]")];
+        const semNome = daLinha.filter((el) => {
+          const li = el.closest("li");
+          const nome = li?.querySelector('[data-papel="nome"]')?.textContent ?? "\u0000";
+          return (
+            !(el.getAttribute("aria-label") ?? "").includes(nome) ||
+            !/(^|\s)border(\s|$)/.test(String(el.getAttribute("class") ?? "")) ||
+            /(^|\s)hover:/.test(String(el.getAttribute("class") ?? "")) ||
+            !["BUTTON", "A"].includes(el.tagName)
+          );
+        });
+        /* TROCA REGISTRADA (revisão da 5.6): era `daLinha.length === 16`,
+           número mágico. Agora: DOIS alvos (Editar e Excluir) por item à vista. */
+        const itensAVista = abrir.alvo.querySelectorAll("li[data-classificacao]").length;
+        afirmar(
+          "todos os alvos da tela têm `ALVO_DE_TOQUE` e `ANEL_DE_FOCO`, nenhum se esconde nem depende de `group-hover`; os da linha (dois por item) têm borda permanente, nenhum `hover:` e `aria-label` que nomeia o item",
+          itensAVista > 0 &&
+            daLinha.length === 2 * itensAVista &&
+            alvos.length >= daLinha.length + 4 &&
+            semRegra.length === 0 &&
+            semNome.length === 0,
+          [...semRegra, ...semNome].map((el) => `${el.getAttribute("data-acao")}: ${el.getAttribute("class")}`).join(" | ") ||
+            `${alvos.length} alvo(s), ${daLinha.length} da linha, ${itensAVista} itens`,
+        );
+        /* TROCA REGISTRADA (revisão da 5.6): o "depois dele" passou a ser
+           conferido pela posição no documento, e o seletor redundante saiu. */
+        const h1s = [...abrir.alvo.querySelectorAll("h1")];
+        const h2s = [...abrir.alvo.querySelectorAll("section[data-lista] h2")];
+        afirmar(
+          "a hierarquia de títulos: UM `<h1>`, e um `<h2>` por seção, cada um DEPOIS do `<h1>` no documento",
+          h1s.length === 1 &&
+            h2s.length === classificacoes.LISTAS_DE_CLASSIFICACAO.length &&
+            abrir.alvo.querySelectorAll("h2").length === h2s.length &&
+            h2s.every((h2) => (h1s[0].compareDocumentPosition(h2) & janela.Node.DOCUMENT_POSITION_FOLLOWING) !== 0),
+        );
+        afirmar(
+          "a pílula do nome tem `title` com o nome completo (o nome pode ser truncado na tela)",
+          [...abrir.alvo.querySelectorAll('li[data-classificacao] [data-papel="nome"]')].every(
+            (el) => (el.getAttribute("title") ?? "") !== "" && el.getAttribute("title") === el.textContent,
+          ) && abrir.papel(DEP_OPE, "nome")?.getAttribute("title") === "Operações",
+        );
+        afirmar(
+          "o Voltar leva à aba Carreiras (`/admin?aba=carreiras`)",
+          abrir.alvo.querySelector('[data-acao="voltar"]')?.getAttribute("href") === "/admin?aba=carreiras",
+        );
+        await abrir.desmontar();
+      }
+
+      /* ══ Erro: com "tentar de novo", e a exceção também vira erro ══ */
+      {
+        leitura.falhar = true;
+        const erro = await montar(CAMINHO, { caso: "Erro na leitura" });
+        const bloco = erro.alvo.querySelector('main[data-estado-da-lista="erro"] [role="alert"]');
+        afirmar(
+          "Erro: a leitura que falha dá o estado `erro` (nunca lista vazia), com a frase do erro tipado e \"Tentar de novo\"",
+          erro.situacao() === "erro" &&
+            bloco !== null &&
+            (bloco.textContent ?? "").includes("Não conseguimos ler as classificações") &&
+            erro.alvo.querySelectorAll("section[data-lista]").length === 0 &&
+            bloco.querySelector('[data-acao="repetir"]')?.textContent === "Tentar de novo",
+        );
+        leitura.falhar = false;
+        await erro.clicar(bloco?.querySelector('[data-acao="repetir"]'), "Tentar de novo", () => erro.situacao() === "lista");
+        afirmar("e \"Tentar de novo\" relê e mostra as listas", erro.situacao() === "lista" && erro.itens("tipo").length === 2);
+        await erro.desmontar();
+
+        leitura.lancar = true;
+        const lancou = await montar(CAMINHO, {
+          caso: "Erro na leitura que lança",
+          toleradas: [{ padrao: /\[Painel\] A leitura das classificações lançou/, motivo: "o registro do `catch` da leitura" }],
+        });
+        afirmar(
+          "a leitura que LANÇA também vira `erro` com \"Tentar de novo\" (nunca esqueleto eterno), e o motivo vai ao console com `[Painel]`",
+          lancou.situacao() === "erro" && lancou.alvo.querySelector('[data-acao="repetir"]') !== null,
+        );
+        leitura.lancar = false;
+        await lancou.desmontar();
+      }
+
+      /* ══ Lista vazia: a chamada para criar, na própria seção ══ */
+      {
+        leitura.dados = { ...fixture(), niveis: [] };
+        const vazia = await montar(CAMINHO, { caso: "Lista vazia" });
+        const vazio = vazia.secao("nivel")?.querySelector('[data-papel="vazio"]');
+        afirmar(
+          "uma lista vazia mostra, NA PRÓPRIA SEÇÃO, a chamada para criar (o estado da tela continua `lista`, e as outras seções têm os itens)",
+          vazia.situacao() === "lista" &&
+            vazio !== null &&
+            vazio.querySelector('[data-acao="primeira"]') !== null &&
+            (vazio.textContent ?? "").includes("Nível") &&
+            vazia.itens("departamento").length === 4 &&
+            vazia.secao("departamento")?.querySelector('[data-papel="vazio"]') === null,
+        );
+        await vazia.clicar(vazio?.querySelector('[data-acao="primeira"]'), "Criar o primeiro Nível", () => vazia.formulario() !== null);
+        afirmar(
+          "e a chamada abre o formulário do Nível (Cor e Ordem, sem Equivalente)",
+          vazia.situacao() === "formulario" &&
+            vazia.formulario()?.getAttribute("data-lista") === "nivel" &&
+            vazia.campo("cor") !== null &&
+            vazia.campo("equivalente_jobposting") === null,
+        );
+        await vazia.escrever("nome", "Júnior");
+        escrita.respostas.salvarClassificacao.push(() => {
+          leitura.dados.niveis.push({ id: NIV_PLENO, nome: "Júnior", cor: AZUL, ordem: 0, vagas: 0 });
+          return { ok: true, dados: { operacao: "salvarClassificacao", criada: true, lista: "nivel", classificacao: { id: NIV_PLENO, nome: "Júnior" } } };
+        });
+        await vazia.salvar(() => vazia.situacao() === "lista" && vazia.item(NIV_PLENO) !== null && vazia.ocioso());
+        afirmar(
+          "criado o primeiro, o \"Criar o primeiro\" que abriu o formulário SUMIU: o foco vai ao alvo previsível, o \"Novo Nível\" da seção",
+          vazia.secao("nivel")?.querySelector('[data-acao="primeira"]') === null &&
+            vazia.nova("nivel") !== null &&
+            janela.document.activeElement === vazia.nova("nivel"),
+          `${janela.document.activeElement?.tagName} ${janela.document.activeElement?.getAttribute("data-acao") ?? ""}`,
+        );
+        await vazia.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ══ Criar Departamento ══ */
+      {
+        const criar = await montar(CAMINHO, { caso: "Criar Departamento" });
+        await criar.clicar(criar.nova("departamento"), "Novo Departamento", () => criar.formulario() !== null);
+        afirmar(
+          "Novo Departamento: o formulário SUBSTITUI a tela (estado `formulario`, sem as seções), com nome, Cor e Ordem, nessa ordem, e a Cor nasce na padrão",
+          criar.situacao() === "formulario" &&
+            criar.alvo.querySelectorAll("section[data-lista]").length === 0 &&
+            igual(
+              [...criar.formulario().querySelectorAll("[data-campo]")].map((c) => c.getAttribute("data-campo")),
+              ["nome", "cor", "ordem"],
+            ) &&
+            criar.formulario().querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-cor") ===
+              classificacoes.COR_PADRAO_DE_CLASSIFICACAO,
+        );
+        afirmar(
+          "abrir o formulário leva o FOCO ao campo Nome",
+          criar.campo("nome") !== null && janela.document.activeElement === criar.campo("nome"),
+          `${janela.document.activeElement?.tagName} ${janela.document.activeElement?.getAttribute("data-campo") ?? ""}`,
+        );
+        const regioesDeErro = [...criar.formulario().querySelectorAll("[data-erro-do-campo]")];
+        afirmar(
+          "a região de recusa de cada campo está SEMPRE montada, com `role=\"alert\"` desde a abertura, vazia e visível para a árvore de acessibilidade",
+          igual(
+            regioesDeErro.map((p) => p.getAttribute("data-erro-do-campo")),
+            ["nome", "cor", "ordem"],
+          ) &&
+            regioesDeErro.every(
+              (p) => p.getAttribute("role") === "alert" && !p.hidden && (p.textContent ?? "") === "" && p.getAttribute("aria-hidden") === null,
+            ),
+          regioesDeErro.map((p) => p.outerHTML.slice(0, 120)).join(" | "),
+        );
+        const radios = [...(criar.formulario()?.querySelectorAll('[role="radiogroup"] [role="radio"]') ?? [])];
+        afirmar(
+          "a Cor é um grupo de escolha acessível: um rádio por Cor da paleta, pintado por `style`, com nome acessível, UMA parada de tabulação, e a escolhida também por extenso",
+          radios.length === classificacoes.CORES_DE_CLASSIFICACAO.length &&
+            radios.every(
+              (r, i) =>
+                r.getAttribute("data-cor") === classificacoes.CORES_DE_CLASSIFICACAO[i] &&
+                (r.getAttribute("aria-label") ?? "") === rotuloDaCor(classificacoes.CORES_DE_CLASSIFICACAO[i]) &&
+                estiloDe(r).includes(classificacoes.CORES_DE_CLASSIFICACAO[i]),
+            ) &&
+            radios.filter((r) => r.tabIndex === 0).length === 1 &&
+            (criar.alvo.querySelector('[data-papel="cor-escolhida"]')?.textContent ?? "").includes("Cinza"),
+        );
+        /* As setas percorrem e ESCOLHEM, com o foco junto. */
+        const marcada = criar.formulario().querySelector('[role="radio"][aria-checked="true"]');
+        await act(async () => {
+          marcada?.dispatchEvent(new janela.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+        });
+        await passo();
+        const indicePadrao = classificacoes.CORES_DE_CLASSIFICACAO.indexOf(classificacoes.COR_PADRAO_DE_CLASSIFICACAO);
+        const esperada = classificacoes.CORES_DE_CLASSIFICACAO[(indicePadrao + 1) % classificacoes.CORES_DE_CLASSIFICACAO.length];
+        afirmar(
+          "a seta escolhe a próxima Cor (com volta na ponta), e o foco e a parada de tabulação vão junto",
+          criar.formulario().querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-cor") === esperada &&
+            janela.document.activeElement?.getAttribute("data-cor") === esperada &&
+            [...criar.formulario().querySelectorAll('[role="radio"]')].filter((r) => r.tabIndex === 0).length === 1,
+          `${criar.formulario().querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-cor")} | ${esperada}`,
+        );
+        /* O teclado inteiro do grupo: Home, End e a volta da seta para trás. */
+        const CORES = classificacoes.CORES_DE_CLASSIFICACAO;
+        const teclar = async (tecla) => {
+          const focada = janela.document.activeElement;
+          await act(async () => {
+            focada?.dispatchEvent(new janela.KeyboardEvent("keydown", { key: tecla, bubbles: true, cancelable: true }));
+          });
+          await passo();
+          return {
+            marcada: criar.formulario().querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-cor") ?? null,
+            focada: janela.document.activeElement?.getAttribute("data-cor") ?? null,
+          };
+        };
+        const noHome = await teclar("Home");
+        const voltaDaPonta = await teclar("ArrowLeft");
+        const deNovoNoHome = await teclar("Home");
+        const noEnd = await teclar("End");
+        const voltaDoFim = await teclar("ArrowRight");
+        afirmar(
+          "teclado da Cor: Home vai à primeira, `ArrowLeft` na primeira DÁ A VOLTA para a última, End vai à última e `ArrowRight` na última volta à primeira, com o foco junto",
+          noHome.marcada === CORES[0] &&
+            noHome.focada === CORES[0] &&
+            voltaDaPonta.marcada === CORES.at(-1) &&
+            voltaDaPonta.focada === CORES.at(-1) &&
+            deNovoNoHome.marcada === CORES[0] &&
+            noEnd.marcada === CORES.at(-1) &&
+            noEnd.focada === CORES.at(-1) &&
+            voltaDoFim.marcada === CORES[0],
+          JSON.stringify([noHome, voltaDaPonta, noEnd, voltaDoFim]),
+        );
+        const grupo = criar.formulario().querySelector('[role="radiogroup"]');
+        const descritores = (grupo?.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+        afirmar(
+          "\"Cor escolhida\" é a descrição do grupo: o `aria-describedby` do `radiogroup` aponta o elemento que diz a Cor por extenso",
+          descritores.length > 0 &&
+            descritores.some((id) => janela.document.getElementById(id)?.getAttribute("data-papel") === "cor-escolhida"),
+          grupo?.getAttribute("aria-describedby") ?? "(sem aria-describedby)",
+        );
+        await criar.escrever("nome", "Parcerias");
+        await criar.clicar(criar.formulario().querySelector(`[role="radio"][data-cor="${VERDE}"]`), "Cor Verde");
+        const lidasAntes = leitura.lidas;
+        escrita.respostas.salvarClassificacao.push(() => {
+          leitura.dados.departamentos.push({ id: DEP_NOVO, nome: "Parcerias", cor: VERDE, ordem: 0, vagas: 0 });
+          return { ok: true, dados: { operacao: "salvarClassificacao", criada: true, lista: "departamento", classificacao: { id: DEP_NOVO, nome: "Parcerias", cor: VERDE, ordem: 0 } } };
+        });
+        await criar.salvar(() => criar.situacao() === "lista" && criar.item(DEP_NOVO) !== null);
+        afirmar(
+          "Criar: `salvarClassificacao(\"departamento\", {nome, cor, ordem})` sem id, a lista é RELIDA, o item novo aparece na seção, e a notificação nomeia o item",
+          igual(ultimaEscrita(), {
+            op: "salvarClassificacao",
+            lista: "departamento",
+            campos: { nome: "Parcerias", cor: VERDE, ordem: 0 },
+            id: null,
+          }) &&
+            leitura.lidas > lidasAntes &&
+            criar.item(DEP_NOVO) !== null &&
+            criar.itens("departamento").at(-1) === DEP_NOVO &&
+            igual(avisos.sucessos.at(-1), ["Departamento Parcerias criado", ""]),
+          `${JSON.stringify(ultimaEscrita())} | ${JSON.stringify(avisos.sucessos.at(-1))}`,
+        );
+        await criar.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ══ Criar Tipo sem Equivalente: recusa local ══ */
+      {
+        const tipo = await montar(CAMINHO, { caso: "Criar Tipo sem Equivalente" });
+        await tipo.clicar(tipo.nova("tipo"), "Novo Tipo", () => tipo.formulario() !== null);
+        const opcoes = [...(tipo.campo("equivalente_jobposting")?.querySelectorAll("option") ?? [])];
+        afirmar(
+          "o Equivalente é um `<select>` com a opção vazia e os rótulos legíveis de TODOS os códigos, e o Tipo não tem Cor",
+          tipo.campo("equivalente_jobposting")?.tagName === "SELECT" &&
+            opcoes[0]?.value === "" &&
+            igual(
+              opcoes.slice(1).map((o) => o.value),
+              [...classificacoes.EQUIVALENTES_JOBPOSTING],
+            ) &&
+            opcoes.slice(1).every((o) => (o.textContent ?? "").includes(classificacoes.ROTULOS_DOS_EQUIVALENTES[o.value])) &&
+            tipo.campo("cor") === null &&
+            igual(
+              [...tipo.formulario().querySelectorAll("[data-campo]")].map((c) => c.getAttribute("data-campo")),
+              ["nome", "equivalente_jobposting", "ordem"],
+            ),
+        );
+        const escritasAntes = escrita.todas.length;
+        const errosAntes = avisos.erros.length;
+        await tipo.escrever("nome", "Temporário");
+        await tipo.salvar();
+        afirmar(
+          "Tipo sem Equivalente: recusa LOCAL no campo Equivalente (`aria-invalid` e a frase), nada enviado, e o formulário fica aberto com o que foi digitado",
+          escrita.todas.length === escritasAntes &&
+            tipo.situacao() === "formulario" &&
+            tipo.campo("equivalente_jobposting")?.getAttribute("aria-invalid") === "true" &&
+            tipo.erroDoCampo("equivalente_jobposting").includes("equivalente") &&
+            tipo.campo("nome")?.value === "Temporário" &&
+            avisos.erros.length === errosAntes + 1,
+          `${tipo.erroDoCampo("equivalente_jobposting")} | ${escrita.todas.length - escritasAntes}`,
+        );
+        await tipo.escolherNaLista("equivalente_jobposting", "TEMPORARY");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: true, lista: "tipo", classificacao: { id: "x", nome: "Temporário" } },
+        });
+        await tipo.salvar(() => tipo.situacao() === "lista");
+        afirmar(
+          "com o Equivalente escolhido, `salvarClassificacao(\"tipo\", {nome, equivalente_jobposting, ordem})`, sem Cor",
+          igual(ultimaEscrita(), {
+            op: "salvarClassificacao",
+            lista: "tipo",
+            campos: { nome: "Temporário", equivalente_jobposting: "TEMPORARY", ordem: 0 },
+            id: null,
+          }),
+          JSON.stringify(ultimaEscrita()),
+        );
+        await tipo.desmontar();
+      }
+
+      /* ══ Nome repetido: a frase do servidor no campo e na notificação ══ */
+      {
+        const repetido = await montar(CAMINHO, { caso: "Nome repetido" });
+        await repetido.clicar(repetido.nova("departamento"), "Novo Departamento", () => repetido.formulario() !== null);
+        await repetido.escrever("nome", "operacoes");
+        const frase = nucleoDaClassificacao.fraseDeNomeRepetido(DEP_Q, "Operações");
+        escrita.respostas.salvarClassificacao.push({ ok: false, erro: { tipo: "conflito", mensagem: frase } });
+        const errosAntes = avisos.erros.length;
+        await repetido.salvar();
+        afirmar(
+          "Nome repetido: a frase do SERVIDOR (que nomeia o existente) aparece NO CAMPO nome (`aria-invalid`) e na notificação, sem \"Tentar de novo\", e o formulário fica aberto com o que foi digitado",
+          repetido.situacao() === "formulario" &&
+            repetido.erroDoCampo("nome") === frase &&
+            frase.includes("Operações") &&
+            repetido.campo("nome")?.getAttribute("aria-invalid") === "true" &&
+            repetido.campo("nome")?.value === "operacoes" &&
+            avisos.erros.length === errosAntes + 1 &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null,
+          `${repetido.erroDoCampo("nome")} | ${JSON.stringify(avisos.erros.at(-1)?.slice(0, 2))}`,
+        );
+        await repetido.escrever("nome", "operacoes 2");
+        afirmar(
+          "mexer no nome tira a recusa do campo",
+          repetido.erroDoCampo("nome") === "" && repetido.campo("nome")?.getAttribute("aria-invalid") === null,
+        );
+        await repetido.desmontar();
+      }
+
+      /* ══ Renomear: só o nome, com o id ══ */
+      {
+        const renomear = await montar(CAMINHO, { caso: "Renomear" });
+        await renomear.clicar(renomear.acao(DEP_TEC, "editar"), "Editar Tecnologia", () => renomear.formulario() !== null);
+        afirmar(
+          "Editar abre o formulário com os valores gravados (nome, a Cor marcada, a Ordem)",
+          renomear.campo("nome")?.value === "Tecnologia" &&
+            renomear.formulario().querySelector('[role="radio"][aria-checked="true"]')?.getAttribute("data-cor") === AZUL &&
+            renomear.campo("ordem")?.value === "1",
+        );
+        await renomear.escrever("nome", "Engenharia");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "departamento", classificacao: { id: DEP_TEC, nome: "Engenharia" } },
+        });
+        await renomear.salvar(() => renomear.situacao() === "lista");
+        afirmar(
+          "Renomear \"Tecnologia\" para \"Engenharia\": só `nome` vai no corpo, com o `id`, e a notificação diz \"salvo\"",
+          igual(ultimaEscrita(), { op: "salvarClassificacao", lista: "departamento", campos: { nome: "Engenharia" }, id: DEP_TEC }) &&
+            avisos.sucessos.at(-1)?.[0] === "Departamento Engenharia salvo",
+          JSON.stringify(ultimaEscrita()),
+        );
+        await renomear.clicar(renomear.acao(DEP_RH, "editar"), "Editar rh", () => renomear.formulario() !== null);
+        await renomear.escrever("nome", "RH");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "departamento", classificacao: { id: DEP_RH, nome: "RH" } },
+        });
+        await renomear.salvar(() => renomear.situacao() === "lista");
+        afirmar(
+          "Renomear o próprio item mudando só a caixa (\"rh\" para \"RH\"): vai `{nome: \"RH\"}` com o id, e é aceito",
+          igual(ultimaEscrita(), { op: "salvarClassificacao", lista: "departamento", campos: { nome: "RH" }, id: DEP_RH }) &&
+            avisos.sucessos.at(-1)?.[0] === "Departamento RH salvo",
+          JSON.stringify(ultimaEscrita()),
+        );
+        /* A Cor LEGADA não é reenviada sem mudar. */
+        await renomear.clicar(renomear.acao(DEP_LEG, "editar"), "Editar Legado", () => renomear.formulario() !== null);
+        afirmar(
+          "Editar um item com Cor legada: nenhum rádio marcado, e a escolhida é dita como fora da paleta",
+          renomear.formulario().querySelector('[role="radio"][aria-checked="true"]') === null &&
+            (renomear.alvo.querySelector('[data-papel="cor-escolhida"]')?.textContent ?? "").includes("fora da paleta"),
+        );
+        await renomear.escrever("nome", "Legado Novo");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "departamento", classificacao: { id: DEP_LEG, nome: "Legado Novo" } },
+        });
+        await renomear.salvar(() => renomear.situacao() === "lista");
+        afirmar(
+          "e renomeá-lo manda SÓ o nome: a Cor legada não é reenviada",
+          igual(ultimaEscrita(), { op: "salvarClassificacao", lista: "departamento", campos: { nome: "Legado Novo" }, id: DEP_LEG }),
+          JSON.stringify(ultimaEscrita()),
+        );
+        /* Nada mudou: nada viaja. */
+        const escritasAntes = escrita.todas.length;
+        await renomear.clicar(renomear.acao(DEP_OPE, "editar"), "Editar Operações", () => renomear.formulario() !== null);
+        await renomear.salvar(() => renomear.situacao() === "lista");
+        afirmar("salvar sem mudar nada fecha o formulário sem pedido", escrita.todas.length === escritasAntes);
+        await renomear.desmontar();
+      }
+
+      /* ══ Ordem acima do teto ══ */
+      {
+        const ordem = await montar(CAMINHO, { caso: "Ordem acima do teto" });
+        await ordem.clicar(ordem.nova("nivel"), "Novo Nível", () => ordem.formulario() !== null);
+        await ordem.escrever("nome", "Estagiário");
+        await ordem.escrever("ordem", String(classificacoes.ORDEM_MAXIMA_DA_CLASSIFICACAO + 1));
+        const escritasAntes = escrita.todas.length;
+        await ordem.salvar();
+        afirmar(
+          "Ordem 100001: recusa LOCAL no campo Ordem com o teto do domínio, nada enviado",
+          escrita.todas.length === escritasAntes &&
+            ordem.situacao() === "formulario" &&
+            ordem.erroDoCampo("ordem").includes(String(classificacoes.ORDEM_MAXIMA_DA_CLASSIFICACAO)) &&
+            ordem.campo("ordem")?.getAttribute("aria-invalid") === "true",
+          ordem.erroDoCampo("ordem"),
+        );
+        const regiaoDaOrdem = ordem.alvo.querySelector('[data-erro-do-campo="ordem"]');
+        const noAntes = regiaoDaOrdem?.firstElementChild ?? null;
+        const errosAntesDaRepeticao = avisos.erros.length;
+        await ordem.salvar();
+        const noDepois = ordem.alvo.querySelector('[data-erro-do-campo="ordem"]')?.firstElementChild ?? null;
+        afirmar(
+          "a MESMA recusa repetida é anunciada de novo: a região (a mesma, sempre montada) troca o nó do texto, e a notificação sai outra vez",
+          regiaoDaOrdem !== null &&
+            ordem.alvo.querySelector('[data-erro-do-campo="ordem"]') === regiaoDaOrdem &&
+            noAntes !== null &&
+            noDepois !== null &&
+            noDepois !== noAntes &&
+            noDepois.textContent === noAntes.textContent &&
+            avisos.erros.length === errosAntesDaRepeticao + 1 &&
+            escrita.todas.length === escritasAntes,
+        );
+        await ordem.clicar(ordem.alvo.querySelector('[data-acao="cancelar"]'), "Cancelar", () => ordem.situacao() === "lista");
+        afirmar("Cancelar volta às listas sem pedido", ordem.situacao() === "lista" && escrita.todas.length === escritasAntes);
+        afirmar(
+          "e devolve o FOCO ao botão que abriu o formulário (\"Novo Nível\")",
+          ordem.nova("nivel") !== null && janela.document.activeElement === ordem.nova("nivel"),
+          `${janela.document.activeElement?.tagName} ${janela.document.activeElement?.getAttribute("data-acao") ?? ""}`,
+        );
+        await ordem.clicar(ordem.acao(NIV_SENIOR, "editar"), "Editar Sênior", () => ordem.formulario() !== null);
+        const focoNoNome = janela.document.activeElement === ordem.campo("nome");
+        await ordem.clicar(ordem.alvo.querySelector('[data-acao="cancelar"]'), "Cancelar", () => ordem.situacao() === "lista");
+        afirmar(
+          "Editar leva o foco ao Nome, e Cancelar o devolve ao Editar DAQUELE item",
+          focoNoNome && ordem.acao(NIV_SENIOR, "editar") !== null && janela.document.activeElement === ordem.acao(NIV_SENIOR, "editar"),
+          `${janela.document.activeElement?.getAttribute("aria-label") ?? janela.document.activeElement?.tagName}`,
+        );
+        await ordem.desmontar();
+      }
+
+      /* ══ Excluir em uso e uso desconhecido: sem diálogo ══ */
+      {
+        const emUso = await montar(CAMINHO, { caso: "Excluir em uso" });
+        const alvoOpe = emUso.acao(DEP_OPE, "excluir");
+        afirmar(
+          "Item em uso: o alvo de excluir é `aria-disabled` (NÃO `disabled`: continua alcançável e explica), com o motivo no nome acessível",
+          alvoOpe?.getAttribute("aria-disabled") === "true" &&
+            alvoOpe?.disabled === false &&
+            (alvoOpe?.getAttribute("aria-label") ?? "").includes("Em uso por 2 vagas"),
+        );
+        const errosAntes = avisos.erros.length;
+        /* TROCA REGISTRADA (revisão da 5.6): "sem escrita" era olhar só a
+           última escrita; agora compara o COMPRIMENTO antes e depois. */
+        const escritasAntesDoClique = escrita.todas.length;
+        await emUso.clicar(alvoOpe, "Excluir Operações");
+        await passo();
+        afirmar(
+          "e o clique NOTIFICA \"Em uso por 2 vagas\", sem abrir diálogo e sem escrita nenhuma",
+          emUso.dialogo() === null &&
+            avisos.erros.length === errosAntes + 1 &&
+            (avisos.erros.at(-1)?.[0] ?? "").includes("Em uso por 2 vagas") &&
+            escrita.todas.length === escritasAntesDoClique,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        const alvoLeg = emUso.acao(DEP_LEG, "excluir");
+        await emUso.clicar(alvoLeg, "Excluir Legado");
+        await passo();
+        afirmar(
+          "Uso desconhecido: \"Uso desconhecido\" na linha, exclusão indisponível (`aria-disabled`), e o clique explica com motivo PRÓPRIO, sem diálogo",
+          alvoLeg?.getAttribute("aria-disabled") === "true" &&
+            emUso.dialogo() === null &&
+            avisos.erros.length === errosAntes + 2 &&
+            (avisos.erros.at(-1)?.[0] ?? "").includes("Uso desconhecido") &&
+            !(avisos.erros.at(-1)?.[0] ?? "").includes("Em uso") &&
+            !escrita.todas.some((c) => c.op === "excluirClassificacao" && (c.id === DEP_OPE || c.id === DEP_LEG)),
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        afirmar(
+          "item com uso 0 tem o alvo de excluir disponível (sem `aria-disabled`)",
+          emUso.acao(DEP_RH, "excluir")?.getAttribute("aria-disabled") === null &&
+            emUso.acao(NIV_PLENO, "excluir")?.getAttribute("aria-disabled") === null,
+        );
+        await emUso.desmontar();
+      }
+
+      /* ══ Excluir livre: o diálogo, a releitura, a recusa do servidor ══ */
+      {
+        const livre = await montar(CAMINHO, { caso: "Excluir livre" });
+        await livre.clicar(livre.acao(NIV_PLENO, "excluir"), "Excluir Pleno", () => livre.dialogo() !== null);
+        const dialogo = livre.dialogo();
+        afirmar(
+          "Excluir livre: abre UM diálogo que nomeia o item, com o botão \"Excluir Nível\", e nada sai antes de confirmar",
+          dialogo !== null &&
+            janela.document.querySelectorAll('[role="alertdialog"]').length === 1 &&
+            (dialogo.textContent ?? "").includes("Pleno") &&
+            (dialogo.querySelector('[data-papel="confirmar"]')?.textContent ?? "") === "Excluir Nível" &&
+            !escrita.todas.some((c) => c.op === "excluirClassificacao" && c.id === NIV_PLENO),
+          (dialogo?.textContent ?? "").slice(0, 200),
+        );
+        const cancelar = [...(dialogo?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "Cancelar");
+        await livre.clicar(cancelar, "Cancelar", () => livre.dialogo() === null);
+        afirmar("Cancelar fecha o diálogo sem excluir", !escrita.todas.some((c) => c.op === "excluirClassificacao" && c.id === NIV_PLENO));
+        await livre.clicar(livre.acao(NIV_PLENO, "excluir"), "Excluir Pleno", () => livre.dialogo() !== null);
+        const lidasAntes = leitura.lidas;
+        const excluirSegurado = segurada(() => {
+          leitura.dados.niveis = leitura.dados.niveis.filter((n) => n.id !== NIV_PLENO);
+          return { ok: true, dados: { operacao: "excluirClassificacao", lista: "nivel", id: NIV_PLENO } };
+        });
+        escrita.respostas.excluirClassificacao.push(excluirSegurado.responder);
+        await livre.clicar(livre.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar", () =>
+          escrita.todas.some((c) => c.op === "excluirClassificacao" && c.id === NIV_PLENO),
+        );
+        afirmar(
+          "ao confirmar, `excluirClassificacao(\"nivel\", id)` UMA vez; enquanto a resposta não vem, a trava global (`aria-busy`) e a região viva dizem o que acontece",
+          igual(escrita.todas.filter((c) => c.op === "excluirClassificacao"), [{ op: "excluirClassificacao", lista: "nivel", id: NIV_PLENO }]) &&
+            livre.alvo.querySelector('main[aria-busy="true"]') !== null &&
+            livre.emCurso().includes("Excluindo") &&
+            livre.emCurso().includes("Pleno") &&
+            (livre.dialogo()?.querySelector('[data-papel="dialogo-em-curso"]')?.textContent ?? "").includes("Excluindo") &&
+            [...livre.alvo.querySelectorAll("li[data-classificacao] button:not([aria-disabled])")].every((b) => b.disabled),
+        );
+        excluirSegurado.controle.soltar();
+        await esperarAte(() => livre.item(NIV_PLENO) === null && livre.dialogo() === null && livre.ocioso(), "Excluir livre: o item sai");
+        afirmar(
+          "depois: a lista é RELIDA, o item sai, e a notificação nomeia o item excluído",
+          leitura.lidas > lidasAntes &&
+            igual(livre.itens("nivel"), [NIV_SENIOR]) &&
+            avisos.sucessos.at(-1)?.[0] === "Nível Pleno excluído",
+          JSON.stringify(avisos.sucessos.at(-1)),
+        );
+        /* A recusa do servidor ("em uso" por corrida): notificada e relida. */
+        await livre.clicar(livre.acao(NIV_SENIOR, "excluir"), "Excluir Sênior", () => livre.dialogo() !== null);
+        const frase = nucleoDaClassificacao.fraseDeClassificacaoEmUso(NIVEL_Q, "Sênior", 1);
+        escrita.respostas.excluirClassificacao.push(() => {
+          leitura.dados.niveis = leitura.dados.niveis.map((n) => (n.id === NIV_SENIOR ? { ...n, vagas: 1 } : n));
+          return { ok: false, erro: { tipo: "conflito", mensagem: frase } };
+        });
+        const lidasAntesDaRecusa = leitura.lidas;
+        await livre.clicar(livre.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar (recusa)", () =>
+          livre.dialogo() === null && livre.papel(NIV_SENIOR, "uso")?.textContent === "1 vaga",
+        );
+        afirmar(
+          "Recusa do servidor (em uso por corrida): a notificação traz a frase do servidor, sem \"Tentar de novo\", a lista é RELIDA e o uso novo aparece, com o alvo indisponível",
+          avisos.erros.at(-1)?.[0] === "Não deu para excluir o Nível Sênior" &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null &&
+            leitura.lidas > lidasAntesDaRecusa &&
+            livre.item(NIV_SENIOR) !== null &&
+            livre.acao(NIV_SENIOR, "excluir")?.getAttribute("aria-disabled") === "true",
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        await livre.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ══ Falha de rede ao salvar, e a trava contra o clique duplo ══ */
+      {
+        const rede = await montar(CAMINHO, { caso: "Falha de rede ao salvar" });
+        await rede.clicar(rede.acao(TIPO_EST, "editar"), "Editar Estágio", () => rede.formulario() !== null);
+        afirmar(
+          "Editar um Tipo abre o `<select>` com o Equivalente gravado",
+          rede.campo("equivalente_jobposting")?.value === "INTERN",
+        );
+        await rede.escrever("nome", "Estágio Técnico");
+        await rede.escrever("ordem", "7");
+        const primeira = segurada({ ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para salvar a classificação. Espere um instante e tente de novo." } });
+        escrita.respostas.salvarClassificacao.push(primeira.responder);
+        const escritasAntes = escrita.todas.length;
+        const errosAntesDoClique = avisos.erros.length;
+        const botao = rede.alvo.querySelector('[data-acao="salvar"]');
+        await act(async () => {
+          botao?.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+          botao?.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+        });
+        await esperarAte(() => escrita.todas.length > escritasAntes, "Falha de rede: o pedido sai");
+        afirmar(
+          "clique duplo em salvar: UM pedido só (a trava é global), com `aria-busy` e a região viva dizendo o que está sendo salvo",
+          escrita.todas.length === escritasAntes + 1 &&
+            rede.alvo.querySelector('main[aria-busy="true"]') !== null &&
+            rede.emCurso().includes("Salvando") &&
+            rede.emCurso().includes("Estágio Técnico"),
+          `${escrita.todas.length - escritasAntes} | ${rede.emCurso()}`,
+        );
+        primeira.controle.soltar();
+        /* TROCA REGISTRADA (revisão da 5.6): a espera compara com a contagem
+           de erros de ANTES do clique (antes, qualquer notificação velha já
+           satisfazia a condição). */
+        await esperarAte(() => rede.ocioso() && avisos.erros.length === errosAntesDoClique + 1, "Falha de rede: a notificação sai");
+        afirmar(
+          "Falha de rede: notificação com a frase do erro e \"Tentar de novo\", e o formulário continua com o que foi digitado",
+          avisos.erros.length === errosAntesDoClique + 1 &&
+            avisos.erros.at(-1)?.[0] === "Não deu para salvar o Tipo Estágio Técnico" &&
+            avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+            rede.situacao() === "formulario" &&
+            rede.campo("nome")?.value === "Estágio Técnico" &&
+            rede.campo("ordem")?.value === "7" &&
+            rede.erroDoCampo("nome") === "",
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "tipo", classificacao: { id: TIPO_EST, nome: "Estágio Técnico" } },
+        });
+        await rede.acionarSaida(() => rede.situacao() === "lista");
+        afirmar(
+          "\"Tentar de novo\" REPETE o salvar, com o mesmo corpo (só o que mudou) e o mesmo id",
+          escrita.todas.length === escritasAntes + 2 &&
+            igual(escrita.todas.at(-1), escrita.todas.at(-2)) &&
+            igual(escrita.todas.at(-1), {
+              op: "salvarClassificacao",
+              lista: "tipo",
+              campos: { nome: "Estágio Técnico", ordem: 7 },
+              id: TIPO_EST,
+            }) &&
+            avisos.sucessos.at(-1)?.[0] === "Tipo Estágio Técnico salvo",
+          JSON.stringify(escrita.todas.slice(-2)),
+        );
+        await rede.desmontar();
+
+        /* A exceção no salvar: registrada, e a trava solta. */
+        const excecao = await montar(CAMINHO, {
+          caso: "Exceção ao salvar",
+          toleradas: [{ padrao: /\[Painel\] O salvamento da classificação lançou/, motivo: "o registro do `catch` do salvar" }],
+        });
+        await excecao.clicar(excecao.acao(NIV_PLENO, "editar"), "Editar Pleno", () => excecao.formulario() !== null);
+        await excecao.escrever("nome", "Pleno II");
+        escrita.respostas.salvarClassificacao.push(() => {
+          throw new Error("dublê: a escrita lançou");
+        });
+        await excecao.salvar();
+        afirmar(
+          "a escrita que LANÇA vira notificação com \"Tentar de novo\", o formulário fica, e a trava é solta",
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+            excecao.situacao() === "formulario" &&
+            excecao.alvo.querySelector('[data-acao="salvar"]')?.disabled === false,
+        );
+        await excecao.desmontar();
+      }
+
+      /* ══ Revisão da 5.6: os caminhos de falha que faltavam ══ */
+      const FRASE_OCUPADA = doPainel?.FRASE_DA_ACAO_OCUPADA ?? "(o módulo puro não importou)";
+      const FRASE_SEM_ID = doPainel?.FRASE_DO_ITEM_SEM_ID ?? "(o módulo puro não importou)";
+      /* Quantas exclusões do id saíram DESDE `desde` (o comprimento no começo do caso). */
+      const excluidosDesde = (desde, id) =>
+        escrita.todas.slice(desde).filter((c) => c.op === "excluirClassificacao" && c.id === id).length;
+
+      /* ── Salvar um item que já não existe ── */
+      {
+        const sumiu = await montar(CAMINHO, { caso: "Salvar com nao_encontrado" });
+        await sumiu.clicar(sumiu.acao(DEP_TEC, "editar"), "Editar Tecnologia", () => sumiu.formulario() !== null);
+        await sumiu.escrever("nome", "Engenharia");
+        const frase = "Este Departamento não existe mais. Ele pode ter sido excluído por outra pessoa.";
+        escrita.respostas.salvarClassificacao.push(() => {
+          leitura.dados.departamentos = leitura.dados.departamentos.filter((d) => d.id !== DEP_TEC);
+          return { ok: false, erro: { tipo: "nao_encontrado", mensagem: frase } };
+        });
+        const lidasAntes = leitura.lidas;
+        const errosAntes = avisos.erros.length;
+        const escritasAntes = escrita.todas.length;
+        await sumiu.salvar(() => sumiu.situacao() === "lista" && sumiu.item(DEP_TEC) === null && sumiu.ocioso());
+        afirmar(
+          "Salvar com `nao_encontrado`: volta à lista, RELÊ (o item sai), e notifica a frase do servidor SEM \"Tentar de novo\", com um pedido só",
+          sumiu.situacao() === "lista" &&
+            leitura.lidas > lidasAntes &&
+            sumiu.item(DEP_TEC) === null &&
+            escrita.todas.length === escritasAntes + 1 &&
+            avisos.erros.length === errosAntes + 1 &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        await sumiu.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ── Criação com `inesperado`: pode ter sido criado, então não repete ── */
+      {
+        const talvez = await montar(CAMINHO, { caso: "Criação com inesperado" });
+        await talvez.clicar(talvez.nova("departamento"), "Novo Departamento", () => talvez.formulario() !== null);
+        await talvez.escrever("nome", "Parcerias");
+        const frase = "O Departamento pode ter sido criado, mas o servidor não confirmou. Recarregue a lista antes de tentar de novo.";
+        escrita.respostas.salvarClassificacao.push(() => {
+          leitura.dados.departamentos.push({ id: DEP_NOVO, nome: "Parcerias", cor: classificacoes.COR_PADRAO_DE_CLASSIFICACAO, ordem: 0, vagas: 0 });
+          return { ok: false, erro: { tipo: "inesperado", mensagem: frase } };
+        });
+        const lidasAntes = leitura.lidas;
+        const errosAntes = avisos.erros.length;
+        const escritasAntes = escrita.todas.length;
+        await talvez.salvar(() => talvez.situacao() === "lista" && talvez.item(DEP_NOVO) !== null && talvez.ocioso());
+        afirmar(
+          "Criação com `inesperado`: SEM \"Tentar de novo\" (repetir poderia criar outro), a notificação traz a frase do servidor, e a lista é RELIDA e mostra o que existe",
+          escrita.todas.length === escritasAntes + 1 &&
+            avisos.erros.length === errosAntes + 1 &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null &&
+            leitura.lidas > lidasAntes &&
+            talvez.item(DEP_NOVO) !== null,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 3)),
+        );
+        await talvez.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ── Conflito que NÃO é de nome: só na notificação ── */
+      {
+        const outro = await montar(CAMINHO, { caso: "Conflito que não é de nome" });
+        await outro.clicar(outro.acao(DEP_TEC, "editar"), "Editar Tecnologia", () => outro.formulario() !== null);
+        await outro.escrever("nome", "Engenharia");
+        const frase = "Houve um conflito com outro registro ao salvar o Departamento. Recarregue o Painel e tente de novo.";
+        escrita.respostas.salvarClassificacao.push({ ok: false, erro: { tipo: "conflito", mensagem: frase } });
+        const errosAntes = avisos.erros.length;
+        await outro.salvar(() => outro.ocioso() && avisos.erros.length === errosAntes + 1);
+        afirmar(
+          "um conflito que NÃO é de nome repetido fica só na notificação: o campo nome não recebe a frase nem `aria-invalid`",
+          outro.situacao() === "formulario" &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null &&
+            outro.erroDoCampo("nome") === "" &&
+            outro.campo("nome")?.getAttribute("aria-invalid") === null,
+          outro.erroDoCampo("nome"),
+        );
+        await outro.desmontar();
+      }
+
+      /* ── "Tentar de novo" do salvar DEPOIS de abrir outro item ── */
+      {
+        const troca = await montar(CAMINHO, { caso: "Repetir o salvar depois de abrir outro item" });
+        await troca.clicar(troca.acao(TIPO_EST, "editar"), "Editar Estágio", () => troca.formulario() !== null);
+        await troca.escrever("nome", "Estágio Técnico");
+        escrita.respostas.salvarClassificacao.push({
+          ok: false,
+          erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para salvar a classificação. Espere um instante e tente de novo." },
+        });
+        const errosAntes = avisos.erros.length;
+        await troca.salvar(() => troca.ocioso() && avisos.erros.length === errosAntes + 1);
+        const saida = avisos.erros.at(-1)?.[2] ?? null;
+        await troca.clicar(troca.alvo.querySelector('[data-acao="cancelar"]'), "Cancelar", () => troca.situacao() === "lista");
+        await troca.clicar(troca.acao(NIV_PLENO, "editar"), "Editar Pleno", () => troca.formulario()?.getAttribute("data-lista") === "nivel");
+        await troca.escrever("nome", "Pleno do formulário");
+        const lidasAntes = leitura.lidas;
+        const escritasAntes = escrita.todas.length;
+        const repeticao = segurada({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "tipo", classificacao: { id: TIPO_EST, nome: "Estágio Técnico" } },
+        });
+        escrita.respostas.salvarClassificacao.push(repeticao.responder);
+        if (typeof saida?.aoAcionar === "function") {
+          await act(async () => {
+            saida.aoAcionar();
+          });
+        }
+        await esperarAte(() => escrita.todas.length === escritasAntes + 1, "Repetir o salvar: o pedido capturado sai");
+        afirmar(
+          "\"Tentar de novo\" grava o pedido CAPTURADO na falha (a lista, o id e o corpo do Estágio), e não o formulário aberto agora (o Pleno)",
+          saida?.rotulo === "Tentar de novo" &&
+            igual(escrita.todas.at(-1), { op: "salvarClassificacao", lista: "tipo", campos: { nome: "Estágio Técnico" }, id: TIPO_EST }),
+          JSON.stringify(escrita.todas.at(-1)),
+        );
+        afirmar(
+          "enquanto a repetição corre, a região viva e o `aria-busy` falam do item da TRAVA (o Tipo Estágio Técnico), e não do formulário à vista",
+          troca.emCurso().includes("Salvando") &&
+            troca.emCurso().includes("Tipo Estágio Técnico") &&
+            !troca.emCurso().includes("Pleno") &&
+            troca.alvo.querySelector('main[aria-busy="true"]') !== null,
+          troca.emCurso(),
+        );
+        /* A trava presa: repetir de novo AGORA não some em silêncio. */
+        const errosAntesDaOcupada = avisos.erros.length;
+        await act(async () => {
+          saida?.aoAcionar?.();
+        });
+        await passo();
+        afirmar(
+          "repetir com a trava presa NOTIFICA (a frase da ação ocupada, com \"Tentar de novo\" de novo) em vez de descartar em silêncio, e nada sai",
+          escrita.todas.length === escritasAntes + 1 &&
+            avisos.erros.length === errosAntesDaOcupada + 1 &&
+            avisos.erros.at(-1)?.[1] === FRASE_OCUPADA &&
+            avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo",
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        repeticao.controle.soltar();
+        await esperarAte(() => troca.ocioso() && avisos.sucessos.at(-1)?.[0] === "Tipo Estágio Técnico salvo", "Repetir o salvar: a resposta chega");
+        afirmar(
+          "com o sucesso da repetição: notifica, RELÊ a lista, e o formulário do OUTRO item continua aberto com o que foi digitado, sem outra gravação",
+          avisos.sucessos.at(-1)?.[0] === "Tipo Estágio Técnico salvo" &&
+            leitura.lidas > lidasAntes &&
+            troca.situacao() === "formulario" &&
+            troca.formulario()?.getAttribute("data-lista") === "nivel" &&
+            troca.campo("nome")?.value === "Pleno do formulário" &&
+            escrita.todas.length === escritasAntes + 1,
+        );
+        await troca.desmontar();
+      }
+
+      /* ── Exclusão com falha de rede, e a repetição pela notificação ── */
+      {
+        const inicioDoCaso = escrita.todas.length;
+        const redeEx = await montar(CAMINHO, { caso: "Exclusão com falha de rede" });
+        await redeEx.clicar(redeEx.acao(NIV_PLENO, "excluir"), "Excluir Pleno", () => redeEx.dialogo() !== null);
+        escrita.respostas.excluirClassificacao.push({
+          ok: false,
+          erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para excluir a classificação. Espere um instante e tente de novo." },
+        });
+        const lidasAntes = leitura.lidas;
+        const errosAntes = avisos.erros.length;
+        await redeEx.clicar(redeEx.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar", () =>
+          redeEx.dialogo() === null && redeEx.ocioso() && avisos.erros.length === errosAntes + 1,
+        );
+        const saida = avisos.erros.at(-1)?.[2] ?? null;
+        afirmar(
+          "Exclusão com `rede`: notificação com \"Tentar de novo\", NENHUMA releitura, e o item continua na lista",
+          saida?.rotulo === "Tentar de novo" &&
+            avisos.erros.at(-1)?.[0] === "Não deu para excluir o Nível Pleno" &&
+            leitura.lidas === lidasAntes &&
+            redeEx.item(NIV_PLENO) !== null &&
+            excluidosDesde(inicioDoCaso, NIV_PLENO) === 1,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        /* A trava presa por OUTRA exclusão: a repetição avisa. */
+        await redeEx.clicar(redeEx.acao(NIV_SENIOR, "excluir"), "Excluir Sênior", () => redeEx.dialogo() !== null);
+        const outraExclusao = segurada({ ok: false, erro: { tipo: "rede", mensagem: "Não conseguimos falar com o servidor para excluir a classificação. Espere um instante e tente de novo." } });
+        escrita.respostas.excluirClassificacao.push(outraExclusao.responder);
+        await redeEx.clicar(redeEx.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar Sênior", () => excluidosDesde(inicioDoCaso, NIV_SENIOR) === 1);
+        const errosAntesDaOcupada = avisos.erros.length;
+        await act(async () => {
+          saida?.aoAcionar?.();
+        });
+        await passo();
+        afirmar(
+          "repetir a exclusão com a trava presa por outra NOTIFICA (a frase da ação ocupada, com \"Tentar de novo\"), e o Pleno não sai de novo",
+          avisos.erros.length === errosAntesDaOcupada + 1 &&
+            avisos.erros.at(-1)?.[1] === FRASE_OCUPADA &&
+            avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+            excluidosDesde(inicioDoCaso, NIV_PLENO) === 1,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        outraExclusao.controle.soltar();
+        await esperarAte(() => redeEx.ocioso() && redeEx.dialogo() === null, "Exclusão com falha de rede: a outra termina");
+        const repeticao = segurada(() => {
+          leitura.dados.niveis = leitura.dados.niveis.filter((n) => n.id !== NIV_PLENO);
+          return { ok: true, dados: { operacao: "excluirClassificacao", lista: "nivel", id: NIV_PLENO } };
+        });
+        escrita.respostas.excluirClassificacao.push(repeticao.responder);
+        const lidasAntesDaRepeticao = leitura.lidas;
+        await act(async () => {
+          saida?.aoAcionar?.();
+        });
+        await esperarAte(() => excluidosDesde(inicioDoCaso, NIV_PLENO) === 2, "Exclusão com falha de rede: a repetição sai");
+        afirmar(
+          "\"Tentar de novo\" repete `excluirClassificacao(\"nivel\", id)` UMA vez, SEM abrir diálogo, e a região viva nomeia o item da TRAVA",
+          igual(escrita.todas.filter((c) => c.op === "excluirClassificacao").slice(-1), [
+            { op: "excluirClassificacao", lista: "nivel", id: NIV_PLENO },
+          ]) &&
+            redeEx.dialogo() === null &&
+            redeEx.emCurso().includes("Excluindo") &&
+            redeEx.emCurso().includes("Nível Pleno") &&
+            redeEx.alvo.querySelector('main[aria-busy="true"]') !== null,
+          redeEx.emCurso(),
+        );
+        repeticao.controle.soltar();
+        await esperarAte(() => redeEx.item(NIV_PLENO) === null && redeEx.ocioso(), "Exclusão com falha de rede: o item sai");
+        afirmar(
+          "e o item sai: a lista é relida, a notificação nomeia o excluído, e nenhuma exclusão a mais saiu",
+          redeEx.item(NIV_PLENO) === null &&
+            leitura.lidas > lidasAntesDaRepeticao &&
+            avisos.sucessos.at(-1)?.[0] === "Nível Pleno excluído" &&
+            excluidosDesde(inicioDoCaso, NIV_PLENO) === 2,
+        );
+        await redeEx.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ── Exclusão que LANÇA ── */
+      {
+        const lanca = await montar(CAMINHO, {
+          caso: "Exclusão que lança",
+          toleradas: [{ padrao: /\[Painel\] A exclusão da classificação lançou/, motivo: "o registro do `catch` da exclusão" }],
+        });
+        await lanca.clicar(lanca.acao(NIV_PLENO, "excluir"), "Excluir Pleno", () => lanca.dialogo() !== null);
+        escrita.respostas.excluirClassificacao.push(() => {
+          throw new Error("dublê: a exclusão lançou");
+        });
+        const lidasAntes = leitura.lidas;
+        const errosAntes = avisos.erros.length;
+        await lanca.clicar(lanca.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar", () =>
+          lanca.dialogo() === null && lanca.ocioso() && avisos.erros.length === errosAntes + 1,
+        );
+        afirmar(
+          "a exclusão que LANÇA vira notificação com \"Tentar de novo\", sem releitura, e a trava é solta (o alvo volta a responder)",
+          avisos.erros.at(-1)?.[2]?.rotulo === "Tentar de novo" &&
+            leitura.lidas === lidasAntes &&
+            lanca.item(NIV_PLENO) !== null &&
+            lanca.acao(NIV_PLENO, "excluir")?.disabled === false &&
+            lanca.alvo.querySelector('main[aria-busy="true"]') === null,
+        );
+        await lanca.desmontar();
+      }
+
+      /* ── Exclusão de um item que já não existia ── */
+      {
+        const ausente = await montar(CAMINHO, { caso: "Exclusão com nao_encontrado" });
+        await ausente.clicar(ausente.acao(NIV_PLENO, "excluir"), "Excluir Pleno", () => ausente.dialogo() !== null);
+        const frase = "Este Nível já não está no Painel, alguém pode tê-lo excluído antes.";
+        escrita.respostas.excluirClassificacao.push(() => {
+          leitura.dados.niveis = leitura.dados.niveis.filter((n) => n.id !== NIV_PLENO);
+          return { ok: false, erro: { tipo: "nao_encontrado", mensagem: frase } };
+        });
+        const lidasAntes = leitura.lidas;
+        const errosAntes = avisos.erros.length;
+        await ausente.clicar(ausente.dialogo()?.querySelector('[data-papel="confirmar"]'), "confirmar", () =>
+          ausente.dialogo() === null && ausente.item(NIV_PLENO) === null && ausente.ocioso(),
+        );
+        afirmar(
+          "Exclusão com `nao_encontrado`: a linha sai (pela releitura), a notificação diz que ele JÁ NÃO EXISTIA, com a frase do servidor, sem \"Tentar de novo\"",
+          ausente.item(NIV_PLENO) === null &&
+            leitura.lidas > lidasAntes &&
+            avisos.erros.length === errosAntes + 1 &&
+            (avisos.erros.at(-1)?.[0] ?? "").includes("já não existia") &&
+            (avisos.erros.at(-1)?.[0] ?? "").includes("Pleno") &&
+            avisos.erros.at(-1)?.[1] === frase &&
+            avisos.erros.at(-1)?.[2] === null,
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 3)),
+        );
+        await ausente.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ── A releitura: em curso (lista ocupada) e falhando logo depois de salvar ── */
+      {
+        const relendo = await montar(CAMINHO, { caso: "Releitura em curso e falhando" });
+        await relendo.clicar(relendo.acao(DEP_TEC, "editar"), "Editar Tecnologia", () => relendo.formulario() !== null);
+        await relendo.escrever("nome", "Engenharia");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "departamento", classificacao: { id: DEP_TEC, nome: "Engenharia" } },
+        });
+        /* A releitura vai FALHAR (o dublê decide a resposta na chamada), e
+           fica segurada: primeiro se vê a lista velha ocupada, depois o erro. */
+        leitura.falhar = true;
+        const soltar = segurar();
+        await relendo.salvar(
+          () => relendo.situacao() === "lista" && relendo.alvo.querySelector('[data-papel="listas"][aria-busy="true"]') !== null,
+        );
+        const liberados = [...relendo.alvo.querySelectorAll('li[data-classificacao] [data-acao="excluir"]:not([aria-disabled])')];
+        afirmar(
+          "durante a releitura, a lista tem `aria-busy=\"true\"` e os alvos de exclusão ficam INDISPONÍVEIS (o uso à vista pode estar velho)",
+          relendo.alvo.querySelector('[data-papel="listas"]')?.getAttribute("aria-busy") === "true" &&
+            liberados.length > 0 &&
+            liberados.every((b) => b.disabled),
+          `${liberados.length} alvo(s) liberado(s)`,
+        );
+        /* A releitura que FALHA logo depois do salvar. */
+        soltar();
+        await esperarAte(() => relendo.situacao() === "erro", "Releitura que falha: o erro aparece");
+        afirmar(
+          "a releitura que falha logo depois de salvar dá o estado `erro` (com \"Tentar de novo\"), e os itens velhos saem: erro nunca é a lista velha",
+          avisos.sucessos.at(-1)?.[0] === "Departamento Engenharia salvo" &&
+            relendo.situacao() === "erro" &&
+            relendo.alvo.querySelectorAll("section[data-lista]").length === 0 &&
+            relendo.alvo.querySelector('[data-acao="repetir"]') !== null,
+        );
+        leitura.falhar = false;
+        await relendo.clicar(relendo.alvo.querySelector('[data-acao="repetir"]'), "Tentar de novo", () => relendo.situacao() === "lista");
+        afirmar(
+          "e \"Tentar de novo\" relê; terminada a releitura, a lista deixa de estar ocupada e a exclusão volta",
+          relendo.situacao() === "lista" &&
+            relendo.alvo.querySelector('[data-papel="listas"]')?.getAttribute("aria-busy") === null &&
+            relendo.acao(DEP_RH, "excluir")?.disabled === false,
+        );
+        await relendo.desmontar();
+      }
+
+      /* ── A leitura com uma tabela que não é lista ── */
+      for (const [tabela, torto] of [
+        ["niveis", null],
+        ["tipos_de_vaga", undefined],
+        ["departamentos", { id: "x" }],
+      ]) {
+        leitura.dados = { ...fixture(), [tabela]: torto };
+        const torta = await montar(CAMINHO, { caso: `Leitura com ${tabela} fora de forma` });
+        afirmar(
+          `a leitura com \`${tabela}\` ${torto === undefined ? "ausente" : `como ${JSON.stringify(torto)}`} dá o estado \`erro\` (com "Tentar de novo"), nunca uma seção vazia`,
+          torta.situacao() === "erro" &&
+            torta.alvo.querySelectorAll("section[data-lista]").length === 0 &&
+            torta.alvo.querySelector('[data-acao="repetir"]') !== null,
+          torta.situacao(),
+        );
+        await torta.desmontar();
+      }
+      leitura.dados = fixture();
+
+      /* ── Os legados: Ordem desconhecida, Ordem acima do teto, Equivalente fora da lista, item sem id ── */
+      {
+        const TETO = classificacoes.ORDEM_MAXIMA_DA_CLASSIFICACAO;
+        leitura.dados = {
+          departamentos: [{ id: DEP_OPE, nome: "Operações", cor: VERDE, ordem: null, vagas: 0 }],
+          tipos_de_vaga: [
+            { id: TIPO_CLT, nome: "Sazonal", equivalente_jobposting: "SEASONAL", ordem: TETO + 5, vagas: 0 },
+            { nome: "Sem id", equivalente_jobposting: "FULL_TIME", ordem: 2, vagas: 0 },
+          ],
+          niveis: [{ id: NIV_PLENO, nome: "Pleno", cor: AZUL, ordem: 1.5, vagas: 0 }],
+        };
+        const legado = await montar(CAMINHO, { caso: "Legados" });
+        afirmar(
+          "item com Ordem desconhecida (nula ou fracionária) mostra \"Ordem não definida\", nunca \"Ordem 0\"; a legada acima do teto aparece como está",
+          legado.papel(DEP_OPE, "ordem")?.textContent === "Ordem não definida" &&
+            legado.papel(NIV_PLENO, "ordem")?.textContent === "Ordem não definida" &&
+            legado.papel(TIPO_CLT, "ordem")?.textContent === `Ordem ${TETO + 5}` &&
+            ![...legado.alvo.querySelectorAll('[data-papel="ordem"]')].some((o) => o.textContent === "Ordem 0"),
+        );
+        await legado.clicar(legado.acao(DEP_OPE, "editar"), "Editar Operações", () => legado.formulario() !== null);
+        await legado.escrever("nome", "Operação");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "departamento", classificacao: { id: DEP_OPE, nome: "Operação" } },
+        });
+        await legado.salvar(() => legado.situacao() === "lista" && legado.ocioso());
+        afirmar(
+          "renomear o item de Ordem desconhecida SEM tocar na Ordem manda só o nome (a Ordem não viaja como 0)",
+          igual(ultimaEscrita(), { op: "salvarClassificacao", lista: "departamento", campos: { nome: "Operação" }, id: DEP_OPE }),
+          JSON.stringify(ultimaEscrita()),
+        );
+        afirmar(
+          "o Tipo com Equivalente LEGADO mostra \"Fora da lista:\" com o código cru na linha",
+          (legado.papel(TIPO_CLT, "equivalente")?.textContent ?? "") === "Google Vagas: Fora da lista: SEASONAL",
+          legado.papel(TIPO_CLT, "equivalente")?.textContent,
+        );
+        await legado.clicar(legado.acao(TIPO_CLT, "editar"), "Editar Sazonal", () => legado.formulario() !== null);
+        const opcoesLegadas = [...(legado.campo("equivalente_jobposting")?.querySelectorAll("option") ?? [])];
+        afirmar(
+          "e no formulário o `<select>` ganha UMA opção extra com o legado (\"Fora da lista: SEASONAL\"), escolhida, além da vazia e de todos os códigos",
+          legado.campo("equivalente_jobposting")?.value === "SEASONAL" &&
+            opcoesLegadas.length === 2 + classificacoes.EQUIVALENTES_JOBPOSTING.length &&
+            opcoesLegadas.filter((o) => o.value === "SEASONAL").length === 1 &&
+            (opcoesLegadas.find((o) => o.value === "SEASONAL")?.textContent ?? "") === "Fora da lista: SEASONAL",
+          opcoesLegadas.map((o) => o.value).join(", "),
+        );
+        await legado.escrever("nome", "Sazonal 2");
+        escrita.respostas.salvarClassificacao.push({
+          ok: true,
+          dados: { operacao: "salvarClassificacao", criada: false, lista: "tipo", classificacao: { id: TIPO_CLT, nome: "Sazonal 2" } },
+        });
+        await legado.salvar(() => legado.situacao() === "lista" && legado.ocioso());
+        afirmar(
+          "renomear o item com Ordem ACIMA do teto (e Equivalente legado) sem tocar neles passa, e manda só o nome",
+          igual(ultimaEscrita(), { op: "salvarClassificacao", lista: "tipo", campos: { nome: "Sazonal 2" }, id: TIPO_CLT }),
+          JSON.stringify(ultimaEscrita()),
+        );
+        const linhaSemId = [...(legado.secao("tipo")?.querySelectorAll("li") ?? [])].find((li) => (li.textContent ?? "").includes("Sem id"));
+        await legado.clicar(linhaSemId?.querySelector('[data-acao="editar"]'), "Editar Sem id", () => legado.formulario() !== null);
+        await legado.escrever("nome", "Com nome novo");
+        const escritasAntes = escrita.todas.length;
+        const errosAntes = avisos.erros.length;
+        await legado.salvar();
+        afirmar(
+          "editar um item SEM `id` não envia nada (seria criar outro): notifica o erro, e o formulário fica",
+          escrita.todas.length === escritasAntes &&
+            avisos.erros.length === errosAntes + 1 &&
+            avisos.erros.at(-1)?.[1] === FRASE_SEM_ID &&
+            legado.situacao() === "formulario",
+          JSON.stringify(avisos.erros.at(-1)?.slice(0, 2)),
+        );
+        await legado.desmontar();
+        leitura.dados = fixture();
+      }
+
+      /* ══ O link da aba, e a volta ══ */
+      {
+        const link = await montar("/admin?aba=carreiras", {
+          caso: "Link da aba",
+          ateQue: () => janela.document.querySelector('[data-acao="abrir-classificacoes"]') !== null,
+        });
+        const alvo = link.alvo.querySelector('[data-papel="aba-de-carreiras"] [data-acao="abrir-classificacoes"]');
+        afirmar(
+          "a faixa da aba Carreiras tem o link \"Classificações\" para `/admin/carreiras/classificacoes`, com alvo de toque, anel de foco e nome acessível que começa pelo texto visível",
+          alvo?.tagName === "A" &&
+            alvo.getAttribute("href") === "/admin/carreiras/classificacoes" &&
+            (alvo.textContent ?? "").trim() === "Classificações" &&
+            (alvo.getAttribute("aria-label") ?? "").startsWith("Classificações") &&
+            String(alvo.getAttribute("class")).includes("min-h-10") &&
+            String(alvo.getAttribute("class")).includes("focus-visible:ring-2"),
+        );
+        await link.clicar(alvo, "Classificações", () => link.situacao() === "lista");
+        afirmar("e leva à tela de Classificações", link.onde() === CAMINHO && link.secoes().length === 3, link.onde());
+        await link.clicar(link.alvo.querySelector('[data-acao="voltar"]'), "Voltar", () => link.onde() === "/admin?aba=carreiras");
+        afirmar(
+          "e o Voltar da tela leva a `/admin?aba=carreiras`, com a aba montada",
+          link.onde() === "/admin?aba=carreiras" && link.alvo.querySelector('[data-papel="aba-de-carreiras"]') !== null,
+          link.onde(),
+        );
+        await link.desmontar();
+      }
+
+      afirmar(
+        "toda notificação da tela passou pela regra de voz (nenhuma frase vaga, nenhum rótulo de ação genérico)",
+        avisos.problemasDeVoz.length === 0 && avisos.erros.length > 0 && avisos.sucessos.length > 0,
+        avisos.problemasDeVoz.join(" | "),
+      );
+    } catch (erro) {
+      afirmar("a tela de Classificações montada rodou até o fim sem exceção", false, erro?.stack ?? String(erro));
     } finally {
       console.error = erroOriginal;
       try {

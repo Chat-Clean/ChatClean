@@ -22,9 +22,13 @@ import {
 } from "../../src/domain/carreiras/operacoes.js";
 import {
   EQUIVALENTES_JOBPOSTING,
+  FRASE_DA_ORDEM,
   LISTAS_DE_CLASSIFICACAO,
+  ORDEM_MAXIMA_DA_CLASSIFICACAO,
   ehCorDeClassificacao,
   ehEquivalenteJobPosting,
+  fraseDeNomeRepetido,
+  fraseDeNomeRepetidoNoBanco,
   listaDeClassificacao,
   normalizarNomeDeClassificacao,
   problemaNoNomeDaClassificacao,
@@ -56,8 +60,13 @@ const SEM_RESPOSTA_PARA_SALVAR =
 const SEM_RESPOSTA_PARA_EXCLUIR =
   "Não conseguimos falar com o servidor para excluir a classificação. Espere um instante e tente de novo.";
 
-/** O teto de `ordem`. O banco só exige `>= 0`; o teto é higiene de entrada. */
-export const ORDEM_MAXIMA_DA_CLASSIFICACAO = 100_000;
+/**
+ * O teto de `ordem`. O banco só exige `>= 0`; o teto é higiene de entrada.
+ * Desde a Story 5.6 ele mora no DOMÍNIO, com o mesmo valor, e a tela de
+ * Classificações o lê de lá: a regra tem um dono só. Reexportado aqui para
+ * quem já o lia deste módulo.
+ */
+export { ORDEM_MAXIMA_DA_CLASSIFICACAO };
 
 /**
  * A chave de comparação de um nome: sem caixa e sem acento, o espelho JS de
@@ -176,7 +185,7 @@ export function lerCorpoDaClassificacao(corpo, lista, { criando }) {
       if (Number.isInteger(numero) && numero >= 0 && numero <= ORDEM_MAXIMA_DA_CLASSIFICACAO) {
         campos.ordem = numero;
       } else {
-        problemas.push(`A ordem é um número inteiro de 0 a ${ORDEM_MAXIMA_DA_CLASSIFICACAO}.`);
+        problemas.push(FRASE_DA_ORDEM);
         detalhes.push(`ordem recusada: ${JSON.stringify(String(bruto).slice(0, 20))}`);
       }
     }
@@ -195,10 +204,12 @@ export function lerCorpoDaClassificacao(corpo, lista, { criando }) {
   return { ok: true, campos, ...relatorioDeIgnorados(corpo, camposDaClassificacao(lista)) };
 }
 
-/** A frase do nome repetido, com o nome que JÁ existe. */
-export function fraseDeNomeRepetido(lista, existente) {
-  return `Já existe um ${lista.rotulo} chamado “${existente}”. Escolha outro nome.`;
-}
+/**
+ * A frase do nome repetido, com o nome que JÁ existe. Desde a revisão da Story
+ * 5.6 ela mora no DOMÍNIO, com o mesmo texto, para a tela reconhecê-la pela
+ * forma; reexportada aqui para quem já a lia deste módulo.
+ */
+export { fraseDeNomeRepetido };
 
 /**
  * Cria ou edita uma Classificação (`{ lista, id?, nome, cor?,
@@ -234,7 +245,7 @@ export async function salvarClassificacao({ token, corpo, acesso }) {
       return falha(ERRO_DADOS_INVALIDOS, { mensagem: lido.mensagem, detalhe: lido.detalhe });
     }
 
-    const conflito = `Já existe um ${lista.rotulo} com este nome, sem contar maiúsculas e acentos. Escolha outro nome.`;
+    const conflito = fraseDeNomeRepetidoNoBanco(lista);
     const fazerAqui = `salvar o ${lista.rotulo}`;
 
     if (!criando) {

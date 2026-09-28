@@ -39,6 +39,16 @@ export const ENDERECO_DA_LISTAGEM = `${BASE_DO_PAINEL}?${PARAMETRO_DA_ABA}=${ABA
 export const ENDERECO_DA_VAGA_NOVA = `${BASE_DO_PAINEL}/${ROTA_DA_VAGA_NOVA}`;
 
 /**
+ * A rota filha da tela de Departamentos, Tipos e Níveis (Story 5.6), RELATIVA
+ * ao pai `/admin`: nasce dentro do mesmo portão de sessão. A volta dela é
+ * `ENDERECO_DA_LISTAGEM`, a aba Carreiras.
+ */
+export const ROTA_DAS_CLASSIFICACOES = "carreiras/classificacoes";
+
+/** O endereço absoluto da tela de Classificações, para o link da aba. */
+export const ENDERECO_DAS_CLASSIFICACOES = `${BASE_DO_PAINEL}/${ROTA_DAS_CLASSIFICACOES}`;
+
+/**
  * O endereço absoluto de uma Vaga pelo identificador. O identificador é
  * codificado: ele vem da rede, e um caractere de barra nele mudaria de rota.
  *

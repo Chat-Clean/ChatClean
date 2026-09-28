@@ -542,6 +542,10 @@ const ARQUIVOS_NOVOS = [
      de `formulario.js` para um módulo neutro, importado pelo formulário e pela
      lista. */
   "src/admin/carreiras/falhas.js",
+  /* TROCA REGISTRADA (Story 5.6): a tela de Departamentos, Tipos e Níveis e o
+     módulo puro dela nascem sob as mesmas regras. */
+  "src/admin/carreiras/classificacoesDoPainel.js",
+  "src/admin/carreiras/TelaDeClassificacoes.jsx",
 ];
 
 function acharCssCompilado() {

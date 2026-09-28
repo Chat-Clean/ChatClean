@@ -558,6 +558,9 @@ secao("(b) a arquitetura de acesso está onde deveria");
   const ESCRITORAS_DE_CARREIRAS = [
     "src/admin/carreiras/EditorDeVaga.jsx",
     "src/admin/carreiras/ListaDeVagas.jsx",
+    /* TROCA REGISTRADA (Story 5.6): a tela de Departamentos, Tipos e Níveis
+       é a terceira tela que escreve, e escreve pela mesma camada. */
+    "src/admin/carreiras/TelaDeClassificacoes.jsx",
   ];
   /* Revisão da 5.5: mais as portas que não são `fetch` nem XHR, e o `import(`
      dinâmico, que busca código (e pode trazer um cliente de rede) em tempo de
@@ -612,7 +615,7 @@ secao("(b) a arquitetura de acesso está onde deveria");
     );
   });
   afirmar(
-    "e as duas telas de Carreiras que escrevem (`EditorDeVaga` e `ListaDeVagas`) importam a escrita de `@/data/carreiras/escrita`",
+    "e as três telas de Carreiras que escrevem (`EditorDeVaga`, `ListaDeVagas` e `TelaDeClassificacoes`) importam a escrita de `@/data/carreiras/escrita`",
     semAEscritaDeCarreiras.length === 0,
     semAEscritaDeCarreiras.join(", "),
   );

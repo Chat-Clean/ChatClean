@@ -15,7 +15,7 @@
  * `verificar:carreiras`.
  */
 
-import { CORES_DE_CATEGORIA, aparenciaDaCategoria, ehCorDeCategoria } from "../blog/categorias.js";
+import { COR_PADRAO, CORES_DE_CATEGORIA, aparenciaDaCategoria, ehCorDeCategoria } from "../blog/categorias.js";
 
 /**
  * As três listas de Classificação, na ordem em que o formulário as mostra.
@@ -115,10 +115,42 @@ export function ehEquivalenteJobPosting(valor) {
   return typeof valor === "string" && EQUIVALENTES_JOBPOSTING.includes(valor);
 }
 
+/**
+ * O rótulo legível de cada Equivalente, para a tela de Classificações (Story
+ * 5.6). Lista FECHADA, com exatamente as chaves de `EQUIVALENTES_JOBPOSTING`
+ * (a verificação compara os dois conjuntos): quem escolhe o Equivalente de um
+ * Tipo lê a palavra, e o código do schema.org vai junto, entre parênteses.
+ */
+export const ROTULOS_DOS_EQUIVALENTES = Object.freeze({
+  FULL_TIME: "Tempo integral",
+  PART_TIME: "Meio período",
+  CONTRACTOR: "Prestação de serviço",
+  TEMPORARY: "Temporário",
+  INTERN: "Estágio",
+  VOLUNTEER: "Voluntariado",
+  PER_DIEM: "Por diária",
+  OTHER: "Outro",
+});
+
+/**
+ * O rótulo legível de um Equivalente, ou `null` fora da lista. Tolerante: a
+ * tela mostra um Equivalente legado pelo código cru, sem lançar.
+ */
+export function rotuloDoEquivalente(valor) {
+  return ehEquivalenteJobPosting(valor) ? ROTULOS_DOS_EQUIVALENTES[valor] : null;
+}
+
 /* ─── Cor ────────────────────────────────────────────────────────────────── */
 
 /** A paleta das Categorias, o MESMO objeto. */
 export const CORES_DE_CLASSIFICACAO = CORES_DE_CATEGORIA;
+
+/**
+ * A Cor de quem não escolheu nenhuma: a mesma do `default` das colunas `cor`
+ * de `departamentos` e `niveis` no banco (o cinza), que é a cor padrão das
+ * Categorias. A verificação compara com o texto da migração.
+ */
+export const COR_PADRAO_DE_CLASSIFICACAO = COR_PADRAO;
 
 export function ehCorDeClassificacao(valor) {
   return ehCorDeCategoria(valor);
@@ -145,6 +177,23 @@ export function aparenciaDaCorDeClassificacao(classificacao) {
   return aparenciaDaCategoria({ cor });
 }
 
+/* ─── Ordem ──────────────────────────────────────────────────────────────── */
+
+/**
+ * O teto de `ordem` (Story 5.6: a regra passou a ter um dono só). O banco só
+ * exige `>= 0`; o teto é higiene de entrada, e o servidor
+ * (`api/_nucleo/operacoesDaClassificacao.js`) e a tela de Classificações o
+ * leem DAQUI.
+ */
+export const ORDEM_MAXIMA_DA_CLASSIFICACAO = 100_000;
+
+/**
+ * A frase da Ordem fora da regra (revisão da Story 5.6: mora aqui, com o
+ * MESMO texto que o servidor já dizia). O servidor recusa com ela, e a tela
+ * a mostra na ajuda do campo e na recusa local: as duas leem daqui.
+ */
+export const FRASE_DA_ORDEM = `A ordem é um número inteiro de 0 a ${ORDEM_MAXIMA_DA_CLASSIFICACAO}.`;
+
 /* ─── Nome ───────────────────────────────────────────────────────────────── */
 
 /** Teto do nome, o mesmo do CHECK `*_nome_valido` das três tabelas. */
@@ -167,4 +216,45 @@ export function problemaNoNomeDaClassificacao(valor) {
     return `O nome passa de ${TAMANHO_MAXIMO_DO_NOME_DE_CLASSIFICACAO} caracteres. Encurte antes de salvar.`;
   }
   return null;
+}
+
+/* ─── Nome repetido ──────────────────────────────────────────────────────── */
+
+/**
+ * A frase do nome repetido, com o nome que JÁ existe (revisão da Story 5.6:
+ * saiu do servidor para cá com o MESMO texto). O servidor recusa com ela, e
+ * a tela a RECONHECE pela forma, com `ehFraseDeNomeRepetido`, para pôr a
+ * recusa no campo nome.
+ */
+export function fraseDeNomeRepetido(lista, existente) {
+  return `Já existe um ${lista.rotulo} chamado “${existente}”. Escolha outro nome.`;
+}
+
+/**
+ * A mesma recusa quando quem acusa é o índice único do banco (o 23505), sem
+ * o nome do existente. Mesmo texto que o servidor já dizia.
+ */
+export function fraseDeNomeRepetidoNoBanco(lista) {
+  return `Já existe um ${lista.rotulo} com este nome, sem contar maiúsculas e acentos. Escolha outro nome.`;
+}
+
+/**
+ * A frase é uma das duas de nome repetido, para a lista dada? Reconhece pela
+ * FORMA gerada pelas próprias funções acima (o começo e o fim em volta do
+ * nome existente), e não por um pedaço de texto copiado: se a frase mudar,
+ * o reconhecimento muda junto. Não lança.
+ */
+export function ehFraseDeNomeRepetido(lista, frase) {
+  if (typeof frase !== "string" || lista === null || typeof lista !== "object" || typeof lista.rotulo !== "string") {
+    return false;
+  }
+  if (frase === fraseDeNomeRepetidoNoBanco(lista)) return true;
+  const MARCA = "\u0000";
+  const [inicio, fim] = fraseDeNomeRepetido(lista, MARCA).split(MARCA);
+  return (
+    frase.length > inicio.length + fim.length &&
+    frase.startsWith(inicio) &&
+    frase.endsWith(fim) &&
+    !frase.includes(MARCA)
+  );
 }
