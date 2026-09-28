@@ -6,9 +6,8 @@ import Footer from "../components/Footer";
 import Reveal from "../components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "../components/animated/StaggerGroup";
 import { getVagas } from "@/lib/vagasStore";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
-const WHATSAPP_BASE =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=";
 
 const beneficios = [
   {
@@ -150,7 +149,7 @@ export default function Carreiras() {
                 Envie seu currículo e entraremos em contato assim que surgir algo!
               </p>
               <a
-                href={`${WHATSAPP_BASE}Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades`}
+                href={LINK_DO_WHATSAPP}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-7 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all duration-200 text-sm"
@@ -201,7 +200,7 @@ export default function Carreiras() {
                   <p className="text-zinc-600 text-sm leading-relaxed mb-6">{vaga.descricao}</p>
 
                   <a
-                    href={`${WHATSAPP_BASE}Tenho+interesse+na+vaga+de+${encodeURIComponent(vaga.titulo)}`}
+                    href={LINK_DO_WHATSAPP}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all duration-200 text-sm"
@@ -239,7 +238,7 @@ export default function Carreiras() {
             combine com seu perfil.
           </p>
           <a
-            href={`${WHATSAPP_BASE}Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades`}
+            href={LINK_DO_WHATSAPP}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-10 py-5 bg-white text-emerald-700 font-bold text-lg rounded-full shadow-[0_0_50px_rgba(255,255,255,0.25)] hover:shadow-[0_0_80px_rgba(255,255,255,0.5)] hover:scale-[1.03] transition-all duration-300"

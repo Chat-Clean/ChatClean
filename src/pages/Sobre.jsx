@@ -17,9 +17,8 @@ import consultoria3 from "@/assets/consultoria-3.jpg";
 import consultoria4 from "@/assets/consultoria-4.jpg";
 import consultoria5 from "@/assets/consultoria-5.jpg";
 import consultoria6 from "@/assets/consultoria-6.jpg";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
-const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
 
 const pilares = [
   {
@@ -104,7 +103,7 @@ export default function Sobre() {
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
             <a
-              href={WHATSAPP_LINK}
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-emerald-700 font-bold rounded-full shadow-[0_0_40px_rgba(255,255,255,0.25)] hover:shadow-[0_0_60px_rgba(255,255,255,0.5)] hover:scale-[1.03] transition-all duration-300"
@@ -113,7 +112,7 @@ export default function Sobre() {
               Falar com Especialista
             </a>
             <a
-              href={WHATSAPP_LINK}
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/10 text-white border border-white/30 hover:border-white/60 backdrop-blur-md font-bold rounded-full transition-all duration-300"
@@ -267,7 +266,7 @@ export default function Sobre() {
                 ))}
               </ul>
               <a
-                href={WHATSAPP_LINK}
+                href={LINK_DO_WHATSAPP}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.03] transition-all duration-300"
@@ -319,7 +318,7 @@ export default function Sobre() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a
-              href={WHATSAPP_LINK}
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-emerald-700 font-bold rounded-full shadow-[0_0_40px_rgba(255,255,255,0.25)] hover:shadow-[0_0_60px_rgba(255,255,255,0.5)] hover:scale-[1.03] transition-all duration-300"
@@ -328,7 +327,7 @@ export default function Sobre() {
               Agendar Consultoria Gratuita
             </a>
             <a
-              href={WHATSAPP_LINK}
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white/10 text-white border border-white/30 hover:border-white/60 backdrop-blur-md font-bold rounded-full transition-all duration-300"
