@@ -2954,11 +2954,17 @@ if (cssCompilado) {
       guardam.length === 0,
       guardam.join(", "),
     );
-    const HOSPEDES_DE_CARREIRAS = ["src/pages/AdminBlog.jsx", "src/pages/Carreiras.jsx"];
+    /* TROCA REGISTRADA (Story 5.7): a Página da Vaga (`VagaPublica.jsx`)
+       entrou na lista, com as mesmas regras das outras duas. */
+    const HOSPEDES_DE_CARREIRAS = [
+      "src/pages/AdminBlog.jsx",
+      "src/pages/Carreiras.jsx",
+      "src/pages/VagaPublica.jsx",
+    ];
     const hospedes = HOSPEDES_DE_CARREIRAS.map((c) => path.join(raiz, c)).filter((c) => existsSync(c));
     const guardamVaga = ocorrencias(hospedes, PADRAO_ARMAZENAMENTO, semComentarios);
     afirmar(
-      "e as duas páginas que hospedavam Carreiras no navegador (`AdminBlog.jsx` e `Carreiras.jsx`) também não tocam armazenamento do navegador",
+      "e as páginas que hospedam Carreiras (`AdminBlog.jsx`, `Carreiras.jsx` e `VagaPublica.jsx`) também não tocam armazenamento do navegador",
       hospedes.length === HOSPEDES_DE_CARREIRAS.length && guardamVaga.length === 0,
       guardamVaga.join(", ") || `faltam: ${HOSPEDES_DE_CARREIRAS.length - hospedes.length}`,
     );

@@ -68,6 +68,14 @@
  *       `listagem.js` e a aparência da Cor executados no Node, e
  *       `AbaDeCarreiras`/`AdminBlog` montados com dublês cobrindo a matriz.
  *
+ * Story 5.7 (o site público), LOCAL, sem token:
+ *
+ *   (r) `carreirasPublico.js` e as funções movidas para o domínio executados
+ *       no Node; as regras estáticas das páginas (AD-8, dados só pelas duas
+ *       leituras públicas, sem armazenamento, `<h1>` por tela, `.artigo`
+ *       literal, a rota); e `Carreiras`/`VagaPublica` montadas com dublê de
+ *       `@/data/carreiras/leitura` num `MemoryRouter`, cobrindo a matriz.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -7700,9 +7708,17 @@ secao("(p) a aba Carreiras modular: o legado fora, a listagem pura e a aba monta
   afirmar("`src/lib/vagasStore.js` não existe", !existsSync(path.join(raiz, "src/lib/vagasStore.js")));
 
   const publica = semComentarios(ler("src/pages/Carreiras.jsx") ?? "");
+  /* TROCA REGISTRADA (Story 5.7): a metade "mostra a lista vazia até a Story
+     5.7" (`const vagas = [];`) virou "lê `listarVagasAbertas` de
+     `@/data/carreiras/leitura`", e a lista vazia fixa passou a ser proibida.
+     A metade do armazenamento antigo continua igual. */
   afirmar(
-    "`src/pages/Carreiras.jsx` não importa o armazenamento antigo e mostra a lista vazia até a Story 5.7",
-    publica !== "" && !/lib\/vagasStore/.test(publica) && /const vagas = \[\];/.test(publica),
+    "`src/pages/Carreiras.jsx` não importa o armazenamento antigo e lê `listarVagasAbertas` de `@/data/carreiras/leitura` (sem lista vazia fixa)",
+    publica !== "" &&
+      !/lib\/vagasStore/.test(publica) &&
+      !/const vagas = \[\];/.test(publica) &&
+      /import\s*\{[^}]*\blistarVagasAbertas\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/leitura["']/.test(publica) &&
+      /\blistarVagasAbertas\(\)/.test(publica),
   );
 
   /* ── A página só declara a aba ── */
@@ -7928,9 +7944,11 @@ if (listagemDeVagas !== null) {
     "Editar leva ao formulário da Vaga, e Ver no site ao endereço público pelo Slug (sem Slug, nada)",
     aberta[0].endereco === "/admin/carreiras/vaga/10000000-0000-4000-8000-000000000001" &&
       aberta.find((a) => a.chave === "ver")?.endereco === "/carreiras/vaga-x" &&
-      l.enderecoPublicoDaVaga({ estado: "rascunho", slug: "x" }) === null &&
-      l.enderecoPublicoDaVaga({ estado: "encerrada", slug: "" }) === null &&
-      l.enderecoPublicoDaVaga({ estado: "xpto", slug: "x" }) === null,
+      /* TROCA REGISTRADA (Story 5.7): `enderecoPublicoDaVaga` saiu de
+         `listagem.js` para o domínio (`vaga.js`); os mesmos casos, lá. */
+      regrasDaVaga.enderecoPublicoDaVaga({ estado: "rascunho", slug: "x" }) === null &&
+      regrasDaVaga.enderecoPublicoDaVaga({ estado: "encerrada", slug: "" }) === null &&
+      regrasDaVaga.enderecoPublicoDaVaga({ estado: "xpto", slug: "x" }) === null,
   );
   const indice = l.indiceDasClassificacoes({
     departamentos: [{ id: "d1", nome: "Operações", cor: "var(--categoria-verde-bg)" }],
@@ -11537,6 +11555,1746 @@ export default function Notificacoes() { return null; }
         /* o navegador de mentira já pode ter fechado */
       }
     }
+  }
+  try {
+    rmSync(pasta, { recursive: true, force: true });
+  } catch {
+    /* presa pelo processo no Windows: a próxima execução varre na entrada */
+  }
+}
+
+secao("(r) o site público de Carreiras: `/carreiras` lendo do banco e a Página da Vaga (Story 5.7)");
+
+/*
+ * Três partes, todas LOCAIS (sem token, sem rede):
+ *
+ * - NODE: `src/pages/carreirasPublico.js` e as duas funções que saíram de
+ *   `admin/carreiras/listagem.js` para `domain/carreiras/vaga.js`, importados
+ *   e executados.
+ * - ESTÁTICA: AD-8 (nenhuma página de Carreiras toca o `<head>`), dados só
+ *   pelas duas leituras públicas pelo apelido exato, sem armazenamento, um
+ *   `<h1>` por tela, `.artigo` literal, sem palavra de Estado à mão, a rota.
+ * - MONTADA: `Carreiras` e `VagaPublica` compiladas pelo empacotador da
+ *   aplicação, com dublê de `@/data/carreiras/leitura`, num `MemoryRouter`,
+ *   cobrindo cada linha da matriz de I/O da story.
+ */
+
+const PAGINAS_DE_CARREIRAS = Object.freeze([
+  "src/pages/Carreiras.jsx",
+  "src/pages/VagaPublica.jsx",
+  "src/pages/CartaoDeVaga.jsx",
+  "src/pages/SemVagasAbertas.jsx",
+  "src/pages/carreirasPublico.js",
+  "src/pages/useChegadaDaPagina.js",
+]);
+
+/* ── Node: o módulo puro ── */
+
+let carreirasPublico = null;
+try {
+  carreirasPublico = await import(urlDe("src/pages/carreirasPublico.js"));
+  afirmar("`src/pages/carreirasPublico.js` importa no Node (sem React, sem rede, sem apelido)", true);
+} catch (erro) {
+  afirmar("`src/pages/carreirasPublico.js` importa no Node (sem React, sem rede, sem apelido)", false, erro.message);
+}
+
+{
+  const fonte = semComentarios(ler("src/pages/carreirasPublico.js") ?? "");
+  const origens = origensDeImport(fonte);
+  afirmar(
+    "o módulo puro só importa do domínio (por caminho relativo): nada de React, `data/`, rede ou DOM",
+    fonte !== "" &&
+      origens.length > 0 &&
+      origens.every((o) => /^\.\.\/domain\/(blog|carreiras)\/[a-zA-Z]+\.js$/.test(o)) &&
+      !/\b(fetch|localStorage|sessionStorage|window|document)\b/.test(fonte),
+    origens.join(", "),
+  );
+  afirmar(
+    "nenhum `throw` do módulo puro tem travessão",
+    !/throw new Error\([^;]*—/.test(fonte),
+  );
+}
+
+/* O contrato de resultado da camada, para conferir a grafia de `nao_encontrado`. */
+let resultadoDaCamada = null;
+try {
+  resultadoDaCamada = await import(urlDe("src/data/blog/resultado.js"));
+} catch (erro) {
+  afirmar("`src/data/blog/resultado.js` importa no Node", false, erro.message);
+}
+
+/* ── Node: a regra REAL do Slug torto, na camada de verdade ──
+   A montagem usa dublê da leitura; o dublê responder `inexistente` a um Slug
+   torto não prova nada sobre a camada. Aqui é a `lerSituacaoDaVaga` real, num
+   processo novo, com ambiente de mentira (porta 9) e o `fetch` global trocado
+   por um registrador ANTES de importar a camada: o Slug torto tem de voltar
+   `inexistente` com ZERO chamadas de rede, e o Slug bem formado (o controle,
+   que prova que o registrador enxerga a rede) tem de chamá-lo. */
+function sondarSlugTorto() {
+  const codigo = `
+const chamadas = [];
+globalThis.fetch = async (...args) => { chamadas.push(String(args[0])); throw new TypeError("fetch failed"); };
+const m = await import(${JSON.stringify(urlDe("src/data/carreiras/leitura.js"))});
+const saida = {};
+for (const slug of ["Slug_Torto", "X y", "a,b", "", "com.ponto"]) {
+  const antes = chamadas.length;
+  const r = await m.lerSituacaoDaVaga(slug);
+  saida[slug] = { r, rede: chamadas.length - antes };
+}
+const antes = chamadas.length;
+const controle = await m.lerSituacaoDaVaga("slug-bem-formado");
+saida.controle = { r: controle, rede: chamadas.length - antes };
+process.stdout.write(JSON.stringify(saida));
+`;
+  try {
+    const bruto = execFileSync(process.execPath, ["--input-type=module", "-e", codigo], {
+      cwd: raiz,
+      env: { ...process.env, VITE_SUPABASE_URL: "http://127.0.0.1:9", VITE_SUPABASE_PUBLISHABLE_KEY: "chave-de-mentira" },
+      encoding: "utf8",
+      timeout: TIMEOUT_MS * 2,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { ok: true, saida: JSON.parse(bruto) };
+  } catch (erro) {
+    return { ok: false, erro: String(erro?.message ?? erro).slice(0, 300) };
+  }
+}
+{
+  const sonda = sondarSlugTorto();
+  const tortos = sonda.ok ? Object.entries(sonda.saida).filter(([k]) => k !== "controle") : [];
+  afirmar(
+    "a `lerSituacaoDaVaga` REAL devolve `inexistente` para Slug torto SEM ir à rede (zero chamadas ao `fetch` observado), e o controle bem formado vai à rede",
+    sonda.ok &&
+      tortos.length === 5 &&
+      tortos.every(([, x]) => x.r?.ok === true && x.r.dados?.situacao === "inexistente" && x.rede === 0) &&
+      sonda.saida.controle?.rede > 0 &&
+      sonda.saida.controle?.r?.ok === false,
+    sonda.ok ? JSON.stringify(Object.fromEntries(Object.entries(sonda.saida).map(([k, x]) => [k, [x.r?.dados?.situacao ?? x.r?.erro?.tipo, x.rede]]))) : sonda.erro,
+  );
+}
+
+if (carreirasPublico !== null) {
+  const m = carreirasPublico;
+  const e = estadosDaVaga;
+  afirmar(
+    "a lista pública tem exatamente quatro situações, congeladas e distintas",
+    Object.isFrozen(m.SITUACOES_DA_LISTA) &&
+      igual([...m.SITUACOES_DA_LISTA], [m.LISTA_CARREGANDO, m.LISTA_ERRO, m.LISTA_VAZIA, m.LISTA_PRONTA]) &&
+      new Set(m.SITUACOES_DA_LISTA).size === 4,
+  );
+  const s = (o) => m.situacaoDaLista(o);
+  afirmar(
+    "a situação da lista: carregando primeiro, depois o ERRO (antes de qualquer vazio), depois vazia ou pronta",
+    s({ carregando: true, erro: { tipo: "rede" }, vagas: [] }) === m.LISTA_CARREGANDO &&
+      s({ erro: { tipo: "rede" }, vagas: [] }) === m.LISTA_ERRO &&
+      s({ erro: { tipo: "rede" }, vagas: [{ slug: "a" }] }) === m.LISTA_ERRO &&
+      s({ erro: null, vagas: null }) === m.LISTA_ERRO &&
+      s({ vagas: [] }) === m.LISTA_VAZIA &&
+      s({ vagas: [{ slug: "a" }] }) === m.LISTA_PRONTA,
+  );
+  const lanca = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  afirmar(
+    "as falas da lista: o erro pede tentar de novo e não fala de \"nenhuma vaga\"; o vazio convida o currículo; situação sem fala lança",
+    m.falaDaLista(m.LISTA_ERRO).repetir === true &&
+      !/nenhuma/i.test(m.falaDaLista(m.LISTA_ERRO).oQueHouve + m.falaDaLista(m.LISTA_ERRO).oQueFazer) &&
+      m.falaDaLista(m.LISTA_VAZIA).repetir === false &&
+      /currículo/i.test(m.falaDaLista(m.LISTA_VAZIA).oQueFazer) &&
+      lanca(() => m.falaDaLista(m.LISTA_PRONTA)) &&
+      lanca(() => m.falaDaLista("xpto")) &&
+      lanca(() => m.falaDaLista("constructor")),
+  );
+  afirmar(
+    "a Página da Vaga tem exatamente cinco situações, congeladas e distintas",
+    Object.isFrozen(m.SITUACOES_DA_VAGA_PUBLICA) &&
+      igual([...m.SITUACOES_DA_VAGA_PUBLICA], [m.VAGA_CARREGANDO, m.VAGA_ABERTA, m.VAGA_ENCERRADA, m.VAGA_INEXISTENTE, m.VAGA_ERRO]) &&
+      new Set(m.SITUACOES_DA_VAGA_PUBLICA).size === 5,
+  );
+  const v = (o) => m.situacaoDaVagaPublica(o);
+  /* TROCA REGISTRADA (revisão da Story 5.7): a Aberta desta asserção ganhou
+     `titulo`, porque Aberta sem título passou a ser resposta inválida (erro);
+     o caso sem título virou asserção própria, logo abaixo. */
+  afirmar(
+    "a situação da Vaga: carregando, depois erro (distinto de inexistente), depois a situação do banco pelo vocabulário do domínio; resposta sem situação é erro",
+    v({ carregando: true, erro: { tipo: "rede" } }) === m.VAGA_CARREGANDO &&
+      v({ erro: { tipo: "rede" }, vaga: { situacao: e.SITUACAO_ABERTA } }) === m.VAGA_ERRO &&
+      v({ vaga: { situacao: e.SITUACAO_ABERTA, titulo: "Analista" } }) === m.VAGA_ABERTA &&
+      v({ vaga: { situacao: e.SITUACAO_ENCERRADA } }) === m.VAGA_ENCERRADA &&
+      v({ vaga: { situacao: e.SITUACAO_INEXISTENTE } }) === m.VAGA_INEXISTENTE &&
+      v({ vaga: null }) === m.VAGA_ERRO &&
+      v({ vaga: { situacao: "rascunho" } }) === m.VAGA_ERRO &&
+      v({ vaga: { situacao: "constructor" } }) === m.VAGA_ERRO,
+  );
+  /* Story 5.7, revisão: `nao_encontrado` da camada é inexistente, e os demais
+     tipos continuam erro; Aberta sem título é inválida (erro). */
+  afirmar(
+    "a falha `nao_encontrado` da camada é a tela \"não encontrada\"; rede, permissão, configuração e inesperado continuam erro",
+    v({ erro: { tipo: "nao_encontrado", mensagem: "x" } }) === m.VAGA_INEXISTENTE &&
+      ["rede", "permissao", "configuracao", "inesperado", "xpto"].every(
+        (tipo) => v({ erro: { tipo, mensagem: "x" } }) === m.VAGA_ERRO,
+      ) &&
+      v({ erro: "nao_encontrado" }) === m.VAGA_ERRO &&
+      v({ carregando: true, erro: { tipo: "nao_encontrado" } }) === m.VAGA_CARREGANDO,
+  );
+  afirmar(
+    "a grafia do tipo `nao_encontrado` no módulo puro é a MESMA da camada de dados (`ERRO_NAO_ENCONTRADO`)",
+    resultadoDaCamada !== null && m.TIPO_DE_ERRO_NAO_ENCONTRADO === resultadoDaCamada.ERRO_NAO_ENCONTRADO,
+    `${m.TIPO_DE_ERRO_NAO_ENCONTRADO} | ${resultadoDaCamada?.ERRO_NAO_ENCONTRADO}`,
+  );
+  afirmar(
+    "Aberta sem título (ausente, nulo, vazio ou em branco) é resposta inválida: erro de leitura, nunca um `<h1>` vazio",
+    [undefined, null, "", "   ", 7].every((titulo) => v({ vaga: { situacao: e.SITUACAO_ABERTA, titulo } }) === m.VAGA_ERRO) &&
+      v({ vaga: { situacao: e.SITUACAO_ABERTA, titulo: "Analista" } }) === m.VAGA_ABERTA,
+  );
+  afirmar(
+    "Encerrada sem título continua Encerrada, com o título de reserva (a palavra do vocabulário, sem travessão); com título, o próprio",
+    [undefined, null, "", "  "].every((titulo) => v({ vaga: { situacao: e.SITUACAO_ENCERRADA, titulo } }) === m.VAGA_ENCERRADA) &&
+      [undefined, null, "", "  "].every(
+        (titulo) => m.tituloDaVagaPublica({ situacao: e.SITUACAO_ENCERRADA, titulo }) === m.TITULO_DE_RESERVA_DA_ENCERRADA,
+      ) &&
+      typeof m.TITULO_DE_RESERVA_DA_ENCERRADA === "string" &&
+      m.TITULO_DE_RESERVA_DA_ENCERRADA.trim() !== "" &&
+      m.TITULO_DE_RESERVA_DA_ENCERRADA.includes(e.rotuloDoEstadoDaVaga("encerrada").toLowerCase()) &&
+      !m.TITULO_DE_RESERVA_DA_ENCERRADA.includes("—") &&
+      m.tituloDaVagaPublica({ situacao: e.SITUACAO_ENCERRADA, titulo: " Suporte " }) === "Suporte" &&
+      m.tituloDaVagaPublica({ situacao: e.SITUACAO_ABERTA, titulo: "Analista" }) === "Analista" &&
+      m.tituloDaVagaPublica({ situacao: e.SITUACAO_ABERTA, titulo: "" }) === "" &&
+      m.tituloDaVagaPublica(null) === "",
+    m.TITULO_DE_RESERVA_DA_ENCERRADA,
+  );
+  afirmar(
+    "as falas da Vaga: \"Vaga não encontrada\" sem tentar de novo, o erro com tentar de novo e frase própria, a Encerrada com a palavra do vocabulário; Aberta e carregando não têm fala",
+    m.falaDaVaga(m.VAGA_INEXISTENTE).oQueHouve === "Vaga não encontrada" &&
+      m.falaDaVaga(m.VAGA_INEXISTENTE).repetir === false &&
+      m.falaDaVaga(m.VAGA_ERRO).repetir === true &&
+      m.falaDaVaga(m.VAGA_ERRO).oQueHouve !== m.falaDaVaga(m.VAGA_INEXISTENTE).oQueHouve &&
+      m.falaDaVaga(m.VAGA_ENCERRADA).oQueHouve.includes(e.rotuloDoEstadoDaVaga("encerrada").toLowerCase()) &&
+      lanca(() => m.falaDaVaga(m.VAGA_ABERTA)) &&
+      lanca(() => m.falaDaVaga(m.VAGA_CARREGANDO)) &&
+      lanca(() => m.falaDaVaga(undefined)),
+  );
+  let abertura = null;
+  let abertasTortas = null;
+  try {
+    abertura = m.textoDaAbertura({ aberta_em: "2026-09-10T12:00:00Z" });
+    abertasTortas = [
+      m.textoDaAbertura({ aberta_em: "lixo" }),
+      m.textoDaAbertura({ aberta_em: null }),
+      m.textoDaAbertura({ aberta_em: 7 }),
+      m.textoDaAbertura({ aberta_em: "  " }),
+      m.textoDaAbertura(null),
+      m.textoDaAbertura(undefined),
+    ];
+  } catch (erro) {
+    afirmar("`textoDaAbertura` nunca lança", false, erro.message);
+  }
+  afirmar(
+    "\"Aberta em <data>\" com a palavra do vocabulário e o dia no fuso de apresentação; data ruim ou ausente dá vazio, sem lançar",
+    abertura === `${e.rotuloDoEstadoDaVaga("aberta")} em 10/09/2026` &&
+      m.textoDaAbertura({ aberta_em: "2026-09-10T02:00:00Z" }) === `${e.rotuloDoEstadoDaVaga("aberta")} em 09/09/2026` &&
+      Array.isArray(abertasTortas) &&
+      abertasTortas.every((t) => t === ""),
+    `${abertura} | ${JSON.stringify(abertasTortas)}`,
+  );
+  let modalidades = null;
+  try {
+    modalidades = [
+      ...classificacoes.MODALIDADES.map((mo) => m.rotuloDaModalidadeProtegido(mo.valor) === mo.rotulo),
+      ...["xpto", null, undefined, "", "constructor", "Remoto", 3].map((x) => m.rotuloDaModalidadeProtegido(x) === ""),
+    ];
+  } catch (erro) {
+    afirmar("o rótulo protegido da Modalidade nunca lança", false, erro.message);
+  }
+  afirmar(
+    "o rótulo da Modalidade é protegido: o do domínio para cada Modalidade, vazio (sem lançar) fora do vocabulário",
+    Array.isArray(modalidades) && modalidades.every(Boolean),
+  );
+  afirmar(
+    "o local da Vaga é o do domínio: Modalidade e Localização; Modalidade fora do vocabulário fica fora da frase, sem lançar",
+    m.localDaVaga({ modalidade: "hibrido", localizacao: " Natal, RN " }) === "Híbrido · Natal, RN" &&
+      m.localDaVaga({ modalidade: "remoto", localizacao: null }) === "Remoto" &&
+      m.localDaVaga({ modalidade: "xpto", localizacao: "Natal, RN" }) === "Natal, RN" &&
+      m.localDaVaga(null) === "",
+  );
+  afirmar(
+    "`outrasVagas` tira a atual pelo Slug e o que não tem Slug, sem lançar para lista torta",
+    igual(
+      m.outrasVagas([{ slug: "a" }, { slug: "b" }, null, { slug: "" }, { titulo: "sem slug" }, { slug: "c" }], "b").map((x) => x.slug),
+      ["a", "c"],
+    ) &&
+      igual(m.outrasVagas(null, "a"), []) &&
+      igual(m.outrasVagas("não é lista", "a"), []) &&
+      m.outrasVagas([{ slug: "a" }], undefined).length === 1,
+  );
+  const LINKS_RUINS = [
+    "javascript:x",
+    "JavaScript:alert(1)",
+    "data:text/html,oi",
+    "/candidatura",
+    "https:x",
+    "http:/x",
+    "https:///x",
+    "mailto:rh@exemplo.com",
+    " https://exemplo.com",
+    "",
+    null,
+    undefined,
+    7,
+    {},
+  ];
+  /* TROCA REGISTRADA (revisão da Story 5.7): o link aprovado volta
+     NORMALIZADO (`new URL(link).href`), e não como veio; `http://exemplo.com`
+     passou a `http://exemplo.com/`, e entrou o caso da caixa alta. */
+  afirmar(
+    "`linkDeCandidaturaSeguro` só devolve `http`/`https` absoluto (a regra do domínio), NORMALIZADO; `javascript:`, `data:`, relativo e o resto viram `null`",
+    m.linkDeCandidaturaSeguro("https://exemplo.com/vaga?x=1") === "https://exemplo.com/vaga?x=1" &&
+      m.linkDeCandidaturaSeguro("http://exemplo.com") === "http://exemplo.com/" &&
+      m.linkDeCandidaturaSeguro("HTTPS://Exemplo.COM/Vaga") === "https://exemplo.com/Vaga" &&
+      LINKS_RUINS.every((l) => m.linkDeCandidaturaSeguro(l) === null) &&
+      LINKS_RUINS.every((l) => regrasDaVaga.linkDeCandidaturaValido(l) === false),
+  );
+  const cls = m.classificacoesDaVaga({
+    departamento: " Atendimento ",
+    departamento_cor: "var(--categoria-verde-bg)",
+    tipo: "CLT",
+    nivel: "Pleno",
+    nivel_cor: "var(--cor-fora-da-paleta)",
+  });
+  afirmar(
+    "as Classificações da Vaga: Departamento, Tipo e Nível na ordem, com o par de Cor da paleta por `style` (Tipo sem Cor; Cor fora da paleta cai na neutra)",
+    igual(cls.map((c) => [c.chave, c.nome]), [["departamento", "Atendimento"], ["tipo", "CLT"], ["nivel", "Pleno"]]) &&
+      cls[0].fundo === "var(--categoria-verde-bg)" &&
+      cls[0].tinta === "var(--categoria-verde-ink)" &&
+      cls[1].fundo === null &&
+      cls[2].fundo === classificacoes.aparenciaDaCorDeClassificacao(null).fundo &&
+      m.classificacoesDaVaga({ tipo: "PJ" }).length === 1 &&
+      m.classificacoesDaVaga(null).length === 0,
+    JSON.stringify(cls),
+  );
+  afirmar(
+    "o endereço do cartão é `/carreiras/<slug>` (Slug codificado), e sem Slug não há endereço",
+    m.enderecoDaVagaPublica({ slug: "analista-de-suporte" }) === "/carreiras/analista-de-suporte" &&
+      m.enderecoDaVagaPublica({ slug: "" }) === null &&
+      m.enderecoDaVagaPublica(null) === null,
+  );
+  const registrosDaFalha = [];
+  const erroDoConsole = console.error;
+  console.error = (...partes) => registrosDaFalha.push(partes);
+  let falha = null;
+  try {
+    falha = m.falhaDeExcecao(new Error("TypeError: segredo interno em modulo.js"));
+  } finally {
+    console.error = erroDoConsole;
+  }
+  afirmar(
+    "a falha de exceção tem tipo e frase fixos, e o texto cru da exceção fica só no `detalhe`",
+    falha?.tipo === "inesperado" && !falha.mensagem.includes("segredo") && falha.detalhe.includes("segredo"),
+  );
+  afirmar(
+    "e a falha de exceção é REGISTRADA uma vez no console, com o prefixo `[carreiras]` e a própria falha",
+    registrosDaFalha.length === 1 &&
+      typeof registrosDaFalha[0][0] === "string" &&
+      registrosDaFalha[0][0].startsWith("[carreiras] ") &&
+      registrosDaFalha[0].includes(falha),
+    JSON.stringify(registrosDaFalha).slice(0, 200),
+  );
+  afirmar(
+    "o nome acessível do Candidatar-se começa pelo texto visível, nomeia a Vaga e avisa da nova aba",
+    m.rotuloDaCandidatura({ titulo: "Analista" }).startsWith(m.ROTULO_DA_CANDIDATURA) &&
+      m.rotuloDaCandidatura({ titulo: "Analista" }).includes("Analista") &&
+      /nova aba/.test(m.rotuloDaCandidatura({})) &&
+      m.rotuloDoCartao({ titulo: "Analista" }).startsWith(m.ROTULO_DO_CARTAO),
+  );
+  const PALAVRAS_DE_ESTADO = e.ESTADOS_DA_VAGA.map((estado) => e.rotuloDoEstadoDaVaga(estado));
+  const textos = Object.entries(m).filter(([, valor]) => typeof valor === "string");
+  afirmar(
+    "nenhum texto exportado pelo módulo puro tem travessão, e nenhum é uma palavra de Estado solta",
+    textos.length > 10 &&
+      textos.every(([, valor]) => !valor.includes("—")) &&
+      textos.every(([, valor]) => !PALAVRAS_DE_ESTADO.includes(valor)),
+    textos.filter(([, valor]) => valor.includes("—")).map(([k]) => k).join(", "),
+  );
+}
+
+/* Revisão da Story 5.7: os NOMES de um `import { … } from "<origem>"` viram
+   uma lista, e as checagens não dependem mais da ordem em que aparecem. */
+function nomesImportadosDe(fonte, origem) {
+  return [...fonte.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g)]
+    .filter((x) => x[2] === origem)
+    .flatMap((x) => x[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0].trim()))
+    .filter(Boolean);
+}
+
+/* ── Node: as funções que foram para o domínio ── */
+{
+  const r = regrasDaVaga;
+  afirmar(
+    "`textoDoLocal` e `enderecoPublicoDaVaga` moram em `domain/carreiras/vaga.js`, com o comportamento de antes",
+    typeof r.textoDoLocal === "function" &&
+      typeof r.enderecoPublicoDaVaga === "function" &&
+      r.textoDoLocal({ modalidade: "hibrido", localizacao: "Natal, RN" }) === "Híbrido · Natal, RN" &&
+      r.textoDoLocal({ modalidade: "voando", localizacao: "  " }) === "" &&
+      r.textoDoLocal(undefined) === "" &&
+      r.enderecoPublicoDaVaga({ estado: "aberta", slug: "vaga-x" }) === "/carreiras/vaga-x" &&
+      r.enderecoPublicoDaVaga({ estado: "encerrada", slug: " vaga-y " }) === "/carreiras/vaga-y" &&
+      r.enderecoPublicoDaVaga({ estado: "rascunho", slug: "x" }) === null &&
+      r.enderecoPublicoDaVaga({ estado: "encerrada", slug: "" }) === null &&
+      r.enderecoPublicoDaVaga({ estado: "xpto", slug: "x" }) === null &&
+      r.enderecoPublicoDaVaga(null) === null,
+  );
+  const fonteDaListagem = semComentarios(ler(`${DIR_TELAS_DE_CARREIRAS}/listagem.js`) ?? "");
+  afirmar(
+    "autoteste: a leitura dos nomes importados não depende da ordem nem do espaço",
+    igual(ordenado(nomesImportadosDe('import { b,\n a } from "x";', "x")), ["a", "b"]) &&
+      igual(ordenado(nomesImportadosDe('import {a, b} from "x"; import { c } from "y";', "x")), ["a", "b"]) &&
+      nomesImportadosDe('import { a } from "y";', "x").length === 0,
+  );
+  const doDominioNaListagem = nomesImportadosDe(fonteDaListagem, "../../domain/carreiras/vaga.js");
+  afirmar(
+    "a listagem do Painel importa as duas do domínio e não as declara mais (uma casa só)",
+    listagemDeVagas !== null &&
+      !("textoDoLocal" in listagemDeVagas) &&
+      !("enderecoPublicoDaVaga" in listagemDeVagas) &&
+      doDominioNaListagem.includes("enderecoPublicoDaVaga") &&
+      doDominioNaListagem.includes("textoDoLocal") &&
+      !/function\s+(textoDoLocal|enderecoPublicoDaVaga)\b/.test(fonteDaListagem),
+    doDominioNaListagem.join(", "),
+  );
+}
+
+/* ── Estática ── */
+{
+  const fontes = Object.fromEntries(PAGINAS_DE_CARREIRAS.map((c) => [c, ler(c)]));
+  afirmar(
+    "as páginas públicas de Carreiras existem para serem varridas",
+    PAGINAS_DE_CARREIRAS.every((c) => typeof fontes[c] === "string" && fontes[c] !== ""),
+    PAGINAS_DE_CARREIRAS.filter((c) => !fontes[c]).join(", "),
+  );
+  const codigo = (c) => semComentarios(fontes[c] ?? "");
+
+  /* AD-8: ninguém escreve no `<head>`. */
+  const TOCA_O_HEAD = [
+    /\bdocument\s*\.\s*(title|head)\b/,
+    /\bdocument\s*\[/,
+    /<\s*(meta|title|link|script)\b/,
+    /createElement\(\s*["'`](meta|title|link|script)["'`]/i,
+    /\bcanonical\b/i,
+    /\bhelmet\b/i,
+    /querySelector(All)?\(\s*["'`][^"'`]*\b(meta|link|title)\b/i,
+  ];
+  const tocaOHead = (texto) => TOCA_O_HEAD.some((padrao) => padrao.test(texto));
+  afirmar(
+    "autoteste: o detector de AD-8 acusa título, `head`, meta, canônica, `createElement` e Helmet, e absolve o `<Link>` do roteador e o título da Vaga",
+    tocaOHead('document.title = "x";') &&
+      tocaOHead("document.head.appendChild(m);") &&
+      tocaOHead('document["title"] = "x";') &&
+      tocaOHead('<meta name="description" content="x" />') &&
+      tocaOHead('<link rel="canonical" href="x" />') &&
+      tocaOHead('const m = document.createElement("meta");') &&
+      tocaOHead('document.querySelector(\'link[rel="canonical"]\')') &&
+      tocaOHead('import { Helmet } from "react-helmet-async";') &&
+      tocaOHead("<title>{vaga.titulo}</title>") &&
+      !tocaOHead('<Link to="/carreiras">Ver</Link>') &&
+      !tocaOHead("<h1>{vaga.titulo}</h1>") &&
+      !tocaOHead("const metade = 2; window.scrollTo({ top: 0 });"),
+  );
+  const noHead = PAGINAS_DE_CARREIRAS.filter((c) => tocaOHead(codigo(c)));
+  afirmar(
+    "AD-8: nenhuma página de Carreiras toca `document.title`, `document.head`, meta ou `link rel=canonical`",
+    noHead.length === 0,
+    noHead.join(", "),
+  );
+
+  /* Dados: só as duas leituras públicas, pelo apelido exato. */
+  const importsDeDados = [];
+  for (const c of PAGINAS_DE_CARREIRAS) {
+    for (const m of codigo(c).matchAll(/import\s*(\{[^}]*\}|[\w$]+|\*\s*as\s+[\w$]+)\s*from\s*["'`]([^"'`]+)["'`]/g)) {
+      if (/(^|\/)data\/|supabase/.test(m[2])) importsDeDados.push({ arquivo: c, nomes: m[1], origem: m[2] });
+    }
+    for (const origem of origensDeImport(codigo(c))) {
+      if (/(^|\/)data\/|supabase/.test(origem) && !importsDeDados.some((i) => i.arquivo === c && i.origem === origem)) {
+        importsDeDados.push({ arquivo: c, nomes: "?", origem });
+      }
+    }
+  }
+  const nomesDe = (i) => i.nomes.replace(/[{}]/g, "").split(",").map((n) => n.trim()).filter(Boolean);
+  afirmar(
+    "as páginas leem dados SÓ de `@/data/carreiras/leitura`, e só `listarVagasAbertas` e `lerSituacaoDaVaga` (nunca as leituras do Painel)",
+    importsDeDados.length === 2 &&
+      importsDeDados.every((i) => i.origem === "@/data/carreiras/leitura") &&
+      importsDeDados.every((i) => nomesDe(i).every((n) => n === "listarVagasAbertas" || n === "lerSituacaoDaVaga")) &&
+      nomesDe(importsDeDados.find((i) => i.arquivo === "src/pages/Carreiras.jsx") ?? { nomes: "" }).join() === "listarVagasAbertas" &&
+      igual(
+        ordenado(nomesDe(importsDeDados.find((i) => i.arquivo === "src/pages/VagaPublica.jsx") ?? { nomes: "" })),
+        ["lerSituacaoDaVaga", "listarVagasAbertas"],
+      ) &&
+      !PAGINAS_DE_CARREIRAS.some((c) => /\b\w+DoPainel\w*\b|\bfetch\s*\(|XMLHttpRequest/.test(codigo(c))),
+    JSON.stringify(importsDeDados),
+  );
+
+  const ARMAZENAMENTO = /\b(localStorage|sessionStorage|indexedDB)\b|document\.cookie/;
+  afirmar(
+    "autoteste: o detector de armazenamento acusa `localStorage`, `sessionStorage`, `indexedDB` e cookie, e absolve um Map",
+    ARMAZENAMENTO.test("localStorage.getItem(k)") &&
+      ARMAZENAMENTO.test("sessionStorage.x") &&
+      ARMAZENAMENTO.test("indexedDB.open(n)") &&
+      ARMAZENAMENTO.test("document.cookie") &&
+      !ARMAZENAMENTO.test("memoria.get(chave)"),
+  );
+  const guardam = PAGINAS_DE_CARREIRAS.filter((c) => ARMAZENAMENTO.test(codigo(c)));
+  afirmar("nenhuma página de Carreiras usa armazenamento do navegador", guardam.length === 0, guardam.join(", "));
+
+  /* TROCA REGISTRADA (revisão da Story 5.7): antes o detector só pegava a
+     palavra SOZINHA entre aspas ou entre `>` e `<`, e deixava passar
+     "Aberta em", `Aberta em ${…}` e {"Encerrada."}. Agora é a palavra do
+     vocabulário (com a caixa do rótulo) como PALAVRA INTEIRA em qualquer lugar
+     do código sem comentários: nenhum identificador a contém isolada
+     (`SITUACAO_ABERTA`, `ehAberta` e `VAGA_ENCERRADA` não casam). */
+  const PALAVRA_A_MAO = new RegExp(
+    `(?<![\\w$])(${estadosDaVaga.ESTADOS_DA_VAGA.map((x) => estadosDaVaga.rotuloDoEstadoDaVaga(x)).join("|")})(?![\\w$])`,
+    "u",
+  );
+  afirmar(
+    "autoteste: o detector de palavra de Estado à mão acusa \"Aberta\", \">Encerrada<\", \"Aberta em\", `Aberta em ${…}`, {\"Encerrada.\"} e a palavra no meio de um texto, e absolve o vocabulário e os identificadores",
+    PALAVRA_A_MAO.test('const x = "Aberta";') &&
+      PALAVRA_A_MAO.test("<span>Encerrada</span>") &&
+      PALAVRA_A_MAO.test('const x = "Aberta em";') &&
+      PALAVRA_A_MAO.test("const x = `Aberta em ${data}`;") &&
+      PALAVRA_A_MAO.test('<p>{"Encerrada."}</p>') &&
+      PALAVRA_A_MAO.test("<p>Esta vaga está Encerrada agora</p>") &&
+      PALAVRA_A_MAO.test("const x = 'Rascunho';") &&
+      !PALAVRA_A_MAO.test('rotuloDoEstadoDaVaga("aberta")') &&
+      !PALAVRA_A_MAO.test("situacao === SITUACAO_ABERTA || x === VAGA_ENCERRADA") &&
+      !PALAVRA_A_MAO.test("const ehAberta = ehEncerrada && $Rascunho;") &&
+      !PALAVRA_A_MAO.test("const x = `Vaga ${rotuloDoEstadoDaVaga(\"encerrada\").toLowerCase()}`;"),
+  );
+  afirmar(
+    "as palavras de Estado que as páginas mostram vêm do domínio: o módulo puro chama `rotuloDoEstadoDaVaga` para \"Aberta\" e para \"Encerrada\"",
+    /rotuloDoEstadoDaVaga\(\s*"aberta"\s*\)/.test(codigo("src/pages/carreirasPublico.js")) &&
+      /rotuloDoEstadoDaVaga\(\s*"encerrada"\s*\)/.test(codigo("src/pages/carreirasPublico.js")) &&
+      origensDeImport(codigo("src/pages/carreirasPublico.js")).includes("../domain/carreiras/estados.js"),
+  );
+  const escrevem = PAGINAS_DE_CARREIRAS.filter((c) => PALAVRA_A_MAO.test(codigo(c)));
+  afirmar("nenhuma página de Carreiras escreve a palavra de Estado à mão", escrevem.length === 0, escrevem.join(", "));
+  const comTravessao = PAGINAS_DE_CARREIRAS.filter((c) => codigo(c).includes("—"));
+  afirmar("nenhuma página de Carreiras tem travessão fora de comentário", comTravessao.length === 0, comTravessao.join(", "));
+
+  /* O `<h1>` por POSIÇÃO: cada um num `return` diferente, e nenhum nos cartões. */
+  const pagina = codigo("src/pages/VagaPublica.jsx");
+  const aberturasDeH1 = [...pagina.matchAll(/<(motion\.)?h1\b/g)].map((x) => x.index);
+  const retornos = [...pagina.matchAll(/\breturn\s*\(/g)].map((x) => x.index);
+  const emRetornosDistintos = aberturasDeH1.every((pos, i) =>
+    i === 0 ? true : retornos.some((r) => r > aberturasDeH1[i - 1] && r < pos),
+  );
+  afirmar(
+    "`VagaPublica.jsx` tem TRÊS `<h1>` (Encerrada, Aberta e a situação ruim), cada um depois de um `return` próprio",
+    aberturasDeH1.length === 3 && emRetornosDistintos,
+    `h1 em ${aberturasDeH1.join(", ")} | return em ${retornos.join(", ")}`,
+  );
+  /* TROCA REGISTRADA (revisão da Story 5.7): a asserção que casava a FORMA
+     dos `if (situacao === …) { return (` saiu daqui. A exclusão mútua das
+     telas passou a ser OBSERVADA na montagem ("cada tela da Vaga montada tem
+     um corpo só, o da situação"), em toda tela de todo caso. */
+  const carreiras = codigo("src/pages/Carreiras.jsx");
+  afirmar(
+    "`Carreiras.jsx` continua com UM `<h1>` (o do hero), e os cartões e o vazio não têm `h1`",
+    (carreiras.match(/<(motion\.)?h1\b/g) ?? []).length === 1 &&
+      !/<(motion\.)?h1\b|["'`]h1["'`]/.test(codigo("src/pages/CartaoDeVaga.jsx") + codigo("src/pages/SemVagasAbertas.jsx")),
+  );
+
+  /* `.artigo` literal, no MESMO elemento da injeção. */
+  const injecoes = [...pagina.matchAll(/<div\b[^>]*dangerouslySetInnerHTML[^>]*\/>/g)].map((x) => x[0]);
+  afirmar(
+    "a Descrição é injetada UMA vez, num `<div className=\"artigo\">` com `artigo` literal (nunca por variável)",
+    (pagina.match(/dangerouslySetInnerHTML/g) ?? []).length === 1 &&
+      injecoes.length === 1 &&
+      /className="artigo"/.test(injecoes[0]) &&
+      /dangerouslySetInnerHTML=\{\{\s*__html:\s*html\s*\}\}/.test(injecoes[0]) &&
+      PAGINAS_DE_CARREIRAS.filter((c) => c !== "src/pages/VagaPublica.jsx").every((c) => !/dangerouslySetInnerHTML/.test(codigo(c))),
+    injecoes.join(" | "),
+  );
+
+  /* TROCA REGISTRADA (revisão da Story 5.7): saiu o casamento do texto
+     `situacaoDaLista({ carregando, erro, vagas })`. Que a lista decide pela
+     função pura passou a ser OBSERVADO na montagem ("as quatro situações da
+     lista foram vistas montadas, cada uma com só o seu conteúdo"). */
+  afirmar(
+    "`Carreiras.jsx` sem `nivelColors` e sem o ramo morto (`vaga.accent`), com o hero, os benefícios e o convite final",
+    !/\bnivelColors\b|\bvaga\.accent\b|\bvaga\.bg\b/.test(carreiras) &&
+      /Construa o futuro do/.test(carreiras) &&
+      /const beneficios = \[/.test(carreiras) &&
+      /Não encontrou/.test(carreiras),
+  );
+  /* O WhatsApp do currículo numa fonte só: o módulo puro. */
+  const comONumero = PAGINAS_DE_CARREIRAS.filter((c) => /5584998900718|api\.whatsapp\.com/.test(codigo(c)));
+  afirmar(
+    "o endereço do currículo pelo WhatsApp mora SÓ no módulo puro, e `Carreiras.jsx` usa a constante no convite final",
+    igual(comONumero, ["src/pages/carreirasPublico.js"]) &&
+      nomesImportadosDe(carreiras, "./carreirasPublico").includes("ENDERECO_DO_CURRICULO") &&
+      /href=\{ENDERECO_DO_CURRICULO\}/.test(carreiras),
+    comONumero.join(", "),
+  );
+
+  const main = semComentarios(ler("src/main.jsx") ?? "");
+  /* Revisão da Story 5.7: cada rota de referência TEM de ser achada; um
+     `indexOf` que dá -1 não pode fazer a comparação passar. */
+  const posicoesDaRota = {
+    vaga: main.indexOf('<Route path="/carreiras/:slug" element={<VagaPublica />} />'),
+    lista: main.indexOf('<Route path="/carreiras" element={<Carreiras />} />'),
+    admin: main.indexOf('path="/admin"'),
+  };
+  const rotaEmOrdem = (p) =>
+    Object.values(p).every((x) => x !== -1) && p.lista < p.vaga && p.vaga < p.admin;
+  afirmar(
+    "autoteste: a ordem da rota falha quando qualquer rota de referência não é achada",
+    rotaEmOrdem({ vaga: 20, lista: 10, admin: 30 }) &&
+      !rotaEmOrdem({ vaga: 20, lista: -1, admin: 30 }) &&
+      !rotaEmOrdem({ vaga: -1, lista: 10, admin: 30 }) &&
+      !rotaEmOrdem({ vaga: 20, lista: 10, admin: -1 }) &&
+      !rotaEmOrdem({ vaga: 10, lista: 20, admin: 30 }),
+  );
+  afirmar(
+    "a rota `/carreiras/:slug` monta `VagaPublica`, entre as públicas (depois de `/carreiras`) e FORA do bloco `/admin`",
+    rotaEmOrdem(posicoesDaRota) && /import VagaPublica from "\.\/pages\/VagaPublica\.jsx";/.test(main),
+    JSON.stringify(posicoesDaRota),
+  );
+}
+
+/* Dois descritores de propriedade iguais (valor pelo Object.is). */
+function mesmoDescritor(a, b) {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    Object.is(a.value, b.value) &&
+    a.get === b.get &&
+    a.set === b.set &&
+    a.writable === b.writable &&
+    a.enumerable === b.enumerable &&
+    a.configurable === b.configurable
+  );
+}
+
+/* ── As páginas montadas ── */
+{
+  const { writeFileSync, rmSync } = await import("node:fs");
+  const montagem = await import("./montagem-comum.mjs");
+  const pasta = montagem.criarPastaDeCompilacao("verificar-carreiras-site-");
+
+  /* O dublê captura a resposta NO MOMENTO do pedido (como a rede real: a
+     resposta é a do pedido, não a do instante em que chega), e pode SEGURAR
+     um pedido: todos (`segurarLista`, `segurarSituacao`) ou só o de um Slug
+     (`segurarSituacaoDe`). É por ele que as corridas são observadas. */
+  const arquivoDaLeitura = path.join(pasta, "duble-leitura-publica.js");
+  writeFileSync(
+    arquivoDaLeitura,
+    `export { ERRO_NAO_ENCONTRADO } from ${montagem.caminhoDeModulo("src/data/blog/resultado.js")};
+export const controle = {
+  lista: null,
+  situacoes: {},
+  pedidosDaLista: 0,
+  pedidosDaSituacao: [],
+  segurarLista: null,
+  segurarSituacao: null,
+  segurarSituacaoDe: {},
+  lancarLista: false,
+  lancarSituacao: false,
+  proibidas: [],
+};
+const copia = (v) => JSON.parse(JSON.stringify(v));
+export async function listarVagasAbertas() {
+  controle.pedidosDaLista += 1;
+  const lancar = controle.lancarLista;
+  const r = copia((typeof controle.lista === "function" ? controle.lista() : controle.lista) ?? { ok: true, dados: [] });
+  const porta = controle.segurarLista;
+  if (porta) await porta;
+  if (lancar) throw new Error("dublê: a lista lançou");
+  return r;
+}
+export async function lerSituacaoDaVaga(slug) {
+  controle.pedidosDaSituacao.push(slug);
+  const lancar = controle.lancarSituacao;
+  const r = copia(
+    Object.hasOwn(controle.situacoes, slug)
+      ? controle.situacoes[slug]
+      : { ok: true, dados: { situacao: "inexistente", slug: null, titulo: null } },
+  );
+  const porta = Object.hasOwn(controle.segurarSituacaoDe, slug) ? controle.segurarSituacaoDe[slug] : controle.segurarSituacao;
+  if (porta) await porta;
+  if (lancar) throw new Error("dublê: a situação lançou");
+  return r;
+}
+const proibida = (nome) => async () => {
+  controle.proibidas.push(nome);
+  return { ok: false, erro: { tipo: "inesperado", mensagem: "proibida" } };
+};
+export const listarVagasDoPainel = proibida("listarVagasDoPainel");
+export const lerVagaDoPainelPorId = proibida("lerVagaDoPainelPorId");
+export const listarClassificacoesDoPainel = proibida("listarClassificacoesDoPainel");
+export const listarClassificacoes = proibida("listarClassificacoes");
+`,
+  );
+
+  const fonte =
+    `export { default as Carreiras } from ${montagem.caminhoDeModulo("src/pages/Carreiras.jsx")};\n` +
+    `export { default as VagaPublica } from ${montagem.caminhoDeModulo("src/pages/VagaPublica.jsx")};\n` +
+    `export { controle as controleDaLeitura } from ${montagem.comoModulo(arquivoDaLeitura)};\n`;
+
+  let compilado = null;
+  try {
+    compilado = await montagem.compilarParaNode({
+      pasta,
+      fonte,
+      alias: { "@/data/carreiras/leitura": arquivoDaLeitura },
+    });
+  } catch (erro) {
+    afirmar("`Carreiras` e `VagaPublica` compilam pelo empacotador da aplicação", false, erro?.message ?? String(erro));
+  }
+
+  if (compilado !== null) {
+    afirmar("`Carreiras` e `VagaPublica` compilam pelo empacotador da aplicação", true);
+
+    /* Revisão da Story 5.7: o retrato de TODOS os globais antes da montagem,
+       para o `finally` devolver cada um como achou (e apagar o que ela criou). */
+    const globaisAntes = new Map(
+      Object.getOwnPropertyNames(globalThis).map((nome) => [nome, Object.getOwnPropertyDescriptor(globalThis, nome)]),
+    );
+    const erroOriginal = console.error;
+
+    const janela = montagem.montarNavegador({ url: "https://site.local/carreiras" });
+    /* Como nas seções (p) e (q): religa à janela nova os nomes que um
+       navegador de mentira anterior já deixou em `globalThis`. */
+    for (const nome of [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "getComputedStyle",
+      "HTMLElement",
+      "HTMLInputElement",
+      "HTMLButtonElement",
+      "HTMLAnchorElement",
+      "Element",
+      "Node",
+      "DocumentFragment",
+    ]) {
+      const valor = typeof janela[nome] === "function" && /^[a-z]/.test(nome) ? janela[nome].bind(janela) : janela[nome];
+      if (valor !== undefined) {
+        Object.defineProperty(globalThis, nome, { value: valor, configurable: true, writable: true });
+      }
+    }
+    /* A página anima com `whileInView`, e a barra observa o hero: os dois
+       pedem `IntersectionObserver`, que o jsdom não tem. Inerte de propósito:
+       o que se verifica é o conteúdo, não a animação. */
+    class ObservadorInerte {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    janela.IntersectionObserver = ObservadorInerte;
+    Object.defineProperty(globalThis, "IntersectionObserver", { value: ObservadorInerte, configurable: true, writable: true });
+    /* A rolagem, registrada com os ARGUMENTOS: é por ela que "ir a uma Vaga
+       sobe ao topo" e "voltar não força o topo" são observados, e o jsdom não
+       a implementa. `modoDaRolagem` simula o navegador que recusa a forma com
+       objeto (a página tem de cair na de reserva) e o que não rola nunca. */
+    const rolagemDaJanelaAntes = janela.scrollTo;
+    const rolagens = [];
+    let modoDaRolagem = "normal";
+    janela.scrollTo = (...args) => {
+      if (modoDaRolagem === "sempre-lanca") throw new Error("dublê: este navegador não rola");
+      if (modoDaRolagem === "recusa-objeto" && args[0] !== null && typeof args[0] === "object") {
+        throw new TypeError("dublê: forma com objeto recusada");
+      }
+      rolagens.push(args);
+    };
+    const subiuAoTopo = () => rolagens.some((a) => a[0]?.top === 0 && a[0]?.behavior === "instant");
+
+    const reclamacoes = [];
+    console.error = (...partes) => reclamacoes.push(partes.map(String).join(" "));
+
+    try {
+      const modulo = await import(pathToFileURL(compilado.arquivo).href);
+      const React = (await import("react")).default;
+      const { act } = await import("react");
+      const { createRoot } = await import("react-dom/client");
+      const roteador = await import("react-router-dom");
+      Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true, writable: true });
+      const h = React.createElement;
+      const leitura = modulo.controleDaLeitura;
+      const m = carreirasPublico;
+
+      const TITULO_DO_DOCUMENTO = "Título que a página não pode mexer";
+      janela.document.title = TITULO_DO_DOCUMENTO;
+      const cabecaAntes = janela.document.head.innerHTML;
+      const headIntacto = () =>
+        janela.document.title === TITULO_DO_DOCUMENTO &&
+        janela.document.head.innerHTML === cabecaAntes &&
+        janela.document.querySelector('link[rel="canonical"]') === null;
+
+      const A = {
+        situacao: "aberta",
+        id: "20000000-0000-4000-8000-000000000001",
+        slug: "analista-de-suporte",
+        titulo: "Analista de Suporte",
+        resumo: "Atender clientes pelo WhatsApp com a ChatClean.",
+        descricao_html: "<h2>O que você vai fazer</h2><p>Atender <strong>clientes</strong> todo dia.</p><ul><li><p>Um</p></li></ul>",
+        departamento: "Atendimento",
+        departamento_cor: "var(--categoria-verde-bg)",
+        tipo: "CLT",
+        equivalente_jobposting: "FULL_TIME",
+        nivel: "Pleno",
+        nivel_cor: "var(--categoria-azul-bg)",
+        modalidade: "hibrido",
+        localizacao: "Natal, RN",
+        link_de_candidatura: "https://exemplo.com/candidatura/a",
+        aberta_em: "2026-09-10T12:00:00Z",
+        atualizado_em: "2026-09-12T12:00:00Z",
+      };
+      const B = {
+        ...A,
+        id: "20000000-0000-4000-8000-000000000002",
+        slug: "desenvolvedora-front-end",
+        titulo: "Desenvolvedora Front-end",
+        resumo: "Construir o Painel.",
+        departamento: "Tecnologia",
+        departamento_cor: "var(--categoria-azul-bg)",
+        tipo: "PJ",
+        nivel: "Sênior",
+        nivel_cor: "var(--categoria-roxo-bg)",
+        modalidade: "remoto",
+        localizacao: null,
+        link_de_candidatura: "https://exemplo.com/candidatura/b",
+      };
+      const daLista = (v) =>
+        Object.fromEntries(Object.entries(v).filter(([c]) => c !== "descricao_html" && c !== "link_de_candidatura"));
+      const ABERTAS = [daLista(B), daLista(A)];
+      const ENCERRADA = { situacao: "encerrada", slug: "suporte-noturno", titulo: "Suporte Noturno" };
+      const SEM_CAMPOS = Object.fromEntries(estadosDaVaga.CAMPOS_SO_DA_ABERTA.map((c) => [c, null]));
+      const situacaoDe = (dados) => ({ ok: true, dados: { ...SEM_CAMPOS, ...dados } });
+      const FALHA_DE_REDE = { ok: false, erro: { tipo: "rede", mensagem: "sem rede" } };
+
+      const passo = async () => {
+        await act(async () => {
+          await new Promise((resolver) => setTimeout(resolver, 0));
+        });
+      };
+      const esperarAte = async (condicao, descricao, prazo = 4000) => {
+        const limite = Date.now() + prazo;
+        for (;;) {
+          await passo();
+          let pronto = false;
+          try {
+            pronto = Boolean(condicao());
+          } catch {
+            pronto = false;
+          }
+          if (pronto) return true;
+          if (Date.now() > limite) {
+            afirmar(`espera com prazo: ${descricao} (${prazo} ms)`, false);
+            return false;
+          }
+        }
+      };
+      /* Segura os próximos pedidos (todos, ou os de um Slug) até `soltar()`. */
+      const segurar = (chave, slug = null) => {
+        let soltar = null;
+        const porta = new Promise((resolver) => {
+          soltar = resolver;
+        });
+        if (slug === null) leitura[chave] = porta;
+        else leitura.segurarSituacaoDe[slug] = porta;
+        return () => {
+          if (slug === null) leitura[chave] = null;
+          else delete leitura.segurarSituacaoDe[slug];
+          soltar();
+        };
+      };
+      const focado = () => janela.document.activeElement;
+
+      /* A ponte com o roteador: navegar de fora (ida e volta do navegador). */
+      const ponte = { navegar: null };
+      function Onde() {
+        const local = roteador.useLocation();
+        const navegar = roteador.useNavigate();
+        React.useEffect(() => {
+          ponte.navegar = navegar;
+        }, [navegar]);
+        return h("span", { "data-onde": local.pathname });
+      }
+
+      /* ── O que se observa em TODA tela montada ──
+         Revisão da Story 5.7: estas observações substituem as regex que
+         casavam a forma do código (`if (situacao === …) { return (` e
+         `situacaoDaLista({ carregando, erro, vagas })`). */
+      const vistasDaVaga = new Map(m.SITUACOES_DA_VAGA_PUBLICA.map((s) => [s, { vezes: 0, falhas: [] }]));
+      const recuos = new Map();
+      const conferirVaga = (tela, momento) => {
+        const s = tela.situacao();
+        if (s === null) return;
+        const registro = vistasDaVaga.get(s);
+        if (registro === undefined) {
+          afirmar(`${tela.caso}: a situação da Vaga montada é do vocabulário`, false, String(s));
+          return;
+        }
+        registro.vezes += 1;
+        const principais = tela.todos("main");
+        const corpos = tela.todos("[data-corpo]");
+        const h1s = tela.todos("h1");
+        const esperados = s === m.VAGA_CARREGANDO ? 0 : 1;
+        const problemas = [];
+        if (principais.length !== 1) problemas.push(`${principais.length} <main>`);
+        if (corpos.length !== 1) problemas.push(`${corpos.length} corpos`);
+        else if (corpos[0].getAttribute("data-corpo") !== s) problemas.push(`corpo ${corpos[0].getAttribute("data-corpo")}`);
+        if (principais.length === 1 && corpos.length === 1 && !principais[0].contains(corpos[0])) problemas.push("corpo fora do <main>");
+        if (h1s.length !== esperados) problemas.push(`${h1s.length} <h1>`);
+        if (!h1s.every((x) => principais[0]?.contains(x))) problemas.push("<h1> fora do <main>");
+        if (!h1s.every((x) => x.getAttribute("tabindex") === "-1")) problemas.push("<h1> sem tabIndex -1");
+        if (!h1s.every((x) => (x.textContent ?? "").trim() !== "")) problemas.push("<h1> vazio");
+        if (s !== m.VAGA_ABERTA && (tela.q(".artigo") !== null || tela.candidatar().length > 0)) problemas.push("Descrição ou Candidatar-se fora da Aberta");
+        const recuo = (corpos[0]?.getAttribute("class") ?? "").match(/(?:^|\s)(pt-\d+)(?:\s|$)/)?.[1] ?? null;
+        if (!recuos.has(s)) recuos.set(s, recuo);
+        if (problemas.length > 0) registro.falhas.push(`${tela.caso} (${momento}): ${problemas.join(", ")}`);
+      };
+      const vistasDaLista = new Map(m.SITUACOES_DA_LISTA.map((s) => [s, { vezes: 0, falhas: [] }]));
+      const conferirLista = (tela, momento) => {
+        const s = tela.lista();
+        if (s === null) return;
+        const registro = vistasDaLista.get(s);
+        if (registro === undefined) {
+          afirmar(`${tela.caso}: a situação da lista montada é do vocabulário`, false, String(s));
+          return;
+        }
+        registro.vezes += 1;
+        const presentes = {
+          [m.LISTA_CARREGANDO]: tela.q('[data-estado-da-lista] [data-papel="esqueleto"]') !== null,
+          [m.LISTA_ERRO]: tela.q('[data-estado-da-lista] [data-papel="erro"]') !== null,
+          [m.LISTA_VAZIA]: tela.q('[data-estado-da-lista] [data-papel="sem-vagas"]') !== null,
+          [m.LISTA_PRONTA]: tela.todos("[data-estado-da-lista] article[data-vaga]").length > 0,
+        };
+        const errados = Object.entries(presentes).filter(([chave, ha]) => ha !== (chave === s)).map(([chave]) => chave);
+        if (errados.length > 0) registro.falhas.push(`${tela.caso} (${momento}): ${errados.join(", ")}`);
+      };
+      const conferir = (tela, momento) => {
+        conferirVaga(tela, momento);
+        conferirLista(tela, momento);
+      };
+
+      const montar = async (caminho, { caso, ateQue = null, registra = false } = {}) => {
+        const alvo = janela.document.createElement("div");
+        janela.document.body.appendChild(alvo);
+        const raizReact = createRoot(alvo);
+        const inicioDasReclamacoes = reclamacoes.length;
+        await act(async () => {
+          raizReact.render(
+            h(
+              roteador.MemoryRouter,
+              { initialEntries: [caminho] },
+              h(Onde),
+              h(
+                roteador.Routes,
+                null,
+                h(roteador.Route, { path: "/carreiras", element: h(modulo.Carreiras) }),
+                h(roteador.Route, { path: "/carreiras/:slug", element: h(modulo.VagaPublica) }),
+              ),
+            ),
+          );
+        });
+        const tela = {
+          caso,
+          alvo,
+          q: (s) => alvo.querySelector(s),
+          todos: (s) => [...alvo.querySelectorAll(s)],
+          texto: () => alvo.textContent ?? "",
+          onde: () => alvo.querySelector("[data-onde]")?.getAttribute("data-onde") ?? null,
+          lista: () => alvo.querySelector("[data-estado-da-lista]")?.getAttribute("data-estado-da-lista") ?? null,
+          situacao: () => alvo.querySelector('[data-tela="vaga-publica"]')?.getAttribute("data-situacao") ?? null,
+          h1s: () => [...alvo.querySelectorAll("h1")].map((x) => (x.textContent ?? "").trim()),
+          cartoes: () => [...alvo.querySelectorAll("article[data-vaga]")].map((x) => x.getAttribute("data-vaga")),
+          candidatar: () => [...alvo.querySelectorAll('a[data-acao="candidatar"]')],
+          async clicar(elemento, nome, ateQueClique) {
+            if (!elemento) {
+              afirmar(`${caso}: o elemento "${nome}" existe para ser clicado`, false);
+              return false;
+            }
+            await act(async () => {
+              elemento.dispatchEvent(new janela.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+            });
+            const assentou = await esperarAte(ateQueClique, `${caso}: a tela assenta depois de clicar em ${nome}`);
+            conferir(tela, `depois de ${nome}`);
+            return assentou;
+          },
+          async ir(destino, ateQueChegue) {
+            if (typeof ponte.navegar !== "function") {
+              afirmar(`${caso}: a ponte com o roteador existe`, false);
+              return false;
+            }
+            await act(async () => {
+              ponte.navegar(destino);
+            });
+            const assentou = await esperarAte(ateQueChegue, `${caso}: a tela assenta depois de navegar para ${destino}`);
+            conferir(tela, `depois de navegar para ${destino}`);
+            return assentou;
+          },
+          async desmontar() {
+            conferir(tela, "no fim");
+            /* Revisão da Story 5.7: o `<head>` é conferido com a tela AINDA
+               montada (o fim do caso), e de novo depois do desmonte. */
+            const headComATela = headIntacto();
+            await act(async () => raizReact.unmount());
+            await passo();
+            alvo.remove();
+            const doCaso = reclamacoes.slice(inicioDasReclamacoes);
+            const registros = doCaso.filter((r) => r.startsWith("[carreiras] "));
+            const outras = doCaso.filter((r) => !r.startsWith("[carreiras] "));
+            afirmar(
+              `${caso}: o React não reclamou de nada, o \`<head>\` ficou intacto no fim do caso e depois do desmonte (título, canônica, metas), e ${
+                registra ? "a exceção da camada foi REGISTRADA com `[carreiras]`" : "nada foi registrado como falha"
+              }`,
+              outras.length === 0 && headComATela && headIntacto() && (registra ? registros.length > 0 : registros.length === 0),
+              `${outras.slice(0, 2).map((r) => r.slice(0, 300)).join(" | ")} | registros ${registros.length} | título: ${janela.document.title}`,
+            );
+          },
+        };
+        if (ateQue !== null) await esperarAte(ateQue, `${caso}: a tela monta e assenta em ${caminho}`);
+        conferir(tela, "ao montar");
+        return tela;
+      };
+
+      /* ══ /carreiras: carregando ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        const soltar = segurar("segurarLista");
+        const tela = await montar("/carreiras", { caso: "Lista carregando", ateQue: () => true });
+        await passo();
+        conferir(tela, "segurada");
+        afirmar(
+          "Lista carregando: esqueleto com o texto sr-only (em `role=status`), sem cartão e sem o vazio",
+          tela.lista() === m.LISTA_CARREGANDO &&
+            (tela.q('[data-estado-da-lista] [role="status"]')?.textContent ?? "") === m.TEXTO_DE_CARREGANDO_A_LISTA &&
+            String(tela.q('[data-estado-da-lista] [role="status"]')?.getAttribute("class")).includes("sr-only") &&
+            tela.q('[data-papel="esqueleto"]') !== null &&
+            tela.cartoes().length === 0 &&
+            tela.q('[data-papel="sem-vagas"]') === null,
+          tela.lista(),
+        );
+        afirmar(
+          "Lista montada por carregamento direto (POP): não força o topo nem rouba o foco para o `<h1>`",
+          rolagens.length === 0 && focado() !== tela.q("h1"),
+          `rolagens ${rolagens.length}`,
+        );
+        soltar();
+        await esperarAte(() => tela.lista() === m.LISTA_PRONTA, "Lista carregando: a lista chega");
+        conferir(tela, "pronta");
+
+        /* ══ /carreiras: lista com vagas ══ */
+        afirmar(
+          "Lista com vagas: os cartões na ORDEM recebida da camada",
+          igual(tela.cartoes(), [B.slug, A.slug]),
+          tela.cartoes().join(", "),
+        );
+        const cartao = tela.q(`article[data-vaga="${A.slug}"]`);
+        const dep = cartao?.querySelector('[data-classificacao="departamento"]');
+        const niv = cartao?.querySelector('[data-classificacao="nivel"]');
+        const tipo = cartao?.querySelector('[data-classificacao="tipo"]');
+        const ver = cartao?.querySelector('a[data-acao="ver-vaga"]');
+        afirmar(
+          "cada cartão: título (h3), Departamento e Nível com Cor por `style` e o nome por extenso, Tipo, local, Resumo e \"Ver vaga\" para `/carreiras/<slug>`",
+          cartao?.querySelector("h3")?.textContent === A.titulo &&
+            (dep?.textContent ?? "") === "Atendimento" &&
+            /background-color:\s*var\(--categoria-verde-bg\)/.test(dep?.getAttribute("style") ?? "") &&
+            /color:\s*var\(--categoria-verde-ink\)/.test(dep?.getAttribute("style") ?? "") &&
+            (niv?.textContent ?? "") === "Pleno" &&
+            /background-color:\s*var\(--categoria-azul-bg\)/.test(niv?.getAttribute("style") ?? "") &&
+            (tipo?.textContent ?? "") === "CLT" &&
+            (cartao?.querySelector('[data-papel="local"]')?.textContent ?? "") === "Híbrido · Natal, RN" &&
+            (cartao?.querySelector('[data-papel="resumo"]')?.textContent ?? "") === A.resumo &&
+            ver?.getAttribute("href") === `/carreiras/${A.slug}` &&
+            (ver?.textContent ?? "").trim() === m.ROTULO_DO_CARTAO,
+          cartao?.outerHTML?.slice(0, 400),
+        );
+        afirmar(
+          "e a lista pública nunca chama uma leitura do Painel, e não pede a situação de Vaga nenhuma",
+          leitura.proibidas.length === 0 && leitura.pedidosDaSituacao.length === 0,
+          leitura.proibidas.join(", "),
+        );
+        const final = tela.q('a[data-acao="curriculo-final"]');
+        afirmar(
+          "o convite final de `/carreiras` usa o MESMO endereço do currículo do módulo puro, em nova aba",
+          final?.getAttribute("href") === m.ENDERECO_DO_CURRICULO &&
+            final?.getAttribute("target") === "_blank" &&
+            final?.getAttribute("rel") === "noopener noreferrer",
+          final?.getAttribute("href") ?? "sem o convite final",
+        );
+
+        /* ══ Da lista para a Vaga (PUSH): rola ao topo e o foco vai ao `<h1>` ══ */
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        rolagens.length = 0;
+        await tela.clicar(ver, "Ver vaga", () => tela.situacao() === m.VAGA_ABERTA);
+        afirmar(
+          "\"Ver vaga\" abre a Página da Vaga (mesma chave de transição) e rola ao topo, com `scrollTo({ top: 0, behavior: \"instant\" })`",
+          tela.onde() === `/carreiras/${A.slug}` && leitura.pedidosDaSituacao.at(-1) === A.slug && subiuAoTopo(),
+          `${tela.onde()} | rolagens ${JSON.stringify(rolagens)}`,
+        );
+        afirmar(
+          "e, carregada a Vaga depois do PUSH, o foco está no `<h1>` dela (com `tabIndex=-1`)",
+          focado() === tela.q("h1") && tela.q("h1")?.getAttribute("tabindex") === "-1" && igual(tela.h1s(), [A.titulo]),
+          `${focado()?.tagName} ${focado()?.textContent?.slice(0, 40)}`,
+        );
+
+        /* ══ De volta a /carreiras pelo link da Vaga (PUSH): sobe ao topo ══ */
+        rolagens.length = 0;
+        await tela.clicar(tela.q('a[data-acao="voltar"]'), "Ver todas as vagas", () => tela.lista() === m.LISTA_PRONTA);
+        afirmar(
+          "`/carreiras` vindo de uma Vaga (PUSH, mesma chave de transição) sobe ao topo e leva o foco ao `<h1>` do hero",
+          tela.onde() === "/carreiras" && subiuAoTopo() && focado() === tela.q("h1") && tela.todos("h1").length === 1,
+          `${tela.onde()} | rolagens ${rolagens.length} | foco ${focado()?.tagName}`,
+        );
+
+        /* ══ Voltar pelo navegador (POP): NÃO força o topo ══ */
+        rolagens.length = 0;
+        await tela.ir(-1, () => tela.situacao() === m.VAGA_ABERTA);
+        afirmar(
+          "voltar pelo navegador (POP) para a Vaga NÃO força o topo, nem rouba o foco",
+          tela.onde() === `/carreiras/${A.slug}` && rolagens.length === 0 && focado() !== tela.q("h1"),
+          `${tela.onde()} | rolagens ${rolagens.length}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ /carreiras: vazia ══ */
+      {
+        leitura.lista = { ok: true, dados: [] };
+        const tela = await montar("/carreiras", { caso: "Lista vazia", ateQue: () => true });
+        await esperarAte(() => tela.lista() === m.LISTA_VAZIA, "Lista vazia: o vazio aparece");
+        const curriculo = tela.q('[data-papel="sem-vagas"] a[data-acao="enviar-curriculo"]');
+        afirmar(
+          "Lista vazia: o estado vazio atual, com Enviar Currículo pelo WhatsApp em nova aba",
+          tela.lista() === m.LISTA_VAZIA &&
+            tela.texto().includes(m.falaDaLista(m.LISTA_VAZIA).oQueHouve) &&
+            curriculo?.getAttribute("href") === m.ENDERECO_DO_CURRICULO &&
+            /^https:\/\/api\.whatsapp\.com\//.test(curriculo?.getAttribute("href") ?? "") &&
+            curriculo?.getAttribute("target") === "_blank" &&
+            curriculo?.getAttribute("rel") === "noopener noreferrer" &&
+            (curriculo?.textContent ?? "").trim() === m.ROTULO_DO_CURRICULO &&
+            tela.cartoes().length === 0 &&
+            tela.q('[data-papel="erro"]') === null,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ /carreiras: erro, e tentar de novo (com a leitura nova SEGURADA) ══ */
+      for (const [caso, preparar, registra] of [
+        ["Erro da lista", () => { leitura.lista = FALHA_DE_REDE; }, false],
+        ["Lista que lança", () => { leitura.lista = { ok: true, dados: [] }; leitura.lancarLista = true; }, true],
+      ]) {
+        preparar();
+        const tela = await montar("/carreiras", { caso, ateQue: () => true, registra });
+        await esperarAte(() => tela.lista() !== null && tela.lista() !== m.LISTA_CARREGANDO, `${caso}: a lista assenta`);
+        conferir(tela, "no erro");
+        const alertas = tela.todos('[role="alert"]');
+        const repetir = tela.q('[data-acao="repetir"]');
+        afirmar(
+          `${caso}: frase de erro e "tentar de novo", NUNCA o vazio nem "nenhuma vaga"`,
+          tela.lista() === m.LISTA_ERRO &&
+            tela.q('[data-papel="erro"]') !== null &&
+            tela.texto().includes(m.falaDaLista(m.LISTA_ERRO).oQueHouve) &&
+            tela.q('[data-papel="sem-vagas"]') === null &&
+            !/nenhuma vaga/i.test(tela.texto()) &&
+            tela.q('[data-acao="enviar-curriculo"]') === null &&
+            (repetir?.textContent ?? "") === m.ROTULO_DE_RECARREGAR_A_LISTA,
+          tela.lista(),
+        );
+        afirmar(
+          `${caso}: \`role="alert"\` só no PARÁGRAFO da mensagem, e não no bloco com o botão`,
+          alertas.length === 1 &&
+            alertas[0].tagName === "P" &&
+            alertas[0].querySelector("button, a") === null &&
+            (alertas[0].textContent ?? "").includes(m.falaDaLista(m.LISTA_ERRO).oQueHouve) &&
+            repetir !== null &&
+            repetir.closest('[role="alert"]') === null,
+          alertas.map((x) => x.tagName).join(", "),
+        );
+        leitura.lancarLista = false;
+        leitura.lista = { ok: true, dados: ABERTAS };
+        const antes = leitura.pedidosDaLista;
+        const soltar = segurar("segurarLista");
+        await tela.clicar(repetir, "tentar de novo", () => tela.lista() === m.LISTA_CARREGANDO);
+        afirmar(
+          `${caso}: com a leitura NOVA segurada, a lista mostra carregando, e nada do erro anterior nem cartão`,
+          tela.lista() === m.LISTA_CARREGANDO &&
+            tela.q('[data-papel="erro"]') === null &&
+            tela.todos('[role="alert"]').length === 0 &&
+            tela.cartoes().length === 0 &&
+            leitura.pedidosDaLista === antes + 1,
+          tela.lista(),
+        );
+        soltar();
+        await esperarAte(() => tela.lista() === m.LISTA_PRONTA, `${caso}: solta a leitura, a lista chega`);
+        afirmar(
+          `${caso}: "tentar de novo" relê a lista (uma leitura a mais) e mostra os cartões`,
+          leitura.pedidosDaLista === antes + 1 && tela.cartoes().length === 2,
+          `pedidos ${leitura.pedidosDaLista - antes}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ A Vaga Aberta, completa, por carregamento direto ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        leitura.situacoes[B.slug] = situacaoDe(B);
+        rolagens.length = 0;
+        const tela = await montar(`/carreiras/${A.slug}`, {
+          caso: "Aberta",
+          ateQue: () => janela.document.querySelector('[data-papel="outras-vagas"]') !== null,
+        });
+        /* TROCA REGISTRADA (revisão da Story 5.7): antes, "a página rola ao
+           topo ao montar". O carregamento direto chega como POP e já nasce no
+           topo: ele NÃO força a rolagem e NÃO rouba o foco. */
+        afirmar(
+          "Aberta por carregamento direto (POP): não força o topo e não rouba o foco para o `<h1>`",
+          rolagens.length === 0 && focado() !== tela.q("h1"),
+          `rolagens ${rolagens.length} | foco ${focado()?.tagName}`,
+        );
+        const dep = tela.q('[data-papel="classificacoes"] [data-classificacao="departamento"]');
+        const niv = tela.q('[data-papel="classificacoes"] [data-classificacao="nivel"]');
+        afirmar(
+          "Aberta: UM `<h1>` com o título, Classificações com Cor por `style` e nome, Tipo, local, \"Aberta em\" e Resumo",
+          tela.situacao() === m.VAGA_ABERTA &&
+            igual(tela.h1s(), [A.titulo]) &&
+            (dep?.textContent ?? "") === "Atendimento" &&
+            /background-color:\s*var\(--categoria-verde-bg\)/.test(dep?.getAttribute("style") ?? "") &&
+            (niv?.textContent ?? "") === "Pleno" &&
+            /background-color:\s*var\(--categoria-azul-bg\)/.test(niv?.getAttribute("style") ?? "") &&
+            (tela.q('[data-papel="classificacoes"] [data-classificacao="tipo"]')?.textContent ?? "") === "CLT" &&
+            (tela.q('[data-papel="local"]')?.textContent ?? "") === "Híbrido · Natal, RN" &&
+            (tela.q('[data-papel="abertura"]')?.textContent ?? "") === `${estadosDaVaga.rotuloDoEstadoDaVaga("aberta")} em 10/09/2026` &&
+            (tela.q('[data-papel="resumo"]')?.textContent ?? "") === A.resumo,
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())}`,
+        );
+        const descricao = tela.q('div[data-papel="descricao"]');
+        afirmar(
+          "Aberta: a Descrição é o HTML gravado, dentro de `.artigo`",
+          descricao !== null &&
+            descricao.classList.contains("artigo") &&
+            descricao.innerHTML === A.descricao_html &&
+            descricao.querySelector("h2")?.textContent === "O que você vai fazer",
+          descricao?.outerHTML?.slice(0, 200),
+        );
+        const botoes = tela.candidatar();
+        afirmar(
+          "Aberta: Candidatar-se DUAS vezes (no topo e depois da Descrição), em nova aba com `noopener noreferrer`, para o Link de Candidatura",
+          botoes.length === 2 &&
+            botoes.every(
+              (b) =>
+                b.getAttribute("href") === A.link_de_candidatura &&
+                b.getAttribute("target") === "_blank" &&
+                (b.getAttribute("rel") ?? "").split(/\s+/).includes("noopener") &&
+                (b.getAttribute("rel") ?? "").split(/\s+/).includes("noreferrer") &&
+                (b.textContent ?? "").trim() === m.ROTULO_DA_CANDIDATURA,
+            ) &&
+            descricao !== null &&
+            (botoes[0].compareDocumentPosition(descricao) & janela.Node.DOCUMENT_POSITION_FOLLOWING) !== 0 &&
+            (descricao.compareDocumentPosition(botoes[1]) & janela.Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          botoes.map((b) => `${b.getAttribute("href")} ${b.getAttribute("target")} ${b.getAttribute("rel")}`).join(" | "),
+        );
+        const outras = tela.q('[data-papel="outras-vagas"]');
+        afirmar(
+          "Aberta: \"Outras vagas abertas\" em `h2`, com os cartões em `h3`, SEM a Vaga atual",
+          (outras?.querySelector("h2")?.textContent ?? "") === m.TITULO_DAS_OUTRAS_VAGAS &&
+            igual(tela.cartoes(), [B.slug]) &&
+            outras?.querySelector("article h3")?.textContent === B.titulo,
+          tela.cartoes().join(", "),
+        );
+
+        /* ══ Trocar de Vaga (PUSH): rola ao topo, recarrega, e o foco vai ao `<h1>` novo ══ */
+        rolagens.length = 0;
+        const antes = leitura.pedidosDaSituacao.length;
+        await tela.clicar(
+          outras?.querySelector('a[data-acao="ver-vaga"]'),
+          "a outra vaga",
+          () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [B.titulo]),
+        );
+        afirmar(
+          "Trocar de vaga: o clique numa outra vaga rola ao topo, carrega a situação NOVA e mostra um `<h1>` só, o dela, com o foco nele",
+          tela.onde() === `/carreiras/${B.slug}` &&
+            leitura.pedidosDaSituacao.length > antes &&
+            leitura.pedidosDaSituacao.at(-1) === B.slug &&
+            subiuAoTopo() &&
+            igual(tela.h1s(), [B.titulo]) &&
+            focado() === tela.q("h1"),
+          `${tela.onde()} | rolagens ${rolagens.length} | foco ${focado()?.tagName} | pedidos ${JSON.stringify(leitura.pedidosDaSituacao.slice(antes))}`,
+        );
+        await esperarAte(() => igual(tela.cartoes(), [A.slug]), "Trocar de vaga: as outras vagas passam a excluir a nova");
+        afirmar(
+          "e as outras vagas passam a ser as sem a NOVA atual, e o Local remoto sem Localização sai só com a Modalidade",
+          igual(tela.cartoes(), [A.slug]) && (tela.q('[data-papel="local"]')?.textContent ?? "") === "Remoto",
+        );
+
+        /* ══ Voltar pelo navegador (POP) entre Vagas: NÃO força o topo ══ */
+        rolagens.length = 0;
+        await tela.ir(-1, () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [A.titulo]));
+        afirmar(
+          "voltar pelo navegador (POP) de uma Vaga para a anterior carrega a anterior e NÃO força o topo",
+          tela.onde() === `/carreiras/${A.slug}` && rolagens.length === 0,
+          `${tela.onde()} | rolagens ${JSON.stringify(rolagens)}`,
+        );
+        afirmar("e nenhuma leitura do Painel foi chamada", leitura.proibidas.length === 0, leitura.proibidas.join(", "));
+        await tela.desmontar();
+      }
+
+      /* ══ Trocar de Vaga com a leitura da NOVA segurada ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        leitura.situacoes[B.slug] = situacaoDe(B);
+        const tela = await montar(`/carreiras/${A.slug}`, {
+          caso: "Troca segurada",
+          ateQue: () => janela.document.querySelector('[data-papel="outras-vagas"]') !== null,
+        });
+        const soltarB = segurar(null, B.slug);
+        await tela.clicar(
+          tela.q('[data-papel="outras-vagas"] a[data-acao="ver-vaga"]'),
+          "a outra vaga (segurada)",
+          () => tela.onde() === `/carreiras/${B.slug}`,
+        );
+        await passo();
+        conferir(tela, "segurada");
+        afirmar(
+          "Troca segurada: com a leitura de B presa, a tela é CARREGANDO, sem `<h1>`, sem Candidatar-se e sem \"outras vagas\" da Vaga anterior",
+          tela.situacao() === m.VAGA_CARREGANDO &&
+            tela.h1s().length === 0 &&
+            tela.candidatar().length === 0 &&
+            tela.q('[data-papel="outras-vagas"]') === null &&
+            tela.cartoes().length === 0 &&
+            !tela.texto().includes(A.titulo) &&
+            tela.q(".artigo") === null,
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())}`,
+        );
+        soltarB();
+        await esperarAte(() => tela.situacao() === m.VAGA_ABERTA, "Troca segurada: solta B, a Vaga B aparece");
+        afirmar(
+          "Troca segurada: solta a leitura, aparece B (um `<h1>`, o dela) com o foco nele",
+          igual(tela.h1s(), [B.titulo]) && focado() === tela.q("h1"),
+          JSON.stringify(tela.h1s()),
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Corrida: a resposta de A que chega DEPOIS de navegar para B ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        leitura.situacoes[B.slug] = situacaoDe(B);
+        const soltarA = segurar(null, A.slug);
+        const tela = await montar(`/carreiras/${A.slug}`, { caso: "Corrida", ateQue: () => true });
+        await passo();
+        const antesDaLista = leitura.pedidosDaLista;
+        await tela.ir(`/carreiras/${B.slug}`, () => tela.situacao() === m.VAGA_ABERTA);
+        soltarA();
+        for (let i = 0; i < 5; i += 1) await passo();
+        conferir(tela, "depois de soltar A");
+        afirmar(
+          "Corrida: a resposta de A, solta DEPOIS de navegar para B, não aparece; a tela continua B, com as outras vagas de B",
+          tela.onde() === `/carreiras/${B.slug}` &&
+            tela.situacao() === m.VAGA_ABERTA &&
+            igual(tela.h1s(), [B.titulo]) &&
+            tela.candidatar().every((x) => x.getAttribute("href") === B.link_de_candidatura) &&
+            leitura.pedidosDaLista - antesDaLista <= 1,
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())} | lista ${leitura.pedidosDaLista - antesDaLista}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Aberta: variações que não podem quebrar a página ══ */
+      for (const [caso, extra, conferirCaso] of [
+        [
+          "Aberta sem link válido",
+          { link_de_candidatura: "javascript:x" },
+          (tela) => tela.candidatar().length === 0 && tela.q('[data-papel="candidatura-final"]') === null && tela.q("div.artigo") !== null,
+        ],
+        [
+          "Aberta com link relativo",
+          { link_de_candidatura: "/candidatar" },
+          (tela) => tela.candidatar().length === 0,
+        ],
+        [
+          "Aberta com link em caixa alta",
+          { link_de_candidatura: "HTTPS://Exemplo.COM/Vaga" },
+          (tela) => tela.candidatar().length === 2 && tela.candidatar().every((x) => x.getAttribute("href") === "https://exemplo.com/Vaga"),
+        ],
+        [
+          "Modalidade fora do vocabulário",
+          { modalidade: "xpto" },
+          (tela) => (tela.q('[data-papel="local"]')?.textContent ?? "") === "Natal, RN" && !tela.texto().includes("xpto"),
+        ],
+        [
+          "Data ruim",
+          { aberta_em: "lixo" },
+          (tela) => tela.q('[data-papel="abertura"]') === null && !tela.texto().includes("lixo"),
+        ],
+      ]) {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes["vaga-variada"] = situacaoDe({ ...A, slug: "vaga-variada", ...extra });
+        const tela = await montar("/carreiras/vaga-variada", { caso, ateQue: () => true });
+        await esperarAte(() => tela.situacao() === m.VAGA_ABERTA, `${caso}: a Vaga aparece`);
+        let ok = false;
+        try {
+          ok = conferirCaso(tela);
+        } catch {
+          ok = false;
+        }
+        afirmar(`${caso}: a página não quebra, tem UM \`<h1>\` com o título, e o campo torto some`, ok && igual(tela.h1s(), [A.titulo]));
+        await tela.desmontar();
+      }
+
+      /* ══ Aberta sem título: resposta inválida, erro de leitura ══ */
+      for (const [caso, titulo] of [
+        ["Aberta com título vazio", ""],
+        ["Aberta com título nulo", null],
+      ]) {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes["vaga-sem-titulo"] = situacaoDe({ ...A, slug: "vaga-sem-titulo", titulo });
+        const tela = await montar("/carreiras/vaga-sem-titulo", { caso, ateQue: () => true });
+        await esperarAte(() => tela.situacao() !== m.VAGA_CARREGANDO, `${caso}: a tela assenta`);
+        afirmar(
+          `${caso}: vira ERRO de leitura (um \`<h1>\` com a frase de erro e "tentar de novo"), nunca um \`<h1>\` vazio nem a Descrição`,
+          tela.situacao() === m.VAGA_ERRO &&
+            igual(tela.h1s(), [m.falaDaVaga(m.VAGA_ERRO).oQueHouve]) &&
+            tela.q('[data-acao="repetir"]') !== null &&
+            tela.q(".artigo") === null &&
+            tela.candidatar().length === 0,
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Aberta: a lista das outras falha em silêncio ══ */
+      {
+        leitura.lista = FALHA_DE_REDE;
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        const antes = leitura.pedidosDaLista;
+        const tela = await montar(`/carreiras/${A.slug}`, { caso: "Outras vagas falhando", ateQue: () => true });
+        await esperarAte(() => tela.situacao() === m.VAGA_ABERTA && leitura.pedidosDaLista > antes, "Outras vagas falhando: a Vaga aparece e a lista é pedida");
+        await passo();
+        afirmar(
+          "Outras vagas falhando: a seção some em silêncio, e a Vaga continua inteira (h1, Descrição, Candidatar-se)",
+          tela.q('[data-papel="outras-vagas"]') === null &&
+            tela.q('[role="alert"]') === null &&
+            tela.q('[data-acao="repetir-lista"]') === null &&
+            igual(tela.h1s(), [A.titulo]) &&
+            tela.q("div.artigo") !== null &&
+            tela.candidatar().length === 2,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Encerrada ══ */
+      for (const [caso, lista, dados, conferirCaso] of [
+        [
+          "Encerrada com vagas abertas",
+          { ok: true, dados: ABERTAS },
+          ENCERRADA,
+          (tela) => igual(tela.cartoes(), [B.slug, A.slug]) && tela.q('[data-papel="sem-vagas"]') === null,
+        ],
+        [
+          "Encerrada sem vaga aberta",
+          { ok: true, dados: [] },
+          ENCERRADA,
+          (tela) =>
+            tela.cartoes().length === 0 &&
+            tela.q('[data-papel="sem-vagas"] a[data-acao="enviar-curriculo"]')?.getAttribute("href") === m.ENDERECO_DO_CURRICULO,
+        ],
+        [
+          "Encerrada com a lista falhando",
+          FALHA_DE_REDE,
+          ENCERRADA,
+          (tela) =>
+            tela.cartoes().length === 0 &&
+            tela.q('[data-papel="sem-vagas"]') === null &&
+            tela.q('[data-papel="outras-falha"] a[data-acao="ver-as-vagas"]')?.getAttribute("href") === m.ENDERECO_DAS_VAGAS &&
+            (tela.q('[data-papel="outras-falha"] [data-acao="repetir-lista"]')?.textContent ?? "") === m.ROTULO_DE_RECARREGAR_A_LISTA &&
+            (tela.q('[data-papel="outras-falha"] [role="alert"]')?.textContent ?? "") === m.falaDaLista(m.LISTA_ERRO).oQueHouve &&
+            !/nenhuma vaga/i.test(tela.texto()),
+        ],
+      ]) {
+        leitura.lista = lista;
+        leitura.situacoes[dados.slug] = situacaoDe(dados);
+        const tela = await montar(`/carreiras/${dados.slug}`, { caso, ateQue: () => true });
+        await esperarAte(
+          () => tela.situacao() === m.VAGA_ENCERRADA && tela.q('[data-papel="outras-lendo"]') === null,
+          `${caso}: a Encerrada assenta`,
+        );
+        let ok = false;
+        try {
+          ok = conferirCaso(tela);
+        } catch {
+          ok = false;
+        }
+        afirmar(
+          `${caso}: UM \`<h1>\` com o título, a mensagem de encerrada, as Vagas Abertas (ou o vazio com currículo, ou o erro da lista); sem Descrição e sem candidatura`,
+          ok &&
+            igual(tela.h1s(), [dados.titulo]) &&
+            tela.texto().includes(m.falaDaVaga(m.VAGA_ENCERRADA).oQueHouve) &&
+            tela.q(".artigo") === null &&
+            tela.q('[data-papel="descricao"]') === null &&
+            tela.candidatar().length === 0 &&
+            tela.todos("h2").some((x) => x.textContent === m.TITULO_DAS_VAGAS_ABERTAS),
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())} | cartões: ${tela.cartoes().join(", ")}`,
+        );
+        if (lista.ok === false) {
+          /* A lista é o CONTEÚDO da Encerrada: repetir a LISTA funciona, e
+             não relê a situação. */
+          leitura.lista = { ok: true, dados: ABERTAS };
+          const antesDaLista = leitura.pedidosDaLista;
+          const antesDaSituacao = leitura.pedidosDaSituacao.length;
+          await tela.clicar(tela.q('[data-acao="repetir-lista"]'), "tentar a lista de novo", () => tela.cartoes().length === 2);
+          afirmar(
+            `${caso}: "tentar de novo" da LISTA relê só a lista (uma leitura, e nenhuma da situação) e mostra as Vagas Abertas`,
+            leitura.pedidosDaLista === antesDaLista + 1 &&
+              leitura.pedidosDaSituacao.length === antesDaSituacao &&
+              igual(tela.cartoes(), [B.slug, A.slug]) &&
+              tela.q('[data-papel="outras-falha"]') === null &&
+              igual(tela.h1s(), [dados.titulo]),
+            `lista ${leitura.pedidosDaLista - antesDaLista} | situação ${leitura.pedidosDaSituacao.length - antesDaSituacao}`,
+          );
+        }
+        await tela.desmontar();
+      }
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes["encerrada-sem-titulo"] = situacaoDe({ situacao: "encerrada", slug: "encerrada-sem-titulo", titulo: null });
+        const tela = await montar("/carreiras/encerrada-sem-titulo", { caso: "Encerrada sem título", ateQue: () => true });
+        await esperarAte(() => tela.situacao() === m.VAGA_ENCERRADA, "Encerrada sem título: a tela assenta");
+        afirmar(
+          "Encerrada sem título: continua Encerrada, com o título de reserva do módulo puro no `<h1>` (nunca vazio) e as Vagas Abertas",
+          igual(tela.h1s(), [m.TITULO_DE_RESERVA_DA_ENCERRADA]) &&
+            tela.texto().includes(m.falaDaVaga(m.VAGA_ENCERRADA).oQueHouve),
+          JSON.stringify(tela.h1s()),
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Inexistente ══
+         TROCA REGISTRADA (revisão da Story 5.7): o caso que se chamava "Slug
+         torto" é o DUBLÊ respondendo inexistente, e o nome passou a dizer isso.
+         A regra real (Slug torto é inexistente sem ir à rede) é a asserção
+         própria da camada real, no Node, no começo desta seção. */
+      for (const [caso, caminho, preparar] of [
+        ["Inexistente (Rascunho)", "/carreiras/rascunho-escondido", () => {}],
+        ["O dublê respondendo inexistente a um Slug torto", "/carreiras/Slug_Torto", () => {}],
+        [
+          "Falha `nao_encontrado` da camada",
+          "/carreiras/vaga-sumida",
+          () => { leitura.situacoes["vaga-sumida"] = { ok: false, erro: { tipo: "nao_encontrado", mensagem: "Não encontramos o que você procura." } }; },
+        ],
+      ]) {
+        preparar();
+        const antes = leitura.pedidosDaSituacao.length;
+        const tela = await montar(caminho, { caso, ateQue: () => true });
+        await esperarAte(() => tela.situacao() !== m.VAGA_CARREGANDO, `${caso}: a tela assenta`);
+        afirmar(
+          `${caso}: a tela "não encontrada", com UM \`<h1>\` "Vaga não encontrada" e o link para \`/carreiras\`, sem tentar de novo; a situação é perguntada à camada`,
+          tela.situacao() === m.VAGA_INEXISTENTE &&
+            igual(tela.h1s(), ["Vaga não encontrada"]) &&
+            tela.q('[data-acao="voltar"]')?.getAttribute("href") === "/carreiras" &&
+            tela.q('[data-acao="repetir"]') === null &&
+            tela.q('[role="alert"]') === null &&
+            leitura.pedidosDaSituacao.length === antes + 1,
+          `${tela.situacao()} | ${JSON.stringify(tela.h1s())}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Erro de leitura da Vaga, e tentar de novo (com a leitura nova SEGURADA) ══ */
+      for (const [caso, preparar, registra] of [
+        ["Erro de leitura da vaga", () => { leitura.situacoes["vaga-em-falha"] = FALHA_DE_REDE; }, false],
+        ["Erro de permissão da vaga", () => { leitura.situacoes["vaga-em-falha"] = { ok: false, erro: { tipo: "permissao", mensagem: "x" } }; }, false],
+        ["Leitura da vaga que lança", () => { leitura.situacoes["vaga-em-falha"] = situacaoDe({ ...A, slug: "vaga-em-falha" }); leitura.lancarSituacao = true; }, true],
+      ]) {
+        preparar();
+        leitura.lista = { ok: true, dados: ABERTAS };
+        const tela = await montar("/carreiras/vaga-em-falha", { caso, ateQue: () => true, registra });
+        await esperarAte(() => tela.situacao() === m.VAGA_ERRO, `${caso}: a tela assenta`);
+        const alertas = tela.todos('[role="alert"]');
+        afirmar(
+          `${caso}: UM \`<h1>\` com a frase de erro (distinta de "Vaga não encontrada") e "tentar de novo"; \`role="alert"\` só no parágrafo da mensagem`,
+          igual(tela.h1s(), [m.falaDaVaga(m.VAGA_ERRO).oQueHouve]) &&
+            !tela.texto().includes(m.falaDaVaga(m.VAGA_INEXISTENTE).oQueHouve) &&
+            alertas.length === 1 &&
+            alertas[0].tagName === "P" &&
+            alertas[0].querySelector("h1, button, a") === null &&
+            (tela.q('[data-acao="repetir"]')?.textContent ?? "") === m.ROTULO_DE_RECARREGAR_A_VAGA,
+          JSON.stringify(tela.h1s()),
+        );
+        leitura.lancarSituacao = false;
+        leitura.situacoes["vaga-em-falha"] = situacaoDe({ ...A, slug: "vaga-em-falha" });
+        const antes = leitura.pedidosDaSituacao.length;
+        const soltar = segurar(null, "vaga-em-falha");
+        await tela.clicar(tela.q('[data-acao="repetir"]'), "tentar de novo", () => tela.situacao() === m.VAGA_CARREGANDO);
+        afirmar(
+          `${caso}: com a leitura NOVA segurada, a tela é CARREGANDO, sem o \`<h1>\` nem o alerta do erro anterior`,
+          tela.situacao() === m.VAGA_CARREGANDO &&
+            tela.h1s().length === 0 &&
+            tela.q('[role="alert"]') === null &&
+            tela.q('[data-acao="repetir"]') === null,
+          `${tela.situacao()} | h1: ${JSON.stringify(tela.h1s())}`,
+        );
+        soltar();
+        await esperarAte(() => tela.situacao() === m.VAGA_ABERTA, `${caso}: solta a leitura, a Vaga chega`);
+        afirmar(
+          `${caso}: "tentar de novo" relê a situação e mostra a Vaga`,
+          leitura.pedidosDaSituacao.length === antes + 1 && igual(tela.h1s(), [A.titulo]),
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ Carregando da Vaga ══ */
+      {
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        const soltar = segurar("segurarSituacao");
+        const tela = await montar(`/carreiras/${A.slug}`, { caso: "Vaga carregando", ateQue: () => true });
+        await passo();
+        conferir(tela, "segurada");
+        afirmar(
+          "Vaga carregando: esqueleto com texto sr-only, nenhum `<h1>`, nenhum Candidatar-se",
+          tela.situacao() === m.VAGA_CARREGANDO &&
+            (tela.q('[role="status"]')?.textContent ?? "") === m.TEXTO_DE_CARREGANDO_A_VAGA &&
+            tela.h1s().length === 0 &&
+            tela.candidatar().length === 0,
+          tela.situacao(),
+        );
+        soltar();
+        await esperarAte(() => tela.situacao() === m.VAGA_ABERTA, "Vaga carregando: a Vaga chega");
+        await tela.desmontar();
+      }
+
+      /* ══ Repetir a situação NÃO relê a lista já lida para o mesmo Slug ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes["vaga-instavel"] = situacaoDe({ ...A, slug: "vaga-instavel" });
+        const antesDaLista = leitura.pedidosDaLista;
+        const tela = await montar("/carreiras/vaga-instavel", {
+          caso: "Leituras da lista por navegação",
+          ateQue: () => janela.document.querySelector('[data-papel="outras-vagas"]') !== null,
+        });
+        leitura.situacoes["vaga-instavel"] = FALHA_DE_REDE;
+        await tela.ir("/carreiras/nao-existe-mais", () => tela.situacao() === m.VAGA_INEXISTENTE);
+        await tela.ir("/carreiras/vaga-instavel", () => tela.situacao() === m.VAGA_ERRO);
+        leitura.situacoes["vaga-instavel"] = situacaoDe({ ...A, slug: "vaga-instavel" });
+        await tela.clicar(tela.q('[data-acao="repetir"]'), "tentar de novo", () => tela.situacao() === m.VAGA_ABERTA);
+        for (let i = 0; i < 3; i += 1) await passo();
+        afirmar(
+          "Leituras da lista por navegação: a lista já lida para o Slug não é relida quando a SITUAÇÃO é lida de novo (uma leitura só, e as outras vagas continuam lá)",
+          leitura.pedidosDaLista - antesDaLista === 1 &&
+            tela.q('[data-papel="outras-vagas"]') !== null &&
+            igual(tela.cartoes(), [B.slug, A.slug]) &&
+            leitura.pedidosDaSituacao.filter((s) => s === "vaga-instavel").length >= 3,
+          `lista ${leitura.pedidosDaLista - antesDaLista} | cartões ${tela.cartoes().join(", ")}`,
+        );
+        await tela.desmontar();
+      }
+
+      /* ══ A rolagem de reserva, e o navegador que não rola ══ */
+      {
+        leitura.lista = { ok: true, dados: ABERTAS };
+        leitura.situacoes[A.slug] = situacaoDe(A);
+        leitura.situacoes[B.slug] = situacaoDe(B);
+        const tela = await montar(`/carreiras/${A.slug}`, {
+          caso: "Rolagem de reserva",
+          ateQue: () => janela.document.querySelector('[data-papel="outras-vagas"]') !== null,
+        });
+        rolagens.length = 0;
+        modoDaRolagem = "recusa-objeto";
+        await tela.clicar(
+          tela.q('[data-papel="outras-vagas"] a[data-acao="ver-vaga"]'),
+          "a outra vaga (sem a forma com objeto)",
+          () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [B.titulo]),
+        );
+        afirmar(
+          "Rolagem de reserva: o navegador que recusa `scrollTo({…})` recebe `scrollTo(0, 0)`, e a página segue",
+          rolagens.some((a) => a[0] === 0 && a[1] === 0) && igual(tela.h1s(), [B.titulo]),
+          JSON.stringify(rolagens),
+        );
+        modoDaRolagem = "sempre-lanca";
+        await tela.clicar(tela.q('a[data-acao="voltar"]'), "Ver todas as vagas (sem rolagem)", () => tela.lista() === m.LISTA_PRONTA);
+        afirmar(
+          "e um navegador sem rolagem nenhuma não derruba `/carreiras` (a lista aparece e o foco vai ao `<h1>`)",
+          tela.onde() === "/carreiras" && tela.cartoes().length === 2 && focado() === tela.q("h1"),
+          tela.onde(),
+        );
+        modoDaRolagem = "normal";
+        await tela.desmontar();
+      }
+
+      /* ══ O que se viu em todas as telas ══ */
+      for (const [s, visto] of vistasDaVaga) {
+        afirmar(
+          `a tela \`${s}\` da Vaga foi vista montada, e em TODA vez teve um corpo só (o da situação) dentro de \`<main>\`, ${
+            s === m.VAGA_CARREGANDO ? "sem `<h1>`" : "com UM `<h1>` (não vazio, `tabIndex=-1`) dentro de `<main>`"
+          }`,
+          visto.vezes > 0 && visto.falhas.length === 0,
+          `vezes ${visto.vezes} | ${visto.falhas.slice(0, 3).join(" | ")}`,
+        );
+      }
+      afirmar(
+        "o carregando da Vaga tem o MESMO recuo superior (Navbar fixa) das telas sem hero (inexistente e erro)",
+        recuos.get(m.VAGA_CARREGANDO) !== null &&
+          recuos.get(m.VAGA_CARREGANDO) !== undefined &&
+          recuos.get(m.VAGA_CARREGANDO) === recuos.get(m.VAGA_INEXISTENTE) &&
+          recuos.get(m.VAGA_CARREGANDO) === recuos.get(m.VAGA_ERRO),
+        JSON.stringify(Object.fromEntries(recuos)),
+      );
+      for (const [s, visto] of vistasDaLista) {
+        afirmar(
+          `a situação \`${s}\` da lista foi vista montada, e em TODA vez com só o seu conteúdo (esqueleto, erro, vazio ou cartões)`,
+          visto.vezes > 0 && visto.falhas.length === 0,
+          `vezes ${visto.vezes} | ${visto.falhas.slice(0, 3).join(" | ")}`,
+        );
+      }
+
+      afirmar("o `<head>` terminou como começou em todas as telas", headIntacto());
+    } catch (erro) {
+      afirmar("as páginas públicas montadas rodaram até o fim sem exceção", false, erro?.stack ?? String(erro));
+    } finally {
+      /* Revisão da Story 5.7: devolve TUDO o que a montagem trocou. */
+      console.error = erroOriginal;
+      janela.scrollTo = rolagemDaJanelaAntes;
+      for (const nome of Object.getOwnPropertyNames(globalThis)) {
+        if (globaisAntes.has(nome)) continue;
+        try {
+          delete globalThis[nome];
+        } catch {
+          /* propriedade que não se apaga: a asserção abaixo acusa */
+        }
+      }
+      for (const [nome, descritor] of globaisAntes) {
+        const agora = Object.getOwnPropertyDescriptor(globalThis, nome);
+        if (mesmoDescritor(agora, descritor)) continue;
+        try {
+          Object.defineProperty(globalThis, nome, descritor);
+        } catch {
+          /* propriedade que não se redefine: a asserção abaixo acusa */
+        }
+      }
+      try {
+        janela.close();
+      } catch {
+        /* o navegador de mentira já pode ter fechado */
+      }
+    }
+    const trocados = [...globaisAntes].filter(([nome, d]) => !mesmoDescritor(Object.getOwnPropertyDescriptor(globalThis, nome), d)).map(([n]) => n);
+    const sobrando = Object.getOwnPropertyNames(globalThis).filter((nome) => !globaisAntes.has(nome));
+    afirmar(
+      "a montagem devolveu os globais como os achou (`requestAnimationFrame`, `HTMLElement`, `Node`, `IntersectionObserver`, `IS_REACT_ACT_ENVIRONMENT`, `window`… e o `console.error`), sem deixar nenhum novo",
+      trocados.length === 0 && sobrando.length === 0 && console.error === erroOriginal && janela.scrollTo === rolagemDaJanelaAntes,
+      `trocados: ${trocados.slice(0, 8).join(", ")} | sobrando: ${sobrando.slice(0, 8).join(", ")}`,
+    );
   }
   try {
     rmSync(pasta, { recursive: true, force: true });

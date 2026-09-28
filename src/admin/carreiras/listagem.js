@@ -40,9 +40,10 @@ import {
 import {
   LISTAS_DE_CLASSIFICACAO,
   aparenciaDaCorDeClassificacao,
-  ehModalidade,
-  rotuloDaModalidade,
 } from "../../domain/carreiras/classificacoes.js";
+/* O local e o endereço público moram no domínio desde a Story 5.7: o site
+   público os usa também, e uma regra das duas telas não mora numa delas. */
+import { enderecoPublicoDaVaga, textoDoLocal } from "../../domain/carreiras/vaga.js";
 import { enderecoDaVaga } from "./rotas.js";
 
 /**
@@ -172,24 +173,6 @@ export function rotuloDaClassificacaoAusente(lista) {
 
 function texto(valor) {
   return typeof valor === "string" ? valor.trim() : "";
-}
-
-/** "Híbrido · Natal, RN", "Remoto", ou vazio. Modalidade desconhecida não lança. */
-export function textoDoLocal(vaga) {
-  const modalidade = ehModalidade(vaga?.modalidade) ? rotuloDaModalidade(vaga.modalidade) : "";
-  return [modalidade, texto(vaga?.localizacao)].filter((parte) => parte !== "").join(" · ");
-}
-
-/**
- * O endereço público da Vaga, só quando ela tem página: Aberta ou Encerrada,
- * que são os Estados de quem já passou da criação. O Rascunho nunca teve
- * endereço no site. Sem Slug, nada.
- */
-export function enderecoPublicoDaVaga(vaga) {
-  if (!ehEstadoDaVaga(vaga?.estado) || vaga.estado === ESTADO_INICIAL_DA_VAGA) return null;
-  const slug = texto(vaga.slug);
-  if (slug === "") return null;
-  return `/carreiras/${encodeURIComponent(slug)}`;
 }
 
 /**

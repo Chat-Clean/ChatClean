@@ -6,6 +6,7 @@ import App from "./App.jsx";
 import Blog from "./pages/Blog.jsx";
 import BlogPost from "./pages/BlogPost.jsx";
 import Carreiras from "./pages/Carreiras.jsx";
+import VagaPublica from "./pages/VagaPublica.jsx";
 import Sobre from "./pages/Sobre.jsx";
 import ApiOficialWhatsApp from "./pages/ApiOficialWhatsApp.jsx";
 import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
@@ -51,6 +52,7 @@ createRoot(document.getElementById("root")).render(
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/carreiras" element={<Carreiras />} />
+        <Route path="/carreiras/:slug" element={<VagaPublica />} />
         <Route path="/sobre" element={<Sobre />} />
         <Route path="/api-oficial-whatsapp" element={<ApiOficialWhatsApp />} />
         {/* A landing de captação. Endereço curto porque é ele que vai em

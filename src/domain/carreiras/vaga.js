@@ -20,7 +20,8 @@ import { FORMATO_DE_SLUG, TAMANHO_MAXIMO_DO_SLUG, gerarSlug } from "../blog/slug
  */
 export { FORMATO_DE_SLUG, problemaNoSlug } from "../blog/slug.js";
 import { decodificarEntidades, textoDoDocumento } from "../blog/schema.js";
-import { ehModalidade, MODALIDADE_REMOTA } from "./classificacoes.js";
+import { ehModalidade, MODALIDADE_REMOTA, rotuloDaModalidade } from "./classificacoes.js";
+import { ehEstadoDaVaga, ESTADO_INICIAL_DA_VAGA } from "./estados.js";
 
 /**
  * Os tetos, em caracteres (pontos de código, como o `char_length` do banco).
@@ -207,4 +208,47 @@ export function problemasParaAbrir(vaga) {
  */
 export function slugDaVaga(titulo) {
   return gerarSlug(titulo);
+}
+
+/* ─── O local e o endereço público ───────────────────────────────────────── */
+
+/*
+ * As duas funções moraram em `admin/carreiras/listagem.js` (Story 5.5) e
+ * vieram para cá na Story 5.7: o Painel e o site público mostram o MESMO
+ * local e apontam para o MESMO endereço, e uma regra que as duas telas usam
+ * não pode morar numa delas.
+ */
+
+function textoAparado(valor) {
+  return typeof valor === "string" ? valor.trim() : "";
+}
+
+/**
+ * "Híbrido · Natal, RN", "Remoto", ou vazio. Modalidade fora do vocabulário
+ * não lança: `ehModalidade` é perguntado ANTES de `rotuloDaModalidade`, que
+ * lança. A Localização vem aparada, e o que estiver vazio sai da frase.
+ */
+export function textoDoLocal(vaga) {
+  const modalidade = ehModalidade(vaga?.modalidade) ? rotuloDaModalidade(vaga.modalidade) : "";
+  return [modalidade, textoAparado(vaga?.localizacao)].filter((parte) => parte !== "").join(" · ");
+}
+
+/**
+ * O endereço da página pública de um Slug: `/carreiras/<slug>`, com o Slug
+ * codificado. Sem Slug, `null`. Não julga o Estado: quem pergunta pela
+ * página de uma Vaga que o banco diz Aberta é a lista pública.
+ */
+export function enderecoDaPaginaDaVaga(slug) {
+  const alvo = textoAparado(slug);
+  return alvo === "" ? null : `/carreiras/${encodeURIComponent(alvo)}`;
+}
+
+/**
+ * O endereço público da Vaga, só quando ela tem página: Aberta ou Encerrada,
+ * que são os Estados de quem já passou da criação. O Rascunho nunca teve
+ * endereço no site. Sem Slug, nada.
+ */
+export function enderecoPublicoDaVaga(vaga) {
+  if (!ehEstadoDaVaga(vaga?.estado) || vaga.estado === ESTADO_INICIAL_DA_VAGA) return null;
+  return enderecoDaPaginaDaVaga(vaga.slug);
 }
