@@ -19,9 +19,9 @@
  *
  * ─── O REDIRECIONAMENTO PARA O WHATSAPP É MONTADO AQUI ───────────────────
  *
- * E não no navegador. Assim o número de destino é uma decisão do servidor: se
+ * E não no navegador. Assim o destino é uma decisão do servidor: se
  * alguém adulterar o formulário, o pior que consegue é gravar um lead com o
- * próprio nome errado — não desviar a conversa para outro número.
+ * próprio nome errado — não desviar a conversa para outro lugar.
  */
 
 import { bancoDoAmbiente, TIPOS } from "./_nucleo/bancoDeLeads.js";
@@ -145,6 +145,6 @@ export default async function handler(req, res) {
 
   return res.status(201).json({
     leadId: gravado.id,
-    whatsappUrl: enderecoDoWhatsApp(lead),
+    whatsappUrl: enderecoDoWhatsApp(),
   });
 }

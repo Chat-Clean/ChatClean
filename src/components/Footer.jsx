@@ -2,9 +2,8 @@ import { Link } from "react-router-dom";
 import { Mail, MapPin, Phone } from "lucide-react";
 import chatcleanLogoWhite from "/chatclean-white.svg";
 import { abrirPreferenciasDeCookies } from "@/lib/consentimento";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
-const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+eu+vim+pelo+site";
 
 export default function Footer() {
   return (
@@ -94,7 +93,7 @@ export default function Footer() {
             </li>
             <li>
               <a
-                href={WHATSAPP_LINK}
+                href={LINK_DO_WHATSAPP}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-emerald-400 transition-colors"

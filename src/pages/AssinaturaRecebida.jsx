@@ -10,6 +10,7 @@ import {
   leituraDoEstado,
   valeReconsultar,
 } from "@/domain/assinatura/retorno";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
 /**
  * A tela para onde o Asaas devolve quem acabou de pagar.
@@ -230,7 +231,7 @@ export default function AssinaturaRecebida() {
               </Link>
               {fala.situacao === "problema" && (
                 <a
-                  href="https://api.whatsapp.com/send?phone=5584998900718&text=Paguei+a+assinatura+e+minha+conta+ainda+nao+subiu"
+                  href={LINK_DO_WHATSAPP}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 rounded-full border border-zinc-200 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-zinc-50"

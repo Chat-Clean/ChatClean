@@ -29,9 +29,7 @@ import {
   somenteDigitos,
   telefoneEhValido,
 } from "../assinatura/pedido.js";
-
-/** O WhatsApp da ChatClean, para onde o lead segue depois de gravado. */
-export const WHATSAPP_DA_CHATCLEAN = "5584998900718";
+import { LINK_DO_WHATSAPP } from "../whatsapp.js";
 
 /** A versão do texto de consentimento aceito no formulário. */
 export const VERSAO_DO_ACEITE = "2026-09-03";
@@ -164,25 +162,12 @@ export function campanhaDaBusca(busca) {
 }
 
 /**
- * A mensagem que já vai escrita no WhatsApp.
- *
- * Escrita na voz de quem manda — é a pessoa que envia, não a ChatClean. Diz
- * quem é, de onde veio e o que quer, para o atendimento não recomeçar do zero
- * perguntando o que o formulário já respondeu.
+ * Para onde o lead segue depois de gravado: o link único da ChatClean (ver
+ * `domain/whatsapp.js`). Sem mensagem pronta, porque o link de rastreamento
+ * não a repassa.
  */
-export function mensagemDoWhatsApp({ nome, empresa } = {}) {
-  const quem = limpar(nome);
-  const onde = limpar(empresa);
-  return [
-    `Olá! Sou ${quem === "" ? "da" : `${quem}, da`} ${onde === "" ? "minha empresa" : onde}.`,
-    "Acabei de pedir a API Oficial do WhatsApp pelo site e quero continuar por aqui.",
-  ].join(" ");
-}
-
-/** O endereço completo da conversa, com a mensagem pronta. */
-export function enderecoDoWhatsApp(lead, numero = WHATSAPP_DA_CHATCLEAN) {
-  const texto = encodeURIComponent(mensagemDoWhatsApp(lead));
-  return `https://wa.me/${numero}?text=${texto}`;
+export function enderecoDoWhatsApp() {
+  return LINK_DO_WHATSAPP;
 }
 
 /** Como o telefone aparece de volta para a pessoa conferir. */

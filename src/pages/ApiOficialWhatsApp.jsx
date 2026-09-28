@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
 /**
  * Pagina pilar para SEO: /api-oficial-whatsapp
@@ -203,7 +204,7 @@ export default function ApiOficialWhatsApp() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4">
             <a
-              href="https://api.whatsapp.com/send?phone=5584998900718&text=Ol%C3%A1%2C+quero+ativar+a+API+Oficial+do+WhatsApp"
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
             >
