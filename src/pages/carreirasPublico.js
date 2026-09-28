@@ -45,8 +45,10 @@ import {
   rotuloDaModalidade,
 } from "../domain/carreiras/classificacoes.js";
 import {
+  ENDERECO_DO_CURRICULO,
   enderecoDaPaginaDaVaga,
   linkDeCandidaturaValido,
+  TITULO_DE_RESERVA_DA_ENCERRADA,
   textoDoLocal,
 } from "../domain/carreiras/vaga.js";
 
@@ -56,10 +58,11 @@ import {
  * O envio de currículo pelo WhatsApp, o MESMO do estado vazio de antes da
  * Story 5.7: sem Vaga Aberta, a página ainda convida a pessoa a se apresentar.
  * É a ÚNICA casa do número e da frase nas páginas de Carreiras: o vazio da
- * lista, a Vaga Encerrada e o convite final de `/carreiras` leem daqui.
+ * lista, a Vaga Encerrada e o convite final de `/carreiras` leem daqui. Desde
+ * a revisão da Story 5.8 o valor mora no domínio (`vaga.js`), porque o HTML
+ * Servido também o usa; daqui ele é só reexportado.
  */
-export const ENDERECO_DO_CURRICULO =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades";
+export { ENDERECO_DO_CURRICULO };
 
 /** O endereço da lista pública. */
 export const ENDERECO_DAS_VAGAS = "/carreiras";
@@ -189,9 +192,11 @@ function ehFalhaDeNaoEncontrado(erro) {
 /**
  * O título de reserva da Vaga Encerrada que veio sem título. A Encerrada
  * continua útil sem ele (a mensagem e as Vagas Abertas), então a tela não
- * vira erro: mostra esta frase no `<h1>`. A palavra vem do vocabulário.
+ * vira erro: mostra esta frase no `<h1>`. Desde a Story 5.8 a frase mora no
+ * domínio (`vaga.js`), porque o HTML Servido usa a mesma; daqui ela é só
+ * reexportada, e a tela e a verificação leem do mesmo lugar de antes.
  */
-export const TITULO_DE_RESERVA_DA_ENCERRADA = `Vaga ${rotuloDoEstadoDaVaga("encerrada").toLowerCase()}`;
+export { TITULO_DE_RESERVA_DA_ENCERRADA };
 
 /**
  * O texto do `<h1>` da Vaga: o título dela; na Encerrada sem título, o de

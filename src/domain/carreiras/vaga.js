@@ -21,7 +21,7 @@ import { FORMATO_DE_SLUG, TAMANHO_MAXIMO_DO_SLUG, gerarSlug } from "../blog/slug
 export { FORMATO_DE_SLUG, problemaNoSlug } from "../blog/slug.js";
 import { decodificarEntidades, textoDoDocumento } from "../blog/schema.js";
 import { ehModalidade, MODALIDADE_REMOTA, rotuloDaModalidade } from "./classificacoes.js";
-import { ehEstadoDaVaga, ESTADO_INICIAL_DA_VAGA } from "./estados.js";
+import { ehEstadoDaVaga, ESTADO_INICIAL_DA_VAGA, rotuloDoEstadoDaVaga } from "./estados.js";
 
 /**
  * Os tetos, em caracteres (pontos de código, como o `char_length` do banco).
@@ -252,3 +252,21 @@ export function enderecoPublicoDaVaga(vaga) {
   if (!ehEstadoDaVaga(vaga?.estado) || vaga.estado === ESTADO_INICIAL_DA_VAGA) return null;
   return enderecoDaPaginaDaVaga(vaga.slug);
 }
+
+/**
+ * O título de reserva da Vaga Encerrada que veio sem título. Morou em
+ * `src/pages/carreirasPublico.js` (Story 5.7) e veio para cá na Story 5.8: a
+ * página do navegador e o HTML Servido mostram a MESMA frase, e o servidor
+ * não importa de `src/pages`. A palavra vem do vocabulário do Estado.
+ */
+export const TITULO_DE_RESERVA_DA_ENCERRADA = `Vaga ${rotuloDoEstadoDaVaga("encerrada").toLowerCase()}`;
+
+/**
+ * O envio de currículo pelo WhatsApp, o MESMO do estado vazio de antes da
+ * Story 5.7. Morou em `src/pages/carreirasPublico.js` e veio para cá na
+ * revisão da Story 5.8: o HTML Servido da listagem sem vagas também o oferece,
+ * e o servidor não importa `src/pages`. É a ÚNICA casa do número e da frase em
+ * Carreiras; a página do navegador o reexporta.
+ */
+export const ENDERECO_DO_CURRICULO =
+  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades";

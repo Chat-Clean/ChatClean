@@ -2392,6 +2392,12 @@ if (configuracaoDaEntrega !== null) {
     { source: "/blog/:slug", destination: "/api/blog?slug=:slug" },
     { source: "/sitemap.xml", destination: "/api/sitemap" },
     { source: "/llms.txt", destination: "/api/llms" },
+    /* TROCA REGISTRADA (Story 5.8): a lista nomeada ganha as duas rotas de
+       Carreiras, servidas pela MESMA função da escrita (`api/carreiras.js`).
+       A contagem logo abaixo continua sendo "a lista mais o apanha-tudo", e
+       passa de 5 para 7 por causa desta troca, e não por piso relaxado. */
+    { source: "/carreiras", destination: "/api/carreiras" },
+    { source: "/carreiras/:slug", destination: "/api/carreiras?slug=:slug" },
   ]);
   const APANHA_TUDO = Object.freeze({ source: "/(.*)", destination: "/index.html" });
 

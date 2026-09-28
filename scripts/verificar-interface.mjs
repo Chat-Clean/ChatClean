@@ -5267,6 +5267,17 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
   "src/domain/blog/categorias.js": Object.freeze({
     124: "throw de `aparenciaDaCor()`: o único chamador (`TelaDeCategorias.jsx:852`) itera sobre `CORES_DE_CATEGORIA`, o próprio vocabulário fechado — cor fora da lista é erro de programação, nunca alcança o fluxo normal",
   }),
+  /* Story 5.8: a ÚNICA exceção que é texto visível, e por decisão escrita. O
+     título servido da Vaga é "{título} — Vagas ChatClean", fixado pela spec
+     da story e pelo contexto do épico (C-FR-20). O separador mora numa
+     constante só; `verificar:carreiras` (s) confere que ela é o único
+     travessão fora de comentário do módulo, que `paginaDeCarreiras.js` não
+     escreve travessão nem a marca à mão, e que o título servido de cada
+     página de Vaga (Aberta, Encerrada, inexistente) é, observado na saída,
+     o que `tituloServidoDaVaga` devolve. */
+  "src/domain/carreiras/jobPosting.js": Object.freeze({
+    47: "`SEPARADOR_DO_TITULO_DA_VAGA`: o título servido da Vaga que a spec 5.8 fixa (\"{título} — Vagas ChatClean\"); casa única do travessão, conferida por `verificar:carreiras` (s)",
+  }),
   "src/domain/blog/estados.js": Object.freeze({
     88: "throw de `aparenciaDoEstado()`: os dois chamadores (`PilulaDeEstado.jsx`, guardado por `ehEstado()` antes de chamar; `AdminBlog.jsx`, que itera sobre `ESTADOS`) só passam valor já validado contra o vocabulário fechado — mesma garantia de `transicoes.js:237`",
   }),

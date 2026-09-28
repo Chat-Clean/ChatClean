@@ -76,6 +76,17 @@
  *       literal, a rota); e `Carreiras`/`VagaPublica` montadas com dublê de
  *       `@/data/carreiras/leitura` num `MemoryRouter`, cobrindo a matriz.
  *
+ * Story 5.8 (a Vaga encontrável por máquina):
+ *
+ *   (s) LOCAL, o HTML Servido: o `JobPosting` puro executado; a leitura do
+ *       servidor com `buscar` injetado; `api/carreiras.js` dirigido em GET,
+ *       HEAD e método estranho contra um dublê de PostgREST, cobrindo a
+ *       matriz (status, cache, etiquetas, metadados, `<noscript>` fora de
+ *       `#root`, JSON-LD por Modalidade, escape, falha de leitura com o shell
+ *       intacto, Slug torto sem rede); a ordem das reescritas de
+ *       `vercel.json`. REMOTO, só com token: `/carreiras` e um Slug que não
+ *       existe, contra o banco real, sem criar Vaga nenhuma.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -2280,13 +2291,33 @@ if (moduloDoHandler !== null) {
 
   try {
     /* ── Método ── */
-    {
+    /* TROCA REGISTRADA (Story 5.8): era "GET responde 405 com `Allow: POST`,
+       sem ida ao banco". Desde a 5.8, GET e HEAD desta MESMA função servem a
+       página (seção (s)); o método estranho continua 405 sem ida ao banco, e
+       o `Allow` passou a listar os três métodos da rota, com `no-store`. */
+    /* Revisão da 5.8: o `Allow` esperado vem da lista EXPORTADA, e uma
+       asserção literal independente fixa que ela tem os três métodos (tirar
+       HEAD dos dois lados não passa). */
+    const METODOS_DA_ROTA = moduloDoHandler.METODOS_DE_CARREIRAS;
+    afirmar(
+      "`METODOS_DE_CARREIRAS` é exatamente GET, HEAD e POST, congelada",
+      Array.isArray(METODOS_DA_ROTA) &&
+        igual(ordenado(METODOS_DA_ROTA), ["GET", "HEAD", "POST"]) &&
+        Object.isFrozen(METODOS_DA_ROTA),
+      JSON.stringify(METODOS_DA_ROTA),
+    );
+    for (const metodo of ["PUT", "DELETE", "PATCH", "OPTIONS"]) {
       const n = marca();
-      const r = await enviar({ operacao: "salvarVaga" }, { metodo: "GET" });
+      const r = await enviar({ operacao: "salvarVaga" }, { metodo });
       afirmar(
-        "GET responde 405 com `Allow: POST`, sem ida ao banco",
-        r.status === 405 && r.cabecalhos.Allow === "POST" && erroDe(r).tipo === "dados_invalidos" && duble.recebidos.length === n,
-        `HTTP ${r.status} Allow ${r.cabecalhos.Allow}`,
+        `${metodo} responde 405 com \`Allow\` = os métodos da rota e \`no-store\`, sem ida ao banco`,
+        r.status === 405 &&
+          r.cabecalhos.Allow === (METODOS_DA_ROTA ?? []).join(", ") &&
+          r.cabecalhos.Allow.includes("HEAD") &&
+          r.cabecalhos["Cache-Control"] === "no-store" &&
+          erroDe(r).tipo === "dados_invalidos" &&
+          duble.recebidos.length === n,
+        `HTTP ${r.status} Allow ${r.cabecalhos.Allow} Cache-Control ${r.cabecalhos["Cache-Control"]}`,
       );
     }
 
@@ -2955,7 +2986,10 @@ if (moduloDoHandler !== null) {
       nucleoDaVaga.SEM_CADASTRO_PARA_VAGAS,
       nucleoDaClassificacao.SEM_PERMISSAO_PARA_CLASSIFICACOES,
       nucleoDaClassificacao.SEM_CADASTRO_PARA_CLASSIFICACOES,
-      moduloDoHandler?.SO_POST,
+      /* TROCA REGISTRADA (Story 5.8): era `SO_POST` ("aceita apenas POST"),
+         que deixou de ser verdade quando GET e HEAD passaram a servir a
+         página. A frase nova do 405 passa pelo mesmo crivo. */
+      moduloDoHandler?.FRASE_DO_METODO_RECUSADO,
       moduloDoHandler?.SEM_CONFIGURACAO,
     ].every(fraseDeCarreirasBoa),
   );
@@ -12131,11 +12165,26 @@ function nomesImportadosDe(fonte, origem) {
       /const beneficios = \[/.test(carreiras) &&
       /Não encontrou/.test(carreiras),
   );
-  /* O WhatsApp do currículo numa fonte só: o módulo puro. */
-  const comONumero = PAGINAS_DE_CARREIRAS.filter((c) => /5584998900718|api\.whatsapp\.com/.test(codigo(c)));
+  /* O WhatsApp do currículo numa fonte só.
+     TROCA REGISTRADA (revisão da Story 5.8): o dono era o módulo puro da
+     página (`carreirasPublico.js`); passou a ser o domínio (`vaga.js`),
+     porque o HTML Servido da listagem vazia também oferece o currículo e o
+     servidor não importa `src/pages`. A varredura cresceu para as páginas, o
+     domínio de Carreiras e a página servida; o módulo puro só reexporta. */
+  const ONDE_O_NUMERO_PODE_ESTAR = [
+    ...PAGINAS_DE_CARREIRAS,
+    ...readdirSync(path.join(raiz, "src", "domain", "carreiras"))
+      .filter((n) => n.endsWith(".js"))
+      .map((n) => `src/domain/carreiras/${n}`),
+    "api/_nucleo/paginaDeCarreiras.js",
+  ];
+  const comONumero = ONDE_O_NUMERO_PODE_ESTAR.filter((c) =>
+    /5584998900718|api\.whatsapp\.com/.test(semComentarios(ler(c) ?? "")),
+  );
   afirmar(
-    "o endereço do currículo pelo WhatsApp mora SÓ no módulo puro, e `Carreiras.jsx` usa a constante no convite final",
-    igual(comONumero, ["src/pages/carreirasPublico.js"]) &&
+    "o endereço do currículo pelo WhatsApp mora SÓ no domínio (`vaga.js`), o módulo puro o reexporta, e `Carreiras.jsx` usa a constante no convite final",
+    igual(comONumero, ["src/domain/carreiras/vaga.js"]) &&
+      carreirasPublico?.ENDERECO_DO_CURRICULO === regrasDaVaga.ENDERECO_DO_CURRICULO &&
       nomesImportadosDe(carreiras, "./carreirasPublico").includes("ENDERECO_DO_CURRICULO") &&
       /href=\{ENDERECO_DO_CURRICULO\}/.test(carreiras),
     comONumero.join(", "),
@@ -13300,6 +13349,1500 @@ export const listarClassificacoes = proibida("listarClassificacoes");
     rmSync(pasta, { recursive: true, force: true });
   } catch {
     /* presa pelo processo no Windows: a próxima execução varre na entrada */
+  }
+}
+
+/* ─── (s) A Vaga encontrável por máquina (Story 5.8) ─────────────────────── */
+
+secao("(s) a Vaga encontrável por máquina: o HTML Servido de `/carreiras` e `/carreiras/:slug`, e o `JobPosting` (Story 5.8)");
+
+/*
+ * - NODE: `src/domain/carreiras/jobPosting.js` executado contra expectativas
+ *   escritas à mão a partir da SPEC (e não contra uma cópia do código);
+ * - NODE: a leitura do servidor (`api/_nucleo/leitura.js`) com `buscar`
+ *   injetado que conta as idas à rede;
+ * - DIRIGIDA: `api/carreiras.js` em GET, HEAD e método estranho, contra um
+ *   dublê de PostgREST local, cobrindo a matriz da story;
+ * - ESTÁTICA: a ordem das reescritas de `vercel.json` e o teto de `api/`;
+ * - REMOTA, só com token: `/carreiras` e um Slug que não existe contra o banco
+ *   de verdade, sem criar Vaga nenhuma.
+ */
+
+const DOMINIO_S = "https://chatclean.com.br";
+
+/** Igualdade de JSON sem depender da ordem das chaves. */
+function jsonCanonico(valor) {
+  if (Array.isArray(valor)) return `[${valor.map(jsonCanonico).join(",")}]`;
+  if (valor !== null && typeof valor === "object") {
+    return `{${Object.keys(valor)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${jsonCanonico(valor[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(valor);
+}
+const mesmoJson = (a, b) => jsonCanonico(a) === jsonCanonico(b);
+
+let jobPostingMod = null;
+let paginaMod = null;
+let leituraMod = null;
+let metadadosMod = null;
+let artigoMod = null;
+let shellMod = null;
+try {
+  jobPostingMod = await import(urlDe("src/domain/carreiras/jobPosting.js"));
+  paginaMod = await import(urlDe("api/_nucleo/paginaDeCarreiras.js"));
+  leituraMod = await import(urlDe("api/_nucleo/leitura.js"));
+  metadadosMod = await import(urlDe("api/_nucleo/metadados.js"));
+  artigoMod = await import(urlDe("api/_nucleo/artigo.js"));
+  shellMod = await import(urlDe("api/_nucleo/shell.js"));
+  afirmar("os módulos da Story 5.8 importam no Node (`jobPosting.js`, `paginaDeCarreiras.js`)", true);
+} catch (erro) {
+  afirmar("os módulos da Story 5.8 importam no Node (`jobPosting.js`, `paginaDeCarreiras.js`)", false, erro.message);
+}
+
+/** A Aberta de referência, na forma da linha de `situacao_da_vaga`. */
+const linhaAbertaS = (extra = {}) => ({
+  situacao: "aberta",
+  id: "22222222-2222-4222-8222-222222222222",
+  slug: "analista-de-suporte",
+  titulo: "Analista de Suporte",
+  resumo: "Atender clientes da ChatClean pelo WhatsApp.",
+  descricao_html: HTML_VALIDO,
+  departamento: "Atendimento",
+  departamento_cor: "var(--categoria-verde-bg)",
+  tipo: "CLT",
+  equivalente_jobposting: "FULL_TIME",
+  nivel: "Pleno",
+  nivel_cor: "var(--categoria-azul-bg)",
+  modalidade: "presencial",
+  localizacao: "Natal, RN",
+  link_de_candidatura: "https://exemplo.com/candidatura",
+  aberta_em: "2026-09-01T12:00:00+00:00",
+  atualizado_em: "2026-09-02T12:00:00+00:00",
+  ...extra,
+});
+
+/** O `JobPosting` que a SPEC descreve para a Aberta de referência, escrito à mão. */
+const JOBPOSTING_ESPERADO = Object.freeze({
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  title: "Analista de Suporte",
+  description: HTML_VALIDO,
+  datePosted: "2026-09-01T12:00:00+00:00",
+  employmentType: "FULL_TIME",
+  hiringOrganization: {
+    "@type": "Organization",
+    name: "ChatClean",
+    sameAs: DOMINIO_S,
+    logo: `${DOMINIO_S}/logotipo-chatclean.png`,
+  },
+  directApply: false,
+  url: `${DOMINIO_S}/carreiras/analista-de-suporte`,
+  jobLocation: {
+    "@type": "Place",
+    address: { "@type": "PostalAddress", addressLocality: "Natal", addressRegion: "RN", addressCountry: "BR" },
+  },
+});
+
+/* ── Node: o JobPosting puro ── */
+
+if (jobPostingMod !== null) {
+  const j = jobPostingMod;
+  const raiz = DOMINIO_S;
+  afirmar(
+    "autoteste: a igualdade de JSON ignora a ordem das chaves e acusa valor diferente",
+    mesmoJson({ a: 1, b: { c: [1, 2] } }, { b: { c: [1, 2] }, a: 1 }) &&
+      !mesmoJson({ a: 1 }, { a: 2 }) &&
+      !mesmoJson({ a: [1, 2] }, { a: [2, 1] }) &&
+      !mesmoJson({ a: 1 }, { a: 1, b: null }),
+  );
+  afirmar(
+    "Aberta presencial em \"Natal, RN\": o `JobPosting` é EXATAMENTE o da SPEC (título, Descrição, `datePosted` = `aberta_em`, `employmentType`, `hiringOrganization` com logotipo, `directApply: false`, `url` canônica, `jobLocation` Natal/RN/BR)",
+    mesmoJson(j.jobPostingDaVaga(linhaAbertaS(), { raiz }), JOBPOSTING_ESPERADO),
+    JSON.stringify(j.jobPostingDaVaga(linhaAbertaS(), { raiz })).slice(0, 400),
+  );
+  const hibrida = j.jobPostingDaVaga(linhaAbertaS({ modalidade: "hibrido", localizacao: "  São Paulo  " }), { raiz });
+  afirmar(
+    "Híbrida com Localização que não é \"Cidade, UF\": `jobLocation` com o texto inteiro em `addressLocality`, sem `addressRegion`, país BR, e sem `jobLocationType`",
+    mesmoJson(hibrida?.jobLocation, {
+      "@type": "Place",
+      address: { "@type": "PostalAddress", addressLocality: "São Paulo", addressCountry: "BR" },
+    }) && !Object.hasOwn(hibrida ?? {}, "jobLocationType"),
+    JSON.stringify(hibrida?.jobLocation),
+  );
+  const remota = j.jobPostingDaVaga(linhaAbertaS({ modalidade: "remoto", localizacao: "" }), { raiz });
+  afirmar(
+    "Remota: `jobLocationType: TELECOMMUTE` e `applicantLocationRequirements` Brasil, SEM `jobLocation` (mesmo sem Localização)",
+    remota !== null &&
+      remota.jobLocationType === "TELECOMMUTE" &&
+      mesmoJson(remota.applicantLocationRequirements, { "@type": "Country", name: "Brasil" }) &&
+      !Object.hasOwn(remota, "jobLocation"),
+    JSON.stringify(remota).slice(0, 300),
+  );
+  const remotaComLocal = j.jobPostingDaVaga(linhaAbertaS({ modalidade: "remoto", localizacao: "Natal, RN" }), { raiz });
+  afirmar(
+    "Remota com Localização preenchida continua TELECOMMUTE, sem `jobLocation`",
+    remotaComLocal?.jobLocationType === "TELECOMMUTE" && !Object.hasOwn(remotaComLocal ?? {}, "jobLocation"),
+  );
+  const semEquivalente = ["XPTO", null, "", "full_time"].map((e) =>
+    j.jobPostingDaVaga(linhaAbertaS({ equivalente_jobposting: e }), { raiz }),
+  );
+  afirmar(
+    "`employmentType` é OMITIDO quando o Equivalente não está na lista fechada (XPTO, nulo, vazio, caixa errada), e o resto continua",
+    semEquivalente.every((d) => d !== null && !Object.hasOwn(d, "employmentType") && d.title === "Analista de Suporte"),
+  );
+  afirmar(
+    "cada Equivalente da lista fechada vira o `employmentType` dele",
+    classificacoes.EQUIVALENTES_JOBPOSTING.every(
+      (e) => j.jobPostingDaVaga(linhaAbertaS({ equivalente_jobposting: e }), { raiz })?.employmentType === e,
+    ),
+  );
+  const NULOS = [
+    ["Descrição nula (recusada por quem serve)", { descricao_html: null }],
+    ["Descrição vazia", { descricao_html: "" }],
+    ["Descrição só com etiquetas e espaço", { descricao_html: "<p> </p><p>&nbsp;</p>" }],
+    ["título vazio", { titulo: "" }],
+    ["título em branco", { titulo: "   " }],
+    ["título nulo", { titulo: null }],
+    ["`aberta_em` nulo", { aberta_em: null }],
+    ["`aberta_em` ilegível", { aberta_em: "lixo" }],
+    ["presencial sem Localização", { localizacao: "" }],
+    ["híbrida com Localização em branco", { modalidade: "hibrido", localizacao: "   " }],
+    ["Modalidade desconhecida", { modalidade: "xpto" }],
+    ["Modalidade nula", { modalidade: null }],
+    ["Slug torto", { slug: "Slug Torto" }],
+    ["Slug nulo", { slug: null }],
+    /* Revisão da 5.8: `datePosted` só com instante ISO 8601 (data, hora e fuso). */
+    ["`aberta_em` em inglês", { aberta_em: "September 1, 2026" }],
+    ["`aberta_em` com barras", { aberta_em: "2026/09/01" }],
+    ["`aberta_em` só com o ano", { aberta_em: "2026" }],
+    ["`aberta_em` sem hora", { aberta_em: "2026-09-01" }],
+    ["`aberta_em` sem fuso", { aberta_em: "2026-09-01T12:00:00" }],
+  ];
+  const naoNulos = [];
+  const lancaram = [];
+  for (const [nome, extra] of NULOS) {
+    try {
+      const d = j.jobPostingDaVaga(linhaAbertaS(extra), { raiz });
+      const p = j.problemaNoJobPosting(linhaAbertaS(extra), { raiz });
+      if (d !== null || typeof p !== "string" || p === "") naoNulos.push(nome);
+    } catch (erro) {
+      lancaram.push(`${nome}: ${erro.message}`);
+    }
+  }
+  afirmar(
+    `falta campo obrigatório → \`null\` e um motivo, sem lançar (${NULOS.length} casos)`,
+    naoNulos.length === 0 && lancaram.length === 0,
+    `${naoNulos.join(", ")} | ${lancaram.join(", ")}`,
+  );
+  afirmar(
+    "e a Aberta completa não tem motivo nenhum",
+    j.problemaNoJobPosting(linhaAbertaS(), { raiz }) === null,
+    String(j.problemaNoJobPosting(linhaAbertaS(), { raiz })),
+  );
+  let semRaiz = "não rodou";
+  try {
+    semRaiz = [undefined, "", "chatclean.com.br/x", "javascript:alert(1)", "https://chatclean.com.br/blog"].map(
+      (r) => j.jobPostingDaVaga(linhaAbertaS(), { raiz: r }),
+    );
+  } catch (erro) {
+    semRaiz = erro.message;
+  }
+  afirmar(
+    "sem Domínio Canônico válido (ausente, vazio, sem esquema, outro esquema, com caminho) → `null`, sem lançar",
+    Array.isArray(semRaiz) && semRaiz.every((d) => d === null),
+    JSON.stringify(semRaiz).slice(0, 200),
+  );
+  afirmar(
+    "Vaga ausente ou que não é objeto → `null`, sem lançar",
+    [null, undefined, "x", 5].every((v) => j.jobPostingDaVaga(v, { raiz }) === null) && j.jobPostingDaVaga(linhaAbertaS()) === null,
+  );
+  const outraRaiz = j.jobPostingDaVaga(linhaAbertaS(), { raiz: "https://outro.exemplo.com/" });
+  afirmar(
+    "a `url`, o `sameAs` e o logotipo saem do Domínio Canônico passado (com a barra final aparada), e de nada mais",
+    outraRaiz?.url === "https://outro.exemplo.com/carreiras/analista-de-suporte" &&
+      outraRaiz?.hiringOrganization?.sameAs === "https://outro.exemplo.com" &&
+      outraRaiz?.hiringOrganization?.logo === "https://outro.exemplo.com/logotipo-chatclean.png",
+    JSON.stringify(outraRaiz?.hiringOrganization),
+  );
+  afirmar(
+    "o título do `JobPosting` sai aparado",
+    j.jobPostingDaVaga(linhaAbertaS({ titulo: "  Analista de Suporte  " }), { raiz })?.title === "Analista de Suporte",
+  );
+  afirmar(
+    "o endereço de \"Cidade, UF\" só separa com UF de DUAS maiúsculas depois da vírgula",
+    mesmoJson(j.enderecoPostalDaLocalizacao("Natal, RN"), { "@type": "PostalAddress", addressLocality: "Natal", addressRegion: "RN", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao("Mossoró,RN"), { "@type": "PostalAddress", addressLocality: "Mossoró", addressRegion: "RN", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao("Natal, rn"), { "@type": "PostalAddress", addressLocality: "Natal, rn", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao("Natal, RNX"), { "@type": "PostalAddress", addressLocality: "Natal, RNX", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao(", RN"), { "@type": "PostalAddress", addressLocality: ", RN", addressCountry: "BR" }) &&
+      j.enderecoPostalDaLocalizacao("   ") === null &&
+      /* Revisão da 5.8: só UF da lista fechada vira `addressRegion`. */
+      mesmoJson(j.enderecoPostalDaLocalizacao("Natal, XX"), { "@type": "PostalAddress", addressLocality: "Natal, XX", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao("Lisboa, PT"), { "@type": "PostalAddress", addressLocality: "Lisboa, PT", addressCountry: "BR" }) &&
+      mesmoJson(j.enderecoPostalDaLocalizacao("Brasília, DF"), { "@type": "PostalAddress", addressLocality: "Brasília", addressRegion: "DF", addressCountry: "BR" }) &&
+      Array.isArray(j.UFS_DO_BRASIL) &&
+      j.UFS_DO_BRASIL.length === 27 &&
+      new Set(j.UFS_DO_BRASIL).size === 27 &&
+      ["AC", "DF", "RN", "SP", "TO"].every((uf) => j.UFS_DO_BRASIL.includes(uf)) &&
+      !j.UFS_DO_BRASIL.includes("PT") &&
+      Object.isFrozen(j.UFS_DO_BRASIL) &&
+      j.enderecoPostalDaLocalizacao(null) === null,
+  );
+  afirmar(
+    "o título servido da Vaga é \"{título} — Vagas ChatClean\" (o texto da SPEC), aparado, e ausente para título em branco",
+    j.tituloServidoDaVaga("Analista de Suporte") === "Analista de Suporte — Vagas ChatClean" &&
+      j.tituloServidoDaVaga("  Analista  ") === "Analista — Vagas ChatClean" &&
+      j.tituloServidoDaVaga("  ") === null &&
+      j.tituloServidoDaVaga(null) === null &&
+      j.TITULO_DA_LISTAGEM_DE_VAGAS === "Vagas ChatClean | Trabalhe com a gente",
+  );
+  afirmar(
+    "o título de reserva da Encerrada é UM só: o do domínio é o MESMO que a página do navegador reexporta",
+    typeof regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA === "string" &&
+      regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA !== "" &&
+      carreirasPublico?.TITULO_DE_RESERVA_DA_ENCERRADA === regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA &&
+      !/\bTITULO_DE_RESERVA_DA_ENCERRADA\s*=/.test(semComentarios(ler("src/pages/carreirasPublico.js") ?? "")),
+  );
+  const fonteJob = semComentarios(ler("src/domain/carreiras/jobPosting.js") ?? "");
+  afirmar(
+    "o travessão do título mora numa constante só (`SEPARADOR_DO_TITULO_DA_VAGA`), e é o único travessão fora de comentário do módulo",
+    (fonteJob.match(/—/g) ?? []).length === 1 && /SEPARADOR_DO_TITULO_DA_VAGA\s*=\s*" — "/.test(fonteJob),
+  );
+}
+
+if (paginaMod !== null) {
+  const perigoso = { a: "</script><script>alert(1)</script>", b: "<!-- x -->", c: "</SCRIPT >" };
+  const serializado = paginaMod.serializarJsonLd(perigoso);
+  let devolta = null;
+  try {
+    devolta = JSON.parse(serializado);
+  } catch {
+    devolta = null;
+  }
+  afirmar(
+    "a serialização do JSON-LD escapa TODO `<` (nenhum `</script`, nenhum `<!--`) e continua sendo o MESMO JSON",
+    !serializado.includes("<") && mesmoJson(devolta, perigoso),
+    serializado.slice(0, 120),
+  );
+  afirmar(
+    "as etiquetas de cache de Carreiras são próprias (sem a do Blog): a coleção, e a da Vaga só com Slug no vocabulário",
+    igual(paginaMod.etiquetasDeCarreiras(), ["carreiras"]) &&
+      igual(paginaMod.etiquetasDeCarreiras("analista-de-suporte"), ["carreiras", "vaga:analista-de-suporte"]) &&
+      igual(paginaMod.etiquetasDeCarreiras("com espaço, e vírgula"), ["carreiras"]) &&
+      igual(paginaMod.etiquetasDeCarreiras(null), ["carreiras"]),
+  );
+  afirmar(
+    "o status de cada situação é o da SPEC (Aberta 200, Encerrada 410, inexistente 404), em mapa fechado e congelado",
+    mesmoJson(paginaMod.STATUS_DA_SITUACAO_DA_VAGA, { aberta: 200, encerrada: 410, inexistente: 404 }) &&
+      Object.isFrozen(paginaMod.STATUS_DA_SITUACAO_DA_VAGA) &&
+      paginaMod.STATUS_DA_LISTAGEM_DE_VAGAS === 200,
+  );
+  afirmar(
+    "o pedido: sem `slug` na consulta é a listagem; com `slug` (mesmo vazio ou repetido) é a página de uma Vaga, e o torto vira nulo",
+    mesmoJson(paginaMod.pedidoDeCarreiras({ query: {} }), { pagina: "listagem" }) &&
+      mesmoJson(paginaMod.pedidoDeCarreiras({}), { pagina: "listagem" }) &&
+      mesmoJson(paginaMod.pedidoDeCarreiras({ query: { slug: "x" } }), { pagina: "vaga", slug: "x" }) &&
+      mesmoJson(paginaMod.pedidoDeCarreiras({ query: { slug: "" } }), { pagina: "vaga", slug: null }) &&
+      mesmoJson(paginaMod.pedidoDeCarreiras({ query: { slug: ["a", "b"] } }), { pagina: "vaga", slug: null }),
+  );
+}
+
+/* ── Node: a leitura do servidor, com `buscar` injetado ── */
+
+if (leituraMod !== null) {
+  const AMB = { SUPABASE_URL: "http://leitura.duble", SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_leitura_5_8" };
+  const buscarCom = (status, corpo, registro) => async (url, opcoes) => {
+    registro.push({ url, opcoes });
+    if (status === "lanca") throw new TypeError("fetch failed");
+    return { ok: status >= 200 && status < 300, status, json: async () => corpo };
+  };
+  const TORTOS = ["../x", "Maiusculas", "", " dev", "dev ", "dev_x", "a,b", "a".repeat(201), null, undefined, ["dev"], 5, { slug: "dev" }];
+  const foram = [];
+  const naoInexistente = [];
+  for (const slug of TORTOS) {
+    const reg = [];
+    const r = await leituraMod.situacaoDaVagaServida(slug, { ambiente: AMB, buscar: buscarCom(200, [linhaAbertaS()], reg) });
+    if (reg.length > 0) foram.push(JSON.stringify(slug) ?? "undefined");
+    if (!(r.ok === true && r.situacao === "inexistente" && r.vaga === null)) naoInexistente.push(JSON.stringify(slug) ?? "undefined");
+  }
+  afirmar(
+    `Slug torto (${TORTOS.length} formas: \`../x\`, maiúsculas, vazio, espaço, sublinhado, vírgula, longo demais, nulo, lista, número, objeto) é inexistente com ZERO idas à rede`,
+    foram.length === 0 && naoInexistente.length === 0,
+    `foram à rede: ${foram.join(", ")} | não inexistente: ${naoInexistente.join(", ")}`,
+  );
+  {
+    const reg = [];
+    const r = await leituraMod.situacaoDaVagaServida("analista-de-suporte", {
+      ambiente: AMB,
+      buscar: buscarCom(200, [linhaAbertaS()], reg),
+    });
+    afirmar(
+      "controle: o Slug bem formado vai UMA vez à rede, pela RPC `situacao_da_vaga` com `p_slug`, com a chave PUBLICÁVEL",
+      reg.length === 1 &&
+        reg[0].url === "http://leitura.duble/rest/v1/rpc/situacao_da_vaga" &&
+        reg[0].opcoes?.body === JSON.stringify({ p_slug: "analista-de-suporte" }) &&
+        reg[0].opcoes?.headers?.apikey === AMB.SUPABASE_CHAVE_PUBLICAVEL &&
+        r.ok === true &&
+        r.situacao === "aberta" &&
+        r.vaga?.titulo === "Analista de Suporte" &&
+        r.vaga?.descricao_html === HTML_VALIDO,
+      `${reg.length} ida(s) | ${reg[0]?.url}`,
+    );
+    const comExtra = await leituraMod.situacaoDaVagaServida("analista-de-suporte", {
+      ambiente: AMB,
+      buscar: buscarCom(200, [linhaAbertaS({ coluna_nova: "vazou" })], []),
+    });
+    afirmar(
+      "a Aberta lida passa por LISTA DE PERMISSÃO: uma coluna que a função passasse a devolver, e que ninguém listou, não chega à Vaga",
+      comExtra.ok === true && !Object.hasOwn(comExtra.vaga ?? {}, "coluna_nova") && Object.hasOwn(comExtra.vaga ?? {}, "equivalente_jobposting"),
+    );
+  }
+  const FALHAS = [
+    ["HTTP 500", 500, {}],
+    ["rede fora", "lanca", null],
+    ["corpo que não é lista", 200, { situacao: "aberta" }],
+    ["lista vazia", 200, []],
+    ["duas linhas", 200, [linhaAbertaS(), linhaAbertaS()]],
+    ["linha que não é objeto", 200, ["aberta"]],
+    ["situação fora do vocabulário", 200, [{ situacao: "rascunho" }]],
+    ["situação ausente", 200, [{ slug: "x" }]],
+    ["Aberta sem título", 200, [linhaAbertaS({ titulo: "  " })]],
+    ["Aberta com Slug torto", 200, [linhaAbertaS({ slug: "Torto" })]],
+    ["Encerrada trazendo conteúdo", 200, [{ situacao: "encerrada", slug: "x", titulo: "X", descricao_html: "<p>vazou</p>" }]],
+    /* Revisão da 5.8: o Slug da Encerrada também é conferido, e tipo errado é defeito. */
+    ["Encerrada com Slug torto", 200, [{ situacao: "encerrada", slug: "Torto Demais", titulo: "X" }]],
+    ["Encerrada sem Slug", 200, [{ situacao: "encerrada", slug: null, titulo: "X" }]],
+    ["Encerrada com título número", 200, [{ situacao: "encerrada", slug: "x", titulo: 5 }]],
+    ["Aberta com título número", 200, [linhaAbertaS({ titulo: 42 })]],
+    ["Aberta com Resumo objeto", 200, [linhaAbertaS({ resumo: { texto: "x" } })]],
+    ["Aberta com Localização número", 200, [linhaAbertaS({ localizacao: 5 })]],
+    ["Aberta com Descrição lista", 200, [linhaAbertaS({ descricao_html: ["<p>x</p>"] })]],
+    ["Aberta com `aberta_em` número", 200, [linhaAbertaS({ aberta_em: 1756728000000 })]],
+  ];
+  const aceitas = [];
+  for (const [nome, status, corpo] of FALHAS) {
+    const r = await leituraMod.situacaoDaVagaServida("analista-de-suporte", { ambiente: AMB, buscar: buscarCom(status, corpo, []) });
+    if (!(r.ok === false && typeof r.defeito === "string" && r.defeito !== "")) aceitas.push(nome);
+  }
+  afirmar(
+    `a situação lida torta é FALHA DE LEITURA com defeito nomeado, nunca inexistente (${FALHAS.length} formas)`,
+    aceitas.length === 0,
+    aceitas.join(", "),
+  );
+  const encerrada = await leituraMod.situacaoDaVagaServida("analista-de-suporte", {
+    ambiente: AMB,
+    buscar: buscarCom(200, [{ situacao: "encerrada", slug: "analista-de-suporte", titulo: "Analista", resumo: null }], []),
+  });
+  afirmar(
+    "a Encerrada chega só com Slug e título",
+    encerrada.ok === true && encerrada.situacao === "encerrada" && mesmoJson(encerrada.vaga, { slug: "analista-de-suporte", titulo: "Analista" }),
+    JSON.stringify(encerrada),
+  );
+  const ABERTAS = [
+    { situacao: "aberta", slug: "a-1", titulo: "A 1", modalidade: "remoto", localizacao: "", aberta_em: "2026-09-02T00:00:00Z" },
+    { situacao: "aberta", slug: "a-2", titulo: "A 2", modalidade: "presencial", localizacao: "Natal, RN", aberta_em: "2026-09-01T00:00:00Z" },
+  ];
+  const reg = [];
+  const lista = await leituraMod.vagasAbertasServidas({ ambiente: AMB, buscar: buscarCom(200, ABERTAS, reg) });
+  afirmar(
+    "as Vagas Abertas vêm pela RPC `vagas_abertas`, na ordem do banco",
+    reg.length === 1 &&
+      reg[0].url === "http://leitura.duble/rest/v1/rpc/vagas_abertas" &&
+      lista.ok === true &&
+      igual(lista.vagas.map((v) => v.slug), ["a-1", "a-2"]),
+    JSON.stringify(lista).slice(0, 200),
+  );
+  const tortas = [];
+  for (const [nome, status, corpo] of [
+    ["HTTP 500", 500, {}],
+    ["rede fora", "lanca", null],
+    ["corpo que não é lista", 200, { x: 1 }],
+    ["linha sem Slug", 200, [{ situacao: "aberta", titulo: "X" }]],
+    ["linha que não é Aberta", 200, [{ situacao: "encerrada", slug: "x", titulo: "X" }]],
+    ["linha sem título", 200, [{ situacao: "aberta", slug: "x", titulo: "" }]],
+    ["linha com Modalidade objeto", 200, [{ situacao: "aberta", slug: "x", titulo: "X", modalidade: { v: 1 } }]],
+    ["linha com título número", 200, [{ situacao: "aberta", slug: "x", titulo: 7 }]],
+  ]) {
+    const r = await leituraMod.vagasAbertasServidas({ ambiente: AMB, buscar: buscarCom(status, corpo, []) });
+    if (!(r.ok === false && typeof r.defeito === "string")) tortas.push(nome);
+  }
+  afirmar(
+    "a lista lida torta é FALHA DE LEITURA, e nunca \"nenhuma vaga\"",
+    tortas.length === 0,
+    tortas.join(", "),
+  );
+}
+
+/* ── Dirigida: `api/carreiras.js` contra um dublê de PostgREST ── */
+
+if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metadadosMod !== null && artigoMod !== null) {
+  const handler = moduloDoHandler.default;
+  const shell = await shellMod.lerShell();
+  afirmar(
+    "o shell do build está embutido (`npm run build` antes de verificar)",
+    shell.ok === true,
+    shell.defeito ?? "",
+  );
+
+  /** As respostas do dublê, por função, trocadas a cada caso. */
+  const respostasS = { situacao_da_vaga: [200, []], vagas_abertas: [200, []] };
+  const pedidosS = [];
+  const dubleS = createServer((req, res) => {
+    let bruto = "";
+    req.on("data", (p) => {
+      bruto += p;
+    });
+    req.on("end", () => {
+      pedidosS.push({ metodo: req.method, url: req.url, corpo: bruto, apikey: req.headers.apikey });
+      const nome = /^\/rest\/v1\/rpc\/([a-z_]+)$/.exec(req.url ?? "")?.[1];
+      const [status, dados] = respostasS[nome] ?? [404, { message: "função fora do dublê" }];
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(typeof dados === "string" ? dados : JSON.stringify(dados));
+    });
+  });
+  await new Promise((pronto) => dubleS.listen(0, "127.0.0.1", pronto));
+  const URL_DO_DUBLE_S = `http://127.0.0.1:${dubleS.address().port}`;
+  const AMBIENTE_S = {
+    VITE_DOMINIO_DO_SITE: DOMINIO_S,
+    SUPABASE_URL: URL_DO_DUBLE_S,
+    SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_duble_5_8",
+    VITE_SUPABASE_URL: undefined,
+    VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+  };
+
+  /**
+   * Dirige o handler REAL com requisição e resposta de mentira. A requisição
+   * traz um `host` e uma `url` de intruso: a canônica não pode sair deles.
+   */
+  const pagina = async ({ metodo = "GET", query = {}, ambiente = {}, corpo = undefined, injetar = null } = {}) => {
+    const r = { status: null, cabecalhos: {}, corpo: null, enviou: false, terminou: false, eventos: [], antes: pedidosS.length };
+    const res = {
+      setHeader(nome, valor) {
+        r.cabecalhos[nome] = valor;
+      },
+      status(codigo) {
+        r.status = codigo;
+        return res;
+      },
+      send(saida) {
+        r.enviou = true;
+        r.corpo = saida;
+        return res;
+      },
+      end(...args) {
+        r.terminou = true;
+        if (args.length > 0 && args[0] !== undefined && args[0] !== "") r.corpo = args[0];
+        return res;
+      },
+      json(saida) {
+        r.enviou = true;
+        r.corpo = saida;
+        return res;
+      },
+    };
+    const qs = new URLSearchParams(Object.entries(query).filter(([, v]) => typeof v === "string")).toString();
+    const req = {
+      method: metodo,
+      query,
+      url: `/api/carreiras${qs ? `?${qs}` : ""}`,
+      headers: { host: "intruso.exemplo", "x-forwarded-host": "intruso.exemplo" },
+      body: corpo,
+    };
+    const todos = { ...AMBIENTE_S, ...ambiente };
+    const guardado = {};
+    for (const [nome, valor] of Object.entries(todos)) {
+      guardado[nome] = process.env[nome];
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    }
+    const aviso = console.warn;
+    const erro = console.error;
+    console.warn = (...p) => r.eventos.push(p.join(" "));
+    console.error = (...p) => r.eventos.push(p.join(" "));
+    try {
+      await (injetar === null ? handler(req, res) : paginaMod.servirCarreiras(req, res, injetar));
+    } catch (e) {
+      r.lancou = String(e?.message ?? e);
+    } finally {
+      console.warn = aviso;
+      console.error = erro;
+      for (const [nome, valor] of Object.entries(guardado)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    }
+    r.pedidos = pedidosS.slice(r.antes);
+    r.html = typeof r.corpo === "string" ? r.corpo : "";
+    return r;
+  };
+
+  /* Leitores do documento servido. */
+  const recorte = (html, inicio, fim) => {
+    const i = html.indexOf(inicio);
+    if (i === -1) return null;
+    const j = html.indexOf(fim, i + inicio.length);
+    return j === -1 ? null : html.slice(i + inicio.length, j);
+  };
+  const regiaoDeMeta = (html) => recorte(html, metadadosMod.MARCA_INICIO, metadadosMod.MARCA_FIM);
+  const regiaoDoCorpo = (html) => recorte(html, artigoMod.MARCA_CORPO_INICIO, artigoMod.MARCA_CORPO_FIM);
+  const foraDasRegioes = (html) => {
+    let texto = String(html ?? "");
+    for (const [inicio, fim] of [
+      [metadadosMod.MARCA_INICIO, metadadosMod.MARCA_FIM],
+      [artigoMod.MARCA_CORPO_INICIO, artigoMod.MARCA_CORPO_FIM],
+    ]) {
+      const i = texto.indexOf(inicio);
+      const j = texto.indexOf(fim, i === -1 ? 0 : i);
+      if (i === -1 || j === -1) return null;
+      const fecha = texto.indexOf("-->", j);
+      if (fecha === -1) return null;
+      texto = texto.slice(0, i) + texto.slice(fecha + 3);
+    }
+    return texto;
+  };
+  const tituloDe = (html) => {
+    const todos = [...String(regiaoDeMeta(html) ?? "").matchAll(/<title>([^<]*)<\/title>/g)].map((m) => m[1]);
+    return todos.length === 1 ? todos[0] : `(${todos.length} títulos)`;
+  };
+  const metaDe = (html, chave, nome) => {
+    const alvo = `<meta ${chave}="${nome}" content="`;
+    const trechos = String(regiaoDeMeta(html) ?? "").split(alvo).slice(1);
+    if (trechos.length !== 1) return trechos.length === 0 ? null : `(${trechos.length})`;
+    return trechos[0].slice(0, trechos[0].indexOf('"'));
+  };
+  const canonicaDe = (html) => {
+    const todas = [...String(html).matchAll(/<link rel="canonical" href="([^"]*)" \/>/g)].map((m) => m[1]);
+    return todas.length === 1 ? todas[0] : `(${todas.length} canônicas)`;
+  };
+  const jsonLdsDoCorpo = (html) =>
+    [...String(regiaoDoCorpo(html) ?? "").matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => {
+      try {
+        return JSON.parse(m[1]);
+      } catch {
+        return { naoEJson: m[1].slice(0, 80) };
+      }
+    });
+  const noscriptDe = (html) => recorte(String(regiaoDoCorpo(html) ?? ""), "<noscript>", "</noscript>");
+  const desescapar = (t) =>
+    String(t ?? "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+  afirmar(
+    "autoteste dos leitores: acham título, meta, canônica e JSON-LD num documento sintético, e contam repetição",
+    (() => {
+      const M = metadadosMod;
+      const A = artigoMod;
+      const doc =
+        `${M.MARCA_INICIO} -->\n<title>T</title>\n<meta name="description" content="D" />\n<link rel="canonical" href="C" />\n${M.MARCA_FIM} -->\n` +
+        `${A.MARCA_CORPO_INICIO} -->\n<noscript><h1>H</h1></noscript>\n<script type="application/ld+json">{"a":1}</script>\n${A.MARCA_CORPO_FIM} -->`;
+      const duplo = doc.replace("<title>T</title>", "<title>T</title><title>U</title>");
+      return (
+        tituloDe(doc) === "T" &&
+        metaDe(doc, "name", "description") === "D" &&
+        canonicaDe(doc) === "C" &&
+        mesmoJson(jsonLdsDoCorpo(doc), [{ a: 1 }]) &&
+        noscriptDe(doc) === "<h1>H</h1>" &&
+        tituloDe(duplo) === "(2 títulos)"
+      );
+    })(),
+  );
+
+  /** O documento servido fica FORA de `#root`, e a região da home foi trocada inteira. */
+  const conferirDocumento = (r, rotulo) => {
+    const html = r.html;
+    const raiz = html.indexOf('<div id="root"></div>');
+    const fimDoNoscript = html.lastIndexOf("</noscript>");
+    const fimDoCorpo = html.indexOf(artigoMod.MARCA_CORPO_FIM);
+    afirmar(
+      `${rotulo}: o \`<noscript>\` está na região do corpo, ANTES de \`<div id="root">\`, e o contêiner continua vazio`,
+      raiz !== -1 && fimDoNoscript !== -1 && fimDoNoscript < fimDoCorpo && fimDoCorpo < raiz && html.split('<div id="root">').length === 2,
+      `root ${raiz} | noscript ${fimDoNoscript} | fim do corpo ${fimDoCorpo}`,
+    );
+    const meta = regiaoDeMeta(html) ?? "";
+    afirmar(
+      `${rotulo}: a região de metadados da home foi trocada INTEIRA (nada de FAQPage, nem a canônica, nem o título da home), e o resto do shell é o do build`,
+      meta !== "" &&
+        !html.includes("FAQPage") &&
+        !html.includes(`<link rel="canonical" href="${DOMINIO_S}/" />`) &&
+        !/<title>CRM e ChatBot/.test(html) &&
+        foraDasRegioes(html) !== null &&
+        foraDasRegioes(html) === foraDasRegioes(shell.html),
+      tituloDe(html),
+    );
+    afirmar(
+      `${rotulo}: nada vem da requisição (o \`host\` de intruso não aparece em lugar nenhum), e o tipo é HTML`,
+      !html.includes("intruso.exemplo") && String(r.cabecalhos["Content-Type"] ?? "").startsWith("text/html"),
+    );
+  };
+
+  try {
+    /* ── Aberta presencial ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS()]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "controle: a rota chega ao dublê pela RPC `situacao_da_vaga`, com o Slug pedido e a chave publicável",
+        r.pedidos.length === 1 &&
+          r.pedidos[0].url === "/rest/v1/rpc/situacao_da_vaga" &&
+          r.pedidos[0].corpo === JSON.stringify({ p_slug: "analista-de-suporte" }) &&
+          r.pedidos[0].apikey === "sb_publishable_duble_5_8",
+        r.pedidos.map((p) => `${p.url} ${p.corpo}`).join(" | ") || r.lancou || "nenhum pedido",
+      );
+      afirmar(
+        "Aberta: 200, `public, s-maxage=60`, diagnóstico ok, etiquetas `carreiras` e `vaga:<Slug do banco>` (sem a do Blog)",
+        r.status === 200 &&
+          r.cabecalhos["Cache-Control"] === "public, s-maxage=60" &&
+          r.cabecalhos["X-Entrega-Diagnostico"] === "ok" &&
+          r.cabecalhos["Vercel-Cache-Tag"] === "carreiras,vaga:analista-de-suporte" &&
+          r.enviou === true,
+        `HTTP ${r.status} | ${r.cabecalhos["Cache-Control"]} | ${r.cabecalhos["Vercel-Cache-Tag"]} | ${r.lancou ?? ""}`,
+      );
+      afirmar(
+        "Aberta: title \"{título} — Vagas ChatClean\", descrição = Resumo, og/twitter com o título e a Imagem Padrão do Site, `og:type` website",
+        tituloDe(r.html) === "Analista de Suporte — Vagas ChatClean" &&
+          metaDe(r.html, "name", "description") === "Atender clientes da ChatClean pelo WhatsApp." &&
+          metaDe(r.html, "property", "og:title") === "Analista de Suporte — Vagas ChatClean" &&
+          metaDe(r.html, "name", "twitter:title") === "Analista de Suporte — Vagas ChatClean" &&
+          metaDe(r.html, "property", "og:description") === "Atender clientes da ChatClean pelo WhatsApp." &&
+          metaDe(r.html, "property", "og:type") === "website" &&
+          metaDe(r.html, "property", "og:image") === `${DOMINIO_S}/imagem-padrao-do-site.png` &&
+          metaDe(r.html, "name", "twitter:image") === `${DOMINIO_S}/imagem-padrao-do-site.png` &&
+          metaDe(r.html, "property", "og:image:width") === "1200",
+        `${tituloDe(r.html)} | ${metaDe(r.html, "name", "description")}`,
+      );
+      conferirDocumento(r, "Aberta");
+      const ns = noscriptDe(r.html) ?? "";
+      afirmar(
+        "Aberta: o `<noscript>` traz UM `<h1>` com o título, as Classificações (Departamento, Tipo, Nível, local), a Descrição e o Candidatar-se",
+        (ns.match(/<h1>/g) ?? []).length === 1 &&
+          ns.includes("<h1>Analista de Suporte</h1>") &&
+          ns.includes("<li>Departamento: Atendimento</li>") &&
+          ns.includes("<li>Tipo: CLT</li>") &&
+          ns.includes("<li>Nível: Pleno</li>") &&
+          ns.includes(`<li>Local: ${regrasDaVaga.textoDoLocal({ modalidade: "presencial", localizacao: "Natal, RN" })}</li>`) &&
+          HTML_VALIDO !== "" &&
+          ns.includes(HTML_VALIDO) &&
+          ns.includes('<a href="https://exemplo.com/candidatura" rel="noopener noreferrer">Candidatar-se</a>'),
+        ns.slice(0, 300),
+      );
+      const lds = jsonLdsDoCorpo(r.html);
+      afirmar(
+        "Aberta presencial: UM JSON-LD no corpo, e ele é EXATAMENTE o `JobPosting` da SPEC (`jobLocation` Natal/RN/BR)",
+        lds.length === 1 && mesmoJson(lds[0], JOBPOSTING_ESPERADO),
+        JSON.stringify(lds).slice(0, 400),
+      );
+    }
+
+    /* ── A canônica vem do Slug do BANCO, e não do pedido ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ slug: "slug-do-banco" })]];
+    {
+      const r = await pagina({ query: { slug: "pedido-na-url" } });
+      const lds = jsonLdsDoCorpo(r.html);
+      afirmar(
+        "a canônica, o `og:url` e a `url` do `JobPosting` são o Domínio Canônico + `/carreiras/<Slug do BANCO>`, nunca o Slug pedido nem a requisição",
+        r.status === 200 &&
+          canonicaDe(r.html) === `${DOMINIO_S}/carreiras/slug-do-banco` &&
+          metaDe(r.html, "property", "og:url") === `${DOMINIO_S}/carreiras/slug-do-banco` &&
+          lds[0]?.url === `${DOMINIO_S}/carreiras/slug-do-banco` &&
+          r.cabecalhos["Vercel-Cache-Tag"] === "carreiras,vaga:slug-do-banco" &&
+          !r.html.includes("pedido-na-url"),
+        `${canonicaDe(r.html)} | ${lds[0]?.url}`,
+      );
+    }
+
+    /* ── HEAD da Aberta ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS()]];
+    {
+      const get = await pagina({ query: { slug: "analista-de-suporte" } });
+      const head = await pagina({ metodo: "HEAD", query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "HEAD da Aberta: o MESMO status e os MESMOS cabeçalhos do GET, e nenhum corpo enviado",
+        head.status === 200 && mesmoJson(head.cabecalhos, get.cabecalhos) && head.enviou === false && head.terminou === true && head.corpo === null,
+        `HTTP ${head.status} | enviou ${head.enviou} | ${JSON.stringify(head.cabecalhos)}`,
+      );
+    }
+
+    /* ── Aberta remota ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ modalidade: "remoto", localizacao: "" })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      const lds = jsonLdsDoCorpo(r.html);
+      afirmar(
+        "Aberta remota: 200, e o `JobPosting` servido traz `TELECOMMUTE` + Brasil, sem `jobLocation`",
+        r.status === 200 &&
+          lds.length === 1 &&
+          lds[0].jobLocationType === "TELECOMMUTE" &&
+          mesmoJson(lds[0].applicantLocationRequirements, { "@type": "Country", name: "Brasil" }) &&
+          !Object.hasOwn(lds[0], "jobLocation"),
+        JSON.stringify(lds).slice(0, 300),
+      );
+      afirmar(
+        "Aberta remota: o local no `<noscript>` é o da Modalidade",
+        (noscriptDe(r.html) ?? "").includes(`<li>Local: ${regrasDaVaga.textoDoLocal({ modalidade: "remoto" })}</li>`),
+      );
+    }
+
+    /* ── Aberta híbrida ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ modalidade: "hibrido", localizacao: "Mossoró, RN" })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      const lds = jsonLdsDoCorpo(r.html);
+      afirmar(
+        "Aberta híbrida: o `JobPosting` servido traz `jobLocation` com o endereço (Mossoró/RN/BR)",
+        lds.length === 1 &&
+          mesmoJson(lds[0].jobLocation, {
+            "@type": "Place",
+            address: { "@type": "PostalAddress", addressLocality: "Mossoró", addressRegion: "RN", addressCountry: "BR" },
+          }),
+        JSON.stringify(lds[0]?.jobLocation),
+      );
+    }
+
+    /* ── Escape ── */
+    const HOSTIL = `Dev "</script><script>alert('x')</script>" & <b>`;
+    const RESUMO_HOSTIL = `Resumo <img src=x onerror=alert(1)> "aspas"`;
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ titulo: HOSTIL, resumo: RESUMO_HOSTIL })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      const lds = jsonLdsDoCorpo(r.html);
+      afirmar(
+        "escape: título e Resumo hostis saem escapados no `<title>`, nas metas e no `<h1>` (nenhum `<script>`/`<img` injetado), e voltam ao texto original quando desescapados",
+        r.status === 200 &&
+          !r.html.includes("<script>alert") &&
+          !r.html.includes("<img src=x") &&
+          desescapar(tituloDe(r.html)) === `${HOSTIL} — Vagas ChatClean` &&
+          desescapar(metaDe(r.html, "name", "description")) === RESUMO_HOSTIL &&
+          (noscriptDe(r.html) ?? "").includes(`<h1>${metadadosMod.escapar(HOSTIL)}</h1>`),
+        tituloDe(r.html),
+      );
+      afirmar(
+        "escape: o JSON-LD com o título hostil não fecha o bloco (nenhum `</script` dentro dele) e continua sendo o JSON do título original",
+        lds.length === 1 && lds[0].title === HOSTIL && (regiaoDoCorpo(r.html) ?? "").split("</script>").length === 2,
+        JSON.stringify(lds).slice(0, 200),
+      );
+    }
+
+    /* ── Descrição recusada ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ descricao_html: '<p>Oi</p><img src="x" onerror="alert(1)">' })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "Descrição recusada: continua 200 com `s-maxage=60`, o `<noscript>` SEM a Descrição, SEM `JobPosting`, e o diagnóstico `degradado:conteudo-recusado` com o evento registrado",
+        r.status === 200 &&
+          r.cabecalhos["Cache-Control"] === "public, s-maxage=60" &&
+          r.cabecalhos["X-Entrega-Diagnostico"] === "degradado:conteudo-recusado" &&
+          !r.html.includes("onerror") &&
+          !(noscriptDe(r.html) ?? "").includes("<p>Oi</p>") &&
+          (noscriptDe(r.html) ?? "").includes("<h1>Analista de Suporte</h1>") &&
+          jsonLdsDoCorpo(r.html).length === 0 &&
+          r.eventos.some((l) => l.includes("[entrega:evento]") && l.includes("degradado:conteudo-recusado")),
+        `HTTP ${r.status} | ${r.cabecalhos["X-Entrega-Diagnostico"]} | eventos ${r.eventos.length}`,
+      );
+    }
+
+    /* ── Aberta sem `aberta_em`: sem JobPosting, página de pé ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ aberta_em: null })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "Aberta com campo obrigatório do `JobPosting` faltando (`aberta_em`): 200, a Descrição no `<noscript>`, sem JSON-LD, diagnóstico degradado",
+        r.status === 200 &&
+          jsonLdsDoCorpo(r.html).length === 0 &&
+          (noscriptDe(r.html) ?? "").includes(HTML_VALIDO) &&
+          r.cabecalhos["X-Entrega-Diagnostico"] === "degradado:conteudo-recusado",
+        `HTTP ${r.status} | ${r.cabecalhos["X-Entrega-Diagnostico"]}`,
+      );
+    }
+
+    /* ── Resumo vazio: a descrição é omitida ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ resumo: "   " })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "Aberta com Resumo vazio: a descrição (`description`, `og:` e `twitter:`) é OMITIDA, e não emitida em branco",
+        r.status === 200 &&
+          metaDe(r.html, "name", "description") === null &&
+          metaDe(r.html, "property", "og:description") === null &&
+          metaDe(r.html, "name", "twitter:description") === null,
+      );
+    }
+
+    /* ── Link de Candidatura inválido ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS({ link_de_candidatura: "javascript:alert(1)" })]];
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" } });
+      afirmar(
+        "Link de Candidatura inválido: sem Candidatar-se (nem o `javascript:`), e o `JobPosting` continua",
+        r.status === 200 && !r.html.includes("Candidatar-se") && !r.html.includes("javascript:") && jsonLdsDoCorpo(r.html).length === 1,
+      );
+    }
+
+    /* ── Encerrada ── */
+    respostasS.situacao_da_vaga = [200, [{ situacao: "encerrada", slug: "slug-do-banco", titulo: "Analista Antigo" }]];
+    {
+      const r = await pagina({ query: { slug: "pedido-na-url" } });
+      const ns = noscriptDe(r.html) ?? "";
+      afirmar(
+        "Encerrada: 410, `no-store`, sem etiqueta de cache, e SEM `JobPosting`",
+        r.status === 410 &&
+          r.cabecalhos["Cache-Control"] === "no-store" &&
+          !Object.hasOwn(r.cabecalhos, "Vercel-Cache-Tag") &&
+          jsonLdsDoCorpo(r.html).length === 0,
+        `HTTP ${r.status} | ${r.cabecalhos["Cache-Control"]}`,
+      );
+      afirmar(
+        "Encerrada: a página renderizada (title com o título, canônica pelo Slug do banco, `<noscript>` com a frase de encerrada e o link para `/carreiras`)",
+        tituloDe(r.html) === "Analista Antigo — Vagas ChatClean" &&
+          canonicaDe(r.html) === `${DOMINIO_S}/carreiras/slug-do-banco` &&
+          ns.includes("<h1>Analista Antigo</h1>") &&
+          ns.includes(metadadosMod.escapar(paginaMod.FRASE_DA_ENCERRADA)) &&
+          paginaMod.FRASE_DA_ENCERRADA.includes(estadosDaVaga.rotuloDoEstadoDaVaga("encerrada").toLowerCase()) &&
+          ns.includes('href="/carreiras"') &&
+          !ns.includes("Candidatar-se"),
+        `${tituloDe(r.html)} | ${canonicaDe(r.html)}`,
+      );
+      conferirDocumento(r, "Encerrada");
+      const head = await pagina({ metodo: "HEAD", query: { slug: "pedido-na-url" } });
+      afirmar(
+        "HEAD da Encerrada: 410 com os mesmos cabeçalhos, sem corpo",
+        head.status === 410 && mesmoJson(head.cabecalhos, r.cabecalhos) && head.enviou === false,
+      );
+    }
+    respostasS.situacao_da_vaga = [200, [{ situacao: "encerrada", slug: "slug-do-banco", titulo: null }]];
+    {
+      const r = await pagina({ query: { slug: "slug-do-banco" } });
+      afirmar(
+        "Encerrada sem título: o title e o `<h1>` usam o título de reserva do domínio",
+        r.status === 410 &&
+          tituloDe(r.html) === `${regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA} — Vagas ChatClean` &&
+          (noscriptDe(r.html) ?? "").includes(`<h1>${regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA}</h1>`),
+        tituloDe(r.html),
+      );
+    }
+
+    /* ── Inexistente (Rascunho) ── */
+    respostasS.situacao_da_vaga = [200, [{ situacao: "inexistente" }]];
+    {
+      const r = await pagina({ query: { slug: "um-rascunho" } });
+      afirmar(
+        "Inexistente (Rascunho): 404, `no-store`, sem etiqueta, SEM `JobPosting`, title \"Vaga não encontrada — Vagas ChatClean\", canônica da listagem e link para `/carreiras`",
+        r.status === 404 &&
+          r.cabecalhos["Cache-Control"] === "no-store" &&
+          !Object.hasOwn(r.cabecalhos, "Vercel-Cache-Tag") &&
+          jsonLdsDoCorpo(r.html).length === 0 &&
+          tituloDe(r.html) === "Vaga não encontrada — Vagas ChatClean" &&
+          canonicaDe(r.html) === `${DOMINIO_S}/carreiras` &&
+          (noscriptDe(r.html) ?? "").includes('href="/carreiras"') &&
+          !r.html.includes("um-rascunho"),
+        `HTTP ${r.status} | ${tituloDe(r.html)} | ${canonicaDe(r.html)}`,
+      );
+      conferirDocumento(r, "Inexistente");
+      const head = await pagina({ metodo: "HEAD", query: { slug: "um-rascunho" } });
+      afirmar(
+        "HEAD da inexistente: 404 com os mesmos cabeçalhos, sem corpo",
+        head.status === 404 && mesmoJson(head.cabecalhos, r.cabecalhos) && head.enviou === false,
+      );
+    }
+
+    /* ── Slug torto: 404 sem ida ao banco ── */
+    respostasS.situacao_da_vaga = [200, [linhaAbertaS()]];
+    {
+      const tortos = [];
+      for (const slug of ["../x", "Maiusculas", "", ["a", "b"], "a b", "dev_x", "..%2Fx", "a".repeat(201)]) {
+        const r = await pagina({ query: { slug } });
+        if (!(r.status === 404 && r.cabecalhos["Cache-Control"] === "no-store" && r.pedidos.length === 0 && jsonLdsDoCorpo(r.html).length === 0)) {
+          tortos.push(`${JSON.stringify(slug).slice(0, 20)}: HTTP ${r.status}, ${r.pedidos.length} pedido(s)`);
+        }
+      }
+      afirmar(
+        "Slug torto (`../x`, maiúsculas, vazio, lista, espaço, sublinhado, codificado, longo demais): 404 `no-store` com ZERO pedidos ao banco",
+        tortos.length === 0,
+        tortos.join(" | "),
+      );
+    }
+
+    /* ── Falha de leitura: 500 com o shell INTACTO ── */
+    {
+      const casos = [
+        ["RPC 500", [500, { message: "falhou" }], {}],
+        ["rede fora", [200, [linhaAbertaS()]], { SUPABASE_URL: "http://127.0.0.1:9" }],
+        ["corpo torto (não é JSON)", [200, "isto não é json"], {}],
+        ["corpo torto (situação fora do vocabulário)", [200, [{ situacao: "rascunho" }]], {}],
+        ["corpo torto (lista vazia)", [200, []], {}],
+        ["sem ambiente de leitura", [200, [linhaAbertaS()]], { SUPABASE_URL: undefined, SUPABASE_CHAVE_PUBLICAVEL: undefined }],
+      ];
+      const ruins = [];
+      for (const [nome, resposta, ambiente] of casos) {
+        respostasS.situacao_da_vaga = resposta;
+        const r = await pagina({ query: { slug: "analista-de-suporte" }, ambiente });
+        if (
+          !(
+            r.status === 500 &&
+            r.cabecalhos["Cache-Control"] === "no-store" &&
+            r.cabecalhos["X-Entrega-Diagnostico"] === "degradado:leitura-falhou" &&
+            r.html === shell.html &&
+            !Object.hasOwn(r.cabecalhos, "Vercel-Cache-Tag") &&
+            r.eventos.some((l) => l.includes("degradado:leitura-falhou"))
+          )
+        ) {
+          ruins.push(`${nome}: HTTP ${r.status} ${r.cabecalhos["X-Entrega-Diagnostico"]} shell ${r.html === shell.html}`);
+        }
+      }
+      afirmar(
+        `falha de leitura da Vaga (${casos.length} formas: RPC 500, rede fora, corpo torto, sem ambiente): 500 \`no-store\` com o shell do build INTACTO e o diagnóstico \`degradado:leitura-falhou\``,
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+    }
+
+    /* ── Listagem ── */
+    respostasS.vagas_abertas = [
+      200,
+      [
+        { situacao: "aberta", slug: "vaga-nova", titulo: "Vaga Nova", modalidade: "remoto", localizacao: "", aberta_em: "2026-09-10T00:00:00Z" },
+        { situacao: "aberta", slug: "vaga-antiga", titulo: "Vaga <Antiga>", modalidade: "presencial", localizacao: "Natal, RN", aberta_em: "2026-09-01T00:00:00Z" },
+      ],
+    ];
+    {
+      const r = await pagina();
+      const ns = noscriptDe(r.html) ?? "";
+      afirmar(
+        "Listagem: 200, `s-maxage=60`, etiqueta `carreiras` só, pela RPC `vagas_abertas`",
+        r.status === 200 &&
+          r.cabecalhos["Cache-Control"] === "public, s-maxage=60" &&
+          r.cabecalhos["Vercel-Cache-Tag"] === "carreiras" &&
+          r.pedidos.length === 1 &&
+          r.pedidos[0].url === "/rest/v1/rpc/vagas_abertas",
+        `HTTP ${r.status} | ${r.cabecalhos["Vercel-Cache-Tag"]} | ${r.pedidos.map((p) => p.url).join(",")}`,
+      );
+      afirmar(
+        "Listagem: title \"Vagas ChatClean | Trabalhe com a gente\", descrição fixa, canônica própria `/carreiras`, sem `JobPosting`",
+        tituloDe(r.html) === "Vagas ChatClean | Trabalhe com a gente" &&
+          metaDe(r.html, "name", "description") === metadadosMod.escapar(paginaMod.DESCRICAO_DA_LISTAGEM_DE_VAGAS) &&
+          canonicaDe(r.html) === `${DOMINIO_S}/carreiras` &&
+          jsonLdsDoCorpo(r.html).length === 0,
+        `${tituloDe(r.html)} | ${canonicaDe(r.html)}`,
+      );
+      const iNova = ns.indexOf('<a href="/carreiras/vaga-nova">Vaga Nova</a>');
+      const iAntiga = ns.indexOf('<a href="/carreiras/vaga-antiga">Vaga &lt;Antiga&gt;</a>');
+      afirmar(
+        "Listagem: o `<noscript>` lista as Vagas Abertas na ordem do banco, cada uma com o link e o local, título escapado",
+        iNova !== -1 &&
+          iAntiga !== -1 &&
+          iNova < iAntiga &&
+          ns.includes(`(${regrasDaVaga.textoDoLocal({ modalidade: "presencial", localizacao: "Natal, RN" })})`) &&
+          (ns.match(/<h1>/g) ?? []).length === 1,
+        ns.slice(0, 400),
+      );
+      conferirDocumento(r, "Listagem");
+      const head = await pagina({ metodo: "HEAD" });
+      afirmar(
+        "HEAD da listagem: 200 com os mesmos cabeçalhos, sem corpo",
+        head.status === 200 && mesmoJson(head.cabecalhos, r.cabecalhos) && head.enviou === false,
+      );
+    }
+    respostasS.vagas_abertas = [200, []];
+    {
+      const r = await pagina();
+      afirmar(
+        "Listagem vazia: 200 com a frase de \"sem vagas\" no `<noscript>`",
+        r.status === 200 && (noscriptDe(r.html) ?? "").includes(metadadosMod.escapar(paginaMod.FRASE_SEM_VAGAS_ABERTAS)) && !(noscriptDe(r.html) ?? "").includes("<li>"),
+      );
+      /* Revisão da 5.8: a frase promete o WhatsApp, e o `<noscript>` dá o caminho. */
+      afirmar(
+        "Listagem vazia: o `<noscript>` traz o link do currículo pelo WhatsApp, o MESMO endereço do domínio (`ENDERECO_DO_CURRICULO`)",
+        (noscriptDe(r.html) ?? "").includes(`<a href="${metadadosMod.escapar(regrasDaVaga.ENDERECO_DO_CURRICULO)}" rel="noopener noreferrer">`) &&
+          /^https:\/\/api\.whatsapp\.com\//.test(regrasDaVaga.ENDERECO_DO_CURRICULO ?? ""),
+      );
+    }
+    {
+      const ruins = [];
+      for (const [nome, resposta, ambiente] of [
+        ["RPC 500", [500, {}], {}],
+        ["rede fora", [200, []], { SUPABASE_URL: "http://127.0.0.1:9" }],
+        ["corpo torto", [200, { nao: "lista" }], {}],
+        ["linha torta", [200, [{ situacao: "aberta", slug: "Torto", titulo: "X" }]], {}],
+      ]) {
+        respostasS.vagas_abertas = resposta;
+        const r = await pagina({ ambiente });
+        if (!(r.status === 500 && r.cabecalhos["Cache-Control"] === "no-store" && r.html === shell.html && r.cabecalhos["X-Entrega-Diagnostico"] === "degradado:leitura-falhou")) {
+          ruins.push(`${nome}: HTTP ${r.status}`);
+        }
+      }
+      afirmar(
+        "Listagem com falha de leitura (RPC 500, rede fora, corpo torto, linha torta): 500 `no-store` com o shell INTACTO, nunca 200 \"sem vagas\"",
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+      respostasS.vagas_abertas = [200, []];
+    }
+
+    /* ── Sem domínio: o 500 de defeito do Blog ── */
+    {
+      const r = await pagina({ query: { slug: "analista-de-suporte" }, ambiente: { VITE_DOMINIO_DO_SITE: undefined } });
+      const l = await pagina({ ambiente: { VITE_DOMINIO_DO_SITE: undefined } });
+      afirmar(
+        "sem Domínio Canônico: o 500 de defeito do Blog (texto, `no-store`, `falha:sem-dominio`), nas duas rotas e sem ida ao banco",
+        [r, l].every(
+          (x) =>
+            x.status === 500 &&
+            String(x.cabecalhos["Content-Type"]).startsWith("text/plain") &&
+            x.cabecalhos["Cache-Control"] === "no-store" &&
+            x.cabecalhos["X-Entrega-Diagnostico"] === "falha:sem-dominio" &&
+            x.pedidos.length === 0,
+        ),
+        `${r.status} ${r.cabecalhos["X-Entrega-Diagnostico"]} | ${l.status}`,
+      );
+    }
+
+    /* ── Revisão da 5.8: o título servido sai de `tituloServidoDaVaga` ── */
+    {
+      const observados = [];
+      respostasS.situacao_da_vaga = [200, [linhaAbertaS({ titulo: "Título Observado A" })]];
+      const a = await pagina({ query: { slug: "analista-de-suporte" } });
+      observados.push([tituloDe(a.html), jobPostingMod.tituloServidoDaVaga("Título Observado A")]);
+      respostasS.situacao_da_vaga = [200, [{ situacao: "encerrada", slug: "slug-do-banco", titulo: "Título Observado E" }]];
+      const e = await pagina({ query: { slug: "slug-do-banco" } });
+      observados.push([tituloDe(e.html), jobPostingMod.tituloServidoDaVaga("Título Observado E")]);
+      respostasS.situacao_da_vaga = [200, [{ situacao: "inexistente" }]];
+      const i = await pagina({ query: { slug: "nada-aqui" } });
+      observados.push([tituloDe(i.html), jobPostingMod.tituloServidoDaVaga(jobPostingMod.VAGA_NAO_ENCONTRADA)]);
+      afirmar(
+        "o título servido da Aberta, da Encerrada e da inexistente é, observado na saída, o que `tituloServidoDaVaga` devolve",
+        observados.every(([visto, esperado]) => typeof esperado === "string" && visto === metadadosMod.escapar(esperado)),
+        observados.map(([v, e]) => `${v} × ${e}`).join(" | "),
+      );
+      const fontePaginaS = semComentarios(ler("api/_nucleo/paginaDeCarreiras.js") ?? "");
+      afirmar(
+        "`paginaDeCarreiras.js` não escreve travessão nem a marca \"Vagas ChatClean\" à mão (os títulos vêm do domínio)",
+        fontePaginaS !== "" && !fontePaginaS.includes("—") && !fontePaginaS.includes("Vagas ChatClean"),
+      );
+      afirmar(
+        "Aberta: `twitter:card` = `summary_large_image`",
+        metaDe(a.html, "name", "twitter:card") === "summary_large_image",
+        String(metaDe(a.html, "name", "twitter:card")),
+      );
+    }
+
+    /* ── Revisão da 5.8: nada lança para a plataforma ── */
+    {
+      const LANCA = () => {
+        throw new Error("leitor que lança");
+      };
+      const REJEITA = () => Promise.reject(new Error("leitor que rejeita"));
+      const casos = [
+        ["leitor da Vaga que lança", { query: { slug: "analista-de-suporte" }, injetar: { lerSituacao: LANCA } }],
+        ["leitor da Vaga que rejeita", { query: { slug: "analista-de-suporte" }, injetar: { lerSituacao: REJEITA } }],
+        ["leitor da listagem que lança", { injetar: { lerAbertas: LANCA } }],
+        ["leitor da listagem que rejeita", { injetar: { lerAbertas: REJEITA } }],
+        ["shell que lança", { query: { slug: "analista-de-suporte" }, injetar: { lerShell: LANCA } }],
+        ["shell que rejeita", { injetar: { lerShell: REJEITA } }],
+      ];
+      const ruins = [];
+      for (const [nome, pedido] of casos) {
+        for (const metodo of ["GET", "HEAD"]) {
+          const r = await pagina({ ...pedido, metodo });
+          const certo =
+            r.lancou === undefined &&
+            r.status === 500 &&
+            String(r.cabecalhos["Content-Type"] ?? "").startsWith("text/plain") &&
+            r.cabecalhos["Cache-Control"] === "no-store" &&
+            r.cabecalhos["X-Entrega-Diagnostico"] === "falha:excecao" &&
+            !Object.hasOwn(r.cabecalhos, "Vercel-Cache-Tag") &&
+            r.eventos.some((l) => l.includes("falha:excecao")) &&
+            (metodo === "HEAD" ? r.enviou === false && r.corpo === null : r.enviou === true);
+          if (!certo) ruins.push(`${nome} (${metodo}): HTTP ${r.status} ${r.cabecalhos["X-Entrega-Diagnostico"]} ${r.lancou ?? ""}`);
+        }
+      }
+      afirmar(
+        `leitor ou shell que lança ou rejeita (${casos.length} formas, GET e HEAD): 500 \`no-store\` em texto, \`falha:excecao\` com o evento registrado, nunca a exceção subindo à plataforma, e o HEAD sem corpo`,
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+    }
+
+    /* ── Revisão da 5.8: Aberta sem título é defeito, e não "não encontrada" ── */
+    {
+      const r = await pagina({
+        query: { slug: "analista-de-suporte" },
+        injetar: { lerSituacao: async () => ({ ok: true, situacao: "aberta", vaga: { ...linhaAbertaS(), titulo: "   " } }) },
+      });
+      afirmar(
+        "Aberta sem título que escapasse da leitura: 500 de defeito em texto (`no-store`), sem página e sem o título de \"não encontrada\"",
+        r.status === 500 &&
+          String(r.cabecalhos["Content-Type"] ?? "").startsWith("text/plain") &&
+          r.cabecalhos["Cache-Control"] === "no-store" &&
+          !r.html.includes("<title>") &&
+          !r.html.includes(jobPostingMod.VAGA_NAO_ENCONTRADA),
+        `HTTP ${r.status} ${r.cabecalhos["X-Entrega-Diagnostico"]}`,
+      );
+    }
+
+    /* ── Revisão da 5.8: os caminhos de erro, em GET e HEAD ── */
+    {
+      const semMarca = (html, marca) => html.split(marca).join("<!-- MARCA-REMOVIDA-NA-VERIFICACAO");
+      const CASOS_DE_ERRO = [
+        ["falha de leitura", 500, "degradado:leitura-falhou", "text/html", { query: { slug: "analista-de-suporte" } }, [500, { message: "x" }]],
+        ["sem domínio", 500, "falha:sem-dominio", "text/plain", { query: { slug: "analista-de-suporte" }, ambiente: { VITE_DOMINIO_DO_SITE: undefined } }, null],
+        ["sem shell", 500, "falha:sem-shell", "text/plain", { query: { slug: "analista-de-suporte" }, injetar: { lerShell: async () => ({ ok: false, defeito: "sem shell (verificação)" }) } }, null],
+        ["região de metadados ausente", 500, "falha:regiao-ausente", "text/plain", { query: { slug: "analista-de-suporte" }, injetar: { lerShell: async () => ({ ok: true, html: semMarca(shell.html, metadadosMod.MARCA_INICIO), ativos: [] }) } }, null],
+        ["região do corpo ausente", 500, "falha:regiao-ausente", "text/plain", { query: { slug: "analista-de-suporte" }, injetar: { lerShell: async () => ({ ok: true, html: semMarca(shell.html, artigoMod.MARCA_CORPO_INICIO), ativos: [] }) } }, null],
+        ["situação sem status declarado", 500, "degradado:leitura-falhou", "text/plain", { query: { slug: "analista-de-suporte" }, injetar: { lerSituacao: async () => ({ ok: true, situacao: "xpto", vaga: null }) } }, null],
+      ];
+      const ruins = [];
+      for (const [nome, status, diagnostico, tipo, pedido, respostaDoDuble] of CASOS_DE_ERRO) {
+        respostasS.situacao_da_vaga = respostaDoDuble ?? [200, [linhaAbertaS()]];
+        const get = await pagina({ ...pedido, metodo: "GET" });
+        const head = await pagina({ ...pedido, metodo: "HEAD" });
+        const certo =
+          get.status === status &&
+          get.cabecalhos["X-Entrega-Diagnostico"] === diagnostico &&
+          String(get.cabecalhos["Content-Type"] ?? "").startsWith(tipo) &&
+          get.cabecalhos["Cache-Control"] === "no-store" &&
+          get.enviou === true &&
+          head.status === status &&
+          mesmoJson(head.cabecalhos, get.cabecalhos) &&
+          head.enviou === false &&
+          head.corpo === null;
+        if (!certo) {
+          ruins.push(
+            `${nome}: GET ${get.status} ${get.cabecalhos["X-Entrega-Diagnostico"]} | HEAD ${head.status} enviou ${head.enviou} ${head.lancou ?? ""}`,
+          );
+        }
+      }
+      afirmar(
+        `os caminhos de erro (falha de leitura, sem domínio, sem shell, as duas regiões ausentes, situação sem status): o status e o diagnóstico de cada um, \`no-store\`, e o HEAD com os mesmos cabeçalhos e SEM corpo`,
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+    }
+
+    /* ── Revisão da 5.8: Encerrada e inexistente não vazam nada da Vaga ── */
+    {
+      const MARCADA = {
+        slug: "encerrada-marcada",
+        titulo: "Título Encerrado",
+        resumo: "MARCADOR-RESUMO",
+        descricao_html: "<p>MARCADOR-DESCRICAO</p>",
+        departamento: "MARCADOR-DEPARTAMENTO",
+        tipo: "MARCADOR-TIPO",
+        nivel: "MARCADOR-NIVEL",
+        modalidade: "presencial",
+        localizacao: "MARCADOR-LOCAL",
+        link_de_candidatura: "https://marcador-link.example/candidatura",
+        equivalente_jobposting: "FULL_TIME",
+        aberta_em: "2026-09-01T12:00:00+00:00",
+      };
+      const ruins = [];
+      for (const [situacao, status] of [
+        ["encerrada", 410],
+        ["inexistente", 404],
+      ]) {
+        const r = await pagina({
+          query: { slug: "encerrada-marcada" },
+          injetar: { lerSituacao: async () => ({ ok: true, situacao, vaga: MARCADA }) },
+        });
+        const vazou = ["MARCADOR", "marcador-link", "Candidatar-se", "Departamento:", "Local:"].filter((m) => r.html.includes(m));
+        if (r.status !== status || vazou.length > 0 || jsonLdsDoCorpo(r.html).length !== 0) {
+          ruins.push(`${situacao}: HTTP ${r.status}, vazou [${vazou.join(", ")}], JSON-LD ${jsonLdsDoCorpo(r.html).length}`);
+        }
+      }
+      afirmar(
+        "Encerrada e inexistente servidas, mesmo recebendo uma Vaga cheia de marcadores: nada de Resumo, Classificações, local, Descrição, Link nem `JobPosting` no HTML",
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+    }
+
+    /* ── Revisão da 5.8: etiquetas por lista de permissão ── */
+    {
+      const entregaMod = await import(urlDe("api/_nucleo/entrega.js"));
+      const cacheMod = await import(urlDe("api/_nucleo/cache.js"));
+      const responder = (etiquetas) => {
+        const cab = {};
+        const res = {
+          setHeader: (k, v) => {
+            cab[k] = v;
+          },
+          status: () => res,
+          send: () => res,
+        };
+        const aviso = console.warn;
+        console.warn = () => {};
+        try {
+          entregaMod.responderDocumento(res, { tipo: "text/html", corpo: "x", status: 200, etiquetas });
+        } finally {
+          console.warn = aviso;
+        }
+        return cab;
+      };
+      const torta = responder(["carreiras", "vaga:ok-1", "vaga:a,b", "x\ny", "", "vaga:com espaço", "a:b:c", 5, null]);
+      const vazia = responder(["a,b", "x\ny", ""]);
+      const nada = responder([]);
+      const doBlog = responder({ slug: "artigo-x" });
+      afirmar(
+        "a lista pronta de etiquetas passa pela MESMA lista de permissão de `cache.js` (vírgula, quebra de linha, espaço, vazia e não texto caem) e, vazia, não vira cabeçalho; o objeto do Blog segue igual",
+        torta["Vercel-Cache-Tag"] === "carreiras,vaga:ok-1" &&
+          !Object.hasOwn(vazia, "Vercel-Cache-Tag") &&
+          !Object.hasOwn(nada, "Vercel-Cache-Tag") &&
+          doBlog["Vercel-Cache-Tag"] === "blog,post:artigo-x",
+        `${JSON.stringify(torta["Vercel-Cache-Tag"])} | ${JSON.stringify(vazia["Vercel-Cache-Tag"])} | ${JSON.stringify(doBlog["Vercel-Cache-Tag"])}`,
+      );
+      const fonteDaPagina = semComentarios(ler("api/_nucleo/paginaDeCarreiras.js") ?? "");
+      afirmar(
+        "o caractere de etiqueta de Carreiras é o de `cache.js`, importado (sem cópia da expressão)",
+        cacheMod.CARACTERE_DE_ETIQUETA instanceof RegExp &&
+          nomesImportadosDe(fonteDaPagina, "./cache.js").includes("CARACTERE_DE_ETIQUETA") &&
+          !/\[a-z0-9-\]/.test(fonteDaPagina),
+      );
+    }
+
+    /* ── Método estranho e POST intacto ── */
+    {
+      const ruins = [];
+      for (const metodo of ["PUT", "DELETE", "PATCH", "OPTIONS"]) {
+        const r = await pagina({ metodo, query: { slug: "analista-de-suporte" } });
+        if (!(r.status === 405 && r.cabecalhos.Allow === "GET, HEAD, POST" && r.cabecalhos["Cache-Control"] === "no-store" && r.pedidos.length === 0)) {
+          ruins.push(`${metodo}: HTTP ${r.status} Allow ${r.cabecalhos.Allow}`);
+        }
+      }
+      afirmar(
+        "método estranho (PUT, DELETE, PATCH, OPTIONS): 405 com `Allow: GET, HEAD, POST` e `no-store`, sem ida ao banco",
+        ruins.length === 0,
+        ruins.join(" | "),
+      );
+      const post = await pagina({ metodo: "POST", corpo: { operacao: "salvarVaga" }, ambiente: { SUPABASE_CHAVE_DE_SERVICO: "sb_secret_duble_5_8" } });
+      afirmar(
+        "POST continua sendo a escrita: sem credencial é 401 em JSON, e não a página",
+        post.status === 401 && typeof post.corpo === "object" && post.corpo?.ok === false && !String(post.cabecalhos["Content-Type"] ?? "").startsWith("text/html"),
+        `HTTP ${post.status} ${JSON.stringify(post.corpo).slice(0, 120)}`,
+      );
+    }
+  } finally {
+    await new Promise((pronto) => dubleS.close(pronto));
+  }
+}
+
+/* ── Estática: as reescritas e o teto de `api/` ── */
+
+{
+  const REESCRITAS_DE_CARREIRAS = [
+    { source: "/carreiras", destination: "/api/carreiras" },
+    { source: "/carreiras/:slug", destination: "/api/carreiras?slug=:slug" },
+  ];
+  /** Cada reescrita de Carreiras existe, com o destino exato, ANTES do apanha-tudo. */
+  const problemasDaOrdem = (reescritas) => {
+    const lista = Array.isArray(reescritas) ? reescritas : [];
+    const apanha = lista.findIndex((r) => r?.source === "/(.*)");
+    const problemas = [];
+    if (apanha === -1) problemas.push("sem apanha-tudo");
+    for (const rota of REESCRITAS_DE_CARREIRAS) {
+      const i = lista.findIndex((r) => r?.source === rota.source);
+      if (i === -1) problemas.push(`${rota.source} ausente`);
+      else if (lista[i].destination !== rota.destination) problemas.push(`${rota.source} -> ${lista[i].destination}`);
+      else if (apanha !== -1 && i > apanha) problemas.push(`${rota.source} depois do apanha-tudo`);
+      if (lista.filter((r) => r?.source === rota.source).length > 1) problemas.push(`${rota.source} repetida`);
+    }
+    return problemas;
+  };
+  const APANHA = { source: "/(.*)", destination: "/index.html" };
+  afirmar(
+    "autoteste: o conferente das reescritas acusa a ordem trocada, o destino trocado, a ausente e a repetida, e absolve a certa",
+    problemasDaOrdem([APANHA, ...REESCRITAS_DE_CARREIRAS]).length === 2 &&
+      problemasDaOrdem([{ source: "/carreiras", destination: "/index.html" }, REESCRITAS_DE_CARREIRAS[1], APANHA]).length === 1 &&
+      problemasDaOrdem([REESCRITAS_DE_CARREIRAS[0], APANHA]).length === 1 &&
+      problemasDaOrdem([...REESCRITAS_DE_CARREIRAS, REESCRITAS_DE_CARREIRAS[0], APANHA]).length === 1 &&
+      problemasDaOrdem([...REESCRITAS_DE_CARREIRAS, APANHA]).length === 0,
+  );
+  let vercel = null;
+  try {
+    vercel = JSON.parse(ler("vercel.json") ?? "");
+  } catch {
+    vercel = null;
+  }
+  const problemas = problemasDaOrdem(vercel?.rewrites);
+  afirmar(
+    "`vercel.json`: `/carreiras` → `/api/carreiras` e `/carreiras/:slug` → `/api/carreiras?slug=:slug`, as duas ANTES do apanha-tudo",
+    vercel !== null && problemas.length === 0,
+    problemas.join(" | ") || "vercel.json ilegível",
+  );
+  const funcoesNaApi = existsSync(path.join(raiz, "api"))
+    ? readdirSync(path.join(raiz, "api")).filter((n) => /\.(js|mjs|ts)$/.test(n))
+    : [];
+  afirmar(
+    "`api/` continua com 11 funções: as rotas de Carreiras NÃO ganharam arquivo próprio (a página é servida pela função da escrita)",
+    funcoesNaApi.length === 11 && funcoesNaApi.filter((n) => /carreira|vaga/i.test(n)).length === 1,
+    `${funcoesNaApi.length}: ${funcoesNaApi.join(", ")}`,
+  );
+  const fontePagina = semComentarios(ler("api/_nucleo/paginaDeCarreiras.js") ?? "");
+  afirmar(
+    "a página de Carreiras não toca a chave de serviço nem instancia cliente (lê só pela `chamar` de `leitura.js`)",
+    fontePagina !== "" &&
+      !/CHAVE_DE_SERVICO|acessoDoAmbiente|createClient|SERVICE_ROLE|sb_secret|@supabase\//.test(fontePagina) &&
+      !/\bfetch\s*\(/.test(fontePagina),
+  );
+  afirmar(
+    "nenhum `src/render/carreiras`, e o `JobPosting` mora no domínio (`src/domain/carreiras/jobPosting.js`)",
+    !existsSync(path.join(raiz, "src", "render", "carreiras")) && existsSync(path.join(raiz, "src", "domain", "carreiras", "jobPosting.js")),
+  );
+}
+
+/* ── Remota: o banco de verdade, sem criar Vaga ── */
+
+if (!temToken) {
+  afirmar(
+    "`GET /carreiras` e um Slug que não existe, contra o banco REAL, respondem 200 e 404",
+    false,
+    "sem SUPABASE_ACCESS_TOKEN: a leitura real é da sessão principal",
+  );
+} else if (!urlDoEnv || !chavePublicavel || moduloDoHandler === null) {
+  afirmar("`GET /carreiras` e um Slug inexistente contra o banco REAL", false, "sem VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY no `.env`");
+} else {
+  const handler = moduloDoHandler.default;
+  const real = async (query) => {
+    const r = { status: null, cabecalhos: {}, corpo: null, eventos: [] };
+    const res = {
+      setHeader: (k, v) => {
+        r.cabecalhos[k] = v;
+      },
+      status: (c) => {
+        r.status = c;
+        return res;
+      },
+      send: (c) => {
+        r.corpo = c;
+        return res;
+      },
+      json: (c) => {
+        r.corpo = c;
+        return res;
+      },
+    };
+    const extras = {
+      VITE_DOMINIO_DO_SITE: DOMINIO_S,
+      SUPABASE_URL: urlDoEnv,
+      SUPABASE_CHAVE_PUBLICAVEL: chavePublicavel,
+    };
+    const guardado = {};
+    for (const [k, v] of Object.entries(extras)) {
+      guardado[k] = process.env[k];
+      process.env[k] = v;
+    }
+    const aviso = console.warn;
+    const erro = console.error;
+    console.warn = (...p) => r.eventos.push(p.join(" "));
+    console.error = (...p) => r.eventos.push(p.join(" "));
+    try {
+      await handler({ method: "GET", query, headers: {} }, res);
+    } catch (erro) {
+      /* Revisão da 5.8: a exceção vira FALHA nomeada, e não aborta a
+         ferramenta. Rede e prazo são infraestrutura; o resto é defeito. */
+      const texto = String(erro?.message ?? erro);
+      r.lancou = /fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket|timeout|network/i.test(texto)
+        ? `infraestrutura, não defeito: ${texto}`
+        : `defeito: o handler lançou: ${texto}`;
+    } finally {
+      console.warn = aviso;
+      console.error = erro;
+      for (const [k, v] of Object.entries(guardado)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    return r;
+  };
+  const lista = await real({});
+  afirmar(
+    "banco REAL: o handler não lançou em nenhuma das duas leituras reais",
+    lista.lancou === undefined,
+    lista.lancou ?? "",
+  );
+  afirmar(
+    "banco REAL: `GET /carreiras` responde 200 com `s-maxage=60` e o título da listagem",
+    lista.status === 200 &&
+      lista.cabecalhos["Cache-Control"] === "public, s-maxage=60" &&
+      String(lista.corpo ?? "").includes("<title>Vagas ChatClean | Trabalhe com a gente</title>"),
+    `HTTP ${lista.status} | ${lista.cabecalhos["X-Entrega-Diagnostico"]} | ${lista.eventos.join(" ").slice(0, 200)}`,
+  );
+  const inexistente = await real({ slug: `zzz-verificacao-5-8-inexistente-${randomUUID().slice(0, 8)}` });
+  afirmar(
+    "banco REAL: um Slug que não existe responde 404 `no-store` (sem criar Vaga nenhuma)",
+    inexistente.lancou === undefined && inexistente.status === 404 && inexistente.cabecalhos["Cache-Control"] === "no-store",
+    `HTTP ${inexistente.status} | ${inexistente.lancou ?? ""} | ${inexistente.cabecalhos["X-Entrega-Diagnostico"]} | ${inexistente.eventos.join(" ").slice(0, 200)}`,
+  );
+}
+
+/* ── Remota (revisão da 5.8): os campos que a leitura do servidor LÊ existem
+   entre as colunas de retorno REAIS das duas funções ──
+   A lista de campos vem do MÓDULO (`CAMPOS_LIDOS_DA_SITUACAO` e
+   `CAMPOS_LIDOS_DAS_ABERTAS`), e não de cópia; as colunas vêm do catálogo
+   (`pg_proc.proargnames`/`proargmodes`), numa transação desfeita. O
+   comparador é função pura, com autoteste sem banco. */
+
+/**
+ * Os campos esperados que NÃO estão entre as colunas de retorno de uma
+ * função. Colunas de retorno são os argumentos de modo `t` (TABLE), `o` (OUT)
+ * ou `b` (INOUT). Aceita as listas como vetor ou como o texto do Postgres
+ * (`{a,b}`). Nunca lança.
+ */
+function camposAusentesNoRetorno(esperados, nomes, modos) {
+  const lista = (valor) =>
+    Array.isArray(valor)
+      ? valor.map(String)
+      : typeof valor === "string"
+        ? valor.replace(/^\{|\}$/g, "").split(",").map((x) => x.trim().replace(/^"|"$/g, "")).filter((x) => x !== "")
+        : [];
+  const n = lista(nomes);
+  const m = lista(modos);
+  const colunas = n.filter((_, i) => ["t", "o", "b"].includes(m[i]));
+  return (Array.isArray(esperados) ? esperados : []).filter((campo) => !colunas.includes(campo));
+}
+
+afirmar(
+  "autoteste do comparador de colunas: acusa o campo que falta e o que só existe como ARGUMENTO de entrada, absolve o que está no retorno, e lê as duas formas (vetor e texto do Postgres)",
+  igual(camposAusentesNoRetorno(["situacao", "slug"], ["p_slug", "situacao", "slug"], ["i", "t", "t"]), []) &&
+    igual(camposAusentesNoRetorno(["situacao", "coluna_fantasma"], ["p_slug", "situacao"], ["i", "t"]), ["coluna_fantasma"]) &&
+    igual(camposAusentesNoRetorno(["p_slug"], ["p_slug", "situacao"], ["i", "t"]), ["p_slug"]) &&
+    igual(camposAusentesNoRetorno(["situacao", "slug"], "{p_slug,situacao,slug}", "{i,t,t}"), []) &&
+    igual(camposAusentesNoRetorno(["x"], null, null), ["x"]) &&
+    igual(camposAusentesNoRetorno([...leituraMod?.CAMPOS_LIDOS_DAS_ABERTAS ?? [], "coluna_fantasma"], leituraMod?.CAMPOS_LIDOS_DAS_ABERTAS ?? [], (leituraMod?.CAMPOS_LIDOS_DAS_ABERTAS ?? []).map(() => "t")), ["coluna_fantasma"]),
+);
+afirmar(
+  "as listas de campos lidos são as do MÓDULO de leitura, não vazias e congeladas",
+  Array.isArray(leituraMod?.CAMPOS_LIDOS_DA_SITUACAO) &&
+    leituraMod.CAMPOS_LIDOS_DA_SITUACAO.length > 3 &&
+    Object.isFrozen(leituraMod.CAMPOS_LIDOS_DA_SITUACAO) &&
+    Array.isArray(leituraMod?.CAMPOS_LIDOS_DAS_ABERTAS) &&
+    leituraMod.CAMPOS_LIDOS_DAS_ABERTAS.length > 3 &&
+    Object.isFrozen(leituraMod.CAMPOS_LIDOS_DAS_ABERTAS),
+);
+
+if (!temToken) {
+  afirmar(
+    "todo campo que `api/_nucleo/leitura.js` lê existe entre as colunas de retorno reais de `situacao_da_vaga` e `vagas_abertas`",
+    false,
+    "sem SUPABASE_ACCESS_TOKEN: o catálogo é lido pela sessão principal",
+  );
+} else {
+  const r = await desfeito(
+    `select p.proname as nome, p.proargnames as nomes, p.proargmodes::text[] as modos
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname in ('situacao_da_vaga', 'vagas_abertas');`,
+  );
+  if (!r.ok) {
+    afirmar("o catálogo das duas funções de entrega pôde ser lido (transação desfeita)", false, r.erro);
+  } else {
+    const linhas = Array.isArray(r.dados) ? r.dados : [];
+    const de = (nome) => linhas.filter((l) => l.nome === nome);
+    const situacao = de("situacao_da_vaga");
+    const abertas = de("vagas_abertas");
+    const faltaNaSituacao = situacao.length === 1 ? camposAusentesNoRetorno(leituraMod.CAMPOS_LIDOS_DA_SITUACAO, situacao[0].nomes, situacao[0].modos) : ["(função ausente ou sobrecarregada)"];
+    const faltaNasAbertas = abertas.length === 1 ? camposAusentesNoRetorno(leituraMod.CAMPOS_LIDOS_DAS_ABERTAS, abertas[0].nomes, abertas[0].modos) : ["(função ausente ou sobrecarregada)"];
+    afirmar(
+      "todo campo que `api/_nucleo/leitura.js` lê existe entre as colunas de retorno reais de `situacao_da_vaga` e `vagas_abertas`",
+      faltaNaSituacao.length === 0 && faltaNasAbertas.length === 0,
+      `situacao_da_vaga: [${faltaNaSituacao.join(", ")}] | vagas_abertas: [${faltaNasAbertas.join(", ")}]`,
+    );
   }
 }
 

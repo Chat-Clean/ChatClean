@@ -6,7 +6,7 @@
  */
 
 import { raizDoSite } from "../../src/domain/blog/compartilhamento.js";
-import { etiquetasDaResposta, politicaDeCache } from "./cache.js";
+import { etiquetaPermitida, etiquetasDaResposta, politicaDeCache } from "./cache.js";
 import {
   CABECALHO_DE_DIAGNOSTICO,
   DIAGNOSTICO_METODO_RECUSADO,
@@ -87,7 +87,15 @@ export function responderDocumento(
   /* As etiquetas SÓ acompanham o que é guardável. Numa resposta `no-store` elas
      seriam ruído: não há o que purgar. */
   if (etiquetas !== null && !politicaDeCache(status).includes("no-store")) {
-    res.setHeader("Vercel-Cache-Tag", etiquetasDaResposta(etiquetas).join(","));
+    /* Uma LISTA pronta passa como veio (Story 5.8: Carreiras tem etiquetas
+       próprias, e `etiquetasDaResposta` carimba a do Blog). O objeto continua
+       sendo o do Blog, pelo mesmo caminho de antes. */
+    const lista = Array.isArray(etiquetas)
+      ? etiquetas.filter(etiquetaPermitida)
+      : etiquetasDaResposta(etiquetas);
+    /* Lista que ficou vazia não vira cabeçalho vazio: sem etiqueta, sem
+       cabeçalho. */
+    if (lista.length > 0) res.setHeader("Vercel-Cache-Tag", lista.join(","));
   }
   res.status(status);
   res.send(corpo);

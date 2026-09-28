@@ -13903,6 +13903,10 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       "DIAGNOSTICO_REGIAO_AUSENTE",
       "DIAGNOSTICO_METODO_RECUSADO",
       "DIAGNOSTICO_SEM_NOME",
+      /* TROCA REGISTRADA (revisão da Story 5.8): a página de Carreiras que
+         lança ou rejeita responde o defeito com este nome, e não o 500
+         genérico da plataforma. A lista nomeada cresce por decisão. */
+      "DIAGNOSTICO_EXCECAO",
     ];
     const valoresDeclarados = NOMES_DE_DIAGNOSTICO.map((n) => diag10[n]);
     afirmar(

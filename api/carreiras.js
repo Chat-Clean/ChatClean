@@ -14,7 +14,11 @@
  * cabeçalho, corpo em qualquer forma, resposta sem `detalhe`) é IMPORTADO de
  * lá, pelo mesmo objeto: uma segunda cópia divergiria na primeira correção.
  *
- * O GET desta rota (o HTML Servido da Vaga) é da Story 5.8. Até lá, só POST.
+ * Desde a Story 5.8, GET e HEAD desta MESMA função servem o HTML de
+ * `/carreiras` e `/carreiras/:slug` (`vercel.json` reescreve as duas para cá):
+ * uma função a mais em `api/` estouraria o teto de 12 do plano. A montagem da
+ * página mora em `api/_nucleo/paginaDeCarreiras.js`, e GET e HEAD nunca
+ * escrevem. Qualquer outro método que não seja POST é 405, sem ida ao banco.
  */
 
 import {
@@ -27,6 +31,10 @@ import {
   operacaoPedidaDeCarreiras,
 } from "../src/domain/carreiras/operacoes.js";
 import { acessoDoAmbiente, VARIAVEIS } from "./_nucleo/acesso.js";
+import { politicaDeCache } from "./_nucleo/cache.js";
+import { DIAGNOSTICO_EXCECAO } from "./_nucleo/diagnostico.js";
+import { responderDefeito } from "./_nucleo/entrega.js";
+import { servirCarreiras } from "./_nucleo/paginaDeCarreiras.js";
 import { identificarChamador } from "./_nucleo/autenticacao.js";
 import {
   excluirClassificacao,
@@ -69,9 +77,18 @@ export function executorDe(operacao) {
   return typeof executor === "function" ? executor : null;
 }
 
+/**
+ * Os métodos desta rota, lista fechada: GET e HEAD servem a página (Story
+ * 5.8), POST grava. É o valor do `Allow` do 405.
+ */
+export const METODOS_DE_CARREIRAS = Object.freeze(["GET", "HEAD", "POST"]);
+
+/** Os que só leem, e nunca escrevem. */
+const METODOS_DA_PAGINA = Object.freeze(["GET", "HEAD"]);
+
 /** A frase do 405. */
-export const SO_POST =
-  "Esta rota grava vagas e classificações e aceita apenas POST.";
+export const FRASE_DO_METODO_RECUSADO =
+  "Esta rota mostra as vagas (GET e HEAD) e grava vagas e classificações (POST), e não aceita outro método.";
 
 /**
  * O que o log registra de uma operação recusada: o TIPO e o TAMANHO do que
@@ -93,9 +110,25 @@ export const SEM_CONFIGURACAO =
   "O servidor de Carreiras está sem configuração. Avise quem cuida do projeto.";
 
 export default async function handler(req, res) {
+  /* A PÁGINA (Story 5.8). Nada daqui escreve, nem lê a chave de serviço. */
+  if (METODOS_DA_PAGINA.includes(req.method)) {
+    /* `servirCarreiras` já transforma o que lança em defeito dito; esta é a
+       segunda trava, para o que escapar dela (revisão da 5.8). */
+    try {
+      await servirCarreiras(req, res);
+    } catch (erro) {
+      responderDefeito(res, `A página de Carreiras falhou: ${erro?.message ?? erro}`, {
+        diagnostico: DIAGNOSTICO_EXCECAO,
+        rota: "carreiras",
+      });
+    }
+    return;
+  }
+
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    const erro = falha(ERRO_DADOS_INVALIDOS, { mensagem: SO_POST }).erro;
+    res.setHeader("Allow", METODOS_DE_CARREIRAS.join(", "));
+    res.setHeader("Cache-Control", politicaDeCache(405));
+    const erro = falha(ERRO_DADOS_INVALIDOS, { mensagem: FRASE_DO_METODO_RECUSADO }).erro;
     res.status(405).json(respostaDeErro(erro));
     return;
   }
