@@ -11173,13 +11173,25 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     const { createServer: criarServidorDoMapa } = await import("node:http");
     /* O que `posts_no_ar()` devolve. Trocado a cada caso. */
     let postsDoMapa = [];
+    /* O que `vagas_abertas()` devolve (Story 5.9). Vazio por padrão: com ele
+       vazio, o mapa é o de antes, byte a byte. */
+    let vagasDoMapa = [];
     let chamadasAoMapa = 0;
+    /* TROCA REGISTRADA (Story 5.9): o dublê respondia o MESMO JSON a qualquer
+       caminho. Com a rota lendo também as Vagas, ele passa a rotear pelo nome
+       da função no caminho; nome fora dos dois responde 404. */
     const servidorDoMapa = criarServidorDoMapa((req, res) => {
       req.resume();
       req.on("end", () => {
         chamadasAoMapa += 1;
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(postsDoMapa));
+        const corpoDaFuncao =
+          req.url === "/rest/v1/rpc/posts_no_ar"
+            ? postsDoMapa
+            : req.url === "/rest/v1/rpc/vagas_abertas"
+              ? vagasDoMapa
+              : null;
+        res.writeHead(corpoDaFuncao === null ? 404 : 200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(corpoDaFuncao ?? { message: "função fora do dublê" }));
       });
     });
     await new Promise((pronto) => servidorDoMapa.listen(0, "127.0.0.1", pronto));
@@ -11269,6 +11281,39 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       ANTES.every((c) => locsComPosts.includes(`${DOMINIO}${c}`)) &&
         locsComPosts.length === ANTES.length + postsDoMapa.length,
       `${locsComPosts.length} endereços (esperado ${ANTES.length + postsDoMapa.length})`,
+    );
+
+    /* ── AS VAGAS ABERTAS ENTRAM DEPOIS DOS POSTS (Story 5.9) ────────── */
+    //
+    // TROCA REGISTRADA: com `vagas_abertas` vazio, as cinco fixas e os Posts
+    // exatamente como antes (as asserções acima); com Vagas, as cinco, mais
+    // os Posts, mais as Vagas, nessa ordem.
+    vagasDoMapa = [
+      {
+        situacao: "aberta",
+        slug: "analista-de-suporte",
+        titulo: "Analista de Suporte",
+        resumo: null,
+        modalidade: "remoto",
+        localizacao: null,
+        aberta_em: "2026-09-01T12:00:00+00:00",
+        atualizado_em: "2026-09-02T12:00:00+00:00",
+      },
+    ];
+    const comVagas = await dirigirMapa();
+    vagasDoMapa = [];
+    const locsComVagas = [
+      ...String(comVagas.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g),
+    ].map((m) => m[1]);
+    afirmar(
+      "com Vagas Abertas, o mapa traz as cinco fixas, os Posts e as Vagas, NESSA ordem",
+      JSON.stringify(locsComVagas) ===
+        JSON.stringify([
+          ...ANTES.map((c) => `${DOMINIO}${c}`),
+          ...postsDoMapa.map((p) => `${DOMINIO}/blog/${p.slug}`),
+          `${DOMINIO}/carreiras/analista-de-suporte`,
+        ]) && comVagas.cabecalhos["x-entrega-diagnostico"] === "ok",
+      `${locsComVagas.join(" ")} | ${comVagas.cabecalhos["x-entrega-diagnostico"]}`,
     );
 
     /* ── `lastmod` É O `atualizado_em` REAL, E OMITIDO QUANDO NÃO HÁ ─── */
@@ -11560,11 +11605,20 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
 
     const { createServer: criarFonteUnica } = await import("node:http");
     let postsDaFonte = [];
+    /* TROCA REGISTRADA (Story 5.9): o dublê roteia pelo nome da função no
+       caminho, como o do mapa; `vagas_abertas` responde vazio, e o índice é
+       o de antes. As Vagas no índice são de `verificar:carreiras` (t). */
     const fonteUnica = criarFonteUnica((req, res) => {
       req.resume();
       req.on("end", () => {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(postsDaFonte));
+        const corpoDaFuncao =
+          req.url === "/rest/v1/rpc/posts_no_ar"
+            ? postsDaFonte
+            : req.url === "/rest/v1/rpc/vagas_abertas"
+              ? []
+              : null;
+        res.writeHead(corpoDaFuncao === null ? 404 : 200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(corpoDaFuncao ?? { message: "função fora do dublê" }));
       });
     });
     await new Promise((pronto) => fonteUnica.listen(0, "127.0.0.1", pronto));
@@ -13907,6 +13961,10 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
          lança ou rejeita responde o defeito com este nome, e não o 500
          genérico da plataforma. A lista nomeada cresce por decisão. */
       "DIAGNOSTICO_EXCECAO",
+      /* TROCA REGISTRADA (Story 5.9): a leitura das Vagas que falha em
+         `/sitemap.xml` e `/llms.txt` degrada com este nome, sem derrubar as
+         fixas nem os Posts. */
+      "DIAGNOSTICO_VAGAS_FALHARAM",
     ];
     const valoresDeclarados = NOMES_DE_DIAGNOSTICO.map((n) => diag10[n]);
     afirmar(

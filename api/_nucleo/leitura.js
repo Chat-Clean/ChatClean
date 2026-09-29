@@ -67,7 +67,7 @@ function doAmbiente(nomes, ambiente) {
 export async function chamar(
   nome,
   argumentos = {},
-  { ambiente = process.env, buscar = globalThis.fetch } = {},
+  { ambiente = process.env, buscar = globalThis.fetch, sinal = null } = {},
 ) {
   if (!FUNCOES_DA_ENTREGA.includes(nome)) {
     /* LISTA DE PERMISSÃO. Um nome montado a partir de dado que chegou da rede
@@ -95,6 +95,9 @@ export async function chamar(
         Accept: "application/json",
       },
       body: JSON.stringify(argumentos),
+      /* O sinal de cancelamento só vai quando alguém o passou (Story 5.9: o
+         prazo da leitura das Vagas). Sem ele, a chamada é a de antes. */
+      ...(sinal === null ? {} : { signal: sinal }),
     });
     if (!resposta.ok) {
       return {
@@ -211,6 +214,8 @@ export const CAMPOS_LIDOS_DAS_ABERTAS = Object.freeze([
   "situacao",
   "slug",
   "titulo",
+  /* Story 5.9: o Resumo vai para o `/llms.txt`. A RPC já o devolvia. */
+  "resumo",
   "modalidade",
   "localizacao",
   "aberta_em",
@@ -334,6 +339,11 @@ export async function situacaoDaVagaServida(slug, opcoes = {}) {
  * ou `{ok:false, defeito}`. Uma linha torta derruba a leitura inteira, pelo
  * mesmo motivo de `exigirLista` na camada do navegador: uma lista com buraco
  * afirmaria que a Vaga que faltou não existe.
+ *
+ * TUDO OU NADA, por decisão (Story 5.9): uma linha com campo de tipo errado,
+ * inclusive o `resumo` que o `/llms.txt` passou a ler, derruba a leitura
+ * inteira. Na listagem servida isso é o 500 de leitura; no mapa e no índice, a
+ * degradação sem Vagas.
  */
 export async function vagasAbertasServidas(opcoes = {}) {
   const r = await chamar("vagas_abertas", {}, opcoes);
@@ -362,4 +372,63 @@ export async function vagasAbertasServidas(opcoes = {}) {
     vagas.push(Object.freeze(vaga));
   }
   return { ok: true, vagas: Object.freeze(vagas) };
+}
+
+/* ─── As Vagas do mapa do site e do /llms.txt (Story 5.9) ────────────────── */
+
+/**
+ * O prazo da leitura das Vagas no mapa e no índice. Vencido, a leitura é
+ * cancelada e a rota segue sem as Vagas: uma Carreiras pendurada não segura a
+ * resposta do Blog além disto. A leitura dos Posts não tem prazo próprio.
+ */
+export const PRAZO_DA_LEITURA_DAS_VAGAS_MS = 3000;
+
+/**
+ * As Vagas Abertas para `/sitemap.xml` e `/llms.txt`: `{ok:true, vagas}` ou
+ * `{ok:false, defeito}`, e NUNCA rejeita nem passa do prazo.
+ *
+ * - a leitura é `vagasAbertasServidas`, a mesma da listagem servida;
+ * - o prazo cancela a chamada pelo sinal (`AbortController`) e, se ela não
+ *   obedecer, a corrida com o temporizador responde assim mesmo;
+ * - o que lança ou rejeita vira `{ok:false}` com o motivo.
+ *
+ * `ler` e `prazoMs` são injetáveis para a verificação; o resto das opções
+ * segue para a leitura (`ambiente`, `buscar`).
+ */
+export async function vagasIsoladas({
+  prazoMs = PRAZO_DA_LEITURA_DAS_VAGAS_MS,
+  ler = vagasAbertasServidas,
+  ...opcoes
+} = {}) {
+  const controle = new AbortController();
+  let temporizador = null;
+  const estouro = new Promise((resolver) => {
+    temporizador = setTimeout(() => {
+      controle.abort();
+      resolver({
+        ok: false,
+        defeito: `A leitura de \`vagas_abertas\` passou do prazo de ${prazoMs} ms.`,
+      });
+    }, prazoMs);
+  });
+  const leitura = Promise.resolve()
+    .then(() => ler({ ...opcoes, sinal: controle.signal }))
+    .then((r) =>
+      r?.ok === true && Array.isArray(r.vagas)
+        ? r
+        : {
+            ok: false,
+            defeito:
+              typeof r?.defeito === "string" ? r.defeito : "A leitura das Vagas devolveu um resultado sem forma.",
+          },
+    )
+    .catch((erro) => ({
+      ok: false,
+      defeito: `A leitura das Vagas lançou: ${erro?.message ?? erro}`,
+    }));
+  try {
+    return await Promise.race([leitura, estouro]);
+  } finally {
+    clearTimeout(temporizador);
+  }
 }

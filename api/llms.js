@@ -18,17 +18,34 @@
  *
  * A verificação não confere isso lendo o código: ela dirige as DUAS rotas
  * contra o mesmo servidor e compara os conjuntos de endereço.
+ *
+ * ─── AS VAGAS, COM A FALHA ISOLADA (Story 5.9) ────────────────────────────
+ *
+ * A seção `## Vagas` vem depois de `## Artigos`, lida por `vagasIsoladas()`
+ * (sobre `vagasAbertasServidas()`, a MESMA leitura do mapa e da listagem
+ * servida), em paralelo com os Posts e com prazo próprio. Se ela falha ou
+ * vence o prazo, o índice sai 200 com as páginas e os artigos, sem a seção,
+ * `no-store`, e o diagnóstico diz que as Vagas faltaram: a falha de
+ * Carreiras não derruba o Blog (C-FR-22). A dos Posts derruba tudo, Vagas
+ * incluídas.
  */
 
 import { PAGINAS_DO_SITE } from "./_nucleo/paginasDoSite.js";
-import { postsNoAr } from "./_nucleo/leitura.js";
+import { postsNoAr, vagasIsoladas } from "./_nucleo/leitura.js";
+import { ETIQUETA_DE_CARREIRAS } from "./_nucleo/cache.js";
 import {
   dominioDoAmbiente,
   metodoRecusado,
   responderDefeito,
   responderDocumento,
 } from "./_nucleo/entrega.js";
-import { DIAGNOSTICO_LEITURA_FALHOU, DIAGNOSTICO_SEM_DOMINIO } from "./_nucleo/diagnostico.js";
+import {
+  DIAGNOSTICO_LEITURA_FALHOU,
+  DIAGNOSTICO_OK,
+  DIAGNOSTICO_SEM_DOMINIO,
+  DIAGNOSTICO_VAGAS_FALHARAM,
+} from "./_nucleo/diagnostico.js";
+import { enderecoDaPaginaDaVaga } from "../src/domain/carreiras/vaga.js";
 
 export const TIPO_DO_INDICE = "text/plain; charset=utf-8";
 
@@ -54,12 +71,36 @@ function umaLinha(texto) {
 }
 
 /**
+ * O texto de um link Markdown (Story 5.9): `\`, `[` e `]` escapados. Um título
+ * como "a](https://mal.example)" fecharia o link cedo e apontaria para outro
+ * lugar. Vale só para as Vagas: o título dos Posts continua como era (a spec
+ * não deixa mudar o formato dos Posts).
+ */
+export function textoDeLinkMarkdown(texto) {
+  return umaLinha(texto).replace(/[\\[\]]/g, "\\$&");
+}
+
+/**
+ * O endereço de um link Markdown: `(` e `)` codificados. O domínio já codifica
+ * o Slug com `encodeURIComponent`, que deixa os parênteses passarem.
+ */
+export function enderecoDeLinkMarkdown(endereco) {
+  return String(endereco).replace(/\(/g, "%28").replace(/\)/g, "%29");
+}
+
+/**
  * O índice inteiro.
  *
- * `posts` vazio OMITE a seção de artigos — um cabeçalho sozinho afirmaria que
- * existe uma lista e que ela está vazia, que é diferente de não afirmar.
+ * `posts` e `vagas` vazios OMITEM a seção de cada um: um cabeçalho sozinho
+ * afirmaria que existe uma lista e que ela está vazia, que é diferente de não
+ * afirmar.
+ *
+ * `vagas` (Story 5.9) são as linhas de `vagasAbertasServidas` (Slug, título,
+ * Resumo), já filtradas pela função de banco: nenhuma regra de visibilidade
+ * mora aqui. Vaga cujo endereço dá `null` (sem Slug) fica de fora, e uma lista
+ * em que TODAS ficam de fora também omite a seção.
  */
-export function indiceParaLlms(raiz, posts = []) {
+export function indiceParaLlms(raiz, posts = [], vagas = []) {
   const semBarra = String(raiz).replace(/\/+$/, "");
 
   const paginas = PAGINAS_DO_SITE.map((p) => {
@@ -85,13 +126,35 @@ export function indiceParaLlms(raiz, posts = []) {
   const secaoDeArtigos =
     artigos.length === 0 ? "" : `\n## Artigos\n\n${artigos.join("\n")}\n`;
 
+  /* AS VAGAS (Story 5.9), no mesmo formato dos artigos, com o título escapado
+     para Markdown. O endereço sai do domínio, o mesmo do mapa e da listagem;
+     sem endereço, a Vaga fica de fora. Sem Vaga nenhuma, a seção é OMITIDA,
+     pela mesma razão dos artigos. */
+  const linhasDeVagas = (Array.isArray(vagas) ? vagas : [])
+    .map((vaga) => {
+      const caminho = enderecoDaPaginaDaVaga(vaga?.slug);
+      if (caminho === null) return null;
+      const titulo = textoDeLinkMarkdown(vaga?.titulo);
+      const resumo = umaLinha(vaga?.resumo);
+      const cabeca = `- [${titulo}](${enderecoDeLinkMarkdown(`${semBarra}${caminho}`)})`;
+      return resumo === "" ? cabeca : `${cabeca}: ${resumo}`;
+    })
+    .filter((linha) => linha !== null);
+
+  const secaoDeVagas =
+    linhasDeVagas.length === 0 ? "" : `\n## Vagas\n\n${linhasDeVagas.join("\n")}\n`;
+
   return (
     `${TITULO_DO_INDICE}\n\n${RESUMO_DO_INDICE}\n\n` +
-    `## Páginas\n\n${paginas}\n${secaoDeArtigos}`
+    `## Páginas\n\n${paginas}\n${secaoDeArtigos}${secaoDeVagas}`
   );
 }
 
-export default async function handler(req, res) {
+/**
+ * A rota. O terceiro parâmetro só existe para a verificação trocar a leitura
+ * das Vagas (a plataforma chama com dois).
+ */
+export default async function handler(req, res, { lerVagas = vagasIsoladas } = {}) {
   if (metodoRecusado(req, res, { rota: ROTA })) return;
 
   const dominio = dominioDoAmbiente();
@@ -100,7 +163,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const lidos = await postsNoAr();
+  const [lidos, abertas] = await Promise.all([postsNoAr(), lerVagas()]);
   if (!lidos.ok) {
     /* FALHA ALTO, pelo mesmo motivo do mapa — e pela mesma razão desta rota não
        degradar (Story 4.10): é documento só para máquina, sem shell nenhum a
@@ -111,8 +174,11 @@ export default async function handler(req, res) {
 
   responderDocumento(res, {
     tipo: TIPO_DO_INDICE,
-    corpo: indiceParaLlms(dominio.raiz, lidos.posts),
-    etiquetas: { colecoes: ["llms"] },
+    corpo: indiceParaLlms(dominio.raiz, lidos.posts, abertas.ok ? abertas.vagas : []),
+    etiquetas: { colecoes: ["llms", ETIQUETA_DE_CARREIRAS] },
+    diagnostico: abertas.ok ? DIAGNOSTICO_OK : DIAGNOSTICO_VAGAS_FALHARAM,
+    detalhe: abertas.ok ? null : abertas.defeito,
+    guardar: abertas.ok,
     rota: ROTA,
   });
 }

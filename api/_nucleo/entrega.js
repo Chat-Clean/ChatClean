@@ -68,17 +68,32 @@ export function metodoRecusado(req, res, { rota = null } = {}) {
  * O tipo é obrigatório e explícito: servir HTML num endereço que promete XML
  * seria trocar um silêncio por outro — o rastreador aceitaria a resposta e
  * descartaria o conteúdo sem dizer nada.
+ *
+ * `guardar: false` (Story 5.9) força `no-store` numa resposta de status
+ * guardável: é a resposta DEGRADADA que sai 200 mas não pode ficar no cache
+ * (o mapa do site sem as Vagas que faltaram). O padrão é `true`, e nenhuma
+ * resposta que já existia muda.
  */
 export function responderDocumento(
   res,
-  { tipo, corpo, status = 200, etiquetas = null, diagnostico = DIAGNOSTICO_OK, rota = null, detalhe = null },
+  {
+    tipo,
+    corpo,
+    status = 200,
+    etiquetas = null,
+    diagnostico = DIAGNOSTICO_OK,
+    rota = null,
+    detalhe = null,
+    guardar = true,
+  },
 ) {
   res.setHeader("Content-Type", tipo);
   /* A POLÍTICA DE CACHE VEM DO MAPA (Story 4.9), e é declarada AQUI porque é
      por aqui que toda resposta de documento passa. Deixá-la em cada rota faria
      a próxima rota nascer sem — e "sem política" não é neutro: é a hospedagem
      escolhendo sozinha por quanto tempo guardar. */
-  res.setHeader("Cache-Control", politicaDeCache(status));
+  const politica = guardar === false ? "no-store" : politicaDeCache(status);
+  res.setHeader("Cache-Control", politica);
   /* O DIAGNÓSTICO (Story 4.10) vai em TODA resposta — não só nas de falha.
      Uma rota que só declarasse o cabeçalho quando algo dá errado deixaria quem
      lê sem como distinguir "está tudo bem" de "esta rota não diagnostica". */
@@ -86,7 +101,7 @@ export function responderDocumento(
   registrarEvento({ diagnostico, rota, detalhe });
   /* As etiquetas SÓ acompanham o que é guardável. Numa resposta `no-store` elas
      seriam ruído: não há o que purgar. */
-  if (etiquetas !== null && !politicaDeCache(status).includes("no-store")) {
+  if (etiquetas !== null && !politica.includes("no-store")) {
     /* Uma LISTA pronta passa como veio (Story 5.8: Carreiras tem etiquetas
        próprias, e `etiquetasDaResposta` carimba a do Blog). O objeto continua
        sendo o do Blog, pelo mesmo caminho de antes. */

@@ -16,9 +16,20 @@
  * mantém é pior que não declarar — a Story 4.7 traz `lastmod` REAL, e é dela
  * esse trabalho.
  *
- * Os Posts entram aqui na Story 4.7. Esta story move o mapa de arquivo para
- * função sem perder nada; ela não o faz crescer.
+ * A Story 4.1 moveu o mapa de arquivo para função sem perder nada, e sem o
+ * fazer crescer. Ele cresceu depois: os Posts entraram na Story 4.7, e as Vagas
+ * Abertas na Story 5.9, depois dos Posts (`mapaDoSite`, 4º parâmetro).
  */
+
+import { enderecoDaPaginaDaVaga } from "../../src/domain/carreiras/vaga.js";
+import { ehInstanteIso } from "../../src/domain/carreiras/jobPosting.js";
+
+/** A frequência declarada de cada Vaga no mapa (Story 5.9). */
+export const FREQUENCIA_DA_VAGA = "weekly";
+
+/** A importância declarada de cada Vaga no mapa (Story 5.9): abaixo dos Posts
+ * (`0.8`) e acima da listagem `/carreiras` (`0.5`). */
+export const PRIORIDADE_DA_VAGA = "0.6";
 
 /** Caminho e importância de cada página fixa. Lista fechada. */
 export const PAGINAS_DO_SITE = Object.freeze([
@@ -71,8 +82,14 @@ export function escaparXml(texto) {
  * `raiz` é o Domínio Canônico já resolvido — o mapa exige endereço ABSOLUTO, e
  * montá-lo a partir da requisição daria o caminho da própria função, que é o
  * engano que a Story 4.5 registra por escrito.
+ *
+ * `vagas` (Story 5.9) são as linhas de `vagasAbertasServidas` (Slug e
+ * `atualizado_em` são os campos lidos), já filtradas pela função de banco:
+ * nenhuma regra de visibilidade mora aqui. Cada uma vira um nó depois dos
+ * Posts; a que tem endereço `null` (sem Slug) fica de fora. Vazio (o padrão),
+ * o mapa é exatamente o de antes.
  */
-export function mapaDoSite(raiz, paginas = PAGINAS_DO_SITE, posts = []) {
+export function mapaDoSite(raiz, paginas = PAGINAS_DO_SITE, posts = [], vagas = []) {
   const semBarra = String(raiz).replace(/\/+$/, "");
 
   const noDaPagina = (p) =>
@@ -111,9 +128,41 @@ export function mapaDoSite(raiz, paginas = PAGINAS_DO_SITE, posts = []) {
     );
   };
 
+  /**
+   * O nó de uma Vaga Aberta (Story 5.9).
+   *
+   * O endereço sai do domínio (`enderecoDaPaginaDaVaga`), o mesmo que a
+   * listagem servida usa; sem endereço, a Vaga fica de fora. A lista já chega
+   * filtrada pela função de banco: nenhuma regra de visibilidade mora aqui.
+   *
+   * `lastmod` é o INSTANTE completo de `atualizado_em`, e não só a data como
+   * no Post: uma Vaga editada duas vezes no mesmo dia mudaria sem o mapa
+   * acusar. Só vale ISO 8601 com data, hora e fuso (`ehInstanteIso`, a mesma
+   * regra do `datePosted`); ausente, em outro formato ou com ano estendido, o
+   * `lastmod` é OMITIDO. Sem reserva em `aberta_em`: o banco sempre preenche
+   * `atualizado_em`.
+   */
+  const noDaVaga = (vaga) => {
+    const caminho = enderecoDaPaginaDaVaga(vaga?.slug);
+    if (caminho === null) return null;
+
+    const bruto = vaga?.atualizado_em;
+    const quando = ehInstanteIso(bruto) ? new Date(bruto).toISOString() : null;
+
+    return (
+      "  <url>\n" +
+      `    <loc>${escaparXml(`${semBarra}${caminho}`)}</loc>\n` +
+      (quando === null ? "" : `    <lastmod>${quando}</lastmod>\n`) +
+      `    <changefreq>${FREQUENCIA_DA_VAGA}</changefreq>\n` +
+      `    <priority>${PRIORIDADE_DA_VAGA}</priority>\n` +
+      "  </url>"
+    );
+  };
+
   const nos = [
     ...paginas.map(noDaPagina),
     ...(Array.isArray(posts) ? posts.map(noDoPost) : []),
+    ...(Array.isArray(vagas) ? vagas.map(noDaVaga) : []),
   ].filter((no) => no !== null);
 
   return (

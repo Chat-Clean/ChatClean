@@ -70,6 +70,13 @@ export function politicaDeCache(status) {
 export const ETIQUETA_DA_COLECAO = "blog";
 
 /**
+ * A coleção de Carreiras (Story 5.8; declarada aqui desde a 5.9, para o mapa
+ * do site e o `/llms.txt` a usarem sem importar a página de Carreiras). Não se
+ * mistura com a do Blog.
+ */
+export const ETIQUETA_DE_CARREIRAS = "carreiras";
+
+/**
  * O vocabulário de caractere de etiqueta.
  *
  * Fechado, e por lista de PERMISSÃO. O slug já é validado na gravação, mas a

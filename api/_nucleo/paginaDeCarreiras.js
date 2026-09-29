@@ -59,7 +59,7 @@ import {
 } from "../../src/domain/carreiras/vaga.js";
 import { conferirConteudo, MARCA_CORPO_FIM, MARCA_CORPO_INICIO } from "./artigo.js";
 /* O caractere de etiqueta é o de `cache.js`, IMPORTADO (revisão da 5.8). */
-import { CARACTERE_DE_ETIQUETA } from "./cache.js";
+import { CARACTERE_DE_ETIQUETA, ETIQUETA_DE_CARREIRAS } from "./cache.js";
 import {
   DIAGNOSTICO_CONTEUDO_RECUSADO,
   DIAGNOSTICO_EXCECAO,
@@ -100,8 +100,9 @@ export const STATUS_DA_SITUACAO_DA_VAGA = Object.freeze({
 /** A listagem é 200 por ser uma página que existe, e não por omissão. */
 export const STATUS_DA_LISTAGEM_DE_VAGAS = 200;
 
-/** A etiqueta da coleção de Carreiras (a do Blog é `blog`, e não se mistura). */
-export const ETIQUETA_DE_CARREIRAS = "carreiras";
+/** A etiqueta da coleção de Carreiras (a do Blog é `blog`, e não se mistura).
+ * Declarada em `cache.js` desde a Story 5.9 e reexportada aqui, mesmo valor. */
+export { ETIQUETA_DE_CARREIRAS };
 
 /**
  * As etiquetas de cache de uma resposta de Carreiras: a da coleção, e a da

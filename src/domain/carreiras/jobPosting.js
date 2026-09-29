@@ -107,7 +107,11 @@ export function enderecoPostalDaLocalizacao(localizacao) {
  */
 const INSTANTE_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
 
-function instanteValido(valor) {
+/**
+ * Exportado na Story 5.9: o `lastmod` da Vaga no mapa do site usa a MESMA
+ * regra de instante que o `datePosted`.
+ */
+export function ehInstanteIso(valor) {
   return typeof valor === "string" && INSTANTE_ISO.test(valor) && Number.isFinite(Date.parse(valor));
 }
 
@@ -139,7 +143,7 @@ export function problemaNoJobPosting(vaga, { raiz } = {}) {
   if (!slugValido(vaga.slug)) return "o Slug da Vaga está fora do formato";
   if (aparado(vaga.titulo) === "") return "a Vaga não tem título";
   if (!descricaoComTexto(vaga.descricao_html)) return "a Descrição está ausente ou foi recusada";
-  if (!instanteValido(vaga.aberta_em)) return "a Vaga não tem `aberta_em` reconhecível";
+  if (!ehInstanteIso(vaga.aberta_em)) return "a Vaga não tem `aberta_em` reconhecível";
   if (!ehModalidade(vaga.modalidade)) return `a Modalidade está fora do vocabulário: ${JSON.stringify(vaga.modalidade)}`;
   if (modalidadeExigeLocalizacao(vaga.modalidade) && aparado(vaga.localizacao) === "") {
     return "a Modalidade exige Localização, e ela está vazia";

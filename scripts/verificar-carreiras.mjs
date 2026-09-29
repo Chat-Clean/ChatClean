@@ -87,6 +87,17 @@
  *       `vercel.json`. REMOTO, só com token: `/carreiras` e um Slug que não
  *       existe, contra o banco real, sem criar Vaga nenhuma.
  *
+ * Story 5.9 (as Vagas no sitemap e no /llms.txt):
+ *
+ *   (t) LOCAL, `mapaDoSite` e `indiceParaLlms` contra textos escritos à mão
+ *       (sem Vaga, o de hoje byte a byte); `api/sitemap.js`, `api/llms.js` e a
+ *       listagem servida dirigidos contra um dublê que roteia pelo nome da
+ *       função: com Vagas, sem Vagas, a falha das Vagas isolada (inclusive
+ *       pendurada, com o prazo, e lançando), `no-store` na resposta degradada,
+ *       as etiquetas, a dos Posts 500, as leituras em paralelo, o título
+ *       escapado para Markdown e o mesmo conjunto de endereços nos três.
+ *       REMOTO, só com token: as duas rotas contra o banco real.
+ *
  * Sem `SUPABASE_ACCESS_TOKEN` as asserções remotas FALHAM como ausentes, nunca
  * são puladas em silêncio. O token nunca é impresso.
  *
@@ -14844,6 +14855,897 @@ if (!temToken) {
       `situacao_da_vaga: [${faltaNaSituacao.join(", ")}] | vagas_abertas: [${faltaNasAbertas.join(", ")}]`,
     );
   }
+}
+
+/* ═══ STORY 5.9: AS VAGAS NO SITEMAP E NO /llms.txt ═══════════════════════ */
+
+secao("(t) as Vagas no mapa do site e no `/llms.txt`, com a falha delas isolada (Story 5.9)");
+
+/*
+ * - NODE: `mapaDoSite` e `indiceParaLlms` executados contra textos escritos
+ *   À MÃO (o golden sem Vagas é o de hoje, byte a byte; nunca gerado pela
+ *   própria função), o nó da Vaga, o `lastmod` ISO, o escape de XML e de
+ *   Markdown e a seção `## Vagas`; `vagasIsoladas` com leitura injetada;
+ * - DIRIGIDA: `api/sitemap.js`, `api/llms.js` e `api/carreiras.js` (a
+ *   listagem) contra UM dublê de PostgREST que roteia pelo nome da função:
+ *   com Vagas, sem Vagas, Vagas falhando de cada jeito (inclusive pendurada e
+ *   lançando), Posts falhando, cache e etiquetas, as duas leituras em
+ *   paralelo, e os três com o MESMO conjunto de endereços;
+ * - REMOTA, só com token: as duas rotas contra o banco real respondem 200, e
+ *   as Vagas que elas listam são exatamente as da leitura real.
+ *
+ * TROCA REGISTRADA (revisão da 5.9): a asserção ESTÁTICA que proibia palavras
+ * de Estado no texto das rotas saiu. Era lista de proibição sobre texto; o
+ * comportamento (as rotas listam o que a função de banco devolve, e pedem só
+ * `posts_no_ar` e `vagas_abertas`) é observado pelo dublê.
+ */
+
+const DOMINIO_T = "https://chatclean.com.br";
+
+let mapaModT = null;
+let indiceModT = null;
+let sitemapModT = null;
+let diagModT = null;
+let leituraModT = null;
+let artigoModT = null;
+let cacheModT = null;
+try {
+  mapaModT = await import(urlDe("api/_nucleo/paginasDoSite.js"));
+  indiceModT = await import(urlDe("api/llms.js"));
+  sitemapModT = await import(urlDe("api/sitemap.js"));
+  diagModT = await import(urlDe("api/_nucleo/diagnostico.js"));
+  leituraModT = await import(urlDe("api/_nucleo/leitura.js"));
+  artigoModT = await import(urlDe("api/_nucleo/artigo.js"));
+  cacheModT = await import(urlDe("api/_nucleo/cache.js"));
+  afirmar("os módulos do mapa e do índice importam no Node (`paginasDoSite.js`, `sitemap.js`, `llms.js`)", true);
+} catch (erro) {
+  afirmar("os módulos do mapa e do índice importam no Node (`paginasDoSite.js`, `sitemap.js`, `llms.js`)", false, erro.message);
+}
+
+/**
+ * Uma resposta de mentira, a MESMA para o dirigido local e o remoto: guarda
+ * status, cabeçalhos (nome em minúsculas), corpo e se houve `end()`.
+ */
+function respostaFalsaT() {
+  const r = { status: null, cab: {}, corpo: null, terminou: false };
+  const res = {
+    setHeader(nome, valor) {
+      r.cab[String(nome).toLowerCase()] = valor;
+    },
+    status(codigo) {
+      r.status = codigo;
+      return res;
+    },
+    send(saida) {
+      r.corpo = saida;
+      return res;
+    },
+    end(saida) {
+      r.terminou = true;
+      if (saida !== undefined) r.corpo = saida;
+      return res;
+    },
+    json(saida) {
+      r.corpo = saida;
+      return res;
+    },
+  };
+  return { r, res };
+}
+
+/**
+ * Dirige um handler com o ambiente dado, capturando o console. Exceção do
+ * handler vira `lancou`, com rede/prazo nomeados como infraestrutura.
+ */
+async function dirigirRotaT(handler, { url, query = {}, ambiente, injecao = undefined }) {
+  const { r, res } = respostaFalsaT();
+  r.eventos = [];
+  const guardado = {};
+  for (const [nome, valor] of Object.entries(ambiente)) {
+    guardado[nome] = process.env[nome];
+    if (valor === undefined) delete process.env[nome];
+    else process.env[nome] = valor;
+  }
+  const aviso = console.warn;
+  const erro = console.error;
+  console.warn = (...p) => r.eventos.push(p.join(" "));
+  console.error = (...p) => r.eventos.push(p.join(" "));
+  const inicio = Date.now();
+  try {
+    const req = { method: "GET", url, query, headers: { host: "intruso.exemplo", "x-forwarded-host": "intruso.exemplo" } };
+    await (injecao === undefined ? handler(req, res) : handler(req, res, injecao));
+  } catch (e) {
+    const texto = String(e?.message ?? e);
+    r.lancou = /fetch failed|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket|timeout|network/i.test(texto)
+      ? `infraestrutura, não defeito: ${texto}`
+      : `defeito: o handler lançou: ${texto}`;
+  } finally {
+    r.ms = Date.now() - inicio;
+    console.warn = aviso;
+    console.error = erro;
+    for (const [nome, valor] of Object.entries(guardado)) {
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    }
+  }
+  r.texto = typeof r.corpo === "string" ? r.corpo : "";
+  return r;
+}
+
+/** Os Posts de referência, na forma da linha de `posts_no_ar`. */
+const POSTS_T = Object.freeze([
+  Object.freeze({
+    slug: "como-automatizar",
+    titulo: "Como automatizar",
+    resumo: "O que dá para automatizar.",
+    publicado_em: "2026-08-01T10:00:00.000Z",
+    atualizado_em: "2026-08-05T10:00:00.000Z",
+  }),
+  Object.freeze({
+    slug: "sem-data",
+    titulo: "Sem data",
+    resumo: null,
+    publicado_em: "2026-08-02T10:00:00.000Z",
+    atualizado_em: null,
+  }),
+]);
+
+/** As duas Vagas Abertas de referência, na forma da linha de `vagas_abertas`. */
+const linhaDeVagaT = (extra = {}) => ({
+  situacao: "aberta",
+  id: "33333333-3333-4333-8333-333333333333",
+  slug: "analista-de-suporte",
+  titulo: "Analista de Suporte",
+  resumo: "Atender clientes\n  pelo   WhatsApp.",
+  departamento: "Atendimento",
+  departamento_cor: "var(--categoria-verde-bg)",
+  tipo: "CLT",
+  equivalente_jobposting: "FULL_TIME",
+  nivel: "Pleno",
+  nivel_cor: "var(--categoria-azul-bg)",
+  modalidade: "presencial",
+  localizacao: "Natal, RN",
+  aberta_em: "2026-09-01T12:00:00+00:00",
+  atualizado_em: "2026-09-02T09:30:00-03:00",
+  ...extra,
+});
+const VAGAS_T = Object.freeze([
+  linhaDeVagaT(),
+  linhaDeVagaT({
+    id: "44444444-4444-4444-8444-444444444444",
+    slug: "dev-remoto",
+    titulo: "Desenvolvedor",
+    resumo: "",
+    modalidade: "remoto",
+    localizacao: null,
+    aberta_em: "2026-08-20T12:00:00+00:00",
+    atualizado_em: null,
+  }),
+]);
+
+/* O mapa de HOJE para os Posts de referência, escrito à mão. Sem Vaga Aberta,
+   a rota tem de devolver EXATAMENTE isto. */
+const FIXAS_DO_MAPA_T = [
+  "  <url>",
+  `    <loc>${DOMINIO_T}/</loc>`,
+  "    <changefreq>weekly</changefreq>",
+  "    <priority>1.0</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/api-oficial-whatsapp</loc>`,
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.9</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/sobre</loc>`,
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.7</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/blog</loc>`,
+  "    <changefreq>weekly</changefreq>",
+  "    <priority>0.9</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/carreiras</loc>`,
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.5</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/blog/como-automatizar</loc>`,
+  "    <lastmod>2026-08-05</lastmod>",
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.8</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/blog/sem-data</loc>`,
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.8</priority>",
+  "  </url>",
+];
+const NOS_DAS_VAGAS_T = [
+  "  <url>",
+  `    <loc>${DOMINIO_T}/carreiras/analista-de-suporte</loc>`,
+  "    <lastmod>2026-09-02T12:30:00.000Z</lastmod>",
+  "    <changefreq>weekly</changefreq>",
+  "    <priority>0.6</priority>",
+  "  </url>",
+  "  <url>",
+  `    <loc>${DOMINIO_T}/carreiras/dev-remoto</loc>`,
+  "    <changefreq>weekly</changefreq>",
+  "    <priority>0.6</priority>",
+  "  </url>",
+];
+const embrulharMapaT = (linhas) =>
+  [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...linhas,
+    "</urlset>",
+    "",
+  ].join("\n");
+const MAPA_DE_HOJE_T = embrulharMapaT(FIXAS_DO_MAPA_T);
+const MAPA_COM_VAGAS_T = embrulharMapaT([...FIXAS_DO_MAPA_T, ...NOS_DAS_VAGAS_T]);
+
+/* O índice de HOJE para os mesmos Posts, escrito à mão. */
+const INDICE_DE_HOJE_LINHAS_T = [
+  "# ChatClean",
+  "",
+  "Plataforma de CRM e chatbot para WhatsApp. Este arquivo indexa as páginas públicas do site para leitura por máquina.",
+  "",
+  "## Páginas",
+  "",
+  `- ${DOMINIO_T}/: A plataforma: CRM e chatbot para WhatsApp com API Oficial.`,
+  `- ${DOMINIO_T}/api-oficial-whatsapp: O que e a API Oficial do WhatsApp Business, como contratar e quanto custa.`,
+  `- ${DOMINIO_T}/sobre: Quem faz a ChatClean, e de onde.`,
+  `- ${DOMINIO_T}/blog: Artigos sobre atendimento no WhatsApp, automacao e gestao de clientes.`,
+  `- ${DOMINIO_T}/carreiras: Vagas abertas e como e trabalhar aqui.`,
+  "",
+  "## Artigos",
+  "",
+  `- [Como automatizar](${DOMINIO_T}/blog/como-automatizar): O que dá para automatizar.`,
+  `- [Sem data](${DOMINIO_T}/blog/sem-data)`,
+];
+const INDICE_DE_HOJE_T = [...INDICE_DE_HOJE_LINHAS_T, ""].join("\n");
+const INDICE_COM_VAGAS_T = [
+  ...INDICE_DE_HOJE_LINHAS_T,
+  "",
+  "## Vagas",
+  "",
+  `- [Analista de Suporte](${DOMINIO_T}/carreiras/analista-de-suporte): Atender clientes pelo WhatsApp.`,
+  `- [Desenvolvedor](${DOMINIO_T}/carreiras/dev-remoto)`,
+  "",
+].join("\n");
+
+/**
+ * O link de um item do índice como um leitor de Markdown o lê: o texto vai
+ * até o primeiro `]` NÃO escapado, e o endereço é o `(...)` logo depois.
+ * `null` quando a linha não é item com link.
+ */
+function linkMarkdownT(linha) {
+  const texto = String(linha ?? "");
+  if (!texto.startsWith("- [")) return null;
+  let i = 3;
+  let rotulo = "";
+  while (i < texto.length && texto[i] !== "]") {
+    if (texto[i] === "\\" && i + 1 < texto.length) {
+      rotulo += texto[i + 1];
+      i += 2;
+    } else {
+      rotulo += texto[i];
+      i += 1;
+    }
+  }
+  if (texto[i] !== "]" || texto[i + 1] !== "(") return null;
+  const fim = texto.indexOf(")", i + 2);
+  if (fim === -1) return null;
+  return { rotulo, endereco: texto.slice(i + 2, fim) };
+}
+
+/** Os endereços de Vaga (caminho, sem domínio) num mapa, num índice e numa listagem servida. */
+const vagasNoMapaT = (xml) =>
+  [...String(xml ?? "").matchAll(/<loc>([^<]+)<\/loc>/g)]
+    .map((m) => m[1])
+    .filter((u) => u.startsWith(`${DOMINIO_T}/carreiras/`))
+    .map((u) => u.slice(DOMINIO_T.length));
+/* Casa pelo `](endereço)` que FECHA o link (seguido de `: ` ou do fim da
+   linha), e não por `[^\]]*`: um título com `]` escapado não engana. */
+const vagasNoIndiceT = (texto) =>
+  String(texto ?? "")
+    .split("\n")
+    .filter((l) => l.startsWith("- ["))
+    .map((l) => /\]\((https?:\/\/[^\s()]+)\)(?=: |$)/.exec(l)?.[1] ?? null)
+    .filter((u) => u !== null && u.startsWith(`${DOMINIO_T}/carreiras/`))
+    .map((u) => u.slice(DOMINIO_T.length));
+const vagasNaListagemT = (html) => {
+  const texto = String(html ?? "");
+  const i = artigoModT === null ? -1 : texto.indexOf(artigoModT.MARCA_CORPO_INICIO);
+  const j = i === -1 ? -1 : texto.indexOf(artigoModT.MARCA_CORPO_FIM, i);
+  if (i === -1 || j === -1) return null;
+  return [...texto.slice(i, j).matchAll(/href="(\/carreiras\/[^"]+)"/g)].map((m) => m[1]);
+};
+const mesmoConjuntoT = (a, b) => Array.isArray(a) && Array.isArray(b) && igual([...a].sort(), [...b].sort());
+const etiquetasT = (r) => String(r?.cab?.["vercel-cache-tag"] ?? "").split(",").filter(Boolean);
+
+afirmar(
+  "autoteste dos extratores: acham as Vagas no mapa, no índice e na listagem, ignoram Post, página fixa e `/carreiras` sozinha, e o do índice não se engana com `]` escapado no título",
+  igual(vagasNoMapaT(MAPA_COM_VAGAS_T), ["/carreiras/analista-de-suporte", "/carreiras/dev-remoto"]) &&
+    igual(vagasNoMapaT(MAPA_DE_HOJE_T), []) &&
+    igual(vagasNoIndiceT(INDICE_COM_VAGAS_T), ["/carreiras/analista-de-suporte", "/carreiras/dev-remoto"]) &&
+    igual(vagasNoIndiceT(INDICE_DE_HOJE_T), []) &&
+    igual(vagasNoIndiceT(`- [a\\](${DOMINIO_T}/carreiras/mal)](${DOMINIO_T}/carreiras/bom): r`), ["/carreiras/bom"]) &&
+    (artigoModT === null ||
+      igual(
+        vagasNaListagemT(`x<a href="/carreiras/fora">${artigoModT.MARCA_CORPO_INICIO}<a href="/carreiras/a">a</a><a href="/carreiras">b</a>${artigoModT.MARCA_CORPO_FIM}`),
+        ["/carreiras/a"],
+      )) &&
+    mesmoConjuntoT(["/b", "/a"], ["/a", "/b"]) &&
+    !mesmoConjuntoT(["/a"], ["/a", "/b"]),
+);
+afirmar(
+  "autoteste do leitor de link Markdown: o texto vai até o primeiro `]` não escapado, e um título sem escape DESVIA o link",
+  mesmoJson(linkMarkdownT("- [a\\](x)](https://b/c): r"), { rotulo: "a](x)", endereco: "https://b/c" }) &&
+    mesmoJson(linkMarkdownT("- [a](https://mal)](https://b/c)"), { rotulo: "a", endereco: "https://mal" }) &&
+    linkMarkdownT("sem link") === null,
+);
+
+/* ── Node: o mapa e o índice puros ── */
+
+if (mapaModT !== null && indiceModT !== null) {
+  const { mapaDoSite } = mapaModT;
+  const { indiceParaLlms } = indiceModT;
+
+  afirmar(
+    "a frequência e a importância da Vaga são constantes do módulo, com os valores da spec (`weekly`, `0.6`)",
+    mapaModT.FREQUENCIA_DA_VAGA === "weekly" && mapaModT.PRIORIDADE_DA_VAGA === "0.6",
+    `${mapaModT.FREQUENCIA_DA_VAGA} | ${mapaModT.PRIORIDADE_DA_VAGA}`,
+  );
+  afirmar(
+    "sem Vaga, o mapa é o de HOJE, byte a byte, contra o texto escrito à mão (com o 4º parâmetro vazio e sem ele)",
+    mapaDoSite(DOMINIO_T, undefined, POSTS_T, []) === MAPA_DE_HOJE_T &&
+      mapaDoSite(DOMINIO_T, undefined, POSTS_T) === MAPA_DE_HOJE_T,
+    mapaDoSite(DOMINIO_T, undefined, POSTS_T, []).slice(-300),
+  );
+  afirmar(
+    "sem Vaga, o índice é o de HOJE, byte a byte, contra o texto escrito à mão (sem seção `## Vagas`)",
+    indiceParaLlms(DOMINIO_T, POSTS_T, []) === INDICE_DE_HOJE_T && indiceParaLlms(DOMINIO_T, POSTS_T) === INDICE_DE_HOJE_T,
+    JSON.stringify(indiceParaLlms(DOMINIO_T, POSTS_T, []).slice(-200)),
+  );
+  afirmar(
+    "com duas Vagas Abertas, o mapa é o de hoje MAIS um nó por Vaga, depois dos Posts: `lastmod` com o instante completo (UTC) só na que tem `atualizado_em`, `weekly`, `0.6`",
+    mapaDoSite(DOMINIO_T, undefined, POSTS_T, VAGAS_T) === MAPA_COM_VAGAS_T,
+    mapaDoSite(DOMINIO_T, undefined, POSTS_T, VAGAS_T).slice(-700),
+  );
+  afirmar(
+    "com duas Vagas Abertas, o índice ganha `## Vagas` DEPOIS de `## Artigos`: título, endereço absoluto e Resumo em UMA linha; sem Resumo, sem os dois-pontos",
+    indiceParaLlms(DOMINIO_T, POSTS_T, VAGAS_T) === INDICE_COM_VAGAS_T,
+    JSON.stringify(indiceParaLlms(DOMINIO_T, POSTS_T, VAGAS_T).slice(-300)),
+  );
+
+  /* `lastmod`: o instante ISO 8601 com data, hora e fuso, e só ele. */
+  const lastmodDe = (atualizado) =>
+    /<lastmod>([^<]*)<\/lastmod>/.exec(mapaDoSite(DOMINIO_T, [], [], [{ slug: "x", atualizado_em: atualizado }]))?.[1] ?? null;
+  afirmar(
+    "o `lastmod` da Vaga é `atualizado_em` como instante W3C completo em UTC (e não só a data, como no Post)",
+    lastmodDe("2026-09-02T09:30:00-03:00") === "2026-09-02T12:30:00.000Z" &&
+      lastmodDe("2026-09-02T23:59:59.123+00:00") === "2026-09-02T23:59:59.123Z" &&
+      lastmodDe("2026-09-02T12:00:00Z") === "2026-09-02T12:00:00.000Z",
+    `${lastmodDe("2026-09-02T09:30:00-03:00")} | ${lastmodDe("2026-09-02T23:59:59.123+00:00")} | ${lastmodDe("2026-09-02T12:00:00Z")}`,
+  );
+  const tortasT = [
+    null,
+    undefined,
+    "ontem de manhã",
+    "",
+    "   ",
+    1759000000000,
+    { quando: "2026-09-02" },
+    "2026-09-02",
+    "2026-09-02T12:00:00",
+    "September 2, 2026",
+    "2026/09/02 12:00",
+    "Wed, 02 Sep 2026 12:00:00 GMT",
+    "+002026-09-02T12:00:00Z",
+    "2026-13-40T12:00:00Z",
+  ];
+  afirmar(
+    `\`atualizado_em\` ausente, fora de ISO 8601 com data, hora e fuso, com ano estendido ou impossível OMITE o \`lastmod\`, e a Vaga continua no mapa (${tortasT.length} formas)`,
+    tortasT.every((t) => lastmodDe(t) === null) &&
+      tortasT.every((t) => mapaDoSite(DOMINIO_T, [], [], [{ slug: "x", atualizado_em: t }]).includes(`<loc>${DOMINIO_T}/carreiras/x</loc>`)),
+    tortasT.map((t) => `${JSON.stringify(t)}→${lastmodDe(t)}`).join(", "),
+  );
+
+  /* Slug hostil: codificado pelo domínio e ESCAPADO no XML; sem endereço, fora. */
+  const hostil = mapaDoSite(DOMINIO_T, [], [], [{ slug: "d'agua&<x>", atualizado_em: null }]);
+  const locHostil = /<loc>([\s\S]*?)<\/loc>/.exec(hostil)?.[1] ?? null;
+  afirmar(
+    "Slug hostil: o endereço sai do domínio (`encodeURIComponent`) e ainda é ESCAPADO no XML (`'` vira `&apos;`); nada cru de `&`, `<` ou `'` dentro do `<loc>`",
+    locHostil === `${DOMINIO_T}/carreiras/d&apos;agua%26%3Cx%3E` &&
+      !/['"<>]/.test(locHostil) &&
+      !/&(?!apos;|amp;|lt;|gt;|quot;)/.test(locHostil),
+    locHostil ?? hostil.slice(0, 200),
+  );
+  const semEndereco = [{ slug: "" }, { slug: "   " }, { slug: null }, {}, null];
+  afirmar(
+    `Vaga cujo endereço dá \`null\` é OMITIDA do mapa e do índice (${semEndereco.length} formas), sem derrubar as outras`,
+    mapaDoSite(DOMINIO_T, [], [], [...semEndereco, { slug: "fica" }]).match(/<url>/g)?.length === 1 &&
+      mapaDoSite(DOMINIO_T, [], [], [...semEndereco, { slug: "fica" }]).includes("/carreiras/fica</loc>") &&
+      igual(vagasNoIndiceT(indiceParaLlms(DOMINIO_T, [], [...semEndereco, { slug: "fica", titulo: "Fica" }])), ["/carreiras/fica"]),
+    mapaDoSite(DOMINIO_T, [], [], [...semEndereco, { slug: "fica" }]),
+  );
+  afirmar(
+    "só Vagas sem endereço: a seção `## Vagas` é OMITIDA (cabeçalho sozinho afirmaria uma lista vazia)",
+    !indiceParaLlms(DOMINIO_T, POSTS_T, semEndereco).includes("## Vagas") &&
+      indiceParaLlms(DOMINIO_T, POSTS_T, semEndereco) === INDICE_DE_HOJE_T,
+  );
+  const semArtigos = indiceParaLlms(DOMINIO_T, [], VAGAS_T.slice(1));
+  afirmar(
+    "sem Post e com Vaga: `## Vagas` vem logo depois das Páginas, e `## Artigos` continua omitida",
+    !semArtigos.includes("## Artigos") &&
+      semArtigos.endsWith(`- ${DOMINIO_T}/carreiras: Vagas abertas e como e trabalhar aqui.\n\n## Vagas\n\n- [Desenvolvedor](${DOMINIO_T}/carreiras/dev-remoto)\n`),
+    JSON.stringify(semArtigos.slice(-160)),
+  );
+  const multilinha = indiceParaLlms(DOMINIO_T, [], [{ slug: "a", titulo: "Título\ncom quebra", resumo: "\n linha 1\r\n\tlinha 2 \n" }, { slug: "b", titulo: "B", resumo: "  \n\t " }]);
+  afirmar(
+    "Resumo e título com quebra viram UMA linha; Resumo só de espaço conta como vazio (sem `: `)",
+    multilinha.includes(`\n- [Título com quebra](${DOMINIO_T}/carreiras/a): linha 1 linha 2\n`) &&
+      multilinha.includes(`\n- [B](${DOMINIO_T}/carreiras/b)\n`) &&
+      !multilinha.includes(`/carreiras/b):`),
+    JSON.stringify(multilinha.slice(-160)),
+  );
+
+  /* Título hostil: escapado para Markdown; o link continua sendo o da Vaga. */
+  const HOSTIS = [
+    ["pleno", "Analista [Pleno]", `- [Analista \\[Pleno\\]](${DOMINIO_T}/carreiras/pleno)`],
+    ["desvio", "a](https://mal.example)", `- [a\\](https://mal.example)](${DOMINIO_T}/carreiras/desvio)`],
+    ["barra", "C:\\Pasta\\", `- [C:\\\\Pasta\\\\](${DOMINIO_T}/carreiras/barra)`],
+    ["a(b)", "Parênteses", `- [Parênteses](${DOMINIO_T}/carreiras/a%28b%29)`],
+  ];
+  const indiceHostil = indiceParaLlms(DOMINIO_T, [], HOSTIS.map(([slug, titulo]) => ({ slug, titulo })));
+  const linhasHostis = indiceHostil.split("\n").filter((l) => l.startsWith("- ["));
+  const desviados = HOSTIS.filter(([slug, titulo, esperada], n) => {
+    const link = linkMarkdownT(linhasHostis[n]);
+    return !(
+      linhasHostis[n] === esperada &&
+      link !== null &&
+      link.rotulo === titulo &&
+      link.endereco === `${DOMINIO_T}${regrasDaVaga.enderecoDaPaginaDaVaga(slug).replace(/\(/g, "%28").replace(/\)/g, "%29")}`
+    );
+  });
+  afirmar(
+    `título de Vaga hostil no \`/llms.txt\` (${HOSTIS.length} formas): \`\\\`, \`[\`, \`]\` escapados, \`(\`/\`)\` do endereço codificados, e o link lido como Markdown aponta para a VAGA com o título inteiro como texto`,
+    desviados.length === 0 && linhasHostis.length === HOSTIS.length,
+    desviados.map(([s]) => `${s}: ${linhasHostis[HOSTIS.findIndex(([x]) => x === s)]}`).join(" | ") || linhasHostis.join(" | "),
+  );
+}
+
+/* ── Node: `vagasIsoladas` nunca rejeita e tem prazo ── */
+
+if (leituraModT !== null) {
+  const iso = leituraModT.vagasIsoladas;
+  afirmar(
+    "o prazo da leitura das Vagas é uma constante nomeada de `leitura.js`, de 3 s",
+    leituraModT.PRAZO_DA_LEITURA_DAS_VAGAS_MS === 3000,
+    String(leituraModT.PRAZO_DA_LEITURA_DAS_VAGAS_MS),
+  );
+  const casos = [
+    ["lança", () => {
+      throw new Error("explodiu");
+    }],
+    ["rejeita", () => Promise.reject(new Error("rejeitou"))],
+    ["devolve algo sem forma", () => undefined],
+    ["devolve `ok` sem lista", () => ({ ok: true, vagas: null })],
+  ];
+  const vazaram = [];
+  for (const [nome, ler] of casos) {
+    let r;
+    try {
+      r = await iso({ ler });
+    } catch (e) {
+      r = { lancou: String(e?.message ?? e) };
+    }
+    if (!(r?.ok === false && typeof r.defeito === "string" && r.defeito !== "")) vazaram.push(`${nome}: ${JSON.stringify(r)}`);
+  }
+  afirmar(
+    `\`vagasIsoladas\` nunca rejeita: leitura que ${casos.map(([n]) => n).join(", ")} vira \`{ok:false, defeito}\``,
+    vazaram.length === 0,
+    vazaram.join(" | "),
+  );
+  let sinalRecebido = null;
+  const t0 = Date.now();
+  const pendurada = await iso({
+    prazoMs: 150,
+    ler: ({ sinal }) => {
+      sinalRecebido = sinal;
+      return new Promise(() => {});
+    },
+  });
+  const levou = Date.now() - t0;
+  afirmar(
+    "`vagasIsoladas`: leitura que nunca responde vence o prazo, vira `{ok:false}` dizendo o prazo, e o sinal passado à leitura é ABORTADO",
+    pendurada.ok === false &&
+      /prazo/.test(pendurada.defeito) &&
+      levou < 1500 &&
+      sinalRecebido !== null &&
+      sinalRecebido.aborted === true,
+    `${JSON.stringify(pendurada)} | ${levou} ms | abortado ${sinalRecebido?.aborted}`,
+  );
+  const boa = await iso({ ler: () => ({ ok: true, vagas: [{ slug: "a" }] }) });
+  afirmar(
+    "controle: leitura boa passa como veio",
+    boa.ok === true && igual(boa.vagas, [{ slug: "a" }]),
+    JSON.stringify(boa),
+  );
+}
+
+/* ── Dirigida: o mapa, o índice e a listagem contra UM dublê ── */
+
+if (mapaModT !== null && indiceModT !== null && sitemapModT !== null && diagModT !== null && leituraModT !== null && cacheModT !== null && moduloDoHandler !== null) {
+  /** Resposta que DERRUBA a conexão: a rede caindo no meio da leitura. */
+  const DERRUBAR = Symbol("derrubar");
+  /** Resposta que NUNCA vem: a leitura pendurada. */
+  const PENDURAR = Symbol("pendurar");
+  const respostasT = { posts_no_ar: [200, POSTS_T], vagas_abertas: [200, []] };
+  const pedidosT = [];
+  const penduradas = [];
+  /* Para medir o paralelismo: com `segurar`, o PRIMEIRO pedido que chega fica
+     sem resposta até o segundo chegar (ou por 1,5 s). Leituras em sequência só
+     fariam o segundo pedido DEPOIS da resposta do primeiro, e os dois nunca
+     estariam pendentes ao mesmo tempo. */
+  let segurar = false;
+  let liberarPendente = null;
+  let doisPendentes = false;
+  const dubleT = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      const nome = /^\/rest\/v1\/rpc\/([a-z_]+)$/.exec(req.url ?? "")?.[1] ?? null;
+      pedidosT.push(nome);
+      const responder = () => {
+        const [status, dados] = respostasT[nome] ?? [404, { message: "função fora do dublê" }];
+        if (dados === DERRUBAR) {
+          req.socket.destroy();
+          return;
+        }
+        if (dados === PENDURAR) {
+          const pendurada = { socket: req.socket, fechada: false };
+          req.socket.once("close", () => {
+            pendurada.fechada = true;
+          });
+          penduradas.push(pendurada);
+          return;
+        }
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(typeof dados === "string" ? dados : JSON.stringify(dados));
+      };
+      if (segurar && liberarPendente === null) {
+        const prazo = setTimeout(() => {
+          liberarPendente = null;
+          responder();
+        }, 1500);
+        liberarPendente = () => {
+          clearTimeout(prazo);
+          liberarPendente = null;
+          responder();
+        };
+        return;
+      }
+      if (segurar && liberarPendente !== null) {
+        doisPendentes = true;
+        liberarPendente();
+      }
+      responder();
+    });
+  });
+  await new Promise((pronto) => dubleT.listen(0, "127.0.0.1", pronto));
+  const AMBIENTE_T = {
+    VITE_DOMINIO_DO_SITE: DOMINIO_T,
+    SUPABASE_URL: `http://127.0.0.1:${dubleT.address().port}`,
+    SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_duble_5_9",
+    VITE_SUPABASE_URL: undefined,
+    VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+  };
+
+  const dirigirT = async (handler, url, injecao = undefined) => {
+    const antes = pedidosT.length;
+    const r = await dirigirRotaT(handler, { url, ambiente: AMBIENTE_T, injecao });
+    r.pedidos = pedidosT.slice(antes);
+    return r;
+  };
+  const mapaT = (injecao) => dirigirT(sitemapModT.default, "/api/sitemap", injecao);
+  const indiceT = (injecao) => dirigirT(indiceModT.default, "/api/llms", injecao);
+  const listagemT = () => dirigirT(moduloDoHandler.default, "/api/carreiras");
+  const diag = (r) => r.cab["x-entrega-diagnostico"];
+  const CACHE_SAUDAVEL = cacheModT.politicaDeCache(200);
+
+  try {
+    afirmar(
+      "a política da resposta saudável é a de sempre (`public, s-maxage=60`)",
+      CACHE_SAUDAVEL === "public, s-maxage=60",
+      CACHE_SAUDAVEL,
+    );
+
+    /* Sem Vagas: o de hoje, byte a byte. */
+    respostasT.posts_no_ar = [200, POSTS_T];
+    respostasT.vagas_abertas = [200, []];
+    const mapaVazio = await mapaT();
+    const indiceVazio = await indiceT();
+    afirmar(
+      "rota, sem Vaga Aberta: `/sitemap.xml` responde 200 com o mapa de HOJE, byte a byte (texto escrito à mão), e diagnóstico `ok`",
+      mapaVazio.status === 200 && mapaVazio.texto === MAPA_DE_HOJE_T && diag(mapaVazio) === diagModT.DIAGNOSTICO_OK,
+      `HTTP ${mapaVazio.status} | ${diag(mapaVazio)} | ${mapaVazio.lancou ?? ""}`,
+    );
+    afirmar(
+      "rota, sem Vaga Aberta: `/llms.txt` responde 200 com o índice de HOJE, byte a byte, sem `## Vagas`, e diagnóstico `ok`",
+      indiceVazio.status === 200 && indiceVazio.texto === INDICE_DE_HOJE_T && diag(indiceVazio) === diagModT.DIAGNOSTICO_OK,
+      `HTTP ${indiceVazio.status} | ${diag(indiceVazio)} | ${JSON.stringify(indiceVazio.texto.slice(-120))}`,
+    );
+    afirmar(
+      "as duas rotas pedem `posts_no_ar` E `vagas_abertas`, uma vez cada, e nada mais",
+      [mapaVazio, indiceVazio].every((r) => igual([...r.pedidos].sort(), ["posts_no_ar", "vagas_abertas"])),
+      `${mapaVazio.pedidos.join(",")} | ${indiceVazio.pedidos.join(",")}`,
+    );
+    afirmar(
+      "resposta saudável, nas duas rotas: `Cache-Control` `public, s-maxage=60`, e `Vercel-Cache-Tag` com a etiqueta de Carreiras junto das que já levavam (`blog` e a da rota)",
+      mapaVazio.cab["cache-control"] === CACHE_SAUDAVEL &&
+        indiceVazio.cab["cache-control"] === CACHE_SAUDAVEL &&
+        igual(etiquetasT(mapaVazio), [cacheModT.ETIQUETA_DA_COLECAO, "sitemap", cacheModT.ETIQUETA_DE_CARREIRAS]) &&
+        igual(etiquetasT(indiceVazio), [cacheModT.ETIQUETA_DA_COLECAO, "llms", cacheModT.ETIQUETA_DE_CARREIRAS]) &&
+        cacheModT.ETIQUETA_DE_CARREIRAS === "carreiras",
+      `${mapaVazio.cab["cache-control"]} [${etiquetasT(mapaVazio)}] | ${indiceVazio.cab["cache-control"]} [${etiquetasT(indiceVazio)}]`,
+    );
+
+    /* Com Vagas. */
+    respostasT.vagas_abertas = [200, VAGAS_T];
+    const mapaCheio = await mapaT();
+    const indiceCheio = await indiceT();
+    const listagemCheia = await listagemT();
+    afirmar(
+      "rota, com duas Vagas Abertas (uma sem `atualizado_em`): o mapa é EXATAMENTE as cinco fixas, os Posts e as duas Vagas, `lastmod` só na que tem, diagnóstico `ok`",
+      mapaCheio.status === 200 && mapaCheio.texto === MAPA_COM_VAGAS_T && diag(mapaCheio) === diagModT.DIAGNOSTICO_OK,
+      `HTTP ${mapaCheio.status} | ${diag(mapaCheio)} | ${mapaCheio.texto.slice(-400)}`,
+    );
+    afirmar(
+      "rota, com duas Vagas Abertas: o índice é EXATAMENTE o de hoje mais `## Vagas` com as duas linhas, diagnóstico `ok`",
+      indiceCheio.status === 200 && indiceCheio.texto === INDICE_COM_VAGAS_T && diag(indiceCheio) === diagModT.DIAGNOSTICO_OK,
+      `HTTP ${indiceCheio.status} | ${diag(indiceCheio)} | ${JSON.stringify(indiceCheio.texto.slice(-250))}`,
+    );
+    const noMapa = vagasNoMapaT(mapaCheio.texto);
+    const noIndice = vagasNoIndiceT(indiceCheio.texto);
+    const naListagem = vagasNaListagemT(listagemCheia.texto);
+    afirmar(
+      "o MESMO conjunto de endereços de Vaga no mapa, no índice e no `<noscript>` da `/carreiras` servida, contra o mesmo dublê (e não vazio)",
+      listagemCheia.status === 200 &&
+        noMapa.length === VAGAS_T.length &&
+        mesmoConjuntoT(noMapa, noIndice) &&
+        mesmoConjuntoT(noMapa, naListagem),
+      `mapa [${noMapa.join(", ")}] | índice [${noIndice.join(", ")}] | listagem HTTP ${listagemCheia.status} [${(naListagem ?? ["(sem região)"]).join(", ")}]`,
+    );
+
+    /* Efeito na listagem da 5.8: a leitura é tudo ou nada, e o `resumo` agora
+       lido entra nisso. */
+    respostasT.vagas_abertas = [200, [linhaDeVagaT(), linhaDeVagaT({ slug: "outra", resumo: { x: 1 } })]];
+    const listagemTorta = await listagemT();
+    afirmar(
+      "`/carreiras` servida com uma linha de `resumo` de tipo errado responde o 500 de leitura (`no-store`, `degradado:leitura-falhou`): a leitura é tudo ou nada, por decisão",
+      listagemTorta.status === 500 &&
+        listagemTorta.cab["cache-control"] === "no-store" &&
+        diag(listagemTorta) === diagModT.DIAGNOSTICO_LEITURA_FALHOU,
+      `HTTP ${listagemTorta.status} | ${listagemTorta.cab["cache-control"]} | ${diag(listagemTorta)}`,
+    );
+
+    /* As duas leituras em paralelo. */
+    respostasT.vagas_abertas = [200, VAGAS_T];
+    let paraleloNoMapa = false;
+    let paraleloNoIndice = false;
+    let mapaParalelo = null;
+    let indiceParalelo = null;
+    try {
+      segurar = true;
+      doisPendentes = false;
+      mapaParalelo = await mapaT();
+      paraleloNoMapa = doisPendentes;
+      doisPendentes = false;
+      indiceParalelo = await indiceT();
+      paraleloNoIndice = doisPendentes;
+    } finally {
+      segurar = false;
+      if (liberarPendente !== null) liberarPendente();
+      liberarPendente = null;
+    }
+    afirmar(
+      "as duas leituras correm em PARALELO: `posts_no_ar` e `vagas_abertas` ficam pendentes AO MESMO TEMPO (no mapa e no índice)",
+      paraleloNoMapa && paraleloNoIndice && mapaParalelo?.texto === MAPA_COM_VAGAS_T && indiceParalelo?.texto === INDICE_COM_VAGAS_T,
+      `mapa ${paraleloNoMapa} | índice ${paraleloNoIndice}`,
+    );
+
+    /* As Vagas falham: 200 com fixas e Posts, degradado, `no-store`, evento. */
+    const degradadaCerta = (r, esperado) => {
+      const evento = r.eventos.find((e) => e.includes("[entrega:evento]") && e.includes(diagModT.DIAGNOSTICO_VAGAS_FALHARAM));
+      return (
+        r.status === 200 &&
+        r.texto === esperado &&
+        diag(r) === diagModT.DIAGNOSTICO_VAGAS_FALHARAM &&
+        r.cab["cache-control"] === "no-store" &&
+        etiquetasT(r).length === 0 &&
+        evento !== undefined &&
+        /"detalhe":"[^"]+/.test(evento) &&
+        r.lancou === undefined
+      );
+    };
+    const FALHAS_DAS_VAGAS = [
+      ["RPC 500", [500, { message: "erro" }]],
+      ["RPC 404", [404, { message: "sem função" }]],
+      ["rede cai", [200, DERRUBAR]],
+      ["corpo que não é JSON", [200, "{nao e json"]],
+      ["corpo que não é lista", [200, { x: 1 }]],
+      ["linha torta (Encerrada)", [200, [linhaDeVagaT({ situacao: "encerrada" })]]],
+      ["linha com Slug fora do formato", [200, [linhaDeVagaT({ slug: "Fora/Do&Formato" })]]],
+      ["linha com campo de tipo errado", [200, [linhaDeVagaT({ resumo: { x: 1 } })]]],
+    ];
+    const naoIsoladas = [];
+    for (const [nome, resposta] of FALHAS_DAS_VAGAS) {
+      respostasT.posts_no_ar = [200, POSTS_T];
+      respostasT.vagas_abertas = resposta;
+      for (const [rota, dirigirRota, esperado] of [
+        ["mapa", mapaT, MAPA_DE_HOJE_T],
+        ["índice", indiceT, INDICE_DE_HOJE_T],
+      ]) {
+        const r = await dirigirRota();
+        if (!degradadaCerta(r, esperado)) {
+          naoIsoladas.push(`${nome} no ${rota}: HTTP ${r.status}, ${diag(r)}, ${r.cab["cache-control"]}, [${etiquetasT(r)}], ${r.lancou ?? ""}`);
+        }
+      }
+    }
+    afirmar(
+      `a falha das Vagas é ISOLADA (${FALHAS_DAS_VAGAS.length} formas × 2 rotas): 200 com as fixas e os Posts de hoje, sem Vaga, \`no-store\` e sem etiqueta (a resposta incompleta não fica no cache), diagnóstico \`${diagModT.DIAGNOSTICO_VAGAS_FALHARAM}\` e evento registrado com o motivo`,
+      naoIsoladas.length === 0,
+      naoIsoladas.join(" | "),
+    );
+
+    /* Vagas penduradas: o prazo responde pela rota. */
+    respostasT.posts_no_ar = [200, POSTS_T];
+    respostasT.vagas_abertas = [200, PENDURAR];
+    const prazo = leituraModT.PRAZO_DA_LEITURA_DAS_VAGAS_MS;
+    const penduradasFora = [];
+    for (const [rota, dirigirRota, esperado] of [
+      ["mapa", mapaT, MAPA_DE_HOJE_T],
+      ["índice", indiceT, INDICE_DE_HOJE_T],
+    ]) {
+      const r = await dirigirRota();
+      if (!(degradadaCerta(r, esperado) && r.ms >= prazo - 100 && r.ms < prazo + 1500)) {
+        penduradasFora.push(`${rota}: HTTP ${r.status}, ${diag(r)}, ${r.cab["cache-control"]}, ${r.ms} ms`);
+      }
+    }
+    afirmar(
+      `\`vagas_abertas\` que NUNCA responde: cada rota responde no prazo (${prazo} ms, com folga de 1,5 s), 200 com fixas e Posts, \`no-store\`, diagnóstico degradado`,
+      penduradasFora.length === 0,
+      penduradasFora.join(" | "),
+    );
+    /* O PRAZO CANCELA a chamada, e não só para de esperar por ela: a conexão
+       pendurada é fechada pelo lado da rota (o sinal chega ao `fetch`). */
+    await new Promise((pronto) => setTimeout(pronto, 300));
+    const abertasAinda = penduradas.filter((p) => !p.fechada).length;
+    afirmar(
+      "e o prazo CANCELA a leitura pendurada: a conexão de `vagas_abertas` é fechada pela rota (o sinal chega ao `fetch`), nas duas rotas",
+      penduradas.length === 2 && abertasAinda === 0,
+      `${penduradas.length} pendurada(s), ${abertasAinda} ainda aberta(s)`,
+    );
+    for (const p of penduradas.splice(0)) p.socket.destroy();
+
+    /* A leitura das Vagas LANÇA ou rejeita: o `.catch` de `vagasIsoladas`. */
+    respostasT.vagas_abertas = [200, VAGAS_T];
+    const lancadas = [];
+    for (const [nome, ler] of [
+      ["lança", () => {
+        throw new Error("explodiu dentro da leitura");
+      }],
+      ["rejeita", () => Promise.reject(new Error("rejeitou dentro da leitura"))],
+    ]) {
+      for (const [rota, dirigirRota, esperado] of [
+        ["mapa", mapaT, MAPA_DE_HOJE_T],
+        ["índice", indiceT, INDICE_DE_HOJE_T],
+      ]) {
+        const r = await dirigirRota({ lerVagas: () => leituraModT.vagasIsoladas({ ler }) });
+        if (!degradadaCerta(r, esperado)) lancadas.push(`${nome} no ${rota}: HTTP ${r.status}, ${diag(r)}, ${r.lancou ?? ""}`);
+      }
+    }
+    afirmar(
+      "a leitura das Vagas que LANÇA ou rejeita (injetada em `vagasIsoladas`) vira a mesma degradação, em cada rota",
+      lancadas.length === 0,
+      lancadas.join(" | "),
+    );
+    afirmar(
+      "`vagasIsoladas` mora UMA vez, em `leitura.js`: as duas rotas a importam de lá e não declaram leitura de Vagas própria",
+      ["api/sitemap.js", "api/llms.js"].every((arquivo) => {
+        const fonte = semComentarios(ler(arquivo) ?? "");
+        return /import\s*\{[^}]*\bvagasIsoladas\b[^}]*\}\s*from\s*["']\.\/_nucleo\/leitura\.js["']/.test(fonte) &&
+          !/function\s+vagasIsoladas|vagasAbertasServidas/.test(fonte);
+      }),
+    );
+
+    /* Os Posts falham: 500 como hoje, qualquer que seja o estado das Vagas. */
+    const naoDerrubadas = [];
+    for (const [nomeDasVagas, vagas] of [
+      ["Vagas boas", [200, VAGAS_T]],
+      ["Vagas vazias", [200, []]],
+      ["Vagas falhando", [500, { message: "erro" }]],
+    ]) {
+      for (const [nomeDosPosts, posts] of [
+        ["Posts 500", [500, { message: "erro" }]],
+        ["rede dos Posts cai", [200, DERRUBAR]],
+      ]) {
+        respostasT.posts_no_ar = posts;
+        respostasT.vagas_abertas = vagas;
+        for (const [rota, dirigirRota, marca] of [
+          ["mapa", mapaT, "<urlset"],
+          ["índice", indiceT, "## Páginas"],
+        ]) {
+          const r = await dirigirRota();
+          if (
+            !(
+              r.status === 500 &&
+              diag(r) === diagModT.DIAGNOSTICO_LEITURA_FALHOU &&
+              r.cab["cache-control"] === "no-store" &&
+              !r.texto.includes(marca) &&
+              !r.texto.includes("/carreiras/")
+            )
+          ) {
+            naoDerrubadas.push(`${nomeDosPosts} + ${nomeDasVagas} no ${rota}: HTTP ${r.status}, ${diag(r)}`);
+          }
+        }
+      }
+    }
+    afirmar(
+      "a falha dos POSTS continua 500 `no-store` com `degradado:leitura-falhou`, com Vagas boas, vazias ou falhando (3 × 2 × 2 casos)",
+      naoDerrubadas.length === 0,
+      naoDerrubadas.join(" | "),
+    );
+  } finally {
+    for (const p of penduradas.splice(0)) p.socket.destroy();
+    dubleT.closeAllConnections?.();
+    await new Promise((pronto) => dubleT.close(pronto));
+  }
+}
+
+/* ── Remota: as duas rotas contra o banco real, sem criar Vaga ── */
+
+if (!temToken) {
+  afirmar(
+    "banco REAL: `/sitemap.xml` e `/llms.txt` respondem 200 `ok`, e as Vagas que listam são EXATAMENTE as Abertas da leitura real (nenhuma, enquanto não houver)",
+    false,
+    "sem SUPABASE_ACCESS_TOKEN: a leitura real é da sessão principal",
+  );
+} else if (!urlDoEnv || !chavePublicavel || sitemapModT === null || indiceModT === null || leituraModT === null || diagModT === null) {
+  afirmar("banco REAL: `/sitemap.xml` e `/llms.txt`", false, "sem VITE_SUPABASE_URL/VITE_SUPABASE_PUBLISHABLE_KEY no `.env`, ou módulo ausente");
+} else {
+  const AMBIENTE_REAL_T = { VITE_DOMINIO_DO_SITE: DOMINIO_T, SUPABASE_URL: urlDoEnv, SUPABASE_CHAVE_PUBLICAVEL: chavePublicavel };
+  const mapaReal = await dirigirRotaT(sitemapModT.default, { url: "/api/sitemap", ambiente: AMBIENTE_REAL_T });
+  const indiceReal = await dirigirRotaT(indiceModT.default, { url: "/api/llms", ambiente: AMBIENTE_REAL_T });
+  const lidas = await leituraModT.vagasAbertasServidas({
+    ambiente: { SUPABASE_URL: urlDoEnv, SUPABASE_CHAVE_PUBLICAVEL: chavePublicavel },
+  });
+  const esperadas = lidas.ok
+    ? lidas.vagas.map((v) => regrasDaVaga.enderecoDaPaginaDaVaga(v.slug)).filter((e) => e !== null)
+    : null;
+  const diagReal = (r) => r.cab["x-entrega-diagnostico"];
+  afirmar(
+    "banco REAL: `/sitemap.xml` e `/llms.txt` respondem 200 com diagnóstico `ok` (as duas leituras reais passaram)",
+    mapaReal.lancou === undefined &&
+      indiceReal.lancou === undefined &&
+      mapaReal.status === 200 &&
+      indiceReal.status === 200 &&
+      diagReal(mapaReal) === diagModT.DIAGNOSTICO_OK &&
+      diagReal(indiceReal) === diagModT.DIAGNOSTICO_OK,
+    `mapa HTTP ${mapaReal.status} ${diagReal(mapaReal)} ${mapaReal.lancou ?? ""} | índice HTTP ${indiceReal.status} ${diagReal(indiceReal)} ${indiceReal.lancou ?? ""} | ${[...mapaReal.eventos, ...indiceReal.eventos].join(" ").slice(0, 200)}`,
+  );
+  afirmar(
+    "banco REAL: as Vagas no mapa e no índice são EXATAMENTE as da leitura real de `vagas_abertas` (nenhum `/carreiras/<slug>` enquanto não houver Vaga Aberta)",
+    esperadas !== null &&
+      mesmoConjuntoT(vagasNoMapaT(mapaReal.texto), esperadas) &&
+      mesmoConjuntoT(vagasNoIndiceT(indiceReal.texto), esperadas) &&
+      (esperadas.length > 0 || (!mapaReal.texto.includes("/carreiras/") && !indiceReal.texto.includes("## Vagas"))),
+    `leitura ${lidas.ok ? `${esperadas.length} Vaga(s)` : lidas.defeito} | mapa [${vagasNoMapaT(mapaReal.texto).join(", ")}] | índice [${vagasNoIndiceT(indiceReal.texto).join(", ")}]`,
+  );
 }
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */

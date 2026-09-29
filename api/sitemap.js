@@ -25,24 +25,50 @@
  * porque ele É uma página que um humano abre. Este arquivo é só para máquina:
  * não há "shell" dele para degradar a, e fingir sucesso aqui seria o oposto do
  * que o comentário logo abaixo já protege — um mapa vazio de propósito.
+ *
+ * ─── AS VAGAS ENTRAM, E A FALHA DELAS É ISOLADA (Story 5.9) ───────────────
+ *
+ * Cada Vaga Aberta ganha um nó, depois das fixas e dos Posts, lida por
+ * `vagasIsoladas()` (sobre `vagasAbertasServidas()`, a mesma leitura da
+ * listagem servida de `/carreiras`). A visibilidade é da função de banco,
+ * como a dos Posts.
+ *
+ * As duas leituras correm em paralelo, e a das Vagas NÃO derruba o mapa: ao
+ * contrário dos Posts, a falha de Carreiras não pode tirar o Blog do ar
+ * (C-FR-22). A das Vagas tem prazo próprio. Falhando ou vencendo o prazo, o
+ * mapa sai 200 com fixas e Posts, `no-store` (a resposta incompleta não fica
+ * no cache), e o diagnóstico diz que as Vagas faltaram.
+ *
+ * A assimetria é de propósito: Posts falhando derrubam a rota INTEIRA, Vagas
+ * incluídas; Vagas falhando não derrubam nada.
  */
 
 import { mapaDoSite } from "./_nucleo/paginasDoSite.js";
-import { postsNoAr } from "./_nucleo/leitura.js";
+import { postsNoAr, vagasIsoladas } from "./_nucleo/leitura.js";
+import { ETIQUETA_DE_CARREIRAS } from "./_nucleo/cache.js";
 import {
   dominioDoAmbiente,
   metodoRecusado,
   responderDefeito,
   responderDocumento,
 } from "./_nucleo/entrega.js";
-import { DIAGNOSTICO_LEITURA_FALHOU, DIAGNOSTICO_SEM_DOMINIO } from "./_nucleo/diagnostico.js";
+import {
+  DIAGNOSTICO_LEITURA_FALHOU,
+  DIAGNOSTICO_OK,
+  DIAGNOSTICO_SEM_DOMINIO,
+  DIAGNOSTICO_VAGAS_FALHARAM,
+} from "./_nucleo/diagnostico.js";
 
 export const TIPO_DO_MAPA = "application/xml; charset=utf-8";
 
 /** O nome desta rota, para o diagnóstico e o registro de evento. */
 const ROTA = "sitemap";
 
-export default async function handler(req, res) {
+/**
+ * A rota. O terceiro parâmetro só existe para a verificação trocar a leitura
+ * das Vagas (a plataforma chama com dois).
+ */
+export default async function handler(req, res, { lerVagas = vagasIsoladas } = {}) {
   if (metodoRecusado(req, res, { rota: ROTA })) return;
 
   const dominio = dominioDoAmbiente();
@@ -51,7 +77,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const lidos = await postsNoAr();
+  const [lidos, abertas] = await Promise.all([postsNoAr(), lerVagas()]);
   if (!lidos.ok) {
     /* ★ FALHA ALTO, E NÃO SERVE SÓ AS FIXAS ★
        A tentação é servir as páginas fixas quando o banco não responde —
@@ -64,8 +90,11 @@ export default async function handler(req, res) {
 
   responderDocumento(res, {
     tipo: TIPO_DO_MAPA,
-    corpo: mapaDoSite(dominio.raiz, undefined, lidos.posts),
-    etiquetas: { colecoes: ["sitemap"] },
+    corpo: mapaDoSite(dominio.raiz, undefined, lidos.posts, abertas.ok ? abertas.vagas : []),
+    etiquetas: { colecoes: ["sitemap", ETIQUETA_DE_CARREIRAS] },
+    diagnostico: abertas.ok ? DIAGNOSTICO_OK : DIAGNOSTICO_VAGAS_FALHARAM,
+    detalhe: abertas.ok ? null : abertas.defeito,
+    guardar: abertas.ok,
     rota: ROTA,
   });
 }
