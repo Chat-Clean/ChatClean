@@ -70,13 +70,20 @@ export function politicaDeCache(status) {
 export const ETIQUETA_DA_COLECAO = "blog";
 
 /**
+ * A coleção de Carreiras (Story 5.8; declarada aqui desde a 5.9, para o mapa
+ * do site e o `/llms.txt` a usarem sem importar a página de Carreiras). Não se
+ * mistura com a do Blog.
+ */
+export const ETIQUETA_DE_CARREIRAS = "carreiras";
+
+/**
  * O vocabulário de caractere de etiqueta.
  *
  * Fechado, e por lista de PERMISSÃO. O slug já é validado na gravação, mas a
  * etiqueta vai num cabeçalho HTTP — e um caractere que quebre o cabeçalho não
  * quebraria a etiqueta, quebraria a RESPOSTA. Recusar é barato.
  */
-const CARACTERE_DE_ETIQUETA = /^[a-z0-9-]+$/;
+export const CARACTERE_DE_ETIQUETA = /^[a-z0-9-]+$/;
 
 /**
  * As etiquetas de uma resposta.
@@ -92,4 +99,16 @@ export function etiquetasDaResposta({ slug = null, colecoes = [] } = {}) {
     etiquetas.push(`post:${slug}`);
   }
   return etiquetas;
+}
+
+/**
+ * Uma etiqueta pronta está no vocabulário? (revisão da Story 5.8) É a coleção
+ * (`blog`, `carreiras`) ou `prefixo:identificador`, cada parte pela MESMA
+ * lista de permissão de caractere. Vírgula, espaço e quebra de linha ficam de
+ * fora: quebrariam o cabeçalho, e com ele a resposta.
+ */
+export function etiquetaPermitida(etiqueta) {
+  if (typeof etiqueta !== "string") return false;
+  const partes = etiqueta.split(":");
+  return partes.length <= 2 && partes.every((parte) => CARACTERE_DE_ETIQUETA.test(parte));
 }

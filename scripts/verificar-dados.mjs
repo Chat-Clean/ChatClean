@@ -679,6 +679,93 @@ afirmar(
   );
 }
 
+/* ── AS VARREDURAS GENÉRICAS TAMBÉM EM src/data/carreiras (Story 5.2) ─────
+   TROCA REGISTRADA (revisão da 5.2): as regras acima que não dependem das
+   listas fechadas do Blog passam a percorrer a camada de Carreiras também.
+   As listas de funções PÚBLICAS e DO PAINEL de Carreiras (um cliente por
+   função, lista fechada) são julgadas em `verificar:carreiras`, seção (c). A
+   camada de Carreiras reaproveita o contrato do Blog por IMPORTAÇÃO, e por
+   isso a lista de permissão dela inclui `../blog/resultado.js` e
+   `../blog/comum.js`, e nada mais de `data/blog`. */
+{
+  const DIR_CARREIRAS = path.join(raiz, "src", "data", "carreiras");
+  const arquivosDeCarreiras = (() => {
+    try {
+      return readdirSync(DIR_CARREIRAS)
+        .filter((n) => n.endsWith(".js"))
+        .map((n) => ({ nome: n, texto: readFileSync(path.join(DIR_CARREIRAS, n), "utf8") }));
+    } catch {
+      return [];
+    }
+  })();
+  afirmar(
+    "src/data/carreiras/ foi lida (as varreduras abaixo não julgam o vazio)",
+    arquivosDeCarreiras.some((a) => a.nome === "leitura.js"),
+    `encontrados: ${arquivosDeCarreiras.map((a) => a.nome).join(", ") || "nenhum"}`,
+  );
+
+  const comCreateClient = arquivosDeCarreiras
+    .filter((a) => /\bcreateClient\s*\(/.test(a.texto))
+    .map((a) => a.nome);
+  afirmar(
+    "nenhum módulo de data/carreiras instancia cliente (AD-6)",
+    comCreateClient.length === 0,
+    comCreateClient.join(", "),
+  );
+  const instanciadores = arquivosDeCarreiras
+    .filter((a) => /\b(clientePublico|clienteAutenticado)\s*\(/.test(semComentarios(a.texto)))
+    .map((a) => a.nome);
+  afirmar(
+    "nenhum módulo de data/carreiras chama clientePublico()/clienteAutenticado() direto (obtém pelo `comum.js` do Blog)",
+    instanciadores.length === 0,
+    instanciadores.join(", "),
+  );
+  const comReact = arquivosDeCarreiras
+    .filter((a) => /from\s+["'](react|react-dom)/.test(a.texto))
+    .map((a) => a.nome);
+  afirmar(
+    "nenhum módulo de data/carreiras importa React",
+    comReact.length === 0,
+    comReact.join(", "),
+  );
+
+  const PERMITIDAS_DE_CARREIRAS = ["../supabase/clientes.js", "../blog/resultado.js", "../blog/comum.js"];
+  const origensProibidas = [];
+  for (const { nome, texto } of arquivosDeCarreiras) {
+    /* `from "x"`, `import "x"` e `import("x")`; `.from("vagas")`, a consulta
+       do PostgREST, NÃO é origem: o ponto antes a exclui. */
+    for (const m of semComentarios(texto).matchAll(
+      /(?<![\w$.])(?:from\s*|import\s*\(\s*|import\s+)["'`]([^"'`]+)["'`]/g,
+    )) {
+      const origem = m[1];
+      const permitida =
+        (origem.startsWith("./") && !origem.includes("..")) ||
+        PERMITIDAS_DE_CARREIRAS.includes(origem) ||
+        origem.startsWith("../../domain/");
+      if (!permitida) origensProibidas.push(`${nome} → ${origem}`);
+    }
+  }
+  afirmar(
+    "data/carreiras importa apenas de domain/, de data/supabase/clientes.js, de blog/resultado.js, de blog/comum.js e de si mesma",
+    origensProibidas.length === 0,
+    origensProibidas.join(", "),
+  );
+
+  const repeticoes = [];
+  for (const { nome, texto } of arquivosDeCarreiras) {
+    for (const m of semComentarios(texto).matchAll(
+      /\.(eq|neq|in|lt|lte|gt|gte|is|like|ilike|filter|match|or|not|contains)\(\s*["'`](estado|aberta_em|publicado_em)/g,
+    )) {
+      repeticoes.push(`${nome}: .${m[1]}("${m[2]}"…)`);
+    }
+  }
+  afirmar(
+    "nenhuma consulta de data/carreiras repete o filtro de visibilidade (Estado, aberta_em): a política e as funções de entrega decidem",
+    repeticoes.length === 0,
+    repeticoes.join(", "),
+  );
+}
+
 /* ─── Import real dos módulos ────────────────────────────────────────────── */
 
 const resultadoMod = await import(urlDe("src/data/blog/resultado.js"));

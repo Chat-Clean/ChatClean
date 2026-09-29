@@ -1771,9 +1771,13 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
      São dois desde a Story 2.15: a prévia sob o Painel e o artigo do site
      público. Os dois mostram o MESMO `conteudo_html` gravado, e é por isso que
      "o que se vê é o que sairá" é verdade — não por coincidência de código. */
+  /* TROCA REGISTRADA (Story 5.7): a Página da Vaga entrou na lista. Ela mostra
+     o `descricao_html` gravado dentro de `.artigo`, e sumir com ela deixaria
+     a asserção seguinte verde sem julgá-la. */
   const caminhosEsperados = [
     "src/admin/blog/PreVisualizacaoDePost.jsx",
     "src/pages/BlogPost.jsx",
+    "src/pages/VagaPublica.jsx",
   ];
   afirmar(
     "existe ao menos um ponto de injeção de HTML de artigo — a trava tem objeto, e não passa mais por ausência",
@@ -1787,7 +1791,7 @@ const ESTRUTURAIS = new Set(["article", "div", "span"]);
     (alvo) => ![...arquivosComInjecao].some((a) => a.endsWith(alvo)),
   );
   afirmar(
-    "e as DUAS telas que mostram artigo estão entre eles — a prévia do Painel e o artigo do site público",
+    "e as TRÊS telas que mostram artigo estão entre eles — a prévia do Painel, o artigo do site público e a Página da Vaga",
     faltando.length === 0,
     `faltando: ${faltando.join(", ")} | encontrados: ${[...arquivosComInjecao].join(" | ")}`,
   );

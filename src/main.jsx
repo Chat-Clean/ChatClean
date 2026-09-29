@@ -6,6 +6,7 @@ import App from "./App.jsx";
 import Blog from "./pages/Blog.jsx";
 import BlogPost from "./pages/BlogPost.jsx";
 import Carreiras from "./pages/Carreiras.jsx";
+import VagaPublica from "./pages/VagaPublica.jsx";
 import Sobre from "./pages/Sobre.jsx";
 import ApiOficialWhatsApp from "./pages/ApiOficialWhatsApp.jsx";
 import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
@@ -17,6 +18,13 @@ import {
   ROTA_DA_PREVIA,
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
+import EditorDeVaga from "@/admin/carreiras/EditorDeVaga";
+import TelaDeClassificacoes from "@/admin/carreiras/TelaDeClassificacoes";
+import {
+  ROTA_DAS_CLASSIFICACOES,
+  ROTA_DA_VAGA,
+  ROTA_DA_VAGA_NOVA,
+} from "@/admin/carreiras/rotas";
 import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
@@ -44,6 +52,7 @@ createRoot(document.getElementById("root")).render(
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/carreiras" element={<Carreiras />} />
+        <Route path="/carreiras/:slug" element={<VagaPublica />} />
         <Route path="/sobre" element={<Sobre />} />
         <Route path="/api-oficial-whatsapp" element={<ApiOficialWhatsApp />} />
         {/* A landing de captação. Endereço curto porque é ele que vai em
@@ -88,6 +97,14 @@ createRoot(document.getElementById("root")).render(
           }
         >
           <Route index element={<AdminBlog />} />
+          {/* O formulário de Vaga (Story 5.4): duas filhas do mesmo portão,
+              sem propriedade nenhuma. O identificador vem da rota, e a tela
+              troca de Vaga pela `key` por dentro. */}
+          <Route path={ROTA_DA_VAGA_NOVA} element={<EditorDeVaga />} />
+          <Route path={ROTA_DA_VAGA} element={<EditorDeVaga />} />
+          {/* Departamentos, Tipos e Níveis (Story 5.6): filha do mesmo
+              portão, sem propriedade, antes da apanha-tudo. */}
+          <Route path={ROTA_DAS_CLASSIFICACOES} element={<TelaDeClassificacoes />} />
           {/* A pré-visualização (Story 2.13): por identificador, porque
               rascunho pode não ter endereço nenhum. */}
           <Route path={ROTA_DA_PREVIA} element={<PreVisualizacaoDePost />} />

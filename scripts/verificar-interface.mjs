@@ -13,7 +13,7 @@
  *
  *   (a) a barra: logo real presente em disco, sem contorno, sem `emerald`,
  *       fora de `AdminBlog.jsx` e sem conhecer domínio;
- *   (b) Restaurar: a decisão de qual aba a oferece, EXECUTADA;
+ *   (b) Restaurar saiu (Story 5.5), e a aba inicial vem da URL: a decisão EXECUTADA;
  *   (c) o anel de foco: declarado uma vez, aplicado a todo elemento
  *       interativo da barra, sobrevivendo ao build, e VISÍVEL sobre a cromia
  *       (contraste calculado, não prometido);
@@ -432,6 +432,18 @@ const CAMINHO_GAVETA = "src/admin/blog/GavetaDeMetadados.jsx";
    regra que cobra `.dado` sobre ele precisa se mudar junto. */
 const CAMINHO_TELA = "src/admin/blog/EditorDePost.jsx";
 const CAMINHO_PILULA = "src/admin/blog/PilulaDeEstado.jsx";
+/* Story 5.1: o DESENHO da pílula (ponto, palavra, `data-estado`, raio) mudou
+   para `admin/comum`, que serve o Blog e Carreiras e não conhece Estado
+   nenhum. A guarda e o vocabulário continuam na ligação do Blog
+   (`CAMINHO_PILULA`); as regras que leem o desenho leem daqui. */
+const CAMINHO_PILULA_COMUM = "src/admin/comum/PilulaDeEstado.jsx";
+/* Revisão da 5.1: a barra e a casca do editor também moram em `admin/comum`
+   agora, com as frases visíveis, as classes e os tokens que antes estavam no
+   Blog. Elas entram na lista fechada de código novo (hex solto, paleta
+   aposentada, raio fora da direção); as varreduras de árvore inteira (voz,
+   classe montada, travessão) já as alcançam por estarem sob `src/admin/`. */
+const CAMINHO_BARRA_DO_EDITOR_COMUM = "src/admin/comum/BarraDoEditor.jsx";
+const CAMINHO_EDITOR_DE_TEXTO_COMUM = "src/admin/comum/EditorDeTexto.jsx";
 const CAMINHO_LISTA = "src/admin/blog/ListaDePosts.jsx";
 /* A pré-visualização da Story 2.13 e o módulo puro dela. Elas entram na lista
    fechada pela mesma razão que a listagem entrou na 2.10: superfície nova do
@@ -477,6 +489,9 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_NOTIFICACOES,
   CAMINHO_DIALOGO,
   CAMINHO_PILULA,
+  CAMINHO_PILULA_COMUM,
+  CAMINHO_BARRA_DO_EDITOR_COMUM,
+  CAMINHO_EDITOR_DE_TEXTO_COMUM,
   CAMINHO_ESTADOS,
   CAMINHO_FORMATO,
   CAMINHO_MENU,
@@ -506,6 +521,31 @@ const ARQUIVOS_NOVOS = [
   CAMINHO_GAVETA,
   CAMINHO_MODULO_DA_CAPA,
   CAMINHO_ARQUIVOS_DO_DOMINIO,
+  /* TROCA REGISTRADA (Story 5.4): o formulário de Vaga nasce sob as mesmas
+     regras (nenhum hex solto, nenhuma paleta aposentada, só os raios da
+     direção). São os arquivos de `src/admin/carreiras/`, um a um: lista
+     fechada, e um arquivo que suma acusa "os arquivos novos da entrega
+     existem". */
+  "src/admin/carreiras/rotas.js",
+  "src/admin/carreiras/configuracaoDaDescricao.js",
+  "src/admin/carreiras/conteudoDaDescricao.js",
+  "src/admin/carreiras/BarraDaDescricao.jsx",
+  "src/admin/carreiras/EditorDaDescricao.jsx",
+  "src/admin/carreiras/formulario.js",
+  "src/admin/carreiras/EditorDeVaga.jsx",
+  /* TROCA REGISTRADA (Story 5.5): a aba Carreiras modular nasce sob as
+     mesmas regras. */
+  "src/admin/carreiras/listagem.js",
+  "src/admin/carreiras/ListaDeVagas.jsx",
+  "src/admin/carreiras/AbaDeCarreiras.jsx",
+  /* TROCA REGISTRADA (revisão da 5.5): as funções de leitura de falha saíram
+     de `formulario.js` para um módulo neutro, importado pelo formulário e pela
+     lista. */
+  "src/admin/carreiras/falhas.js",
+  /* TROCA REGISTRADA (Story 5.6): a tela de Departamentos, Tipos e Níveis e o
+     módulo puro dela nascem sob as mesmas regras. */
+  "src/admin/carreiras/classificacoesDoPainel.js",
+  "src/admin/carreiras/TelaDeClassificacoes.jsx",
 ];
 
 function acharCssCompilado() {
@@ -526,6 +566,7 @@ const menu = lerOuFalhar(CAMINHO_MENU);
 const gaveta = lerOuFalhar(CAMINHO_GAVETA);
 const tela = lerOuFalhar(CAMINHO_TELA);
 const pilula = lerOuFalhar(CAMINHO_PILULA);
+const pilulaComum = lerOuFalhar(CAMINHO_PILULA_COMUM);
 const lista = lerOuFalhar(CAMINHO_LISTA);
 const appCss = lerOuFalhar(CAMINHO_APP_CSS);
 const indexCss = lerOuFalhar(CAMINHO_INDEX_CSS);
@@ -575,11 +616,16 @@ secao("(a0) a ferramenta antes do que ela audita");
        que citavam `savePost(` e o contador de caracteres deixaram de existir
        AQUI. As de agora sao o que a pagina tem hoje: a casca, o dialogo, as
        abas e a porta para a tela de edicao. */
+    /* TROCA REGISTRADA (Story 5.5): as âncoras `saveVaga(` e
+       `<DialogoDeConfirmacao` saíram com o Carreiras antigo (a gravação no
+       navegador e os dois diálogos da página). As equivalentes são o que a
+       página tem no lugar: a aba de Carreiras montada e a listagem de Posts,
+       que é quem monta o diálogo do Blog. */
     const ANCORAS = [
-      "saveVaga(",
+      "<AbaDeCarreiras",
       'role="tabpanel"',
       "<BarraSuperior",
-      "<DialogoDeConfirmacao",
+      "<ListaDePosts",
       "<EditorDePost",
     ];
     const sumiram = ANCORAS.filter((a) => !limpaPagina.includes(a));
@@ -688,72 +734,95 @@ if (barra) {
 
 /* ═════════════════════════════════════════════════════════════════════ */
 
-secao("(b) Restaurar: a decisão de qual aba a oferece, executada");
+secao("(b) Restaurar saiu, e a aba inicial vem da URL: a decisão executada (Story 5.5)");
 
 if (pagina) {
   /*
-   * Não é `grep`. O trecho que decide é extraído da página e EXECUTADO com
-   * cada valor de aba. Uma condição invertida, um `||` no lugar de um `===` ou
-   * um `activeTab` trocado passariam por qualquer regex e falham aqui.
+   * TROCA REGISTRADA (Story 5.5). Esta seção extraía `acoesDaAba` da página e a
+   * EXECUTAVA por aba: nenhuma ação no Blog, Restaurar em Carreiras, nada para
+   * aba desconhecida. Restaurar saiu do repositório com as vagas de exemplo, e
+   * a página deixou de ter ação de aba. As equivalentes:
+   *
+   *   - a página não declara `acoesDaAba` nem a passa à barra, e nenhum resto
+   *     do Restaurar sobrevive no código dela (a barra, sem a propriedade, usa
+   *     a lista vazia que ela mesma declara como padrão);
+   *   - a DECISÃO que a página toma por aba agora é qual aba abre. Ela é
+   *     extraída e EXECUTADA com cada valor do parâmetro: só `carreiras` exato
+   *     abre Carreiras; ausente, vazio, variação de caixa e valor desconhecido
+   *     abrem o Blog. Uma condição invertida ou um `includes` no lugar do `===`
+   *     passariam por qualquer regex e falham aqui.
    */
-  const extrairDeclaracao = (texto, nome) => {
-    const inicio = texto.indexOf(`const ${nome} =`);
-    if (inicio === -1) return null;
+  const codigo = semComentarios(pagina);
+  const tagDaBarra = tagsDe(codigo, ["BarraSuperior"])[0]?.tag ?? "";
+  afirmar(
+    "a página não declara `acoesDaAba`, não a passa à barra, e não tem resto do Restaurar",
+    tagDaBarra !== "" &&
+      !/\bacoesDaAba\b/.test(codigo) &&
+      !/Restaurar|confirmReset|RotateCcw/.test(codigo),
+    tagDaBarra.slice(0, 200).replace(/\s+/g, " "),
+  );
+  afirmar(
+    "e a barra, sem a propriedade, cai na lista vazia que ela declara como padrão",
+    barra !== null && /acoesDaAba\s*=\s*\[\s*\]/.test(semComentarios(barra)),
+  );
+
+  /* TROCA REGISTRADA (revisão da 5.5): a aba ativa deixou de ser um estado
+     INICIALIZADO pela URL (`const [activeTab, setActiveTab] = useState(…)`,
+     surdo à URL depois da montagem) e passou a ser DERIVADA dela a cada
+     renderização (`const activeTab = …;`). O que se extrai e executa é essa
+     expressão, até o `;` fora de parênteses; as perguntas são as mesmas. */
+  const extrairInicializador = (texto) => {
+    const casou = /const activeTab = /.exec(texto);
+    if (casou === null) return null;
+    const abre = casou.index + casou[0].length;
     let profundidade = 0;
-    for (let i = inicio; i < texto.length; i += 1) {
+    for (let i = abre; i < texto.length; i += 1) {
       const c = texto[i];
-      if (c === "(" || c === "[" || c === "{") profundidade += 1;
-      else if (c === ")" || c === "]" || c === "}") profundidade -= 1;
-      else if (c === ";" && profundidade === 0) return texto.slice(inicio, i + 1);
+      if (c === "(") profundidade += 1;
+      else if (c === ")") profundidade -= 1;
+      else if (c === ";" && profundidade === 0) return texto.slice(abre, i);
     }
     return null;
   };
-
-  const trecho = extrairDeclaracao(semComentarios(pagina), "acoesDaAba");
-  const achou = afirmar(
-    "a declaração de `acoesDaAba` foi encontrada na página",
-    trecho !== null,
+  const inicializador = extrairInicializador(codigo);
+  afirmar(
+    "a derivação da aba ativa foi encontrada na página, e a aba NÃO é estado (nada de `setActiveTab`)",
+    inicializador !== null && inicializador.trim() !== "" && !/\bsetActiveTab\b|\[activeTab,/.test(codigo),
   );
-
-  if (achou) {
-    let calcular = null;
+  const rotas = await tentarImportar("src/admin/carreiras/rotas.js");
+  if (inicializador !== null && rotas) {
+    let decidir = null;
     try {
-      // Dependências do trecho, dubladas: o ícone e o disparador de estado.
-      calcular = new Function(
-        "activeTab",
-        "RotateCcw",
-        "setConfirmReset",
-        `${trecho}\nreturn acoesDaAba;`,
+      decidir = new Function(
+        "parametros",
+        "PARAMETRO_DA_ABA",
+        "ABA_DE_CARREIRAS",
+        `const inicial = (${inicializador});\nreturn inicial;`,
       );
     } catch (erro) {
-      afirmar("o trecho de `acoesDaAba` compila isoladamente", false, erro.message);
+      afirmar("o inicializador da aba compila isoladamente", false, erro.message);
     }
-
-    if (calcular) {
-      const paraAba = (aba) => calcular(aba, () => null, () => null);
-      const noBlog = paraAba("blog");
-      const emCarreiras = paraAba("carreiras");
-
+    if (decidir) {
+      const abaPara = (valor) => {
+        const busca = new URLSearchParams(valor === undefined ? "" : `aba=${encodeURIComponent(valor)}`);
+        return decidir(busca, rotas.PARAMETRO_DA_ABA, rotas.ABA_DE_CARREIRAS);
+      };
       afirmar(
-        "aba Blog: NENHUMA ação global na barra — Restaurar não aparece",
-        Array.isArray(noBlog) && noBlog.length === 0,
-        `recebeu: ${JSON.stringify(noBlog?.map?.((a) => a.rotulo))}`,
+        "`?aba=carreiras` abre a aba Carreiras",
+        abaPara("carreiras") === "carreiras" && rotas.ABA_DE_CARREIRAS === "carreiras",
+        String(abaPara("carreiras")),
+      );
+      const outros = [undefined, "", "blog", "xpto", "Carreiras", " carreiras", "carreiras "];
+      const erradas = outros.filter((v) => abaPara(v) !== "blog");
+      afirmar(
+        "qualquer outro valor, ou nenhum, abre o Blog (inclusive variação de caixa e espaço)",
+        erradas.length === 0,
+        erradas.map((v) => `${JSON.stringify(v)} → ${abaPara(v)}`).join(" | "),
       );
       afirmar(
-        "aba Carreiras: Restaurar continua disponível",
-        Array.isArray(emCarreiras) &&
-          emCarreiras.some((a) => /^Restaurar$/i.test(a.rotulo)),
-        `recebeu: ${JSON.stringify(emCarreiras?.map?.((a) => a.rotulo))}`,
-      );
-      afirmar(
-        "a ação Restaurar de Carreiras tem gatilho de verdade",
-        typeof emCarreiras?.[0]?.aoAcionar === "function",
-      );
-      // Uma aba que ainda não existe não pode ganhar a ação destrutiva de
-      // brinde: a decisão precisa ser positiva, não uma negação de "blog".
-      afirmar(
-        "uma aba desconhecida não recebe a ação destrutiva",
-        paraAba("qualquer-outra").length === 0,
+        "o parâmetro é lido pelo nome que o módulo de Carreiras exporta (`aba`)",
+        rotas.PARAMETRO_DA_ABA === "aba" && /parametros\.get\(\s*PARAMETRO_DA_ABA\s*\)/.test(inicializador),
+        inicializador.replace(/\s+/g, " "),
       );
     }
   }
@@ -1068,20 +1137,54 @@ if (notificacoes) {
   );
 }
 
-/* As mensagens que a página realmente envia nomeiam o que aconteceu. */
-if (pagina) {
-  const sucessos = [...pagina.matchAll(/notificarSucesso\(\s*"([^"]+)"/g)].map((m) => m[1]);
-  const erros = [...pagina.matchAll(/notificarErro\(\s*\n?\s*"([^"]+)"/g)].map((m) => m[1]);
-  afirmar(
-    "toda conclusão notificada nomeia o que aconteceu",
-    sucessos.length > 0 && sucessos.every((m) => /\s/.test(m) && m.length > 6),
-    sucessos.join(" | ") || "nenhuma",
-  );
-  afirmar(
-    "toda falha notificada nomeia o que houve",
-    erros.length > 0 && erros.every((o) => o.length > 8),
-    erros.join(" | ") || "nenhuma",
-  );
+/* ─── As notificações e as gravações (TROCA REGISTRADA, Story 5.5) ──────
+ *
+ * Até a Story 5.4 estas asserções liam a PÁGINA: as notificações literais
+ * dela e as gravações no navegador (`saveVaga`, `deleteVaga`, `resetVagas`),
+ * com `try`/`catch`, o `catch (erro)` e a mensagem de cota. Tudo isso saiu com
+ * o Carreiras antigo. As gravações de Vaga agora moram em `ListaDeVagas.jsx`
+ * (mudar o Estado e excluir, pela função de servidor), e as equivalentes são
+ * as mesmas perguntas feitas a ELA, mais a página não gravar nada.
+ */
+const CAMINHO_LISTA_DE_VAGAS = "src/admin/carreiras/ListaDeVagas.jsx";
+const listaDeVagas = lerOuFalhar(CAMINHO_LISTA_DE_VAGAS);
+
+/* As frases que a listagem de Vagas envia nomeiam o que aconteceu: as de falha
+   vêm do módulo puro, as de sucesso da tabela do domínio, e as duas passam
+   pela regra de voz DE VERDADE (importada e executada). */
+{
+  const vozAqui = await tentarImportar(CAMINHO_VOZ);
+  const regras = await tentarImportar("src/admin/carreiras/listagem.js");
+  const transicoes = await tentarImportar("src/domain/carreiras/transicoes.js");
+  const estadosDaVaga = await tentarImportar("src/domain/carreiras/estados.js");
+  if (vozAqui && regras && transicoes && estadosDaVaga) {
+    const sucessos = [
+      ...new Set(
+        estadosDaVaga.ESTADOS_DA_VAGA.flatMap((e) => transicoes.acoesDoEstadoDaVaga(e).map((a) => a.confirmacao)),
+      ),
+    ];
+    /* Revisão da 5.5: mais a frase própria da Vaga que já não existia. */
+    const erros = [regras.FALHA_DA_MUDANCA_DE_ESTADO, regras.FALHA_DA_EXCLUSAO, regras.TITULO_DA_VAGA_INEXISTENTE];
+    const oQueFazer = [regras.RESERVA_DA_ACAO, regras.RESERVA_DA_LEITURA, regras.DESCRICAO_DA_VAGA_INEXISTENTE];
+    const reprovadas = [
+      ...sucessos.map((m) => vozAqui.diagnosticarMensagem("o que aconteceu", m)),
+      ...erros.map((m) => vozAqui.diagnosticarMensagem("o que houve", m)),
+      ...oQueFazer.map((m) => vozAqui.diagnosticarMensagem("o que fazer", m)),
+    ].filter(Boolean);
+    afirmar(
+      "toda conclusão e toda falha que a listagem de Vagas notifica nomeia o que aconteceu (regra de voz executada)",
+      sucessos.length >= 4 &&
+        sucessos.every((m) => /\s/.test(m) && m.length > 6) &&
+        erros.every((o) => typeof o === "string" && o.length > 8) &&
+        reprovadas.length === 0,
+      `${sucessos.join(" | ")} || ${erros.join(" | ")} || ${reprovadas.join(" | ")}`,
+    );
+    afirmar(
+      "e o rótulo da ação de resolver (\"Tentar de novo\") e o do diálogo passam pela guarda de rótulo",
+      vozAqui.diagnosticarRotuloDeAcao(regras.ROTULO_DE_NOVA_TENTATIVA) === null &&
+        vozAqui.diagnosticarRotuloDeAcao(regras.ROTULO_DE_CONFIRMAR_EXCLUSAO) === null,
+    );
+  }
 }
 
 /*
@@ -1089,62 +1192,58 @@ if (pagina) {
  * quantidade é satisfeito pelas operações que JÁ notificam, e fica cego
  * justamente para a que ficou de fora. A pergunta é: **existe alguma operação
  * que grava sem notificar?**
- *
- * Foi assim que salvar passou despercebido. Excluir e restaurar estavam
- * protegidos — e são as que quase nunca falham, porque gravam menos do que
- * havia antes. Quem estoura a cota é salvar um post com imagem em base64, e era
- * exatamente `handleSubmit` que declarava "Salvo!" sem saber se a gravação
- * tinha acontecido.
  */
 if (pagina) {
   const codigo = semComentarios(pagina);
-  const GRAVAM = ["savePost", "deletePost", "resetPosts", "saveVaga", "deleteVaga", "resetVagas"];
+  const TODAS_AS_GRAVACOES = [
+    "savePost", "deletePost", "resetPosts", "saveVaga", "deleteVaga", "resetVagas",
+    "salvarVaga", "mudarEstadoDaVaga", "excluirVaga", "salvarClassificacao", "excluirClassificacao",
+    "salvarPost", "excluirPost", "definirDestaque",
+  ];
+  const gravaAqui = TODAS_AS_GRAVACOES.filter((f) => new RegExp(`\\b${f}\\s*\\(`).test(codigo));
+  afirmar(
+    "a PÁGINA não grava nada: nem Post, nem Vaga, nem pelo navegador, nem pela função de servidor",
+    gravaAqui.length === 0 && !/notificar(Sucesso|Erro)\(/.test(codigo),
+    gravaAqui.join(", "),
+  );
+}
+
+if (listaDeVagas) {
+  const codigo = semComentarios(listaDeVagas);
+  const GRAVAM = ["mudarEstadoDaVaga", "excluirVaga"];
 
   const semVoz = [];
   const semGuarda = [];
+  const antesDaResposta = [];
   const encontradas = [];
-  let sitiosEncontrados = 0;
 
   for (const escrita of GRAVAM) {
     const padrao = new RegExp(`\\b${escrita}\\(`, "g");
     let casou;
     while ((casou = padrao.exec(codigo)) !== null) {
-      // A própria linha de `import` não é chamada.
       const linha = codigo.slice(codigo.lastIndexOf("\n", casou.index) + 1, casou.index);
       if (/^\s*import\b/.test(linha)) continue;
-
-      sitiosEncontrados += 1;
       if (!encontradas.includes(escrita)) encontradas.push(escrita);
       const corpo = corpoDaFuncaoQueContem(codigo, casou.index);
       if (corpo === null) {
         semVoz.push(`${escrita} (função não localizada)`);
         continue;
       }
-      if (!/notificarSucesso\(/.test(corpo) || !/notificarErro\(/.test(corpo)) {
-        semVoz.push(escrita);
-      }
-      // E o sucesso não pode ser declarado antes de a gravação ter dado certo.
-      if (!/try\s*\{/.test(corpo) || !/catch\s*\(/.test(corpo)) {
-        semGuarda.push(escrita);
-      }
+      if (!/notificarSucesso\(/.test(corpo) || !/notificarErro\(/.test(corpo)) semVoz.push(escrita);
+      if (!/try\s*\{/.test(corpo) || !/catch\s*\(/.test(corpo)) semGuarda.push(escrita);
+      /* O sucesso só é declarado DEPOIS da resposta: a chamada aguardada vem
+         antes de qualquer `notificarSucesso` do corpo. */
+      const chamada = corpo.search(new RegExp(`await\\s+${escrita}\\(`));
+      const sucesso = corpo.indexOf("notificarSucesso(");
+      if (chamada === -1 || sucesso === -1 || sucesso < chamada) antesDaResposta.push(escrita);
     }
   }
-
-  /* QUAIS gravações a página faz, e não apenas quantas.
-     O piso numérico era 4 e a Story 2.10 o teria derrubado para 3: excluir Post
-     saiu junto com o `blogStore`, e o que sobrou na página é Carreiras. Um piso
-     solto se ajusta a qualquer perda futura sem dizer nada; a lista NOMEADA
-     acusa nas duas direções — uma gravação de vaga que desapareça (regressão em
-     módulo fora de escopo) e uma gravação de Post que ressuscite no
-     armazenamento do navegador. */
-  const GRAVACOES_DE_CARREIRAS = ["saveVaga", "deleteVaga", "resetVagas"];
-  const GRAVACOES_DE_POST = ["savePost", "deletePost", "resetPosts"];
   afirmar(
-    "as gravações da página são exatamente as de Carreiras — Post não grava mais daqui",
-    GRAVACOES_DE_CARREIRAS.every((f) => encontradas.includes(f)) &&
-      GRAVACOES_DE_POST.every((f) => !encontradas.includes(f)) &&
-      sitiosEncontrados >= GRAVACOES_DE_CARREIRAS.length,
-    `encontradas: ${encontradas.join(", ") || "nenhuma"} (${sitiosEncontrados} sítios)`,
+    "as gravações da listagem de Vagas são exatamente mudar o Estado e excluir, pela camada",
+    GRAVAM.every((f) => encontradas.includes(f)) &&
+      /import\s*\{[^}]*\bmudarEstadoDaVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(codigo) &&
+      /import\s*\{[^}]*\bexcluirVaga\b[^}]*\}\s*from\s*["']@\/data\/carreiras\/escrita["']/.test(codigo),
+    `encontradas: ${encontradas.join(", ") || "nenhuma"}`,
   );
   afirmar(
     "NENHUMA operação que grava fica sem notificar conclusão e falha",
@@ -1152,32 +1251,57 @@ if (pagina) {
     semVoz.join(", "),
   );
   afirmar(
-    "toda gravação está dentro de `try`/`catch` — sucesso não é declarado no escuro",
+    "toda gravação está dentro de `try`/`catch` — uma exceção não deixa a lista presa",
     semGuarda.length === 0,
     semGuarda.join(", "),
   );
   afirmar(
     "o `catch` captura o erro em vez de descartá-lo",
-    !/catch\s*\{/.test(codigo) && /catch \(erro\)/.test(codigo),
+    !/catch\s*\{/.test(codigo) && /catch \(\w+\)/.test(codigo),
     "`catch {}` sem vínculo obriga a afirmar uma causa que ninguém verificou",
   );
+  /* Revisão da 5.5: capturar não basta, o `catch` REGISTRA. A exceção vira
+     resultado tipado (a tela mostra a frase de reserva), e sem o registro o
+     motivo real sumiria: quem investiga veria só "não deu". A primeira
+     instrução de todo `catch` da lista é `console.error("[Painel] …", <o erro
+     capturado>)`, e cada escritora tem um. */
+  const REGISTRA_NO_CATCH = /catch \((\w+)\) \{\s*console\.error\(\s*"\[Painel\] [^"]+",\s*\1\s*\);/g;
   afirmar(
-    "a mensagem só fala em espaço quando o erro é mesmo de cota",
-    /QuotaExceededError/.test(codigo) && /ehCotaEstourada\(/.test(codigo),
+    "autoteste: o detector de registro no `catch` aceita o registro do erro capturado e acusa o `catch` mudo, o registro de outra variável e o registro sem o prefixo",
+    [...'try { a(); } catch (falha) {\n  console.error("[Painel] A leitura lançou.", falha);\n  x = 1;\n}'.matchAll(REGISTRA_NO_CATCH)].length === 1 &&
+      [...'try { a(); } catch (falha) {\n  x = { ok: false };\n}'.matchAll(REGISTRA_NO_CATCH)].length === 0 &&
+      [...'try { a(); } catch (falha) {\n  console.error("[Painel] A leitura lançou.", outra);\n}'.matchAll(REGISTRA_NO_CATCH)].length === 0 &&
+      [...'try { a(); } catch (falha) {\n  console.error("A leitura lançou.", falha);\n}'.matchAll(REGISTRA_NO_CATCH)].length === 0,
+  );
+  const catches = [...codigo.matchAll(/catch \(\w+\)/g)].length;
+  const registrados = [...codigo.matchAll(REGISTRA_NO_CATCH)].length;
+  const escritorasMudas = GRAVAM.filter((escrita) => {
+    const indice = codigo.search(new RegExp(`await\\s+${escrita}\\(`));
+    const corpo = indice === -1 ? null : corpoDaFuncaoQueContem(codigo, indice);
+    return corpo === null || [...corpo.matchAll(REGISTRA_NO_CATCH)].length === 0;
+  });
+  afirmar(
+    "todo `catch` da listagem de Vagas REGISTRA a falha (`console.error(\"[Painel] …\", erro)`) além de virar resultado tipado, inclusive o de cada escritora",
+    catches >= 3 && registrados === catches && escritorasMudas.length === 0,
+    `${registrados}/${catches} catch(es) registram | escritoras mudas: ${escritorasMudas.join(", ") || "nenhuma"}`,
   );
   afirmar(
-    "`setSaved(true)` só acontece depois da gravação bem-sucedida",
-    !/savePost\([^)]*\);\s*setSaved\(true\)/.test(codigo) &&
-      !/saveVaga\([^)]*\);\s*setSaved\(true\)/.test(codigo),
-    "declarar sucesso na mesma respiração da gravação é declarar sem saber",
+    "a frase da falha é a do erro TIPADO (com reserva), e nenhuma fala em espaço do navegador",
+    /mensagemDaFalha\(falha, RESERVA_DA_ACAO\)/.test(codigo) &&
+      !/QuotaExceededError|ehCotaEstourada|comoResolver|armazenamento do navegador/.test(codigo),
+  );
+  afirmar(
+    "o sucesso só é declarado depois de a resposta chegar",
+    antesDaResposta.length === 0,
+    antesDaResposta.join(", "),
   );
 
   /* Autoteste do localizador de função: sem ele, um bug que devolvesse sempre
      o arquivo inteiro faria toda operação parecer notificada. */
   const amostra =
-    'const a = () => { savePost(x); };\nconst b = () => { savePost(y); notificarSucesso("z"); notificarErro("p","q"); };';
-  const primeiro = corpoDaFuncaoQueContem(amostra, amostra.indexOf("savePost"));
-  const segundo = corpoDaFuncaoQueContem(amostra, amostra.lastIndexOf("savePost"));
+    'const a = () => { excluirVaga(x); };\nconst b = async () => { try { await excluirVaga(y); } catch (e) {} notificarSucesso("z"); notificarErro("p","q"); };';
+  const primeiro = corpoDaFuncaoQueContem(amostra, amostra.indexOf("excluirVaga"));
+  const segundo = corpoDaFuncaoQueContem(amostra, amostra.lastIndexOf("excluirVaga"));
   afirmar(
     "localizador de função: isola o corpo certo e acusa o que não notifica",
     primeiro !== null &&
@@ -1255,6 +1379,12 @@ if (voz) {
     [null, undefined, 7, {}].every((m) => diagnosticarMensagem("teste", m) !== null),
   );
 
+  /* TROCA REGISTRADA (Story 5.5, corrigida na revisão): as amostras são
+     frases INDEPENDENTES, que testam a guarda, não o código que as mandava.
+     As antigas ("Vagas originais restauradas" e as duas explicações longas)
+     continuam válidas como amostra mesmo com o Carreiras antigo fora, e
+     FICAM; as frases que o Carreiras de hoje manda são ACRESCENTADAS. Trocar
+     uma lista pela outra enfraquecia a guarda sem motivo. */
   const ACEITAS = [
     "Post salvo",
     "Vaga excluída",
@@ -1263,6 +1393,12 @@ if (voz) {
     "Não foi possível excluir o post porque ele já havia saído",
     "O armazenamento do navegador está cheio. Libere espaço e tente salvar de novo.",
     "Recarregue o Painel e tente excluir de novo. O detalhe do erro está no console.",
+    /* As de hoje. */
+    "Vaga reaberta",
+    "Confira a conexão e tente de novo. A lista continua como estava.",
+    "Confira a conexão e tente salvar de novo. O que está na tela continua aqui.",
+    "A vaga já não existia",
+    "Alguém pode ter excluído a vaga antes. Ela saiu da lista.",
   ];
   const recusadasIndevidamente = ACEITAS.filter(
     (m) => diagnosticarMensagem("teste", m) !== null,
@@ -1282,7 +1418,19 @@ if (voz) {
     `passaram indevidamente: ${passaramRuins.map((r) => JSON.stringify(r)).join(", ")}`,
   );
 
-  const ROTULOS_BONS = ["Excluir post", "Excluir vaga", "Restaurar vagas originais", "Publicar agora"];
+  /* TROCA REGISTRADA (Story 5.5, corrigida na revisão): "Restaurar vagas
+     originais" é amostra independente e continua válida (FICA); "Encerrar
+     vaga" e "Tentar de novo", rótulos de ação de Carreiras de hoje, são
+     ACRESCENTADOS. */
+  const ROTULOS_BONS = [
+    "Excluir post",
+    "Excluir vaga",
+    "Restaurar vagas originais",
+    "Publicar agora",
+    "Encerrar vaga",
+    "Reabrir vaga",
+    "Tentar de novo",
+  ];
   const recusadosBons = ROTULOS_BONS.filter((r) => diagnosticarRotuloDeAcao(r) !== null);
   afirmar(
     "rótulo que nomeia a ação passa",
@@ -1464,43 +1612,55 @@ if (dialogo) {
   );
 }
 
-/* Os rótulos que a página realmente passa dizem o que o botão faz. */
+/* Os rótulos que o Painel realmente passa ao diálogo dizem o que o botão faz.
+   TROCA REGISTRADA (Story 5.5): até a 5.4 esta asserção lia os DOIS diálogos
+   da página (excluir vaga e restaurar vagas), `aberto={confirmReset}` e um
+   `perigo={false}`. Restaurar saiu, e excluir vaga mudou para a listagem de
+   Vagas. As equivalentes: a página não monta diálogo nenhum; a listagem monta
+   UM, sempre, controlado por `aberto`, destrutivo, com o rótulo do módulo puro
+   aprovado pela guarda de voz de verdade. */
 if (pagina && voz) {
-  const rotulos = [...pagina.matchAll(/rotuloDeConfirmacao=\{?[`"]([^`"]+)/g)].map(
-    (m) => m[1],
+  const daPagina = semComentarios(pagina);
+  afirmar(
+    "a página não monta diálogo de confirmação nenhum: o de Vaga é da listagem de Vagas, e Restaurar saiu",
+    contar(daPagina, /<DialogoDeConfirmacao\b/g) === 0 && contar(daPagina, /perigo=\{false\}/g) === 0,
   );
-  // Não é uma segunda lista de genéricos: é a MESMA guarda do produto,
-  // executada sobre os rótulos que a página passa de fato.
-  const reprovados = rotulos.filter(
-    (r) => voz.diagnosticarRotuloDeAcao(r.replace(/\$\{[^}]*\}/g, "post")) !== null,
+}
+if (listaDeVagas && voz) {
+  const codigo = semComentarios(listaDeVagas);
+  const regras = await tentarImportar("src/admin/carreiras/listagem.js");
+  const rotulo = regras?.ROTULO_DE_CONFIRMAR_EXCLUSAO;
+  afirmar(
+    "o rótulo de confirmação da listagem de Vagas é o do módulo puro, e passa pela guarda de voz de verdade",
+    typeof rotulo === "string" &&
+      voz.diagnosticarRotuloDeAcao(rotulo) === null &&
+      /rotuloDeConfirmacao=\{ROTULO_DE_CONFIRMAR_EXCLUSAO\}/.test(codigo),
+    String(rotulo),
   );
   afirmar(
-    "todo rótulo de confirmação da página passa pela guarda de voz de verdade",
-    rotulos.length >= 2 && reprovados.length === 0,
-    `rótulos: ${rotulos.join(" | ")} — reprovados: ${reprovados.join(" | ") || "nenhum"}`,
-  );
-  afirmar(
-    "a página usa o diálogo do sistema nos dois pontos de confirmação",
-    contar(pagina, /<DialogoDeConfirmacao\b/g) === 2,
+    "a listagem de Vagas usa o diálogo do sistema em UM ponto de confirmação",
+    contar(codigo, /<DialogoDeConfirmacao\b/g) === 1,
+    `ocorrências: ${contar(codigo, /<DialogoDeConfirmacao\b/g)}`,
   );
   /*
    * Montagem condicional (`{alvo && <Dialogo …>}`) nunca transita de aberto
    * para fechado: desmonta. Com ela, o `onCloseAutoFocus` do Radix — que
    * devolve o foco ao botão que abriu — não roda, e quem fecha por `Esc` volta
-   * a tabular do topo da página.
+   * a tabular do topo da página. E ele fica FORA das telas da lista (depois de
+   * `{conteudo}`): dentro de uma delas, ele desmontaria junto quando a última
+   * linha saísse.
    */
+  const posDoDialogo = codigo.indexOf("<DialogoDeConfirmacao");
   afirmar(
-    "os diálogos são montados sempre e controlados por `aberto`",
-    /aberto=\{Boolean\(deleteTarget\)\}/.test(pagina) &&
-      /aberto=\{confirmReset\}/.test(pagina) &&
-      !/\{deleteTarget && \(\s*<DialogoDeConfirmacao/.test(pagina) &&
-      !/\{confirmReset && \(\s*<DialogoDeConfirmacao/.test(pagina),
+    "o diálogo é montado sempre, controlado por `aberto`, e fora das telas da lista",
+    /aberto=\{paraExcluir !== null\}/.test(codigo) &&
+      !/(&&|\?|:)\s*\(?\s*<DialogoDeConfirmacao/.test(codigo) &&
+      codigo.indexOf("{conteudo}") !== -1 &&
+      posDoDialogo > codigo.indexOf("{conteudo}"),
   );
-  /* Restaurar não é excluir: a gravidade tem cor própria. */
   afirmar(
-    "restaurar não é pintado com o vermelho de excluir",
-    contar(semComentarios(pagina), /perigo=\{false\}/g) === 1,
-    `ocorrências: ${contar(semComentarios(pagina), /perigo=\{false\}/g)}`,
+    "excluir é destrutivo: o diálogo de Vaga não é pintado como ação neutra",
+    contar(codigo, /perigo=\{false\}/g) === 0,
   );
 }
 
@@ -1671,13 +1831,22 @@ if (pilula) {
     /from\s+["']@\/domain\/blog\/estados["']/.test(codigo) &&
       /aparenciaDoEstado\(/.test(codigo),
   );
+  /* Story 5.1: a palavra e o raio moram no desenho comum
+     (`CAMINHO_PILULA_COMUM`), e é lá que estas duas regras leem. A ligação do
+     Blog continua proibida de trazer raio solto, e precisa de fato entregar a
+     aparência do vocabulário ao desenho comum. */
+  const codigoComum = pilulaComum ? semComentarios(pilulaComum) : "";
   afirmar(
     "a pílula traz a palavra por extenso — cor não é o único portador do Estado",
-    /\{rotulo\}/.test(codigo),
+    /\{rotulo\}/.test(codigoComum) &&
+      /aparencia=\{aparenciaDoEstado\(estado\)\}/.test(codigo) &&
+      /from\s+["']@\/admin\/comum\/PilulaDeEstado["']/.test(codigo),
   );
   afirmar(
     "a pílula usa o raio de pílula e nenhum raio solto",
-    /rounded-pilula/.test(codigo) && !/rounded-(full|xl|lg|md|sm)\b/.test(codigo),
+    /rounded-pilula/.test(codigoComum) &&
+      !/rounded-(full|xl|lg|md|sm)\b/.test(codigoComum) &&
+      !/rounded-(full|xl|lg|md|sm)\b/.test(codigo),
   );
   /*
    * Ausente e desconhecido não são a mesma coisa. Post sem Estado é o caso de
@@ -2120,11 +2289,15 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
      a proibição vale em lugar nenhum do Painel, e restringi-la aos arquivos
      desta entrega deixaria o resto de fora justamente quando um dado do banco
      começa a chegar perto de virar aparência. */
+  /* TROCA REGISTRADA (Story 5.2): o alcance ganha `src/domain/carreiras/`, o
+     domínio que o Painel de Carreiras consome (catálogo do Estado da Vaga,
+     Classificações com Cor). A mesma proibição, sobre mais um domínio. */
   const doPainel = fontesSrc.filter((a) => {
     const caminho = rel(a);
     return (
       caminho.startsWith("src/admin/") ||
       caminho.startsWith("src/domain/blog/") ||
+      caminho.startsWith("src/domain/carreiras/") ||
       caminho === CAMINHO_PAGINA
     );
   });
@@ -2132,6 +2305,11 @@ secao("(f3) nenhuma classe do Tailwind é montada em tempo de execução");
     "há arquivos do Painel para varrer",
     doPainel.length > 0,
     "uma lista vazia faria a asserção seguinte passar por vacuidade",
+  );
+  afirmar(
+    "e o domínio de Carreiras está entre eles",
+    doPainel.some((a) => rel(a).startsWith("src/domain/carreiras/")),
+    "sem arquivo de src/domain/carreiras/ na lista, a troca da Story 5.2 não vale nada",
   );
   const montadas = [];
   for (const arquivo of doPainel) {
@@ -2615,13 +2793,19 @@ if (cssCompilado) {
         !/\b(getPosts|savePost|deletePost|getPostBySlug)\s*\(/.test(daPagina),
       (daPagina.match(/\b(blogStore|getPosts|savePost|deletePost)\b/g) ?? []).join(", "),
     );
+    /* TROCA REGISTRADA (Story 5.5): era "e a aba Carreiras continua
+       exatamente onde estava: `vagasStore` importado e as quatro funções em
+       uso". Carreiras saiu do navegador e foi para o banco, e a fronteira que
+       não pode escorregar agora é a mesma que o Blog já tem: a aba lê pelo
+       módulo dela, que lê pela camada de dados, e nada do armazenamento antigo
+       sobrevive na página. */
     afirmar(
-      "e a aba Carreiras continua exatamente onde estava: `vagasStore` importado e as quatro funções em uso",
-      importaDe(pagina, "vagasStore") &&
-        ["getVagas", "saveVaga", "deleteVaga", "resetVagas"].every((f) =>
-          new RegExp(`\\b${f}\\s*\\(`).test(daPagina),
-        ),
-      "Carreiras está fora de escopo e não pode regredir",
+      "e a aba Carreiras mora no módulo dela: `AbaDeCarreiras` importada e montada, sem `vagasStore` nem uma chamada sobrevivente",
+      !importaDe(pagina, "vagasStore") &&
+        !/\b(getVagas|saveVaga|deleteVaga|resetVagas)\s*\(/.test(daPagina) &&
+        /import\s+AbaDeCarreiras\s+from\s+["']@\/admin\/carreiras\/AbaDeCarreiras["']/.test(daPagina) &&
+        /<AbaDeCarreiras\s+aoContar=\{setContagemDeVagas\}\s*\/>/.test(daPagina),
+      (daPagina.match(/\b(vagasStore|getVagas|saveVaga|deleteVaga|resetVagas)\b/g) ?? []).join(", "),
     );
 
     /* A costura, EXECUTADA: o trecho que a página roda quando o Editor salva é
@@ -2704,14 +2888,16 @@ if (cssCompilado) {
    * liam de lá — era de lá que os cinco posts de exemplo vinham. Agora o site
    * lê do banco, e a regra vale para o projeto INTEIRO, sem exceção.
    *
-   * Carreiras continua com `vagasStore`, e continua fora de escopo: o que sai
-   * é o armazenamento de POST, não a API do navegador. Proibir a API inteira
-   * quebraria um módulo irmão que ninguém revisou nesta linha. */
+   * TROCA REGISTRADA (Story 5.5): até a 5.4, Carreiras continuava com
+   * `vagasStore`, fora de escopo, e era a exceção desta regra. Agora o
+   * armazenamento de Vaga no navegador e as vagas de exemplo também saíram:
+   * `vagasStore.js` entra em REMOVIDOS, os nomes dele entram no detector, e as
+   * duas páginas que o hospedavam entram na varredura de armazenamento. */
   {
-    const REMOVIDOS = ["src/lib/blogStore.js", "src/data/blogPosts.js"];
+    const REMOVIDOS = ["src/lib/blogStore.js", "src/data/blogPosts.js", "src/lib/vagasStore.js"];
     const sobreviventes = REMOVIDOS.filter((c) => existsSync(path.join(raiz, c)));
     afirmar(
-      "o armazenamento de Post no navegador e os posts de exemplo saíram do projeto",
+      "o armazenamento de Post e de Vaga no navegador e os exemplos saíram do projeto",
       sobreviventes.length === 0,
       sobreviventes.join(", "),
     );
@@ -2722,7 +2908,8 @@ if (cssCompilado) {
       todosOsFontes.length > 0,
       "uma lista vazia faria as asserções seguintes passarem por vacuidade",
     );
-    const PADRAO_REMOVIDO = /\b(blogStore|blogPosts)\b/;
+    const PADRAO_REMOVIDO =
+      /\b(blogStore|blogPosts|vagasStore|getVagas|saveVaga|deleteVaga|resetVagas|QuotaExceededError|ehCotaEstourada|comoResolver)\b/;
     const PADRAO_ARMAZENAMENTO = /\b(localStorage|sessionStorage)\b|document\.cookie/;
 
     /* AUTOTESTE dos dois detectores, ANTES de julgar o repositório: uma
@@ -2733,7 +2920,9 @@ if (cssCompilado) {
       "autoteste dos detectores: acusam o que foi removido e ignoram o que é legítimo",
       PADRAO_REMOVIDO.test('import { getPosts } from "@/lib/blogStore";') &&
         PADRAO_REMOVIDO.test('import { blogPosts } from "@/data/blogPosts";') &&
-        !PADRAO_REMOVIDO.test('import { getVagas } from "@/lib/vagasStore";') &&
+        PADRAO_REMOVIDO.test('import { getVagas } from "@/lib/vagasStore";') &&
+        PADRAO_REMOVIDO.test('if (erro.name === "QuotaExceededError") return;') &&
+        !PADRAO_REMOVIDO.test('import { listarVagasDoPainel } from "@/data/carreiras/leitura";') &&
         PADRAO_ARMAZENAMENTO.test("localStorage.setItem(KEY, valor);") &&
         PADRAO_ARMAZENAMENTO.test("const t = document.cookie;") &&
         !PADRAO_ARMAZENAMENTO.test("const guardado = memoria.get(chave);"),
@@ -2747,9 +2936,9 @@ if (cssCompilado) {
     );
 
     /* E as duas páginas públicas não guardam Post no navegador por outro nome.
-       A varredura é sobre ELAS, e não sobre `src/pages/` inteiro, porque
-       `AdminBlog.jsx` e `Carreiras.jsx` hospedam Carreiras, que usa
-       `localStorage` legitimamente e está fora de escopo. */
+       TROCA REGISTRADA (Story 5.5): antes `AdminBlog.jsx` e `Carreiras.jsx`
+       ficavam de fora porque hospedavam Carreiras no navegador. Agora as duas
+       são varridas também, logo abaixo. */
     const PUBLICAS = ["src/pages/Blog.jsx", "src/pages/BlogPost.jsx"];
     const publicas = PUBLICAS.map((c) => path.join(raiz, c)).filter((c) =>
       existsSync(c),
@@ -2764,6 +2953,20 @@ if (cssCompilado) {
       "e nenhuma delas lê ou escreve Post no armazenamento do navegador — limpar os dados não muda post visível nenhum",
       guardam.length === 0,
       guardam.join(", "),
+    );
+    /* TROCA REGISTRADA (Story 5.7): a Página da Vaga (`VagaPublica.jsx`)
+       entrou na lista, com as mesmas regras das outras duas. */
+    const HOSPEDES_DE_CARREIRAS = [
+      "src/pages/AdminBlog.jsx",
+      "src/pages/Carreiras.jsx",
+      "src/pages/VagaPublica.jsx",
+    ];
+    const hospedes = HOSPEDES_DE_CARREIRAS.map((c) => path.join(raiz, c)).filter((c) => existsSync(c));
+    const guardamVaga = ocorrencias(hospedes, PADRAO_ARMAZENAMENTO, semComentarios);
+    afirmar(
+      "e as páginas que hospedam Carreiras (`AdminBlog.jsx`, `Carreiras.jsx` e `VagaPublica.jsx`) também não tocam armazenamento do navegador",
+      hospedes.length === HOSPEDES_DE_CARREIRAS.length && guardamVaga.length === 0,
+      guardamVaga.join(", ") || `faltam: ${HOSPEDES_DE_CARREIRAS.length - hospedes.length}`,
     );
 
     /* ─── E NENHUMA DELAS ALCANÇA A LEITURA DO PAINEL ──────────────────
@@ -5038,10 +5241,14 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
     302: "dentro de um `console.error()` direto do resíduo de Storage — o comentário logo abaixo confirma: \"o que sai na resposta é só o arquivo\", motivo interno fica só no log",
   }),
   "src/admin/blog/PilulaDeEstado.jsx": Object.freeze({
-    37: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
+    /* Story 5.1: o mesmo texto de `exigir()`, na posição nova depois de o
+       desenho da pílula ir para `admin/comum` (antes, linha 37). */
+    30: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
   }),
   "src/admin/blog/configuracao.js": Object.freeze({
-    101: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
+    /* Story 5.1: o mesmo `EXTENSOES_SEM_VOCABULARIO`, que continua no Blog, na
+       posição nova depois de o núcleo ir para `admin/comum` (antes, linha 101). */
+    42: "`EXTENSOES_SEM_VOCABULARIO`: já descartado no spec original — só `scripts/verificar-editor.mjs` importa/lê este objeto, nenhum componente do Editor o consome",
   }),
   "src/admin/blog/previa.js": Object.freeze({
     164: "throw de `falaDaSituacao()`: o único chamador (`PreVisualizacaoDePost.jsx`) só passa o valor de `situacaoDaTela()`, que devolve exclusivamente as quatro situações fechadas já cobertas em `FALAS` — situação fora da lista é erro de programação, nunca alcança o fluxo normal",
@@ -5060,6 +5267,10 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
   "src/domain/blog/categorias.js": Object.freeze({
     124: "throw de `aparenciaDaCor()`: o único chamador (`TelaDeCategorias.jsx:852`) itera sobre `CORES_DE_CATEGORIA`, o próprio vocabulário fechado — cor fora da lista é erro de programação, nunca alcança o fluxo normal",
   }),
+  /* A exceção da Story 5.8 para `src/domain/carreiras/jobPosting.js` (linha
+     47, o separador " — " do título servido da Vaga) saiu em 2026-09-29: o
+     Felix trocou o separador por " | " (Spec Change Log da 5.8), e o módulo
+     não tem mais travessão fora de comentário. O arquivo continua varrido. */
   "src/domain/blog/estados.js": Object.freeze({
     88: "throw de `aparenciaDoEstado()`: os dois chamadores (`PilulaDeEstado.jsx`, guardado por `ehEstado()` antes de chamar; `AdminBlog.jsx`, que itera sobre `ESTADOS`) só passam valor já validado contra o vocabulário fechado — mesma garantia de `transicoes.js:237`",
   }),

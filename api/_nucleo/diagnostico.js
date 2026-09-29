@@ -63,6 +63,19 @@ export const DIAGNOSTICO_METODO_RECUSADO = "falha:metodo-recusado";
  */
 export const DIAGNOSTICO_SEM_NOME = "falha:sem-diagnostico";
 
+/** A montagem da página LANÇOU ou rejeitou (revisão da Story 5.8): um defeito
+ * que ninguém previu, dito com nome em vez do 500 genérico da plataforma. */
+export const DIAGNOSTICO_EXCECAO = "falha:excecao";
+
+/**
+ * A leitura das Vagas Abertas falhou em `/sitemap.xml` ou `/llms.txt` (Story
+ * 5.9). Ao contrário da falha dos Posts, esta DEGRADA: a rota responde 200 com
+ * as páginas fixas e os Posts, sem as Vagas, porque a falha de Carreiras não
+ * derruba o Blog (C-FR-22). A Vaga que ficou fora continua alcançável pela
+ * listagem servida.
+ */
+export const DIAGNOSTICO_VAGAS_FALHARAM = "degradado:vagas-falharam";
+
 /** O vocabulário inteiro, para quem quiser variar sobre ele. */
 export const DIAGNOSTICOS_CONHECIDOS = Object.freeze([
   DIAGNOSTICO_OK,
@@ -73,6 +86,8 @@ export const DIAGNOSTICOS_CONHECIDOS = Object.freeze([
   DIAGNOSTICO_REGIAO_AUSENTE,
   DIAGNOSTICO_METODO_RECUSADO,
   DIAGNOSTICO_SEM_NOME,
+  DIAGNOSTICO_EXCECAO,
+  DIAGNOSTICO_VAGAS_FALHARAM,
 ]);
 
 /**

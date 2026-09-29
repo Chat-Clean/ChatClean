@@ -22,6 +22,8 @@
     { "source": "/blog/:slug", "destination": "/api/blog?slug=:slug" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/llms.txt", "destination": "/api/llms" },
+    { "source": "/carreiras", "destination": "/api/carreiras" },
+    { "source": "/carreiras/:slug", "destination": "/api/carreiras?slug=:slug" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

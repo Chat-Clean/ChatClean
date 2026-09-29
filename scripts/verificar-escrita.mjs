@@ -2977,11 +2977,18 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
          forma de `removerArquivoDaCapa`, guarda trocada (`ehCaminhoDoCorpo`
          em vez de `ehCaminhoDeCapa`), porque a imagem INLINE do corpo do Post
          vive numa pasta própria do mesmo bucket (`corpo/`, não `capas/`). */
+      /* TROCA REGISTRADA (Story 5.3): a escrita de Carreiras entra no MESMO
+         transporte, e com ela as duas remoções dela: `excluirVaga` e
+         `excluirClassificacao`. As duas têm a guarda de identificador do
+         `DELETE` de Post antes de ir à rede, e a de Classificação resolve a
+         tabela pela lista fechada do domínio, nunca pelo pedido. */
       "api/_nucleo/acesso.js": [
         "excluirPost",
         "excluirCategoria",
         "removerArquivoDaCapa",
         "removerArquivoDoCorpo",
+        "excluirVaga",
+        "excluirClassificacao",
       ],
       /* E o núcleo passou a ter remoção: `removerCapaAnterior` decide QUAL
          arquivo sai e QUANDO — sempre depois de a linha ser gravada ou
@@ -3124,6 +3131,61 @@ secao("(c4) a máquina de transições: a tabela única que os dois lados consul
       arquivou.ok
         ? `tentou apagar: ${tentouApagar}`
         : `tipo ${arquivou.erro.tipo}: ${arquivou.erro.detalhe?.slice(0, 160)}`,
+    );
+  }
+}
+
+/* ─── (c4b) A fachada da autenticação (Story 5.1) ────────────────────────── */
+
+secao("(c4b) a fachada da autenticação: as MESMAS funções, num endereço neutro (Story 5.1)");
+
+/* `identificarChamador`, `perfilOuFalha` e `autorizar` servem toda escrita do
+   Painel, e `api/_nucleo/autenticacao.js` é o endereço neutro de onde uma
+   função nova as importa. A fachada REEXPORTA, não copia: a igualdade é de
+   IDENTIDADE (`===`), porque uma cópia que hoje se comporta igual divergiria
+   na primeira correção de segurança feita num lado só, e passaria em qualquer
+   asserção de comportamento feita antes dela. */
+{
+  const [fachada, doNucleo, dasOperacoes] = await Promise.all(
+    [
+      "api/_nucleo/autenticacao.js",
+      CAMINHO_NUCLEO,
+      CAMINHO_OPERACOES_DO_POST,
+    ].map((relativo) =>
+      import(pathToFileURL(path.join(raiz, relativo)).href).catch((erro) => ({
+        __falhou: String(erro?.message ?? erro),
+      })),
+    ),
+  );
+  afirmar(
+    "a fachada `api/_nucleo/autenticacao.js` importa em Node",
+    fachada !== null && !fachada.__falhou,
+    fachada?.__falhou ?? "",
+  );
+  if (fachada && !fachada.__falhou) {
+    afirmar(
+      "a fachada exporta exatamente `autorizar`, `identificarChamador` e `perfilOuFalha`",
+      mesmoConjunto(Object.keys(fachada), ["autorizar", "identificarChamador", "perfilOuFalha"]) &&
+        Object.keys(fachada).length === 3,
+      Object.keys(fachada).join(", "),
+    );
+    /* Se a ORIGEM não importou, o `===` daria falso por outro motivo, e a
+       falha diria "cópia" quando o defeito é o import. O detalhe nomeia qual
+       dos dois lados caiu. */
+    const origensQueFalharam = [
+      doNucleo?.__falhou ? `${CAMINHO_NUCLEO}: ${doNucleo.__falhou}` : null,
+      dasOperacoes?.__falhou ? `${CAMINHO_OPERACOES_DO_POST}: ${dasOperacoes.__falhou}` : null,
+    ].filter((linha) => linha !== null);
+    afirmar(
+      "e cada uma é a MESMA função de onde nasceu (`===`), não uma cópia",
+      origensQueFalharam.length === 0 &&
+        typeof fachada.identificarChamador === "function" &&
+        fachada.identificarChamador === doNucleo.identificarChamador &&
+        fachada.perfilOuFalha === doNucleo.perfilOuFalha &&
+        fachada.autorizar === dasOperacoes.autorizar,
+      origensQueFalharam.length > 0
+        ? `a origem não importou: ${origensQueFalharam.join(" | ")}`
+        : "",
     );
   }
 }
@@ -11111,13 +11173,25 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     const { createServer: criarServidorDoMapa } = await import("node:http");
     /* O que `posts_no_ar()` devolve. Trocado a cada caso. */
     let postsDoMapa = [];
+    /* O que `vagas_abertas()` devolve (Story 5.9). Vazio por padrão: com ele
+       vazio, o mapa é o de antes, byte a byte. */
+    let vagasDoMapa = [];
     let chamadasAoMapa = 0;
+    /* TROCA REGISTRADA (Story 5.9): o dublê respondia o MESMO JSON a qualquer
+       caminho. Com a rota lendo também as Vagas, ele passa a rotear pelo nome
+       da função no caminho; nome fora dos dois responde 404. */
     const servidorDoMapa = criarServidorDoMapa((req, res) => {
       req.resume();
       req.on("end", () => {
         chamadasAoMapa += 1;
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(postsDoMapa));
+        const corpoDaFuncao =
+          req.url === "/rest/v1/rpc/posts_no_ar"
+            ? postsDoMapa
+            : req.url === "/rest/v1/rpc/vagas_abertas"
+              ? vagasDoMapa
+              : null;
+        res.writeHead(corpoDaFuncao === null ? 404 : 200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(corpoDaFuncao ?? { message: "função fora do dublê" }));
       });
     });
     await new Promise((pronto) => servidorDoMapa.listen(0, "127.0.0.1", pronto));
@@ -11207,6 +11281,39 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       ANTES.every((c) => locsComPosts.includes(`${DOMINIO}${c}`)) &&
         locsComPosts.length === ANTES.length + postsDoMapa.length,
       `${locsComPosts.length} endereços (esperado ${ANTES.length + postsDoMapa.length})`,
+    );
+
+    /* ── AS VAGAS ABERTAS ENTRAM DEPOIS DOS POSTS (Story 5.9) ────────── */
+    //
+    // TROCA REGISTRADA: com `vagas_abertas` vazio, as cinco fixas e os Posts
+    // exatamente como antes (as asserções acima); com Vagas, as cinco, mais
+    // os Posts, mais as Vagas, nessa ordem.
+    vagasDoMapa = [
+      {
+        situacao: "aberta",
+        slug: "analista-de-suporte",
+        titulo: "Analista de Suporte",
+        resumo: null,
+        modalidade: "remoto",
+        localizacao: null,
+        aberta_em: "2026-09-01T12:00:00+00:00",
+        atualizado_em: "2026-09-02T12:00:00+00:00",
+      },
+    ];
+    const comVagas = await dirigirMapa();
+    vagasDoMapa = [];
+    const locsComVagas = [
+      ...String(comVagas.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g),
+    ].map((m) => m[1]);
+    afirmar(
+      "com Vagas Abertas, o mapa traz as cinco fixas, os Posts e as Vagas, NESSA ordem",
+      JSON.stringify(locsComVagas) ===
+        JSON.stringify([
+          ...ANTES.map((c) => `${DOMINIO}${c}`),
+          ...postsDoMapa.map((p) => `${DOMINIO}/blog/${p.slug}`),
+          `${DOMINIO}/carreiras/analista-de-suporte`,
+        ]) && comVagas.cabecalhos["x-entrega-diagnostico"] === "ok",
+      `${locsComVagas.join(" ")} | ${comVagas.cabecalhos["x-entrega-diagnostico"]}`,
     );
 
     /* ── `lastmod` É O `atualizado_em` REAL, E OMITIDO QUANDO NÃO HÁ ─── */
@@ -11498,11 +11605,20 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
 
     const { createServer: criarFonteUnica } = await import("node:http");
     let postsDaFonte = [];
+    /* TROCA REGISTRADA (Story 5.9): o dublê roteia pelo nome da função no
+       caminho, como o do mapa; `vagas_abertas` responde vazio, e o índice é
+       o de antes. As Vagas no índice são de `verificar:carreiras` (t). */
     const fonteUnica = criarFonteUnica((req, res) => {
       req.resume();
       req.on("end", () => {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(postsDaFonte));
+        const corpoDaFuncao =
+          req.url === "/rest/v1/rpc/posts_no_ar"
+            ? postsDaFonte
+            : req.url === "/rest/v1/rpc/vagas_abertas"
+              ? []
+              : null;
+        res.writeHead(corpoDaFuncao === null ? 404 : 200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(corpoDaFuncao ?? { message: "função fora do dublê" }));
       });
     });
     await new Promise((pronto) => fonteUnica.listen(0, "127.0.0.1", pronto));
@@ -13841,6 +13957,14 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       "DIAGNOSTICO_REGIAO_AUSENTE",
       "DIAGNOSTICO_METODO_RECUSADO",
       "DIAGNOSTICO_SEM_NOME",
+      /* TROCA REGISTRADA (revisão da Story 5.8): a página de Carreiras que
+         lança ou rejeita responde o defeito com este nome, e não o 500
+         genérico da plataforma. A lista nomeada cresce por decisão. */
+      "DIAGNOSTICO_EXCECAO",
+      /* TROCA REGISTRADA (Story 5.9): a leitura das Vagas que falha em
+         `/sitemap.xml` e `/llms.txt` degrada com este nome, sem derrubar as
+         fixas nem os Posts. */
+      "DIAGNOSTICO_VAGAS_FALHARAM",
     ];
     const valoresDeclarados = NOMES_DE_DIAGNOSTICO.map((n) => diag10[n]);
     afirmar(

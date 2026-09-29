@@ -1,13 +1,46 @@
-import { useState } from "react";
+/**
+ * `/carreiras`: o hero, os benefícios, as Vagas Abertas e o convite final.
+ *
+ * Desde a Story 5.7 a seção de vagas lê do banco, por `listarVagasAbertas`
+ * (a função `vagas_abertas`, que só devolve Aberta e já vem das mais
+ * recentes para as mais antigas). A ordem é a da camada, sem reordenar.
+ *
+ * A seção tem quatro situações, decididas por `situacaoDaLista` no módulo
+ * puro: carregando (esqueleto), erro (frase e tentar de novo), vazia (o
+ * convite do currículo) e pronta (os cartões). O erro é conferido ANTES do
+ * vazio: uma leitura que falhou nunca aparece como "nenhuma vaga".
+ *
+ * A página não toca o `<head>`: título, descrição e canônica de Carreiras são
+ * do HTML servido (Story 5.8).
+ *
+ * Vindo de uma Vaga pela navegação de ida (PUSH), a chave de transição é a
+ * mesma e ninguém mais rola: `useChegadaDaPagina` sobe ao topo e leva o foco
+ * ao `<h1>` do hero. Na volta do navegador (POP), não força o topo.
+ */
+
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Briefcase, Clock, MapPin, Users, Zap } from "lucide-react";
+import { AlertCircle, ArrowRight, Clock, Users, Zap } from "lucide-react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import Reveal from "../components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "../components/animated/StaggerGroup";
-import { getVagas } from "@/lib/vagasStore";
-import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
-
+import { listarVagasAbertas } from "@/data/carreiras/leitura";
+import CartaoDeVaga from "./CartaoDeVaga";
+import SemVagasAbertas from "./SemVagasAbertas";
+import { useChegadaDaPagina } from "./useChegadaDaPagina";
+import {
+  ENDERECO_DO_CURRICULO,
+  LISTA_CARREGANDO,
+  LISTA_ERRO,
+  LISTA_PRONTA,
+  LISTA_VAZIA,
+  ROTULO_DE_RECARREGAR_A_LISTA,
+  TEXTO_DE_CARREGANDO_A_LISTA,
+  falaDaLista,
+  falhaDeExcecao,
+  situacaoDaLista,
+} from "./carreirasPublico";
 
 const beneficios = [
   {
@@ -33,18 +66,49 @@ const beneficios = [
   },
 ];
 
-const nivelColors = {
-  Júnior: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Pleno: "bg-blue-50 text-blue-700 border-blue-200",
-  Sênior: "bg-purple-50 text-purple-700 border-purple-200",
-};
-
 export default function Carreiras() {
-  // Lê vagas do store (localStorage), filtra apenas as ativas
-  const [vagas] = useState(() => getVagas().filter((v) => v.ativa !== false));
+  const [vagas, setVagas] = useState(null);
+  const [erro, setErro] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [tentativa, setTentativa] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    setCarregando(true);
+    setErro(null);
+    (async () => {
+      /* A camada devolve erro tipado e não lança; a exceção que escapar
+         mesmo assim vira erro, com a frase fixa, e nunca lista vazia. */
+      let resultado;
+      try {
+        resultado = await listarVagasAbertas();
+      } catch (excecao) {
+        resultado = { ok: false, erro: falhaDeExcecao(excecao) };
+      }
+      if (!vivo) return;
+      if (resultado?.ok === true && Array.isArray(resultado.dados)) {
+        setVagas(resultado.dados);
+        setErro(null);
+      } else {
+        setVagas(null);
+        setErro(resultado?.erro ?? falhaDeExcecao(null));
+      }
+      setCarregando(false);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [tentativa]);
+
+  const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
+  const situacao = situacaoDaLista({ carregando, erro, vagas });
+  const refDaPagina = useChegadaDaPagina(true);
 
   return (
-    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div
+      ref={refDaPagina}
+      className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white"
+    >
       <Navbar />
 
       {/* Hero aurora */}
@@ -67,7 +131,8 @@ export default function Carreiras() {
             initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-[1.0] mb-6"
+            tabIndex={-1}
+            className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-[1.0] mb-6 outline-none"
           >
             Construa o futuro do{" "}
             <span className="text-yellow-300">
@@ -130,89 +195,66 @@ export default function Carreiras() {
             </h2>
           </Reveal>
 
-          {vagas.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center py-20 bg-white rounded-3xl border border-zinc-100"
-            >
-              <div className="w-20 h-20 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto mb-6">
-                <Briefcase className="w-9 h-9 text-zinc-400" />
-              </div>
-              <h3 className="text-2xl font-black text-zinc-900 tracking-tight mb-3">
-                Nenhuma vaga aberta no momento
-              </h3>
-              <p className="text-zinc-500 text-base max-w-md mx-auto mb-8 leading-relaxed">
-                Não temos oportunidades abertas agora, mas adoraríamos conhecer você.
-                Envie seu currículo e entraremos em contato assim que surgir algo!
-              </p>
-              <a
-                href={LINK_DO_WHATSAPP}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-7 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all duration-200 text-sm"
-              >
-                Enviar Currículo
-                <ArrowRight className="h-4 w-4" />
-              </a>
-            </motion.div>
-          ) : (
-          <div className="space-y-4">
-            {vagas.map((vaga, i) => (
-              <motion.div
-                key={vaga.titulo}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.6, delay: i * 0.1 }}
-              >
-                <div className="bg-white rounded-3xl border border-zinc-100 hover:border-emerald-200 p-8 green-glow card-3d transition-all duration-500">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
-                    <div className="flex items-start gap-4">
-                      <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${vaga.accent} flex items-center justify-center flex-shrink-0 shadow-lg`}>
-                        <Briefcase className="h-5 w-5 text-white" />
+          <div data-estado-da-lista={situacao} aria-busy={situacao === LISTA_CARREGANDO}>
+            {situacao === LISTA_CARREGANDO && (
+              <div data-papel="esqueleto">
+                <p role="status" className="sr-only">
+                  {TEXTO_DE_CARREGANDO_A_LISTA}
+                </p>
+                <div aria-hidden="true" className="space-y-4">
+                  {[0, 1].map((i) => (
+                    <div key={i} className="bg-white rounded-3xl border border-zinc-100 p-6 md:p-8">
+                      <div className="flex gap-2 mb-5">
+                        <div className="h-6 w-24 rounded-full bg-zinc-100 animate-pulse" />
+                        <div className="h-6 w-16 rounded-full bg-zinc-100 animate-pulse" />
                       </div>
-                      <div>
-                        <h3 className="text-xl font-black text-zinc-900 tracking-tight">
-                          {vaga.titulo}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-3 mt-2">
-                          <span className="flex items-center gap-1 text-sm text-zinc-500">
-                            <MapPin className="h-3.5 w-3.5" />
-                            {vaga.localizacao}
-                          </span>
-                          <span className="text-zinc-300">·</span>
-                          <span className="text-sm text-zinc-500">{vaga.tipo}</span>
-                          <span className="text-zinc-300">·</span>
-                          <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${nivelColors[vaga.nivel]}`}>
-                            {vaga.nivel}
-                          </span>
-                        </div>
-                      </div>
+                      <div className="h-7 w-3/5 rounded-lg bg-zinc-100 animate-pulse" />
+                      <div className="mt-3 h-4 w-2/5 rounded bg-zinc-100 animate-pulse" />
+                      <div className="mt-5 h-4 w-full rounded bg-zinc-100 animate-pulse" />
                     </div>
-                    <span className={`self-start text-xs font-bold px-3 py-1 rounded-full ${vaga.bg} border`} style={{ borderColor: "transparent" }}>
-                      {vaga.departamento}
-                    </span>
-                  </div>
-
-                  <p className="text-zinc-600 text-sm leading-relaxed mb-6">{vaga.descricao}</p>
-
-                  <a
-                    href={LINK_DO_WHATSAPP}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 hover:scale-[1.02] transition-all duration-200 text-sm"
-                  >
-                    Candidatar-se
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
+                  ))}
                 </div>
-              </motion.div>
-            ))}
+              </div>
+            )}
+
+            {situacao === LISTA_ERRO && (
+              <div
+                data-papel="erro"
+                className="text-center py-16 px-6 bg-white rounded-3xl border border-zinc-100"
+              >
+                <AlertCircle aria-hidden="true" className="mx-auto h-10 w-10 text-red-500 mb-4" />
+                {/* O anúncio é só a MENSAGEM, e não o bloco com o botão. */}
+                <p role="alert" data-papel="mensagem-de-erro" className="max-w-md mx-auto mb-8">
+                  <strong className="block text-2xl font-black text-zinc-900 tracking-tight mb-3">
+                    {falaDaLista(LISTA_ERRO).oQueHouve}
+                  </strong>
+                  <span className="block text-zinc-500 text-base leading-relaxed">
+                    {falaDaLista(LISTA_ERRO).oQueFazer}
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  data-acao="repetir"
+                  onClick={tentarDeNovo}
+                  className="inline-flex items-center gap-2 px-7 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 transition-all duration-200 text-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                >
+                  {ROTULO_DE_RECARREGAR_A_LISTA}
+                </button>
+              </div>
+            )}
+
+            {situacao === LISTA_VAZIA && <SemVagasAbertas />}
+
+            {situacao === LISTA_PRONTA && (
+              <StaggerGroup className="space-y-4">
+                {vagas.map((vaga) => (
+                  <StaggerItem key={vaga.id ?? vaga.slug}>
+                    <CartaoDeVaga vaga={vaga} />
+                  </StaggerItem>
+                ))}
+              </StaggerGroup>
+            )}
           </div>
-          )}
         </div>
       </section>
 
@@ -238,7 +280,8 @@ export default function Carreiras() {
             combine com seu perfil.
           </p>
           <a
-            href={LINK_DO_WHATSAPP}
+            href={ENDERECO_DO_CURRICULO}
+            data-acao="curriculo-final"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-10 py-5 bg-white text-emerald-700 font-bold text-lg rounded-full shadow-[0_0_50px_rgba(255,255,255,0.25)] hover:shadow-[0_0_80px_rgba(255,255,255,0.5)] hover:scale-[1.03] transition-all duration-300"
