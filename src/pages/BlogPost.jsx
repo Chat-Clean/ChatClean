@@ -517,7 +517,7 @@ export default function BlogPost() {
                     aria-label={rotuloDoCartao(rel)}
                     className="group block h-full"
                   >
-                    <div className="h-full rounded-2xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden green-glow card-3d transition-all duration-400">
+                    <div className="h-full rounded-2xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden green-glow transition-all duration-400">
                       {/* A capa do relacionado, com a mesma regra do artigo e
                           uma resposta POR CARTÃO: um relacionado com a imagem
                           podre não pode esconder a dos outros. */}

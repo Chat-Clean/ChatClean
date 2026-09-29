@@ -18,7 +18,10 @@
  *   (f) `npm run lint` sai com código 0 e o gerenciador de pacotes é único.
  *
  * O baseline vive em `verificacao/baseline/` (versionado, não ignorado):
- *   - `dist-index.baseline.css`   CSS compilado antes da story
+ *   - `dist-index.baseline.css`   CSS compilado antes da story (histórico)
+ *   - `dist-index.identidade-visual.baseline.css`   CSS compilado em
+ *                                 2026-09-29, com a nova identidade visual: o
+ *                                 esperado da seção (b) desde então
  *   - `fonte-App.baseline.css`    `src/App.css` antes da story
  *   - `componentes-ui/*.jsx`      os quatro componentes shadcn pré-existentes
  *
@@ -93,6 +96,25 @@ const acharCssCompilado = () => acharCssEm(raiz);
 const dirBaseline = path.join(raiz, "verificacao", "baseline");
 const dirBaselineUi = path.join(dirBaseline, "componentes-ui");
 const caminhoBaselineCss = path.join(dirBaseline, "dist-index.baseline.css");
+/*
+ * Linha de base atualizada em 2026-09-29 por decisão do Felix: nova identidade
+ * visual (commits c14685a, 2d721d0, e83ace6, e99a44f e 30188ab). A paleta do
+ * site público (verde #00bd42 → #51bc69, neutros creme em `--color-zinc-*`,
+ * `--color-emerald-*` e `--color-yellow-*` remapeados, `--font-sans` Poppins),
+ * o `.aurora-bg`, a trama de `.bg-grid` e a esteira de clientes mudaram de
+ * propósito, e a não-regressão da seção (b) passou a acusar trabalho pedido.
+ *
+ * O ESPERADO da seção (b) é este arquivo: cópia byte a byte do CSS compilado
+ * em 2026-09-29, no estado de `feat/carreiras` @ e894843. O baseline da Story
+ * 1.1 (`dist-index.baseline.css`) NÃO foi regravado: continua sendo a
+ * evidência histórica, e continua sendo lido onde "novo" tem de significar
+ * "novo desde a fundação" — a regra autoral com texto branco sobre
+ * brand-vivid, abaixo, e a adição pura da `.artigo` em `verificar:artigo`.
+ */
+const caminhoBaselineCssIdentidade = path.join(
+  dirBaseline,
+  "dist-index.identidade-visual.baseline.css",
+);
 const caminhoBaselineFonte = path.join(dirBaseline, "fonte-App.baseline.css");
 const caminhoAppCss = path.join(raiz, "src", "App.css");
 const dirUi = path.join(raiz, "src", "components", "ui");
@@ -143,7 +165,10 @@ function gravarBaseline() {
     process.exit(1);
   }
   mkdirSync(dirBaselineUi, { recursive: true });
-  copyFileSync(arquivoCss, caminhoBaselineCss);
+  /* Desde 2026-09-29, a regravação do CSS compilado vai para a linha de base
+     da identidade visual — a que a seção (b) compara. O baseline da Story 1.1
+     é histórico e não se regrava por esta via. */
+  copyFileSync(arquivoCss, caminhoBaselineCssIdentidade);
   copyFileSync(caminhoAppCss, caminhoBaselineFonte);
   for (const nome of COMPONENTES_BASE) {
     copyFileSync(
@@ -152,7 +177,7 @@ function gravarBaseline() {
     );
   }
   console.log("Baseline regravado a partir do estado atual:");
-  console.log(`  ${path.relative(raiz, caminhoBaselineCss)}`);
+  console.log(`  ${path.relative(raiz, caminhoBaselineCssIdentidade)}`);
   console.log(`  ${path.relative(raiz, caminhoBaselineFonte)}`);
   for (const nome of COMPONENTES_BASE) {
     console.log(
@@ -359,6 +384,11 @@ const temBaselineCss = afirmar(
   existsSync(caminhoBaselineCss),
   `esperado em ${path.relative(raiz, caminhoBaselineCss)}`,
 );
+const temBaselineCssIdentidade = afirmar(
+  "linha de base da identidade visual (2026-09-29) presente para comparação",
+  existsSync(caminhoBaselineCssIdentidade),
+  `esperado em ${path.relative(raiz, caminhoBaselineCssIdentidade)}`,
+);
 
 const rootAtual = temCss ? declaracoesDe(cssCompilado, ":root") : new Map();
 const painel = temCss ? declaracoesDe(cssCompilado, ".painel") : new Map();
@@ -367,9 +397,13 @@ const painel = temCss ? declaracoesDe(cssCompilado, ".painel") : new Map();
 
 secao("(b) `:root` mantém o neutro do shadcn — nenhuma cor de marca");
 
-if (temCss && temBaselineCss) {
-  const baselineCss = lerOuFalhar("CSS do baseline legível", () =>
-    ler(caminhoBaselineCss),
+/* Linha de base atualizada em 2026-09-29 por decisão do Felix: nova
+   identidade visual (commits c14685a, 2d721d0, e83ace6, e99a44f e 30188ab).
+   Antes, esta seção comparava com `dist-index.baseline.css` (Story 1.1); ver
+   a declaração de `caminhoBaselineCssIdentidade`. */
+if (temCss && temBaselineCssIdentidade) {
+  const baselineCss = lerOuFalhar("CSS da linha de base da identidade visual legível", () =>
+    ler(caminhoBaselineCssIdentidade),
   );
   if (baselineCss) {
     afirmar(

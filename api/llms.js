@@ -73,8 +73,9 @@ function umaLinha(texto) {
 /**
  * O texto de um link Markdown (Story 5.9): `\`, `[` e `]` escapados. Um título
  * como "a](https://mal.example)" fecharia o link cedo e apontaria para outro
- * lugar. Vale só para as Vagas: o título dos Posts continua como era (a spec
- * não deixa mudar o formato dos Posts).
+ * lugar. Nasceu só para as Vagas; desde 2026-09-29, por decisão do Felix
+ * (Spec Change Log da 5.9), vale também para o título dos Posts. Título sem
+ * `\`, `[` nem `]` sai igual, e o índice de sempre não muda.
  */
 export function textoDeLinkMarkdown(texto) {
   return umaLinha(texto).replace(/[\\[\]]/g, "\\$&");
@@ -114,9 +115,12 @@ export function indiceParaLlms(raiz, posts = [], vagas = []) {
     .map((post) => {
       const slug = umaLinha(post?.slug);
       if (slug === "") return null;
-      const titulo = umaLinha(post?.titulo);
+      /* O título e o endereço com o MESMO escape das Vagas (2026-09-29): um
+         título com `]` não fecha o link cedo nem o desvia. O Slug do Post já
+         é de vocabulário fechado, e o endereço codificado sai igual. */
+      const titulo = textoDeLinkMarkdown(post?.titulo);
       const resumo = umaLinha(post?.resumo);
-      const cabeca = `- [${titulo}](${semBarra}/blog/${slug})`;
+      const cabeca = `- [${titulo}](${enderecoDeLinkMarkdown(`${semBarra}/blog/${slug}`)})`;
       /* RESUMO AUSENTE OMITE O PEDAÇO, e não vira dois-pontos com nada
          depois — que leria como um artigo cujo resumo é o vazio. */
       return resumo === "" ? cabeca : `${cabeca}: ${resumo}`;

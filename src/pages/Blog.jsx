@@ -443,7 +443,7 @@ export default function Blog() {
               aria-label={rotuloDoCartao(destaque)}
               className="group block"
             >
-              <div className="rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden grid md:grid-cols-5 green-glow card-3d transition-all duration-500">
+              <div className="rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden grid md:grid-cols-5 green-glow transition-all duration-500">
                 <div className="md:col-span-2 relative aurora-bg flex items-center justify-center p-12 min-h-48 overflow-hidden">
                   {/* A CAPA DO DESTAQUE. Quando falta ou falha, o `aurora-bg`
                       do próprio invólucro já é o fallback — nada a mais para
@@ -533,7 +533,7 @@ export default function Blog() {
                   aria-label={rotuloDoCartao(post)}
                   className="group block h-full"
                 >
-                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden flex flex-col green-glow card-3d transition-all duration-500">
+                  <div className="h-full rounded-3xl border border-zinc-100 hover:border-emerald-200 bg-white overflow-hidden flex flex-col green-glow transition-all duration-500">
                     {/* A CAPA DO CARTÃO. Post sem `imagem_url`, ou cuja imagem
                         falha ao carregar, fica sem faixa — nunca um `<img>`
                         quebrado. `loading="lazy"`: a grade inteira fica abaixo

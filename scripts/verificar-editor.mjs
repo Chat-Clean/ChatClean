@@ -157,8 +157,57 @@ const CAMINHO_ARTIGO_PUBLICO = "src/pages/BlogPost.jsx";
 const CAMINHO_MODULO_PUBLICO = "src/pages/blogPublico.js";
 /* A rolagem ao trocar de rota. Ela é global e mora acima das rotas; entra no
    pacote porque a garantia "trocar de artigo volta ao topo" se observa com ela
-   montada, e não duplicando a rolagem dentro da página. */
-const CAMINHO_ROLAGEM = "src/components/ScrollToTop.jsx";
+   montada, e não duplicando a rolagem dentro da página.
+
+   Troca registrada em 2026-09-29: era `src/components/ScrollToTop.jsx`, que o
+   commit 871638a removeu (a rolagem entre rotas passou a morar em
+   `AnimatedRoutes`, que rola em `onExitComplete` e devolve a posição no POP).
+   Desde então esta ferramenta não compilava. O que se monta agora é o
+   componente que `main.jsx` monta de fato, envolvendo as rotas como lá. */
+const CAMINHO_ROLAGEM = "src/components/animated/AnimatedRoutes.jsx";
+/* O único lugar que instancia cliente Supabase. As seções (i) e (j) montam o
+   `SessaoProvider` de verdade, que cria o cliente autenticado — e o descartam
+   no fim (ver `descartarClienteDaSessao`). */
+const CAMINHO_CLIENTES = "src/data/supabase/clientes.js";
+
+/**
+ * O DESCARTE DO CLIENTE DA SESSÃO — a causa de a ferramenta não encerrar.
+ *
+ * Medido em 2026-09-29 com `process.getActiveResourcesInfo()` e um gancho de
+ * `async_hooks` depois do veredito: o que segurava o processo vivo eram dois
+ * `MessagePort`, cada um de um `BroadcastChannel` que o `GoTrueClient` do
+ * `@supabase/auth-js` abre no construtor quando acha que está num navegador
+ * (`isBrowser()` é verdadeiro sob o jsdom exposto em `globalThis`) e a sessão
+ * é persistida. As seções (i) e (j) montam o `SessaoProvider` real, cada uma no
+ * seu pacote, e cada pacote cria o seu cliente — dois canais, e o Node espera
+ * por eles para sempre. (O `Worker` do esbuild e o dele `MessagePort` também
+ * aparecem no gancho, mas o esbuild os desliga com `unref`: não seguram nada.)
+ *
+ * O remédio é o descarte que a própria biblioteca oferece, `auth.dispose()`:
+ * para a renovação automática e FECHA o canal. Nada de `process.exit` cego.
+ */
+async function descartarClienteDaSessao(modulo) {
+  if (typeof modulo?.clienteAutenticado !== "function") return false;
+  let cliente;
+  try {
+    cliente = modulo.clienteAutenticado();
+  } catch {
+    /* sem ambiente, nenhum cliente foi criado, e não há o que descartar */
+    return false;
+  }
+  try {
+    await cliente.auth.dispose();
+    return true;
+  } catch (erro) {
+    afirmar("o cliente da sessão montado pela seção é descartado", false, String(erro?.message ?? erro));
+    return false;
+  }
+}
+
+/** Os `MessagePort` que ainda seguram o processo (os desligados não contam). */
+function canaisQueSeguramOProcesso() {
+  return process.getActiveResourcesInfo().filter((r) => r === "MessagePort");
+}
 /* O mapa de ícone de Categoria: ele traz o DESENHO e o RÓTULO, e o rótulo é o
    nome acessível de cada opção — a chave ("faisca", "chip", "robo") é nome de
    código, sem sentido para quem ouve a tela. */
@@ -3033,7 +3082,7 @@ async function compilarComponentes() {
       "  pedidos_de_relacionados: [],\n" +
       "  tags_publicas: { ok: true, dados: [] },\n" +
       "  pedidos_de_tags: [],\n" +
-      /* Onde a rolagem foi mandada. `ScrollToTop` é global e mora acima das
+      /* Onde a rolagem foi mandada. `AnimatedRoutes` é global e mora acima das
          rotas; é aqui que se observa que trocar de artigo a aciona. */
       "  rolagens: [],\n" +
       "  tags: { ok: true, dados: [] },\n" +
@@ -3311,7 +3360,7 @@ async function compilarComponentes() {
          não um trecho de JSX lido. */
       `export { default as ArtigoPublico } from ${caminhoDeModulo(CAMINHO_ARTIGO_PUBLICO)};\n` +
       `export * as regrasDoBlogPublico from ${caminhoDeModulo(CAMINHO_MODULO_PUBLICO)};\n` +
-      `export { default as ScrollToTop } from ${caminhoDeModulo(CAMINHO_ROLAGEM)};\n` +
+      `export { default as AnimatedRoutes } from ${caminhoDeModulo(CAMINHO_ROLAGEM)};\n` +
       `export * as regrasDasRotas from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ROTAS)};\n` +
       `export * as renderizador from ${caminhoDeModulo(CAMINHO_RENDERIZADOR)};\n` +
       `export { controle } from ${comoModulo(arquivoDoControle)};\n` +
@@ -10578,13 +10627,14 @@ if (janela && schema && configuracao && compilado) {
                   React.createElement(
                     R.MemoryRouter,
                     { initialEntries: [entrada] },
-                    /* `ScrollToTop` é global e mora acima das rotas em
+                    /* `AnimatedRoutes` é global e envolve as rotas em
                        `main.jsx`. Ele entra aqui quando o que se observa é a
-                       navegação ENTRE artigos — duplicar a rolagem dentro da
-                       página seria uma segunda implementação da mesma regra. */
-                    comRolagem ? React.createElement(modulo.ScrollToTop) : null,
+                       navegação ENTRE artigos, no MESMO lugar de lá: no lugar
+                       de `<Routes>`, que ele mesmo desenha. (Até 2026-09-29
+                       era `ScrollToTop`, irmão das rotas; ver
+                       `CAMINHO_ROLAGEM`.) */
                     React.createElement(
-                      R.Routes,
+                      comRolagem ? modulo.AnimatedRoutes : R.Routes,
                       null,
                       React.createElement(R.Route, {
                         path: caminho,
@@ -11291,10 +11341,17 @@ if (janela && schema && configuracao && compilado) {
             /* ─── TROCAR DE ARTIGO VOLTA AO TOPO ──────────────────────────
                Os relacionados levam de `/blog/:slug` para outro sem desmontar a
                tela. Sem rolagem ao mudar o alvo, o leitor cai no MEIO do artigo
-               novo. Quem cumpre isso é `ScrollToTop`, global e acima das rotas
-               em `main.jsx` — e é ele que é montado aqui, junto: duplicar a
-               rolagem dentro da página seria uma segunda implementação da mesma
-               regra, e a segunda é a que diverge. */
+               novo.
+
+               Montado aqui como em `main.jsx`: a página DENTRO do
+               `AnimatedRoutes`, que é o dono global da rolagem entre rotas. O
+               que se observa é o conjunto, e não uma rolagem inventada para o
+               teste. (Até 2026-09-29 o global era `ScrollToTop`, que rolava a
+               cada `pathname`. O `AnimatedRoutes` só rola quando a chave de
+               transição muda, e entre dois artigos ela não muda: remontada a
+               rolagem real, esta asserção ACUSOU o defeito, e o
+               `AnimatedRoutes` passou a rolar também quando o caminho muda
+               dentro da mesma área.) */
             {
               cc.post_publico = { ok: true, dados: O_POST };
               cc.relacionados = { ok: true, dados: [OS_POSTS[1]] };
@@ -11320,11 +11377,24 @@ if (janela && schema && configuracao && compilado) {
               if (achouLink) {
                 cc.pedidos_de_slug.length = 0;
                 await tela.clicarLink(link);
+                /* `AnimatedRoutes` rola dois quadros depois da troca (o primeiro
+                   deixa a página nova entrar no layout). Esperam-se os dois
+                   quadros de verdade, pelo `requestAnimationFrame` do jsdom, e
+                   um terceiro de folga — não um número de milissegundos. */
+                await act(async () => {
+                  for (let quadro = 0; quadro < 3; quadro += 1) {
+                    await new Promise((pronto) => janela.requestAnimationFrame(() => pronto()));
+                  }
+                });
                 afirmar(
                   "clicar num relacionado abre o outro artigo — e a página volta ao topo em vez de cair no meio dele",
                   cc.pedidos_de_slug.at(-1) === "post-antigo" &&
-                    cc.rolagens.length > naMontagem,
-                  `pedidos: ${JSON.stringify(cc.pedidos_de_slug)} | rolagens: ${cc.rolagens.length} (na montagem: ${naMontagem})`,
+                    cc.rolagens.length > naMontagem &&
+                    /* 2026-09-29: acrescido o ALVO da rolagem. Contar só que
+                       houve rolagem aceitaria uma que devolvesse a pessoa ao
+                       meio da página. */
+                    cc.rolagens.at(-1)?.top === 0,
+                  `pedidos: ${JSON.stringify(cc.pedidos_de_slug)} | rolagens: ${JSON.stringify(cc.rolagens)} (na montagem: ${naMontagem})`,
                 );
               }
               await tela.desmontar();
@@ -15196,7 +15266,11 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
        `ESPERA_DA_BUSCA_MS` mudar, e a asserção passaria a provar um tempo que
        não é mais o real — é o mesmo motivo que já vale para as seções (f) e
        (h) mais acima neste arquivo. */
-    `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n`;
+    `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n` +
+    /* O cliente da sessão, o MESMO que o `SessaoProvider` deste pacote cria
+       (o módulo é um só no pacote, e o cliente é memoizado). Entra para ser
+       DESCARTADO no fim da seção: ver `descartarClienteDaSessao`. */
+    `export { clienteAutenticado } from ${caminhoDeModulo(CAMINHO_CLIENTES)};\n`;
 
   const { arquivo: arquivoCompiladoBusca } = await compilarParaNode({
     pasta: pastaBusca,
@@ -15208,9 +15282,12 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     },
   });
 
+  /* Fora do `try` para o `finally` alcançar: é lá que o cliente da sessão é
+     descartado, passe ou falhe a seção. */
+  let moduloBusca = null;
   try {
     const janelaBusca = montarNavegador({ url: "https://painel.local/admin" });
-    const moduloBusca = await import(pathToFileURL(arquivoCompiladoBusca).href);
+    moduloBusca = await import(pathToFileURL(arquivoCompiladoBusca).href);
     const ReactBusca = (await import("react")).default;
     const { createRoot: criarRaizBusca } = await import("react-dom/client");
     const { act: atoBusca } = await import("react");
@@ -15422,6 +15499,7 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     await atoBusca(async () => raizBusca.unmount());
     alvoBusca.remove();
   } finally {
+    await descartarClienteDaSessao(moduloBusca);
     try {
       rmSync(pastaBusca, { recursive: true, force: true });
     } catch {
@@ -15489,7 +15567,9 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     /* A camada de dados VERDADEIRA — é a expressão dela que vai ao servidor. O
        dublê acima troca só o que a TELA chama. */
     `export * as postsReal from ${caminhoDeModulo(CAMINHO_POSTS)};\n` +
-    `export * as regras from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n`;
+    `export * as regras from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
+    /* Pela mesma razão da seção (i): descartado no fim. */
+    `export { clienteAutenticado } from ${caminhoDeModulo(CAMINHO_CLIENTES)};\n`;
 
   const { arquivo: arquivoCompiladoData } = await compilarParaNode({
     pasta: pastaData,
@@ -15501,9 +15581,10 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     },
   });
 
+  let moduloData = null;
   try {
     const janelaData = montarNavegador({ url: "https://painel.local/admin" });
-    const moduloData = await import(pathToFileURL(arquivoCompiladoData).href);
+    moduloData = await import(pathToFileURL(arquivoCompiladoData).href);
     const ReactData = (await import("react")).default;
     const { createRoot: criarRaizData } = await import("react-dom/client");
     const { act: atoData } = await import("react");
@@ -15891,6 +15972,7 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     await atoData(async () => raizData.unmount());
     alvoData.remove();
   } finally {
+    await descartarClienteDaSessao(moduloData);
     try {
       rmSync(pastaData, { recursive: true, force: true });
     } catch {
@@ -15898,6 +15980,22 @@ export async function excluirPost() { return { ok: true, dados: {} }; }
     }
   }
 }
+
+/* ─── A ferramenta encerra sozinha ───────────────────────────────────────────
+   Até 2026-09-29 ela imprimia o veredito e ficava pendurada (no Windows, até o
+   `timeout`): os canais do cliente da sessão seguravam o processo. Ver
+   `descartarClienteDaSessao`. Esta asserção torna o defeito VISÍVEL em vez de
+   um travamento mudo: um canal esquecido por uma seção nova vira FALHA com o
+   nome do recurso. Uma volta do laço antes de olhar, para o fechamento dos
+   canais já descartados assentar. */
+secao("(k) nada segura o processo depois das telas");
+await new Promise((pronto) => setImmediate(pronto));
+const canaisPresos = canaisQueSeguramOProcesso();
+afirmar(
+  "nenhum `MessagePort` (canal do cliente da sessão, `BroadcastChannel`) segura o processo depois das seções — a ferramenta encerra sozinha",
+  canaisPresos.length === 0,
+  `ainda vivos: ${canaisPresos.length} ${JSON.stringify(process.getActiveResourcesInfo())}`,
+);
 
 /* ─── Veredito ───────────────────────────────────────────────────────────── */
 
@@ -15909,3 +16007,9 @@ if (falhas === 0) {
   console.log(`Editor visual NÃO verificado: ${falhas} asserção(ões) falharam.`);
   process.exitCode = 1;
 }
+
+/* Se a asserção (k) acusou canal preso, o processo não encerraria sozinho — e
+   a falha já está impressa, com o recurso nomeado. Só NESSE caso sai por
+   `process.exit`, com o código já decidido acima (1). Quando tudo passa, o
+   processo encerra pelo caminho normal, sem saída forçada. */
+if (canaisPresos.length > 0) process.exit(process.exitCode);

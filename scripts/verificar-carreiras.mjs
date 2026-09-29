@@ -4428,7 +4428,15 @@ if (temToken) {
        quando havia Vaga para cruzar, e aceitava o torto com a tabela vazia. A
        tabela é ESVAZIADA dentro da transação desfeita (antes de trocar de
        papel), para a prova não depender de haver Vagas reais no projeto. */
-    const torto = await desfeito(`delete from public.vagas;
+    /* TROCA REGISTRADA (2026-09-29): o esvaziamento era só `delete`, e
+       quebrava com uma Vaga Aberta real no projeto, porque a máquina de estados
+       recusa excluir Aberta (a regra certa). Agora as Abertas são ENCERRADAS
+       antes, pela própria máquina, dentro da mesma transação desfeita: nada
+       persiste, e a prova volta a não depender dos dados de produção. */
+    const ESVAZIAR_VAGAS_NA_TRANSACAO = `update public.vagas set estado = 'encerrada' where estado = 'aberta';
+      delete from public.vagas;
+      `;
+    const torto = await desfeito(`${ESVAZIAR_VAGAS_NA_TRANSACAO}
       set local role authenticated;
       select count(*) from public.buscar_vagas_do_painel(null, 'publicado');`);
     afirmar(
@@ -4436,7 +4444,7 @@ if (temToken) {
       torto.ok === false && /invalid input value for enum/i.test(String(torto.erro ?? "")),
       torto.erro ?? "o Estado torto passou",
     );
-    const vaziaAceita = await desfeito(`delete from public.vagas;
+    const vaziaAceita = await desfeito(`${ESVAZIAR_VAGAS_NA_TRANSACAO}
       set local role authenticated;
       select count(*)::int as n from public.buscar_vagas_do_painel(null, 'rascunho');`);
     afirmar(
@@ -12302,6 +12310,11 @@ export const listarClassificacoes = proibida("listarClassificacoes");
   const fonte =
     `export { default as Carreiras } from ${montagem.caminhoDeModulo("src/pages/Carreiras.jsx")};\n` +
     `export { default as VagaPublica } from ${montagem.caminhoDeModulo("src/pages/VagaPublica.jsx")};\n` +
+    /* 2026-09-29: o `AnimatedRoutes` REAL, que envolve as rotas em `main.jsx`.
+       As páginas montadas só num `<Routes>` escondiam o defeito de que, dentro
+       dele, o tipo de navegação é sempre "POP". */
+    `export { default as AnimatedRoutes } from ${montagem.caminhoDeModulo("src/components/animated/AnimatedRoutes.jsx")};\n` +
+    `export { navegacaoVista } from ${montagem.caminhoDeModulo("src/components/animated/navegacaoReal.js")};\n` +
     `export { controle as controleDaLeitura } from ${montagem.comoModulo(arquivoDaLeitura)};\n`;
 
   let compilado = null;
@@ -12544,7 +12557,7 @@ export const listarClassificacoes = proibida("listarClassificacoes");
         conferirLista(tela, momento);
       };
 
-      const montar = async (caminho, { caso, ateQue = null, registra = false } = {}) => {
+      const montar = async (caminho, { caso, ateQue = null, registra = false, comAnimatedRoutes = false } = {}) => {
         const alvo = janela.document.createElement("div");
         janela.document.body.appendChild(alvo);
         const raizReact = createRoot(alvo);
@@ -12556,7 +12569,9 @@ export const listarClassificacoes = proibida("listarClassificacoes");
               { initialEntries: [caminho] },
               h(Onde),
               h(
-                roteador.Routes,
+                /* Com `comAnimatedRoutes`, as rotas vão dentro do
+                   `AnimatedRoutes` real, como em `main.jsx` (2026-09-29). */
+                comAnimatedRoutes ? modulo.AnimatedRoutes : roteador.Routes,
                 null,
                 h(roteador.Route, { path: "/carreiras", element: h(modulo.Carreiras) }),
                 h(roteador.Route, { path: "/carreiras/:slug", element: h(modulo.VagaPublica) }),
@@ -13292,6 +13307,127 @@ export const listarClassificacoes = proibida("listarClassificacoes");
         await tela.desmontar();
       }
 
+      /* ══ Dentro do `AnimatedRoutes` REAL: ida, volta e carregamento direto ══
+         Defeito achado e corrigido em 2026-09-29 (Spec Change Log da 5.7). O
+         `AnimatedRoutes` passa `location` ao `<Routes>`, e o React Router 7,
+         nesse caso, fixa `navigationType: "POP"` para as rotas: montadas como
+         em `main.jsx`, as páginas NUNCA viam uma ida, e o foco nunca ia ao
+         `<h1>`. Os casos acima montam sem o `AnimatedRoutes` e não viam isso.
+         Aqui a superfície é a real: foco no `<h1>` e UMA rolagem ao topo na
+         ida (a do `AnimatedRoutes`, sem uma segunda da página), nada forçado
+         na volta (a posição anotada é restaurada, e nenhuma rolagem ao topo
+         briga com ela) e nada no carregamento direto. A rolagem do
+         `AnimatedRoutes` acontece dois quadros depois da troca: esperam-se
+         quadros de verdade. */
+      {
+        /* A regra pura do tipo visto, executada. A página que está SAINDO de
+           cena (troca de área, animação de saída) recebe o contexto da
+           navegação que a tira: ela tem de ver "POP", ou agiria como se tivesse
+           acabado de chegar. A montagem abaixo não passa por uma troca de área,
+           então é aqui que isso se prova. */
+        const v = modulo.navegacaoVista;
+        afirmar(
+          "`navegacaoVista`: sem provedor, o tipo do roteador; com provedor e a entrada da página, o tipo real; com provedor e OUTRA entrada (a página que sai), \"POP\"",
+          typeof v === "function" &&
+            igual(v(null, "k1", "PUSH"), { tipo: "PUSH", rolagemGlobal: false }) &&
+            igual(v(null, "k1", "POP"), { tipo: "POP", rolagemGlobal: false }) &&
+            igual(v({ tipo: "PUSH", chave: "k1" }, "k1", "POP"), { tipo: "PUSH", rolagemGlobal: true }) &&
+            igual(v({ tipo: "PUSH", chave: "k2" }, "k1", "POP"), { tipo: "POP", rolagemGlobal: true }) &&
+            igual(v({ tipo: "POP", chave: "k1" }, "k1", "POP"), { tipo: "POP", rolagemGlobal: true }),
+        );
+        const quadros = async (n = 3) => {
+          await act(async () => {
+            for (let i = 0; i < n; i += 1) await new Promise((pronto) => janela.requestAnimationFrame(() => pronto()));
+          });
+        };
+        const rolagemAntes = Object.getOwnPropertyDescriptor(janela, "scrollY");
+        const rolarPara = (y) => Object.defineProperty(janela, "scrollY", { value: y, configurable: true, writable: true });
+        const alvos = () => rolagens.map((a) => (a[0] !== null && typeof a[0] === "object" ? a[0].top : a[1]));
+        try {
+          leitura.lista = { ok: true, dados: ABERTAS };
+          leitura.situacoes[A.slug] = situacaoDe(A);
+          leitura.situacoes[B.slug] = situacaoDe(B);
+          rolagens.length = 0;
+          rolarPara(0);
+          const tela = await montar("/carreiras", {
+            caso: "Dentro do AnimatedRoutes",
+            ateQue: () => true,
+            comAnimatedRoutes: true,
+          });
+          await esperarAte(() => tela.lista() === m.LISTA_PRONTA, "Dentro do AnimatedRoutes: a lista chega");
+          await quadros();
+          afirmar(
+            "dentro do `AnimatedRoutes` real, carregamento direto de `/carreiras` (POP): nenhuma rolagem forçada e o foco não é roubado para o `<h1>`",
+            rolagens.length === 0 && focado() !== tela.q("h1"),
+            `rolagens ${JSON.stringify(alvos())} | foco ${focado()?.tagName}`,
+          );
+
+          /* Ida: /carreiras → Vaga A (PUSH, mesma chave de transição). */
+          rolarPara(900);
+          rolagens.length = 0;
+          await tela.clicar(
+            tela.q(`article[data-vaga="${A.slug}"] a[data-acao="ver-vaga"]`),
+            "Ver vaga (dentro do AnimatedRoutes)",
+            () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [A.titulo]),
+          );
+          await quadros();
+          afirmar(
+            "dentro do `AnimatedRoutes` real, `/carreiras` → Vaga (PUSH): o foco vai ao `<h1>` da Vaga, e a página sobe ao topo UMA vez (a rolagem é do `AnimatedRoutes`, sem uma segunda da página)",
+            tela.onde() === `/carreiras/${A.slug}` && focado() === tela.q("h1") && igual(alvos(), [0]),
+            `${tela.onde()} | rolagens ${JSON.stringify(alvos())} | foco ${focado()?.tagName} ${focado()?.textContent?.slice(0, 30)}`,
+          );
+
+          /* Ida: Vaga A → Vaga B, pelas outras vagas (PUSH). A posição de A
+             fica anotada em 640 para a volta. */
+          rolarPara(640);
+          rolagens.length = 0;
+          await tela.clicar(
+            tela.q(`[data-papel="outras-vagas"] article[data-vaga="${B.slug}"] a[data-acao="ver-vaga"]`),
+            "a outra vaga (dentro do AnimatedRoutes)",
+            () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [B.titulo]),
+          );
+          await quadros();
+          afirmar(
+            "dentro do `AnimatedRoutes` real, Vaga → outra Vaga (PUSH): o foco vai ao `<h1>` da Vaga nova, e a página sobe ao topo UMA vez",
+            tela.onde() === `/carreiras/${B.slug}` && focado() === tela.q("h1") && igual(alvos(), [0]),
+            `${tela.onde()} | rolagens ${JSON.stringify(alvos())} | foco ${focado()?.tagName} ${focado()?.textContent?.slice(0, 30)}`,
+          );
+
+          /* Volta pelo navegador (POP) para A: a posição anotada volta, nada de
+             topo, e o foco não é puxado para o `<h1>`. */
+          const botao = tela.q('a[data-acao="voltar"]');
+          botao?.focus();
+          rolarPara(0);
+          rolagens.length = 0;
+          await tela.ir(-1, () => tela.situacao() === m.VAGA_ABERTA && igual(tela.h1s(), [A.titulo]));
+          await quadros();
+          afirmar(
+            "dentro do `AnimatedRoutes` real, voltar (POP) para a Vaga anterior: a posição anotada (640) é restaurada, NENHUMA rolagem ao topo briga com ela, e o foco não vai ao `<h1>`",
+            tela.onde() === `/carreiras/${A.slug}` && igual(alvos(), [640]) && focado() !== tela.q("h1"),
+            `${tela.onde()} | rolagens ${JSON.stringify(alvos())} | foco ${focado()?.tagName}`,
+          );
+          await tela.desmontar();
+
+          /* Carregamento direto numa Vaga, dentro do `AnimatedRoutes`. */
+          rolagens.length = 0;
+          const direta = await montar(`/carreiras/${B.slug}`, {
+            caso: "Vaga direta dentro do AnimatedRoutes",
+            ateQue: () => janela.document.querySelector('[data-papel="outras-vagas"]') !== null,
+            comAnimatedRoutes: true,
+          });
+          await quadros();
+          afirmar(
+            "dentro do `AnimatedRoutes` real, carregamento direto de uma Vaga (POP): nenhuma rolagem forçada e o foco não é roubado para o `<h1>`",
+            direta.situacao() === m.VAGA_ABERTA && rolagens.length === 0 && focado() !== direta.q("h1"),
+            `rolagens ${JSON.stringify(alvos())} | foco ${focado()?.tagName}`,
+          );
+          await direta.desmontar();
+        } finally {
+          if (rolagemAntes === undefined) delete janela.scrollY;
+          else Object.defineProperty(janela, "scrollY", rolagemAntes);
+        }
+      }
+
       /* ══ O que se viu em todas as telas ══ */
       for (const [s, visto] of vistasDaVaga) {
         afirmar(
@@ -13602,9 +13738,11 @@ if (jobPostingMod !== null) {
       j.enderecoPostalDaLocalizacao(null) === null,
   );
   afirmar(
-    "o título servido da Vaga é \"{título} — Vagas ChatClean\" (o texto da SPEC), aparado, e ausente para título em branco",
-    j.tituloServidoDaVaga("Analista de Suporte") === "Analista de Suporte — Vagas ChatClean" &&
-      j.tituloServidoDaVaga("  Analista  ") === "Analista — Vagas ChatClean" &&
+    /* Troca registrada em 2026-09-29 (Spec Change Log da 5.8): o Felix trocou
+       o separador " — " por " | ". Antes: "{título} — Vagas ChatClean". */
+    "o título servido da Vaga é \"{título} | Vagas ChatClean\" (o separador escolhido pelo Felix em 2026-09-29), aparado, e ausente para título em branco",
+    j.tituloServidoDaVaga("Analista de Suporte") === "Analista de Suporte | Vagas ChatClean" &&
+      j.tituloServidoDaVaga("  Analista  ") === "Analista | Vagas ChatClean" &&
       j.tituloServidoDaVaga("  ") === null &&
       j.tituloServidoDaVaga(null) === null &&
       j.TITULO_DA_LISTAGEM_DE_VAGAS === "Vagas ChatClean | Trabalhe com a gente",
@@ -13617,9 +13755,15 @@ if (jobPostingMod !== null) {
       !/\bTITULO_DE_RESERVA_DA_ENCERRADA\s*=/.test(semComentarios(ler("src/pages/carreirasPublico.js") ?? "")),
   );
   const fonteJob = semComentarios(ler("src/domain/carreiras/jobPosting.js") ?? "");
+  /* Troca registrada em 2026-09-29 (Spec Change Log da 5.8). Antes: "o
+     travessão do título mora numa constante só, e é o único travessão fora de
+     comentário do módulo". Com o separador " | ", o módulo não precisa mais de
+     travessão nenhum, e a exceção de `verificar:interface` saiu. */
   afirmar(
-    "o travessão do título mora numa constante só (`SEPARADOR_DO_TITULO_DA_VAGA`), e é o único travessão fora de comentário do módulo",
-    (fonteJob.match(/—/g) ?? []).length === 1 && /SEPARADOR_DO_TITULO_DA_VAGA\s*=\s*" — "/.test(fonteJob),
+    "o separador do título mora numa constante só (`SEPARADOR_DO_TITULO_DA_VAGA` = \" | \"), e o módulo não tem travessão fora de comentário",
+    !fonteJob.includes("—") &&
+      /SEPARADOR_DO_TITULO_DA_VAGA\s*=\s*" \| "/.test(fonteJob) &&
+      j.SEPARADOR_DO_TITULO_DA_VAGA === " | ",
   );
 }
 
@@ -14009,11 +14153,11 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
         `HTTP ${r.status} | ${r.cabecalhos["Cache-Control"]} | ${r.cabecalhos["Vercel-Cache-Tag"]} | ${r.lancou ?? ""}`,
       );
       afirmar(
-        "Aberta: title \"{título} — Vagas ChatClean\", descrição = Resumo, og/twitter com o título e a Imagem Padrão do Site, `og:type` website",
-        tituloDe(r.html) === "Analista de Suporte — Vagas ChatClean" &&
+        "Aberta: title \"{título} | Vagas ChatClean\", descrição = Resumo, og/twitter com o título e a Imagem Padrão do Site, `og:type` website",
+        tituloDe(r.html) === "Analista de Suporte | Vagas ChatClean" &&
           metaDe(r.html, "name", "description") === "Atender clientes da ChatClean pelo WhatsApp." &&
-          metaDe(r.html, "property", "og:title") === "Analista de Suporte — Vagas ChatClean" &&
-          metaDe(r.html, "name", "twitter:title") === "Analista de Suporte — Vagas ChatClean" &&
+          metaDe(r.html, "property", "og:title") === "Analista de Suporte | Vagas ChatClean" &&
+          metaDe(r.html, "name", "twitter:title") === "Analista de Suporte | Vagas ChatClean" &&
           metaDe(r.html, "property", "og:description") === "Atender clientes da ChatClean pelo WhatsApp." &&
           metaDe(r.html, "property", "og:type") === "website" &&
           metaDe(r.html, "property", "og:image") === `${DOMINIO_S}/imagem-padrao-do-site.png` &&
@@ -14121,7 +14265,7 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
         r.status === 200 &&
           !r.html.includes("<script>alert") &&
           !r.html.includes("<img src=x") &&
-          desescapar(tituloDe(r.html)) === `${HOSTIL} — Vagas ChatClean` &&
+          desescapar(tituloDe(r.html)) === `${HOSTIL} | Vagas ChatClean` &&
           desescapar(metaDe(r.html, "name", "description")) === RESUMO_HOSTIL &&
           (noscriptDe(r.html) ?? "").includes(`<h1>${metadadosMod.escapar(HOSTIL)}</h1>`),
         tituloDe(r.html),
@@ -14203,7 +14347,7 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
       );
       afirmar(
         "Encerrada: a página renderizada (title com o título, canônica pelo Slug do banco, `<noscript>` com a frase de encerrada e o link para `/carreiras`)",
-        tituloDe(r.html) === "Analista Antigo — Vagas ChatClean" &&
+        tituloDe(r.html) === "Analista Antigo | Vagas ChatClean" &&
           canonicaDe(r.html) === `${DOMINIO_S}/carreiras/slug-do-banco` &&
           ns.includes("<h1>Analista Antigo</h1>") &&
           ns.includes(metadadosMod.escapar(paginaMod.FRASE_DA_ENCERRADA)) &&
@@ -14225,7 +14369,7 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
       afirmar(
         "Encerrada sem título: o title e o `<h1>` usam o título de reserva do domínio",
         r.status === 410 &&
-          tituloDe(r.html) === `${regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA} — Vagas ChatClean` &&
+          tituloDe(r.html) === `${regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA} | Vagas ChatClean` &&
           (noscriptDe(r.html) ?? "").includes(`<h1>${regrasDaVaga.TITULO_DE_RESERVA_DA_ENCERRADA}</h1>`),
         tituloDe(r.html),
       );
@@ -14236,12 +14380,12 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
     {
       const r = await pagina({ query: { slug: "um-rascunho" } });
       afirmar(
-        "Inexistente (Rascunho): 404, `no-store`, sem etiqueta, SEM `JobPosting`, title \"Vaga não encontrada — Vagas ChatClean\", canônica da listagem e link para `/carreiras`",
+        "Inexistente (Rascunho): 404, `no-store`, sem etiqueta, SEM `JobPosting`, title \"Vaga não encontrada | Vagas ChatClean\", canônica da listagem e link para `/carreiras`",
         r.status === 404 &&
           r.cabecalhos["Cache-Control"] === "no-store" &&
           !Object.hasOwn(r.cabecalhos, "Vercel-Cache-Tag") &&
           jsonLdsDoCorpo(r.html).length === 0 &&
-          tituloDe(r.html) === "Vaga não encontrada — Vagas ChatClean" &&
+          tituloDe(r.html) === "Vaga não encontrada | Vagas ChatClean" &&
           canonicaDe(r.html) === `${DOMINIO_S}/carreiras` &&
           (noscriptDe(r.html) ?? "").includes('href="/carreiras"') &&
           !r.html.includes("um-rascunho"),
@@ -14425,8 +14569,12 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
       );
       const fontePaginaS = semComentarios(ler("api/_nucleo/paginaDeCarreiras.js") ?? "");
       afirmar(
-        "`paginaDeCarreiras.js` não escreve travessão nem a marca \"Vagas ChatClean\" à mão (os títulos vêm do domínio)",
-        fontePaginaS !== "" && !fontePaginaS.includes("—") && !fontePaginaS.includes("Vagas ChatClean"),
+        /* 2026-09-29: acrescido o separador novo " | " (Spec Change Log da 5.8). */
+        "`paginaDeCarreiras.js` não escreve travessão, o separador \" | \" nem a marca \"Vagas ChatClean\" à mão (os títulos vêm do domínio)",
+        fontePaginaS !== "" &&
+          !fontePaginaS.includes("—") &&
+          !fontePaginaS.includes(" | ") &&
+          !fontePaginaS.includes("Vagas ChatClean"),
       );
       afirmar(
         "Aberta: `twitter:card` = `summary_large_image`",
@@ -15316,6 +15464,34 @@ if (mapaModT !== null && indiceModT !== null) {
     `título de Vaga hostil no \`/llms.txt\` (${HOSTIS.length} formas): \`\\\`, \`[\`, \`]\` escapados, \`(\`/\`)\` do endereço codificados, e o link lido como Markdown aponta para a VAGA com o título inteiro como texto`,
     desviados.length === 0 && linhasHostis.length === HOSTIS.length,
     desviados.map(([s]) => `${s}: ${linhasHostis[HOSTIS.findIndex(([x]) => x === s)]}`).join(" | ") || linhasHostis.join(" | "),
+  );
+
+  /* Título de POST hostil (decisão do Felix em 2026-09-29, Spec Change Log da
+     5.9): o mesmo escape das Vagas. Antes, o título do Post saía cru, e
+     "a](https://mal.example)" desviava o link. Os golden de cima (sem
+     colchete) continuam byte a byte: título comum não muda. */
+  const POSTS_HOSTIS = [
+    ["guia-2026", "Guia [2026]", `- [Guia \\[2026\\]](${DOMINIO_T}/blog/guia-2026)`],
+    ["desvio-post", "a](https://mal.example)", `- [a\\](https://mal.example)](${DOMINIO_T}/blog/desvio-post)`],
+    ["barra-post", "C:\\Pasta\\", `- [C:\\\\Pasta\\\\](${DOMINIO_T}/blog/barra-post)`],
+  ];
+  const indicePostsHostis = indiceParaLlms(DOMINIO_T, POSTS_HOSTIS.map(([slug, titulo]) => ({ slug, titulo })), []);
+  const linhasPostsHostis = indicePostsHostis
+    .split("\n")
+    .filter((l) => l.startsWith("- [") && l.includes(`${DOMINIO_T}/blog/`));
+  const postsDesviados = POSTS_HOSTIS.filter(([slug, titulo, esperada], n) => {
+    const link = linkMarkdownT(linhasPostsHostis[n]);
+    return !(
+      linhasPostsHostis[n] === esperada &&
+      link !== null &&
+      link.rotulo === titulo &&
+      link.endereco === `${DOMINIO_T}/blog/${slug}`
+    );
+  });
+  afirmar(
+    `título de Post hostil no \`/llms.txt\` (${POSTS_HOSTIS.length} formas): \`\\\`, \`[\`, \`]\` escapados, e o link lido como Markdown aponta para o POST com o título inteiro como texto`,
+    postsDesviados.length === 0 && linhasPostsHostis.length === POSTS_HOSTIS.length,
+    postsDesviados.map(([s]) => s).join(", ") + " | " + linhasPostsHostis.join(" | "),
   );
 }
 

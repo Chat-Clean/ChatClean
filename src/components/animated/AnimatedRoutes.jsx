@@ -1,7 +1,8 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Routes, useLocation, useNavigationType } from "react-router-dom";
 import { chaveDaTransicao, pageTransition } from "@/lib/motion";
+import { NavegacaoRealContext } from "./navegacaoReal";
 
 /**
  * Envolve <Routes> com transições entre páginas — e é quem manda na rolagem.
@@ -95,20 +96,54 @@ export default function AnimatedRoutes({ children }) {
     if (reduce) posicionar();
   }, [reduce, posicionar]);
 
+  // DENTRO DA MESMA ÁREA NÃO HÁ SAÍDA, E `onExitComplete` NÃO RODA. A chave da
+  // transição é o primeiro segmento do caminho: de `/blog` para `/blog/x`, de
+  // um artigo para um relacionado, de `/carreiras` para uma Vaga, nada sai de
+  // cena e nada rolava — quem clicava num relacionado caía no MEIO do artigo
+  // novo. Achado em 2026-09-29, quando `verificar:editor` voltou a montar esta
+  // rolagem (a ferramenta ainda montava o `ScrollToTop` que o 871638a tirou).
+  // Aqui a troca é imediata, como no ramo sem animação, e a regra é a mesma:
+  // `posicionar` (topo na ida, posição anotada na volta, âncora primeiro). Só
+  // quando o CAMINHO muda: filtro na busca (`?categoria=`) ou âncora na mesma
+  // página não sobem a página.
+  const caminhoAnterior = useRef(location.pathname);
+  useEffect(() => {
+    const anterior = caminhoAnterior.current;
+    caminhoAnterior.current = location.pathname;
+    if (reduce) return;
+    if (anterior === location.pathname) return;
+    if (chaveDaTransicao(anterior) !== chaveDaTransicao(location.pathname)) return;
+    posicionar();
+  }, [location.pathname, reduce, posicionar]);
+
+  // O TIPO DE NAVEGAÇÃO REAL, para as páginas. Dentro do `<Routes location>`
+  // o React Router 7 responde "POP" para tudo; daqui de fora o tipo é o
+  // verdadeiro. Ver `navegacaoReal.js` (defeito corrigido em 2026-09-29).
+  const navegacaoReal = useMemo(
+    () => ({ tipo: tipoDeNavegacao, chave: location.key }),
+    [tipoDeNavegacao, location.key],
+  );
+
   if (reduce) {
-    return <Routes location={location}>{children}</Routes>;
+    return (
+      <NavegacaoRealContext.Provider value={navegacaoReal}>
+        <Routes location={location}>{children}</Routes>
+      </NavegacaoRealContext.Provider>
+    );
   }
 
   return (
-    <AnimatePresence mode="wait" initial={false} onExitComplete={posicionar}>
-      <motion.div
-        key={chaveDaTransicao(location.pathname)}
-        initial={pageTransition.initial}
-        animate={pageTransition.animate}
-        exit={pageTransition.exit}
-      >
-        <Routes location={location}>{children}</Routes>
-      </motion.div>
-    </AnimatePresence>
+    <NavegacaoRealContext.Provider value={navegacaoReal}>
+      <AnimatePresence mode="wait" initial={false} onExitComplete={posicionar}>
+        <motion.div
+          key={chaveDaTransicao(location.pathname)}
+          initial={pageTransition.initial}
+          animate={pageTransition.animate}
+          exit={pageTransition.exit}
+        >
+          <Routes location={location}>{children}</Routes>
+        </motion.div>
+      </AnimatePresence>
+    </NavegacaoRealContext.Provider>
   );
 }

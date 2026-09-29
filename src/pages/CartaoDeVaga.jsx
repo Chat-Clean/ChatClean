@@ -24,7 +24,7 @@ export default function CartaoDeVaga({ vaga, Titulo = "h3" }) {
   return (
     <article
       data-vaga={vaga?.slug ?? ""}
-      className="h-full bg-white rounded-3xl border border-zinc-100 hover:border-emerald-200 p-6 md:p-8 green-glow card-3d transition-all duration-500 flex flex-col"
+      className="h-full bg-white rounded-3xl border border-zinc-100 hover:border-emerald-200 p-6 md:p-8 green-glow transition-all duration-500 flex flex-col"
     >
       <ul className="flex flex-wrap gap-2 mb-5" aria-label="Classificações da vaga">
         {classificacoesDaVaga(vaga).map((item) => (

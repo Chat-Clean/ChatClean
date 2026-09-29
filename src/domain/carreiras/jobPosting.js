@@ -40,11 +40,12 @@ import { enderecoDaPaginaDaVaga, FORMATO_DE_SLUG, LIMITES_DA_VAGA } from "./vaga
 export const MARCA_DAS_VAGAS = "Vagas ChatClean";
 
 /**
- * O separador entre o título da Vaga e a marca. É o título que a spec da
- * Story 5.8 e o contexto do épico fixam ("{título} — Vagas ChatClean"), e é a
- * ÚNICA casa do travessão: `verificar:interface` o absolve por linha.
+ * O separador entre o título da Vaga e a marca: "{título} | Vagas ChatClean".
+ * A spec da Story 5.8 fixava o travessão; o Felix trocou pela barra vertical
+ * em 2026-09-29 (Spec Change Log da 5.8), a mesma da listagem. Mora numa
+ * constante só, e `verificar:carreiras` (s) confere o texto servido.
  */
-export const SEPARADOR_DO_TITULO_DA_VAGA = " — ";
+export const SEPARADOR_DO_TITULO_DA_VAGA = " | ";
 
 /** O título da listagem `/carreiras`. */
 export const TITULO_DA_LISTAGEM_DE_VAGAS = "Vagas ChatClean | Trabalhe com a gente";
@@ -57,7 +58,7 @@ function aparado(valor) {
 }
 
 /**
- * "{título} — Vagas ChatClean". Título ausente ou em branco devolve `null`:
+ * "{título} | Vagas ChatClean". Título ausente ou em branco devolve `null`:
  * quem serve escolhe a reserva (a da Encerrada, ou a de não encontrada), e
  * esta função não inventa uma.
  */
