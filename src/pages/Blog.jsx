@@ -72,9 +72,8 @@ import {
   textoDaData,
   textoDoTempoDeLeitura,
 } from "./blogPublico";
+import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
 
-const WHATSAPP_LINK =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+receber+conte%C3%BAdos+exclusivos+da+ChatClean";
 
 /* ─── AS CATEGORIAS VÊM DO BANCO (Story 2.14) ──────────────────────────────
  *
@@ -644,7 +643,7 @@ export default function Blog() {
               Dicas práticas, tendências e estratégias para escalar seu atendimento.
             </p>
             <a
-              href={WHATSAPP_LINK}
+              href={LINK_DO_WHATSAPP}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-8 py-4 bg-white text-emerald-700 font-bold rounded-full shadow-xl hover:shadow-2xl hover:scale-[1.03] transition-all duration-300"

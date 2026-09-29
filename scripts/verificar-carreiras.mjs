@@ -136,6 +136,7 @@ import * as estadosDaVaga from "../src/domain/carreiras/estados.js";
 import * as transicoesDaVaga from "../src/domain/carreiras/transicoes.js";
 import * as classificacoes from "../src/domain/carreiras/classificacoes.js";
 import * as regrasDaVaga from "../src/domain/carreiras/vaga.js";
+import { LINK_DO_WHATSAPP } from "../src/domain/whatsapp.js";
 import * as descricaoDaVaga from "../src/domain/carreiras/descricao.js";
 import * as schema from "../src/domain/blog/schema.js";
 import { gerarSlug } from "../src/domain/blog/slug.js";
@@ -1527,7 +1528,10 @@ const CASOS_DO_INVARIANTE = Object.freeze([
 
 {
   /* PUREZA: o domínio de Carreiras só importa de si e das funções puras de
-     `domain/blog`. Sem React, sem Supabase, sem rede, sem armazenamento. */
+     `domain/blog`. Sem React, sem Supabase, sem rede, sem armazenamento.
+     TROCA REGISTRADA (2026-09-29, merge da `main`): a lista de permissão
+     ganhou `../whatsapp.js`, o único endereço de WhatsApp do site (uma
+     constante), de onde `vaga.js` tira o link do currículo. */
   const dir = path.join(raiz, "src", "domain", "carreiras");
   const arquivos = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith(".js")) : [];
   afirmar(
@@ -1539,14 +1543,14 @@ const CASOS_DO_INVARIANTE = Object.freeze([
   for (const nome of arquivos) {
     const texto = semComentarios(readFileSync(path.join(dir, nome), "utf8"));
     for (const origem of origensDeImport(texto)) {
-      if (!((origem.startsWith("./") && !origem.includes("..")) || /^\.\.\/blog\/[a-z]+\.js$/i.test(origem))) {
+      if (!((origem.startsWith("./") && !origem.includes("..")) || /^\.\.\/blog\/[a-z]+\.js$/i.test(origem) || origem === "../whatsapp.js")) {
         impuros.push(`${nome} → ${origem}`);
       }
     }
     if (/\b(fetch|localStorage|sessionStorage|window|document)\b/.test(texto)) impuros.push(`${nome}: rede/armazenamento/DOM`);
   }
   afirmar(
-    "o domínio de Carreiras só importa de si mesmo e de `domain/blog`, e não toca rede, DOM nem armazenamento",
+    "o domínio de Carreiras só importa de si mesmo, de `domain/blog` e de `domain/whatsapp.js`, e não toca rede, DOM nem armazenamento",
     impuros.length === 0,
     impuros.join(", "),
   );
@@ -12189,7 +12193,11 @@ function nomesImportadosDe(fonte, origem) {
      página (`carreirasPublico.js`); passou a ser o domínio (`vaga.js`),
      porque o HTML Servido da listagem vazia também oferece o currículo e o
      servidor não importa `src/pages`. A varredura cresceu para as páginas, o
-     domínio de Carreiras e a página servida; o módulo puro só reexporta. */
+     domínio de Carreiras e a página servida; o módulo puro só reexporta.
+     TROCA REGISTRADA (2026-09-29, merge da `main`): o site passou a ter UM
+     endereço de WhatsApp, o link do Tintim em `src/domain/whatsapp.js`.
+     Agora NENHUM arquivo de Carreiras escreve endereço de WhatsApp à mão, e o
+     do currículo é exatamente `LINK_DO_WHATSAPP`. */
   const ONDE_O_NUMERO_PODE_ESTAR = [
     ...PAGINAS_DE_CARREIRAS,
     ...readdirSync(path.join(raiz, "src", "domain", "carreiras"))
@@ -12198,11 +12206,14 @@ function nomesImportadosDe(fonte, origem) {
     "api/_nucleo/paginaDeCarreiras.js",
   ];
   const comONumero = ONDE_O_NUMERO_PODE_ESTAR.filter((c) =>
-    /5584998900718|api\.whatsapp\.com/.test(semComentarios(ler(c) ?? "")),
+    /5584998900718|api\.whatsapp\.com|wa\.me\/|tintim\.link/.test(semComentarios(ler(c) ?? "")),
   );
   afirmar(
-    "o endereço do currículo pelo WhatsApp mora SÓ no domínio (`vaga.js`), o módulo puro o reexporta, e `Carreiras.jsx` usa a constante no convite final",
-    igual(comONumero, ["src/domain/carreiras/vaga.js"]) &&
+    "o endereço do currículo é o `LINK_DO_WHATSAPP` do site, nenhum arquivo de Carreiras escreve endereço de WhatsApp à mão, o módulo puro o reexporta, e `Carreiras.jsx` usa a constante no convite final",
+    comONumero.length === 0 &&
+      typeof LINK_DO_WHATSAPP === "string" &&
+      LINK_DO_WHATSAPP !== "" &&
+      regrasDaVaga.ENDERECO_DO_CURRICULO === LINK_DO_WHATSAPP &&
       carreirasPublico?.ENDERECO_DO_CURRICULO === regrasDaVaga.ENDERECO_DO_CURRICULO &&
       nomesImportadosDe(carreiras, "./carreirasPublico").includes("ENDERECO_DO_CURRICULO") &&
       /href=\{ENDERECO_DO_CURRICULO\}/.test(carreiras),
@@ -12752,7 +12763,10 @@ export const listarClassificacoes = proibida("listarClassificacoes");
           tela.lista() === m.LISTA_VAZIA &&
             tela.texto().includes(m.falaDaLista(m.LISTA_VAZIA).oQueHouve) &&
             curriculo?.getAttribute("href") === m.ENDERECO_DO_CURRICULO &&
-            /^https:\/\/api\.whatsapp\.com\//.test(curriculo?.getAttribute("href") ?? "") &&
+            /* TROCA REGISTRADA (2026-09-29, merge da `main`): exigia o formato
+               `api.whatsapp.com`; o site passou a ter um só endereço, o
+               `LINK_DO_WHATSAPP` do Tintim. */
+            curriculo?.getAttribute("href") === LINK_DO_WHATSAPP &&
             curriculo?.getAttribute("target") === "_blank" &&
             curriculo?.getAttribute("rel") === "noopener noreferrer" &&
             (curriculo?.textContent ?? "").trim() === m.ROTULO_DO_CURRICULO &&
@@ -14507,7 +14521,7 @@ if (moduloDoHandler !== null && paginaMod !== null && shellMod !== null && metad
       afirmar(
         "Listagem vazia: o `<noscript>` traz o link do currículo pelo WhatsApp, o MESMO endereço do domínio (`ENDERECO_DO_CURRICULO`)",
         (noscriptDe(r.html) ?? "").includes(`<a href="${metadadosMod.escapar(regrasDaVaga.ENDERECO_DO_CURRICULO)}" rel="noopener noreferrer">`) &&
-          /^https:\/\/api\.whatsapp\.com\//.test(regrasDaVaga.ENDERECO_DO_CURRICULO ?? ""),
+          regrasDaVaga.ENDERECO_DO_CURRICULO === LINK_DO_WHATSAPP,
       );
     }
     {

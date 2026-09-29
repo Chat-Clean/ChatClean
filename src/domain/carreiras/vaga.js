@@ -22,6 +22,7 @@ export { FORMATO_DE_SLUG, problemaNoSlug } from "../blog/slug.js";
 import { decodificarEntidades, textoDoDocumento } from "../blog/schema.js";
 import { ehModalidade, MODALIDADE_REMOTA, rotuloDaModalidade } from "./classificacoes.js";
 import { ehEstadoDaVaga, ESTADO_INICIAL_DA_VAGA, rotuloDoEstadoDaVaga } from "./estados.js";
+import { LINK_DO_WHATSAPP } from "../whatsapp.js";
 
 /**
  * Os tetos, em caracteres (pontos de código, como o `char_length` do banco).
@@ -262,11 +263,13 @@ export function enderecoPublicoDaVaga(vaga) {
 export const TITULO_DE_RESERVA_DA_ENCERRADA = `Vaga ${rotuloDoEstadoDaVaga("encerrada").toLowerCase()}`;
 
 /**
- * O envio de currículo pelo WhatsApp, o MESMO do estado vazio de antes da
- * Story 5.7. Morou em `src/pages/carreirasPublico.js` e veio para cá na
- * revisão da Story 5.8: o HTML Servido da listagem sem vagas também o oferece,
- * e o servidor não importa `src/pages`. É a ÚNICA casa do número e da frase em
- * Carreiras; a página do navegador o reexporta.
+ * O envio de currículo pelo WhatsApp. Morou em `src/pages/carreirasPublico.js`
+ * e veio para cá na revisão da Story 5.8: o HTML Servido da listagem sem vagas
+ * também o oferece, e o servidor não importa `src/pages`. A página do
+ * navegador o reexporta.
+ *
+ * Desde 2026-09-29 (merge da `main`) é o `LINK_DO_WHATSAPP` do Tintim, o
+ * único endereço de WhatsApp do site: o link de rastreamento não repassa
+ * mensagem pronta, então a frase do currículo saiu junto com o `wa.me`.
  */
-export const ENDERECO_DO_CURRICULO =
-  "https://api.whatsapp.com/send?phone=5584998900718&text=Gostaria+de+enviar+meu+curr%C3%ADculo+para+futuras+oportunidades";
+export const ENDERECO_DO_CURRICULO = LINK_DO_WHATSAPP;
