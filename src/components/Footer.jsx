@@ -50,7 +50,7 @@ export default function Footer() {
               </Link>
             </li>
             <li>
-              <Link to="/#integracoes" className="hover:text-emerald-400 transition-colors">
+              <Link to="/integracoes" className="hover:text-emerald-400 transition-colors">
                 Integrações
               </Link>
             </li>

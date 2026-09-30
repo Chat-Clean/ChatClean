@@ -11169,6 +11169,18 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       "/blog",
       "/carreiras",
     ]);
+    /* TROCA REGISTRADA (2026-09-30, página /integracoes): as páginas fixas de
+       HOJE, na ordem de PAGINAS_DO_SITE. `ANTES` continua sendo a história
+       (as cinco do mapa estático, que nenhuma mudança pode perder); a
+       contagem e a ordem do mapa passam a ser conferidas contra `FIXAS`. */
+    const FIXAS = Object.freeze([
+      "/",
+      "/api-oficial-whatsapp",
+      "/integracoes",
+      "/sobre",
+      "/blog",
+      "/carreiras",
+    ]);
 
     const { createServer: criarServidorDoMapa } = await import("node:http");
     /* O que `posts_no_ar()` devolve. Trocado a cada caso. */
@@ -11230,7 +11242,7 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     const perdidos = ANTES.filter((c) => !servidos.includes(`${DOMINIO}${c === "/" ? "/" : c}`));
     afirmar(
       "os cinco endereços que o mapa estático listava continuam TODOS servidos — a remoção não levou nada junto",
-      perdidos.length === 0 && servidos.length === ANTES.length,
+      perdidos.length === 0 && servidos.length === FIXAS.length,
       perdidos.length > 0 ? `perdidos: ${perdidos.join(", ")}` : servidos.join(" "),
     );
     afirmar(
@@ -11277,15 +11289,15 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       locsComPosts.filter((u) => u.includes("/blog/")).join(" ") || "nenhum Post",
     );
     afirmar(
-      "e as cinco fixas continuam junto — o mapa CRESCEU, não trocou de conteúdo",
-      ANTES.every((c) => locsComPosts.includes(`${DOMINIO}${c}`)) &&
-        locsComPosts.length === ANTES.length + postsDoMapa.length,
-      `${locsComPosts.length} endereços (esperado ${ANTES.length + postsDoMapa.length})`,
+      "e as fixas continuam junto — o mapa CRESCEU, não trocou de conteúdo",
+      FIXAS.every((c) => locsComPosts.includes(`${DOMINIO}${c}`)) &&
+        locsComPosts.length === FIXAS.length + postsDoMapa.length,
+      `${locsComPosts.length} endereços (esperado ${FIXAS.length + postsDoMapa.length})`,
     );
 
     /* ── AS VAGAS ABERTAS ENTRAM DEPOIS DOS POSTS (Story 5.9) ────────── */
     //
-    // TROCA REGISTRADA: com `vagas_abertas` vazio, as cinco fixas e os Posts
+    // TROCA REGISTRADA: com `vagas_abertas` vazio, as fixas e os Posts
     // exatamente como antes (as asserções acima); com Vagas, as cinco, mais
     // os Posts, mais as Vagas, nessa ordem.
     vagasDoMapa = [
@@ -11306,10 +11318,10 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
       ...String(comVagas.corpo ?? "").matchAll(/<loc>([^<]+)<\/loc>/g),
     ].map((m) => m[1]);
     afirmar(
-      "com Vagas Abertas, o mapa traz as cinco fixas, os Posts e as Vagas, NESSA ordem",
+      "com Vagas Abertas, o mapa traz as fixas, os Posts e as Vagas, NESSA ordem",
       JSON.stringify(locsComVagas) ===
         JSON.stringify([
-          ...ANTES.map((c) => `${DOMINIO}${c}`),
+          ...FIXAS.map((c) => `${DOMINIO}${c}`),
           ...postsDoMapa.map((p) => `${DOMINIO}/blog/${p.slug}`),
           `${DOMINIO}/carreiras/analista-de-suporte`,
         ]) && comVagas.cabecalhos["x-entrega-diagnostico"] === "ok",
@@ -11344,7 +11356,7 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
        requisição. */
     afirmar(
       "as páginas fixas continuam sem `lastmod` — não há registro de quando mudaram, e `now()` faria o site parecer editado sempre",
-      ANTES.every((c) => !noDe(`${DOMINIO}${c}`).includes("<lastmod>")),
+      FIXAS.every((c) => !noDe(`${DOMINIO}${c}`).includes("<lastmod>")),
       "sem lastmod",
     );
 

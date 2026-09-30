@@ -15198,6 +15198,12 @@ const FIXAS_DO_MAPA_T = [
   "    <changefreq>monthly</changefreq>",
   "    <priority>0.9</priority>",
   "  </url>",
+  // TROCA REGISTRADA (2026-09-30): a página /integracoes entrou nas fixas.
+  "  <url>",
+  `    <loc>${DOMINIO_T}/integracoes</loc>`,
+  "    <changefreq>monthly</changefreq>",
+  "    <priority>0.8</priority>",
+  "  </url>",
   "  <url>",
   `    <loc>${DOMINIO_T}/sobre</loc>`,
   "    <changefreq>monthly</changefreq>",
@@ -15259,6 +15265,8 @@ const INDICE_DE_HOJE_LINHAS_T = [
   "",
   `- ${DOMINIO_T}/: A plataforma: CRM e chatbot para WhatsApp com API Oficial.`,
   `- ${DOMINIO_T}/api-oficial-whatsapp: O que e a API Oficial do WhatsApp Business, como contratar e quanto custa.`,
+  // TROCA REGISTRADA (2026-09-30): a página /integracoes entrou nas fixas.
+  `- ${DOMINIO_T}/integracoes: Como a ChatClean se conecta a CRM, e-commerce, pagamentos e IA: webhook, API e integradores como n8n, Make e Zapier.`,
   `- ${DOMINIO_T}/sobre: Quem faz a ChatClean, e de onde.`,
   `- ${DOMINIO_T}/blog: Artigos sobre atendimento no WhatsApp, automacao e gestao de clientes.`,
   `- ${DOMINIO_T}/carreiras: Vagas abertas e como e trabalhar aqui.`,
@@ -15690,7 +15698,7 @@ if (mapaModT !== null && indiceModT !== null && sitemapModT !== null && diagModT
     const indiceCheio = await indiceT();
     const listagemCheia = await listagemT();
     afirmar(
-      "rota, com duas Vagas Abertas (uma sem `atualizado_em`): o mapa é EXATAMENTE as cinco fixas, os Posts e as duas Vagas, `lastmod` só na que tem, diagnóstico `ok`",
+      "rota, com duas Vagas Abertas (uma sem `atualizado_em`): o mapa é EXATAMENTE as fixas, os Posts e as duas Vagas, `lastmod` só na que tem, diagnóstico `ok`",
       mapaCheio.status === 200 && mapaCheio.texto === MAPA_COM_VAGAS_T && diag(mapaCheio) === diagModT.DIAGNOSTICO_OK,
       `HTTP ${mapaCheio.status} | ${diag(mapaCheio)} | ${mapaCheio.texto.slice(-400)}`,
     );

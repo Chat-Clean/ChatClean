@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   ...(CHECKOUT_ATIVO
     ? [{ name: "Planos", type: "anchor", anchor: "#planos" }]
     : []),
+  { name: "Integrações",    type: "link",   href: "/integracoes" },
   { name: "Sobre",          type: "link",   href: "/sobre" },
   { name: "Blog",           type: "link",   href: "/blog" },
   { name: "Carreiras",      type: "link",   href: "/carreiras" },
