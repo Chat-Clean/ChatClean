@@ -23,16 +23,16 @@ export default function SecaoDeIntegracoes() {
     <section
       id="integracoes"
       aria-labelledby="integracoes-titulo"
-      className="integracoes-fundo relative overflow-hidden px-4 py-24 md:py-32"
+      className="integracoes-fundo relative overflow-hidden px-4 py-20 md:py-24 lg:py-32"
     >
-      <div className="relative mx-auto grid max-w-7xl items-center gap-16 lg:grid-cols-[1fr_1.1fr] lg:gap-10">
+      <div className="relative mx-auto grid max-w-7xl items-center gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-10">
         <Reveal className="max-w-xl">
           <span className="mb-6 inline-block rounded-full border border-white/30 bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-widest text-white backdrop-blur-md">
             Integrações
           </span>
           <h2
             id="integracoes-titulo"
-            className="text-4xl font-black leading-[1.05] tracking-tighter text-white md:text-5xl lg:text-6xl"
+            className="text-4xl font-black leading-[1.05] tracking-tighter text-balance text-white md:text-5xl xl:text-6xl"
           >
             <span className="brilho-latao">Mais de 50 integrações</span> com as ferramentas que você já usa
           </h2>
@@ -67,7 +67,7 @@ export default function SecaoDeIntegracoes() {
           </a>
         </Reveal>
 
-        <Reveal delay={0.1}>
+        <Reveal delay={0.1} className="integracoes-palco">
           {/* Leitor de tela: uma lista com o nome de cada ferramenta. A
               arrumação em colunas é só visual. */}
           <div
@@ -80,15 +80,18 @@ export default function SecaoDeIntegracoes() {
               <div key={indice} className="integracoes-coluna">
                 {coluna.map((marca) => (
                   <div key={marca.nome} role="listitem" className="integracao-marca">
-                    <svg
-                      viewBox="0 0 24 24"
-                      role="img"
-                      aria-label={marca.nome}
+                    {/* O nome é lido pelo `alt`; a imagem não é link nem
+                        arrasta, porque a parede só mostra, não navega. */}
+                    <img
+                      src={marca.imagem}
+                      alt={marca.nome}
+                      width="64"
+                      height="64"
+                      loading="lazy"
+                      decoding="async"
+                      draggable="false"
                       className="integracao-desenho"
-                      fill={marca.cor}
-                    >
-                      <path d={marca.caminho} />
-                    </svg>
+                    />
                   </div>
                 ))}
               </div>

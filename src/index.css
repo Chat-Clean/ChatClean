@@ -822,15 +822,33 @@ body[data-redimensionando-imagem="true"] {
     linear-gradient(125deg, #14231b 0%, #1f4a34 55%, #14231b 100%);
 }
 
+/* O palco da parede: é pela LARGURA DELE, e não pela da tela, que o quadro
+   se mede (`cqi`). Assim a parede nunca empurra o texto ao lado, seja qual
+   for o aparelho. Empilhada (celular e tablet) a parede tem um teto de
+   largura, para os quadros não chegarem a 107px e esticarem a seção; lado a
+   lado, ela ocupa a coluna inteira. */
+.integracoes-palco {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+}
+@media (min-width: 1024px) {
+  .integracoes-palco {
+    max-width: none;
+  }
+}
+
 /* A parede: cinco colunas centradas na vertical. As de 3 marcas ficam meio
    quadro abaixo das de 4 sozinhas, pelo `align-items: center`: o desencontro
-   do mosaico sai da própria grade, sem deslocamento à mão. Medidas do quadro,
-   do vão e do canto: 56/12/16px no celular, 107/24/24px a partir do `md`.
+   do mosaico sai da própria grade, sem deslocamento à mão. O vão é 4% da
+   largura do palco (de 8 a 24px) e o quadro, um quinto do que sobra (de 48
+   a 107px, o tamanho da Clickmassa).
    A borda da direita esmaece (a quinta coluna quase some no fundo), para a
    parede parecer continuar além da seção. */
 .integracoes-parede {
-  --lado-do-quadro: 3.5rem;
-  --vao-da-parede: 0.75rem;
+  --vao-da-parede: clamp(0.5rem, 4cqi, 1.5rem);
+  --lado-do-quadro: clamp(3rem, calc((100cqi - 4 * var(--vao-da-parede)) / 5), 6.6875rem);
   display: grid;
   grid-template-columns: repeat(5, var(--lado-do-quadro));
   column-gap: var(--vao-da-parede);
@@ -845,12 +863,6 @@ body[data-redimensionando-imagem="true"] {
   margin: calc(var(--folga-da-lupa) * -1);
   -webkit-mask-image: linear-gradient(90deg, #000 65%, rgb(0 0 0 / 0.4) 92%);
   mask-image: linear-gradient(90deg, #000 65%, rgb(0 0 0 / 0.4) 92%);
-}
-@media (min-width: 768px) {
-  .integracoes-parede {
-    --lado-do-quadro: 6.6875rem;
-    --vao-da-parede: 1.5rem;
-  }
 }
 .integracoes-coluna {
   display: flex;
@@ -868,17 +880,15 @@ body[data-redimensionando-imagem="true"] {
   place-items: center;
   width: var(--lado-do-quadro);
   height: var(--lado-do-quadro);
-  border-radius: 1rem;
+  /* Canto proporcional ao quadro: 22% dá os 24px da Clickmassa nos 107px. */
+  border-radius: calc(var(--lado-do-quadro) * 0.22);
   background: var(--surface-sunk);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
   transition: transform 0.15s ease-out;
 }
-@media (min-width: 768px) {
-  .integracao-marca {
-    border-radius: 1.5rem;
-  }
-}
 .integracao-desenho {
-  width: 55%;
-  height: 55%;
+  width: 56%;
+  height: 56%;
+  object-fit: contain;
+  user-select: none;
 }
