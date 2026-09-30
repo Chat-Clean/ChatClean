@@ -47,6 +47,13 @@ export const PAGINAS_DO_SITE = Object.freeze([
       "O que e a API Oficial do WhatsApp Business, como contratar e quanto custa.",
   }),
   Object.freeze({
+    caminho: "/integracoes",
+    prioridade: "0.8",
+    frequencia: "monthly",
+    descricao:
+      "Como a ChatClean se conecta a CRM, e-commerce, pagamentos e IA: webhook, API e integradores como n8n, Make e Zapier.",
+  }),
+  Object.freeze({
     caminho: "/sobre",
     prioridade: "0.7",
     frequencia: "monthly",

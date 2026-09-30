@@ -1,8 +1,12 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter as Router, Navigate, Outlet, Route } from "react-router-dom";
 import "./index.css";
 import App from "./App.jsx";
+
+// /integracoes carrega sob demanda: é a página com o motion do Flow, a trilha
+// e 20 logos, e quem abre a home não precisa baixar nada disso.
+const Integracoes = lazy(() => import("./pages/Integracoes.jsx"));
 import Blog from "./pages/Blog.jsx";
 import BlogPost from "./pages/BlogPost.jsx";
 import Carreiras from "./pages/Carreiras.jsx";
@@ -53,6 +57,14 @@ createRoot(document.getElementById("root")).render(
         <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/carreiras" element={<Carreiras />} />
         <Route path="/carreiras/:slug" element={<VagaPublica />} />
+        <Route
+          path="/integracoes"
+          element={
+            <Suspense fallback={<div className="min-h-screen bg-[rgb(8_16_12)]" />}>
+              <Integracoes />
+            </Suspense>
+          }
+        />
         <Route path="/sobre" element={<Sobre />} />
         <Route path="/api-oficial-whatsapp" element={<ApiOficialWhatsApp />} />
         {/* A landing de captação. Endereço curto porque é ele que vai em
