@@ -29,6 +29,7 @@ import { EASE } from "@/lib/motion";
 import ModernHero from "./components/animated/ModernHero";
 import StatsSection from "./components/animated/StatsSection";
 import BentoFeatures from "./components/animated/BentoFeatures";
+import SecaoDeIntegracoes from "@/components/integracoes/SecaoDeIntegracoes";
 import bomTodo from "./assets/bom-todo.png";
 import bonesRamalho from "./assets/bones-ramalho.svg";
 import imobee from "./assets/imobee.svg";
@@ -205,6 +206,9 @@ function App() {
       <div id="funcionalidades">
         <BentoFeatures />
       </div>
+
+      {/* Integrações: depois do que a ChatClean faz, antes de quem usa. */}
+      <SecaoDeIntegracoes />
 
       {/* Depoimentos */}
       <section className="py-24 md:py-32 bg-creme relative overflow-hidden">

@@ -807,3 +807,78 @@ body[data-redimensionando-imagem="true"] {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ===========================================================
+   INTEGRAÇÕES DA HOME (`SecaoDeIntegracoes.jsx`)
+   =========================================================== */
+
+/* O verde fundo da aurora, parado: a seção fica entre duas seções creme e
+   precisa virar a página, mas um segundo gradiente animado na mesma tela
+   da FAQ pesaria sem somar nada. O brilho atrás da parede de marcas vem do
+   verde vivo da marca. */
+.integracoes-fundo {
+  background:
+    radial-gradient(ellipse 55% 60% at 75% 50%, rgb(0 189 66 / 0.18), transparent 70%),
+    linear-gradient(125deg, #14231b 0%, #1f4a34 55%, #14231b 100%);
+}
+
+/* A parede: cinco colunas centradas na vertical. As de 3 marcas ficam meio
+   quadro abaixo das de 4 sozinhas, pelo `align-items: center`: o desencontro
+   do mosaico sai da própria grade, sem deslocamento à mão. Medidas do quadro,
+   do vão e do canto: 56/12/16px no celular, 107/24/24px a partir do `md`.
+   A borda da direita esmaece (a quinta coluna quase some no fundo), para a
+   parede parecer continuar além da seção. */
+.integracoes-parede {
+  --lado-do-quadro: 3.5rem;
+  --vao-da-parede: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(5, var(--lado-do-quadro));
+  column-gap: var(--vao-da-parede);
+  align-items: center;
+  justify-content: center;
+  /* A máscara só pinta DENTRO da caixa da parede: sem folga, o quadro que a
+     lupa cresce 1,5x passava da borda e saía cortado numa linha seca. A
+     folga cabe o quadro crescido e a sombra dele, e a margem negativa devolve
+     o espaço, então nada se mexe no layout. */
+  --folga-da-lupa: 4rem;
+  padding: var(--folga-da-lupa);
+  margin: calc(var(--folga-da-lupa) * -1);
+  -webkit-mask-image: linear-gradient(90deg, #000 65%, rgb(0 0 0 / 0.4) 92%);
+  mask-image: linear-gradient(90deg, #000 65%, rgb(0 0 0 / 0.4) 92%);
+}
+@media (min-width: 768px) {
+  .integracoes-parede {
+    --lado-do-quadro: 6.6875rem;
+    --vao-da-parede: 1.5rem;
+  }
+}
+.integracoes-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vao-da-parede);
+}
+
+/* O quadro de cada marca. Quem o faz crescer é a lupa
+   (`useLupaDasMarcas.js`), escrevendo `transform` e `z-index` direto no
+   elemento; aqui fica só a transição curta, que alisa a lupa entre um quadro
+   de tela e outro. */
+.integracao-marca {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--lado-do-quadro);
+  height: var(--lado-do-quadro);
+  border-radius: 1rem;
+  background: var(--surface-sunk);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s ease-out;
+}
+@media (min-width: 768px) {
+  .integracao-marca {
+    border-radius: 1.5rem;
+  }
+}
+.integracao-desenho {
+  width: 55%;
+  height: 55%;
+}
