@@ -31,7 +31,10 @@ import zapier from "@/assets/integracoes/zapier.svg";
  *   homologado do Novo Push) e a IA com modelos da OpenAI;
  * - "Via webhook" onde a ferramenta manda ou recebe eventos e a ChatClean
  *   conversa com eles pelo Push e pelo webhook de saída;
- * - "Via integrador" onde o caminho é o n8n, o Make ou o Zapier.
+ * - "Via Flow" onde o caminho é o Flow, o editor de fluxos da própria
+ *   ChatClean: ele recebe webhooks, chama APIs (Bearer, Basic, OAuth2) e envia
+ *   webhooks, que é o papel de um integrador como n8n, Make ou Zapier, sem
+ *   ferramenta de fora no meio (documentação: `automacoes/flow.md`).
  * A documentação diz, com estas palavras, que o sistema "não se limita às
  * plataformas listadas": qualquer ferramenta com API ou webhook entra pelos
  * mesmos caminhos.
@@ -41,54 +44,42 @@ import zapier from "@/assets/integracoes/zapier.svg";
 export const COMO_CONECTA = Object.freeze({
   NATIVA: "Nativa",
   WEBHOOK: "Via webhook",
-  INTEGRADOR: "Via integrador",
+  FLOW: "Via Flow",
 });
 
-/** As quatro formas de integrar: o que o sistema faz de fato. */
+/**
+ * As quatro formas de integrar: o que o sistema faz de fato. `titulo` diz o
+ * que acontece em uma frase; `apoio` diz o que dá para fazer com isso.
+ */
 export const FORMAS_DE_INTEGRAR = Object.freeze([
   Object.freeze({
     icone: "ArrowDownToLine",
-    nome: "Receba eventos de outros sistemas",
     recurso: "Novo Push",
-    texto:
-      "Uma venda, um cadastro ou um carrinho abandonado em outra ferramenta dispara uma mensagem no WhatsApp, com os dados do evento na mensagem. O mesmo evento pode aplicar uma etiqueta, mudar o status do lead ou colocar o contato num funil.",
+    titulo: "Um evento em outro sistema vira mensagem no WhatsApp.",
+    apoio: "Venda, cadastro ou carrinho abandonado disparam a mensagem, aplicam uma etiqueta e colocam o contato no funil.",
   }),
   Object.freeze({
     icone: "ArrowUpFromLine",
-    nome: "Envie os dados da ChatClean",
     recurso: "Webhook de saída",
-    texto:
-      "A cada evento da plataforma, os dados do contato, do atendimento e do atendente seguem em JSON para o seu sistema. As oportunidades do pipeline têm um webhook próprio.",
+    titulo: "O que acontece na ChatClean chega ao seu sistema.",
+    apoio: "Contato, atendimento e oportunidade seguem em JSON a cada evento.",
   }),
   Object.freeze({
     icone: "MessagesSquare",
-    nome: "Consulte sistemas no meio da conversa",
     recurso: "ChatBot e Flow",
-    texto:
-      "O chatbot pede o CPF, consulta o seu sistema e devolve a segunda via do boleto, o Pix copia e cola ou o status do pedido, sem passar por um atendente.",
+    titulo: "O chatbot consulta o seu sistema no meio da conversa.",
+    apoio: "Pede o CPF e devolve o boleto, o Pix ou o status do pedido, sem passar por um atendente.",
   }),
   Object.freeze({
     icone: "Code2",
-    nome: "Use a API da ChatClean",
-    recurso: "API com token de acesso",
-    texto:
-      "Crie e atualize contatos, aplique etiquetas, envie templates da API Oficial e consulte as oportunidades de um cliente direto do seu sistema.",
+    recurso: "API da ChatClean",
+    titulo: "O seu sistema comanda a ChatClean pela API.",
+    apoio: "Contatos, etiquetas, templates e oportunidades, com o token de acesso da sua conta.",
   }),
 ]);
 
 /** O catálogo, por categoria. `faz` diz o que dá para fazer, em uma frase. */
 export const CATEGORIAS = Object.freeze([
-  Object.freeze({
-    nome: "Canais de atendimento",
-    resumo: "Todas as conversas no mesmo lugar, com o histórico de cada cliente.",
-    ferramentas: Object.freeze([
-      { nome: "WhatsApp", imagem: whatsapp, como: COMO_CONECTA.NATIVA, faz: "API Oficial da Meta ou conexão por QR Code, com vários atendentes no mesmo número." },
-      { nome: "Instagram", imagem: instagram, como: COMO_CONECTA.NATIVA, faz: "Mensagens diretas do Instagram na mesma caixa de entrada do WhatsApp." },
-      { nome: "Facebook", imagem: facebook, como: COMO_CONECTA.NATIVA, faz: "Conversas do Messenger da sua página, atendidas pela mesma equipe." },
-      { nome: "Telegram", imagem: telegram, como: COMO_CONECTA.NATIVA, faz: "Atendimento pelo bot da sua empresa no Telegram." },
-      { nome: "Gmail", imagem: gmail, como: COMO_CONECTA.NATIVA, faz: "E-mails de atendimento viram atendimentos na plataforma." },
-    ]),
-  }),
   Object.freeze({
     nome: "CRM e marketing",
     resumo: "O lead que chega pelo marketing já cai no funil certo, com a mensagem certa.",
@@ -96,7 +87,7 @@ export const CATEGORIAS = Object.freeze([
       { nome: "RD Station", imagem: rdStation, como: COMO_CONECTA.NATIVA, faz: "Eventos do RD Station Marketing e CRM já homologados no Novo Push: o lead converte e recebe a mensagem." },
       { nome: "HubSpot", imagem: hubspot, como: COMO_CONECTA.WEBHOOK, faz: "Um negócio que muda de etapa dispara a mensagem para o cliente no WhatsApp." },
       { nome: "Pipedrive", imagem: pipedrive, como: COMO_CONECTA.WEBHOOK, faz: "Mover o card no funil de vendas avisa o cliente e registra a conversa." },
-      { nome: "Salesforce", imagem: salesforce, como: COMO_CONECTA.INTEGRADOR, faz: "Oportunidades e contatos sincronizados com a ChatClean por um integrador." },
+      { nome: "Salesforce", imagem: salesforce, como: COMO_CONECTA.FLOW, faz: "Oportunidades e contatos sincronizados com a ChatClean pelo Flow, que chama a API da Salesforce." },
     ]),
   }),
   Object.freeze({
@@ -110,15 +101,26 @@ export const CATEGORIAS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    nome: "Canais de atendimento",
+    resumo: "Todas as conversas no mesmo lugar, com o histórico de cada cliente.",
+    ferramentas: Object.freeze([
+      { nome: "WhatsApp", imagem: whatsapp, como: COMO_CONECTA.NATIVA, faz: "API Oficial da Meta, com vários atendentes no mesmo número." },
+      { nome: "Instagram", imagem: instagram, como: COMO_CONECTA.NATIVA, faz: "Mensagens diretas do Instagram na mesma caixa de entrada do WhatsApp." },
+      { nome: "Facebook", imagem: facebook, como: COMO_CONECTA.NATIVA, faz: "Conversas do Messenger da sua página, atendidas pela mesma equipe." },
+      { nome: "Telegram", imagem: telegram, como: COMO_CONECTA.NATIVA, faz: "Atendimento pelo bot da sua empresa no Telegram." },
+      { nome: "Gmail", imagem: gmail, como: COMO_CONECTA.NATIVA, faz: "E-mails de atendimento viram atendimentos na plataforma." },
+    ]),
+  }),
+  Object.freeze({
     nome: "Produtividade",
     resumo: "A operação da equipe conversa com o atendimento, sem copiar e colar.",
     ferramentas: Object.freeze([
-      { nome: "Google Sheets", imagem: googleSheets, como: COMO_CONECTA.INTEGRADOR, faz: "Planilhas que viram contatos, notas internas ou disparos, pelo Google Apps Script ou n8n." },
-      { nome: "Google Forms", imagem: googleForms, como: COMO_CONECTA.INTEGRADOR, faz: "Quem responde o formulário recebe a mensagem e entra no funil." },
+      { nome: "Google Sheets", imagem: googleSheets, como: COMO_CONECTA.FLOW, faz: "Planilhas que viram contatos, notas internas ou disparos, pelo Flow ou pelo Google Apps Script." },
+      { nome: "Google Forms", imagem: googleForms, como: COMO_CONECTA.FLOW, faz: "Quem responde o formulário recebe a mensagem e entra no funil." },
       { nome: "Google Agenda", imagem: googleAgenda, como: COMO_CONECTA.NATIVA, faz: "Tarefas do CRM chegam no WhatsApp do responsável com o link para a agenda." },
-      { nome: "Calendly", imagem: calendly, como: COMO_CONECTA.INTEGRADOR, faz: "Reunião marcada dispara a confirmação e o lembrete no WhatsApp." },
-      { nome: "Trello", imagem: trello, como: COMO_CONECTA.INTEGRADOR, faz: "Um atendimento pode abrir um card no quadro da equipe." },
-      { nome: "Jira", imagem: jira, como: COMO_CONECTA.INTEGRADOR, faz: "Chamados de suporte viram tarefas no Jira, com a conversa anexada." },
+      { nome: "Calendly", imagem: calendly, como: COMO_CONECTA.FLOW, faz: "Reunião marcada dispara a confirmação e o lembrete no WhatsApp." },
+      { nome: "Trello", imagem: trello, como: COMO_CONECTA.FLOW, faz: "Um atendimento pode abrir um card no quadro da equipe." },
+      { nome: "Jira", imagem: jira, como: COMO_CONECTA.FLOW, faz: "Chamados de suporte viram tarefas no Jira, com a conversa anexada." },
     ]),
   }),
   Object.freeze({
@@ -130,36 +132,12 @@ export const CATEGORIAS = Object.freeze([
   }),
   Object.freeze({
     nome: "Integradores",
-    resumo: "Para ligar a ChatClean a qualquer ferramenta, sem escrever código.",
+    resumo: "O Flow já faz esse papel dentro da ChatClean. Se a sua empresa já usa um destes, ele conversa com a ChatClean também.",
     ferramentas: Object.freeze([
-      { nome: "n8n", imagem: n8n, como: COMO_CONECTA.WEBHOOK, faz: "O integrador que mais usamos em produção: fluxos com IA, CRM e sistemas próprios." },
+      { nome: "n8n", imagem: n8n, como: COMO_CONECTA.WEBHOOK, faz: "Fluxos que você já tem no n8n recebem e enviam eventos da ChatClean." },
       { nome: "Make", imagem: make, como: COMO_CONECTA.WEBHOOK, faz: "Cenários visuais que recebem e enviam eventos da ChatClean." },
       { nome: "Zapier", imagem: zapier, como: COMO_CONECTA.WEBHOOK, faz: "Liga a ChatClean a milhares de aplicativos com gatilhos e ações." },
     ]),
-  }),
-]);
-
-/** Casos de uso reais, da documentação e de clientes. */
-export const NA_PRATICA = Object.freeze([
-  Object.freeze({
-    setor: "E-commerce",
-    gatilho: "Carrinho abandonado na loja",
-    resultado: "O cliente recebe uma mensagem no WhatsApp com o link para terminar a compra.",
-  }),
-  Object.freeze({
-    setor: "Marketing",
-    gatilho: "Lead converte no RD Station",
-    resultado: "A mensagem sai na hora, o lead ganha etiqueta e entra no funil de vendas.",
-  }),
-  Object.freeze({
-    setor: "Provedores e financeiro",
-    gatilho: "Cliente pede a segunda via",
-    resultado: "O chatbot pede o CPF, consulta o sistema e devolve o boleto, o Pix e o código de barras.",
-  }),
-  Object.freeze({
-    setor: "Clínicas",
-    gatilho: "Consulta marcada no sistema da clínica",
-    resultado: "O paciente recebe o lembrete no WhatsApp antes do horário.",
   }),
 ]);
 
@@ -178,7 +156,7 @@ export const PERGUNTAS = Object.freeze([
   }),
   Object.freeze({
     q: "A minha ferramenta não está na lista. Dá para integrar?",
-    a: "Se ela tem API ou webhook, sim: entra pelos mesmos caminhos das ferramentas da lista, direto ou por um integrador como n8n, Make ou Zapier. Fale com a gente e contamos como fica no seu caso.",
+    a: "Se ela tem API ou webhook, sim: entra pelos mesmos caminhos das ferramentas da lista, direto ou pelo Flow, o editor de fluxos da ChatClean, que recebe webhooks e chama a API da sua ferramenta. Fale com a gente e contamos como fica no seu caso.",
   }),
   Object.freeze({
     q: "Funciona com a API Oficial do WhatsApp?",
@@ -194,6 +172,6 @@ export const PERGUNTAS = Object.freeze([
 export const METADADOS_DA_PAGINA = Object.freeze({
   titulo: "Integrações da ChatClean | CRM e WhatsApp conectados às suas ferramentas",
   descricao:
-    "Conecte a ChatClean ao seu CRM, e-commerce, meios de pagamento e IA. Webhook, API e integradores como n8n, Make e Zapier: se a ferramenta tem API, ela conversa com a ChatClean.",
+    "Conecte a ChatClean ao seu CRM, e-commerce, meios de pagamento e IA. Webhook, API e o Flow, o editor de fluxos da ChatClean: se a ferramenta tem API, ela conversa com a ChatClean.",
   caminho: "/integracoes",
 });
