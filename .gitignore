@@ -17,6 +17,8 @@ coverage
 *.env
 .env.*
 !.env.example
+# Token de acesso guardado em arquivo solto na raiz, fora do padrao `.env`.
+token.txt
 .DS_Store
 *.log
 .idea
