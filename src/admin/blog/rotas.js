@@ -55,6 +55,21 @@ export const ROTA_DAS_CATEGORIAS = SEGMENTO_DAS_CATEGORIAS;
 /** O endereço absoluto da tela de Categorias. */
 export const ENDERECO_DAS_CATEGORIAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_CATEGORIAS}`;
 
+/**
+ * O segmento da tela de Leituras: a evolução das leituras dos Posts, dia a dia.
+ *
+ * Rota irmã da de Categorias, pela mesma razão: uma terceira aba cairia no ramo
+ * de Carreiras da faixa de busca. E dentro do mesmo portão: o número de
+ * leituras é do Painel, e o visitante não o vê por caminho nenhum.
+ */
+export const SEGMENTO_DAS_LEITURAS = "leituras";
+
+/** O caminho da rota filha, RELATIVO ao pai `/admin`. */
+export const ROTA_DAS_LEITURAS = SEGMENTO_DAS_LEITURAS;
+
+/** O endereço absoluto da tela de Leituras. */
+export const ENDERECO_DAS_LEITURAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_LEITURAS}`;
+
 /** O nome do parâmetro de rota. Escrito uma vez: a rota e a tela o leem daqui. */
 export const PARAMETRO_DA_PREVIA = "id";
 

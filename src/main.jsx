@@ -17,8 +17,10 @@ import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
 import AdminBlog from "./pages/AdminBlog.jsx";
 import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
 import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
+import TelaDeLeituras from "@/admin/blog/TelaDeLeituras";
 import {
   ROTA_DAS_CATEGORIAS,
+  ROTA_DAS_LEITURAS,
   ROTA_DA_PREVIA,
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
@@ -124,6 +126,9 @@ createRoot(document.getElementById("root")).render(
               portão. Não é aba nova — uma terceira aba cairia no ramo de
               Carreiras da faixa de busca, que é módulo fora de escopo. */}
           <Route path={ROTA_DAS_CATEGORIAS} element={<TelaDeCategorias />} />
+          {/* As Leituras: a evolução das leituras dos Posts. Irmã das
+              Categorias, dentro do mesmo portão, antes da apanha-tudo. */}
+          <Route path={ROTA_DAS_LEITURAS} element={<TelaDeLeituras />} />
           {/* Endereço desconhecido sob o Painel cai na mesma tela de ausência.
               Sem esta filha, o pai monta, o `Outlet` fica vazio e o Autor
               recebe uma página em branco — indistinguível de "o Painel

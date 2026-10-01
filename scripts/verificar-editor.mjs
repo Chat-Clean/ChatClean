@@ -3334,6 +3334,7 @@ async function compilarComponentes() {
          asserção passaria a provar outra coisa. */
       `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n` +
       `export * as regrasDaListagem from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
+      `export * as regrasDasLeituras from ${caminhoDeModulo("src/admin/blog/leituras.js")};\n` +
       `export * as regrasDasAcoes from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ACOES)};\n` +
       `export { default as PreVisualizacaoDePost } from ${caminhoDeModulo(CAMINHO_PREVIA)};\n` +
       `export * as regrasDaPrevia from ${caminhoDeModulo(CAMINHO_MODULO_DA_PREVIA)};\n` +
@@ -7052,6 +7053,69 @@ if (janela && schema && configuracao && compilado) {
             `sem índice: ${JSON.stringify(textoDasLeituras(publicado, null))} | índice vazio: ${JSON.stringify(textoDasLeituras(publicado, indiceDeLeituras([])))}`,
           );
           modulo.controle.leituras = { ok: true, dados: [] };
+        }
+
+        /* ── AS REGRAS DA TELA DE LEITURAS ─────────────────────────────
+           Puras, e por isso executadas: o dia é fatiado como TEXTO (um
+           `new Date` o leria em UTC e mostraria o dia anterior), o eixo só
+           tem número inteiro, e o tempo nunca empilha rótulo sobre rótulo. */
+        {
+          const r = modulo.regrasDasLeituras;
+          afirmar(
+            "o dia do banco vira rótulo SEM passar por fuso: 2026-10-01 é 01/10, e texto que não é dia não vira data",
+            r.diaCurto("2026-10-01") === "01/10" &&
+              r.diaCompleto("2026-10-01") === "01/10/2026" &&
+              r.diaCurto("ontem") === "" &&
+              r.diaCompleto(null) === "",
+            `${r.diaCurto("2026-10-01")} | ${r.diaCompleto("2026-10-01")}`,
+          );
+          const serie = [
+            { dia: "2026-09-29", total: 4 },
+            { dia: "2026-09-30", total: 0 },
+            { dia: "2026-10-01", total: 4 },
+          ];
+          const resumo = r.resumoDaSerie(serie);
+          const vazio = r.resumoDaSerie([{ dia: "2026-10-01", total: 0 }]);
+          afirmar(
+            "o resumo soma o período, tira a média por DIA e, no empate, o melhor dia é o mais recente — e sem leitura não há melhor dia",
+            resumo.total === 8 &&
+              Math.abs(resumo.mediaPorDia - 8 / 3) < 1e-9 &&
+              resumo.melhorDia?.dia === "2026-10-01" &&
+              vazio.total === 0 &&
+              vazio.melhorDia === null,
+            JSON.stringify({ resumo, vazio }),
+          );
+          const escalas = [0, 1, 4, 5, 37, 139, 1234].map((m) => r.escalaDeValores(m));
+          afirmar(
+            "o eixo de valores só tem número INTEIRO, começa em zero, cobre o máximo e nunca passa de seis marcas",
+            escalas.every(
+              (e, i) =>
+                e.marcas[0] === 0 &&
+                e.marcas.every((m) => Number.isInteger(m)) &&
+                e.topo >= [0, 1, 4, 5, 37, 139, 1234][i] &&
+                e.marcas[e.marcas.length - 1] === e.topo &&
+                e.marcas.length <= 6,
+            ) && escalas[0].topo === 4,
+            escalas.map((e) => e.marcas.join("/")).join(" | "),
+          );
+          const marcas90 = r.marcasDoTempo(90);
+          afirmar(
+            "o eixo do tempo rotula poucos dias, sempre com o primeiro e o último — e todos, quando são poucos",
+            marcas90.length <= 6 &&
+              marcas90[0] === 0 &&
+              marcas90[marcas90.length - 1] === 89 &&
+              igual(r.marcasDoTempo(3), [0, 1, 2]) &&
+              igual(r.marcasDoTempo(0), []),
+            marcas90.join(", "),
+          );
+          afirmar(
+            "a média diz “menos de 0,1” em vez de “0,0” ao lado de um total que não é zero",
+            r.textoDaMedia(1 / 30) === "menos de 0,1" &&
+              r.textoDaMedia(0) === "0" &&
+              r.textoDaMedia(3.44) === "3,4" &&
+              r.textoDaMedia(38.7) === "39",
+            [1 / 30, 0, 3.44, 38.7].map((n) => r.textoDaMedia(n)).join(" | "),
+          );
         }
         afirmar(
           "o Destaque aparece na linha, com PALAVRA e não só com a estrela",

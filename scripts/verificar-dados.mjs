@@ -558,6 +558,10 @@ afirmar(
        resposta seria uma lista vazia com sucesso, que a listagem mostraria
        como "ninguém leu". */
     ["leituras.js", "listarLeiturasDoPainel"],
+    /* A evolução, para a tela de Leituras: as duas leem com sessão, pela
+       mesma razão da de cima. */
+    ["leituras.js", "lerLeiturasPorDia"],
+    ["leituras.js", "listarPostsMaisLidos"],
   ];
   const corpoDe = ([arquivo, nome]) => {
     const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";
@@ -1714,6 +1718,10 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "a leitura de um RASCUNHO responde igual e NÃO conta — nem revela que ele existe",
   "identificador fora do formato é recusado ANTES da rede, com falha tipada",
   "o visitante anônimo NÃO lê contagem nenhuma — o banco recusa, e não responde lista",
+  "a evolução de UM Post tem um ponto por dia, sem buraco, em ordem, e a leitura de hoje está no último",
+  "o ranking do período traz o Post lido com título e total, e NÃO traz o rascunho",
+  "período e Post fora do formato são recusados ANTES da rede, com falha tipada",
+  "o visitante anônimo NÃO executa as funções da evolução — o banco recusa",
   "o visitante anônimo não extrai rascunho pela função de busca PÚBLICA",
   "e ele ALCANÇA o Post publicado pela mesma função — a recusa é do Estado, não da função",
   // Cada campo do critério, isolado — a mesma matriz que a busca do Painel tem.
@@ -3213,6 +3221,88 @@ if (temToken && ambienteCompleto) {
                   "o visitante anônimo NÃO lê contagem nenhuma — o banco recusa, e não responde lista",
                   statusDoVisitante === 401 || statusDoVisitante === 403,
                   `HTTP ${statusDoVisitante} — ${corpoDoVisitante.slice(0, 160)}`,
+                );
+              }
+
+              /* — A EVOLUÇÃO DAS LEITURAS —
+                 O que a tela de Leituras pergunta ao banco, com a leitura que o
+                 bloco de cima acabou de registrar: um ponto por dia mesmo sem
+                 leitura, o Post lido no ranking, e a porta fechada ao visitante. */
+              {
+                const { lerLeiturasPorDia, listarPostsMaisLidos, FUNCAO_DE_LEITURAS_POR_DIA, FUNCAO_DE_LEITURAS_POR_POST } =
+                  await import(urlDe("src/data/blog/leituras.js"));
+                const idPublico = idDe.get(slug("publico"));
+                const idRascunho = idDe.get(slug("rascunho"));
+
+                const porDia = await chamar("lerLeiturasPorDia (um post, 7 dias)", () =>
+                  lerLeiturasPorDia({ dias: 7, postId: idPublico }),
+                );
+                const dias = porDia?.ok === true ? porDia.dados : [];
+                const emOrdemESemBuraco = dias.every(
+                  (p, i) =>
+                    i === 0 ||
+                    Date.parse(`${p.dia}T00:00:00Z`) - Date.parse(`${dias[i - 1].dia}T00:00:00Z`) === 86400000,
+                );
+                afirmar(
+                  "a evolução de UM Post tem um ponto por dia, sem buraco, em ordem, e a leitura de hoje está no último",
+                  porDia?.ok === true &&
+                    dias.length === 7 &&
+                    emOrdemESemBuraco &&
+                    dias[6]?.total === 1 &&
+                    dias.slice(0, 6).every((p) => p.total === 0),
+                  JSON.stringify(porDia?.erro ?? dias).slice(0, 260),
+                );
+
+                const ranking = await chamar("listarPostsMaisLidos (7 dias)", () =>
+                  listarPostsMaisLidos({ dias: 7 }),
+                );
+                const doPublico = (ranking?.dados ?? []).find((l) => l.post_id === idPublico);
+                afirmar(
+                  "o ranking do período traz o Post lido com título e total, e NÃO traz o rascunho",
+                  ranking?.ok === true &&
+                    doPublico?.total === 1 &&
+                    typeof doPublico?.titulo === "string" &&
+                    doPublico.titulo !== "" &&
+                    !(ranking.dados ?? []).some((l) => l.post_id === idRascunho),
+                  JSON.stringify(ranking?.erro ?? doPublico ?? null).slice(0, 220),
+                );
+
+                const recusas = [
+                  await chamar("lerLeiturasPorDia (0 dias)", () => lerLeiturasPorDia({ dias: 0 })),
+                  await chamar("lerLeiturasPorDia (367 dias)", () => lerLeiturasPorDia({ dias: 367 })),
+                  await chamar("lerLeiturasPorDia (texto)", () => lerLeiturasPorDia({ dias: "30" })),
+                  await chamar("lerLeiturasPorDia (post inválido)", () =>
+                    lerLeiturasPorDia({ dias: 7, postId: "nao-e-uuid" }),
+                  ),
+                  await chamar("listarPostsMaisLidos (0 dias)", () => listarPostsMaisLidos({ dias: 0 })),
+                ];
+                afirmar(
+                  "período e Post fora do formato são recusados ANTES da rede, com falha tipada",
+                  recusas.every((r) => r?.ok === false),
+                  recusas.map((r) => String(r?.ok)).join(", "),
+                );
+
+                const statusDe = async (funcao) => {
+                  try {
+                    const r = await fetch(`${URL_PROJETO}/rest/v1/rpc/${funcao}`, {
+                      method: "POST",
+                      signal: AbortSignal.timeout(TIMEOUT_MS),
+                      headers: { apikey: chavePublicavel, "Content-Type": "application/json" },
+                      body: JSON.stringify({ p_dias: 30 }),
+                    });
+                    return r.status;
+                  } catch {
+                    return 0;
+                  }
+                };
+                const recusados = [
+                  await statusDe(FUNCAO_DE_LEITURAS_POR_DIA),
+                  await statusDe(FUNCAO_DE_LEITURAS_POR_POST),
+                ];
+                afirmar(
+                  "o visitante anônimo NÃO executa as funções da evolução — o banco recusa",
+                  recusados.every((s) => s === 401 || s === 403),
+                  `HTTP ${recusados.join(", ")}`,
                 );
               }
 

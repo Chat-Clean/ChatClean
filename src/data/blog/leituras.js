@@ -103,3 +103,119 @@ export async function listarLeiturasDoPainel() {
 
   return exigirLista(resposta.dados, { operacao, validarItem: problemaNaLeitura });
 }
+
+/* ─── A evolução, para a tela de Leituras ────────────────────────────────── */
+
+/** As duas funções de banco que a tela de Leituras chama. */
+export const FUNCAO_DE_LEITURAS_POR_DIA = "leituras_por_dia";
+export const FUNCAO_DE_LEITURAS_POR_POST = "leituras_por_post_no_periodo";
+
+/** O período mais longo que a camada pede. O banco corta no mesmo número. */
+export const MAXIMO_DE_DIAS = 366;
+
+/**
+ * O período pedido, ou `null` quando ele não é um número de dias utilizável.
+ *
+ * Recusado, e não corrigido: o banco cortaria em silêncio, e a tela mostraria
+ * "últimos 30 dias" em cima de um gráfico de outro tamanho.
+ */
+function diasValidos(dias) {
+  return Number.isInteger(dias) && dias >= 1 && dias <= MAXIMO_DE_DIAS ? dias : null;
+}
+
+function periodoRecusado(operacao, dias) {
+  return falha(ERRO_INESPERADO, {
+    operacao,
+    mensagem: "O período pedido não existe. Escolha o período de novo.",
+    detalhe: `dias fora de [1, ${MAXIMO_DE_DIAS}]: ${descrever(dias)}`,
+  });
+}
+
+/** `AAAA-MM-DD`, que é como o PostgREST entrega uma coluna de data. */
+const FORMATO_DE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+function problemaNoDia(linha) {
+  if (linha === null || typeof linha !== "object" || Array.isArray(linha)) {
+    return `esperava um objeto e veio ${descrever(linha)}`;
+  }
+  if (typeof linha.dia !== "string" || !FORMATO_DE_DIA.test(linha.dia)) {
+    return `\`dia\` fora do formato AAAA-MM-DD: ${descrever(linha.dia)}`;
+  }
+  if (!Number.isSafeInteger(linha.total) || linha.total < 0) {
+    return `\`total\` não é um inteiro não negativo: ${descrever(linha.total)}`;
+  }
+  return null;
+}
+
+/**
+ * As leituras de cada dia dos últimos `dias` dias, do mais antigo para hoje.
+ *
+ * Um ponto por dia, sempre: dia sem leitura vem com zero. `postId` restringe a
+ * um Post; ausente, soma todos. Identificador fora do formato é recusado, e não
+ * ignorado — ignorá-lo mostraria o total do blog com o nome de um Post em cima.
+ */
+export async function lerLeiturasPorDia({ dias = 30, postId = null } = {}) {
+  const operacao = "lerLeiturasPorDia";
+  const periodo = diasValidos(dias);
+  if (periodo === null) return periodoRecusado(operacao, dias);
+
+  const semPost = postId === null || postId === undefined || postId === "";
+  if (!semPost && !ehUuid(postId)) {
+    return falha(ERRO_INESPERADO, {
+      operacao,
+      mensagem: "O post escolhido não existe mais. Escolha o post de novo.",
+      detalhe: `identificador do post fora do formato uuid: ${descrever(postId)}`,
+    });
+  }
+
+  const cliente = await clienteDoPainelOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  const resposta = await consultar(operacao, () =>
+    cliente.dados
+      .rpc(FUNCAO_DE_LEITURAS_POR_DIA, {
+        p_dias: periodo,
+        p_post_id: semPost ? null : postId.trim(),
+      })
+      .abortSignal(sinalDePrazo()),
+  );
+  if (!resposta.ok) return resposta;
+
+  return exigirLista(resposta.dados, { operacao, validarItem: problemaNoDia });
+}
+
+function problemaNoPostLido(linha) {
+  if (linha === null || typeof linha !== "object" || Array.isArray(linha)) {
+    return `esperava um objeto e veio ${descrever(linha)}`;
+  }
+  if (typeof linha.post_id !== "string" || linha.post_id === "") return "`post_id` ausente";
+  if (typeof linha.titulo !== "string") return "`titulo` ausente";
+  if (!Number.isSafeInteger(linha.total) || linha.total < 0) {
+    return `\`total\` não é um inteiro não negativo: ${descrever(linha.total)}`;
+  }
+  return null;
+}
+
+/**
+ * Os Posts mais lidos nos últimos `dias` dias, do mais lido para o menos lido.
+ *
+ * Só aparece quem teve leitura no período. A ordem é a do banco, com desempate
+ * determinístico, e a tela não reordena.
+ */
+export async function listarPostsMaisLidos({ dias = 30 } = {}) {
+  const operacao = "listarPostsMaisLidos";
+  const periodo = diasValidos(dias);
+  if (periodo === null) return periodoRecusado(operacao, dias);
+
+  const cliente = await clienteDoPainelOuFalha(operacao);
+  if (!cliente.ok) return cliente;
+
+  const resposta = await consultar(operacao, () =>
+    cliente.dados
+      .rpc(FUNCAO_DE_LEITURAS_POR_POST, { p_dias: periodo })
+      .abortSignal(sinalDePrazo()),
+  );
+  if (!resposta.ok) return resposta;
+
+  return exigirLista(resposta.dados, { operacao, validarItem: problemaNoPostLido });
+}
