@@ -58,6 +58,7 @@ import {
 import { Button } from "../components/ui/button";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
+import ChatbotPopup from "@/components/ChatbotPopup";
 import { ehSlug } from "@/data/blog/comum";
 import { lerPostPublicoPorSlug, listarRelacionadosPublicos } from "@/data/blog/posts";
 import { listarTagsDoPostPublico } from "@/data/blog/taxonomia";
@@ -318,9 +319,21 @@ export default function BlogPost() {
       <Navbar />
 
       {/* Hero aurora */}
-      <section className="relative aurora-bg aurora-beams pt-40 pb-20 overflow-hidden">
+      <section className="relative aurora-bg aurora-beams pt-28 pb-16 md:pt-40 md:pb-20 overflow-hidden">
         <div className="absolute inset-0 bg-grid-white opacity-40 pointer-events-none" />
         <div className="relative z-10 max-w-3xl mx-auto px-4 text-center">
+          {/* A volta NO TOPO: quem chegou por busca ou link direto não deveria
+              precisar rolar o artigo inteiro para descobrir o resto do blog. */}
+          <div className="flex justify-start mb-8">
+            <Link
+              to="/blog"
+              data-acao="voltar-no-topo"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/30 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {ROTULO_DE_VOLTAR_AO_BLOG}
+            </Link>
+          </div>
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -361,7 +374,7 @@ export default function BlogPost() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-white/80 text-lg mb-8"
+            className="text-white/80 text-base md:text-lg mb-8"
           >
             {post.resumo}
           </motion.p>
@@ -370,16 +383,16 @@ export default function BlogPost() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.35 }}
-            className="flex items-center justify-center gap-6 text-sm text-white/70"
+            className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/70"
           >
             {nomeDoAutor(post) !== "" && (
-              <span data-papel="autor" className="flex items-center gap-1.5">
+              <span data-papel="autor" className="flex items-center gap-1.5 whitespace-nowrap">
                 <User className="h-4 w-4" />
                 {nomeDoAutor(post)}
               </span>
             )}
             {textoDaData(post) !== "" && (
-              <span data-papel="data" className="flex items-center gap-1.5">
+              <span data-papel="data" className="flex items-center gap-1.5 whitespace-nowrap">
                 <Calendar className="h-4 w-4" />
                 {textoDaData(post)}
               </span>
@@ -387,7 +400,7 @@ export default function BlogPost() {
             <button
               type="button"
               onClick={compartilhar}
-              className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 whitespace-nowrap hover:text-white transition-colors cursor-pointer"
             >
               <Share2 className="h-4 w-4" />
               {copiado ? "Link copiado! ✓" : "Compartilhar"}
@@ -427,18 +440,21 @@ export default function BlogPost() {
               width={1200}
               height={630}
               onError={() => setCapaQuebrada(true)}
-              className="w-full h-72 md:h-96 object-cover"
+              /* A PROPORÇÃO DA CAPA, e não uma altura fixa: com `h-72` a caixa
+                 do celular era mais alta que a imagem, e o `object-cover`
+                 cortava os dois lados da arte. */
+              className="w-full h-auto aspect-1200/630 object-cover"
             />
           </motion.div>
         </div>
       )}
 
       {/* Conteúdo */}
-      <main className="max-w-3xl mx-auto px-4 py-16">
+      <main className="max-w-3xl mx-auto px-5 md:px-4 py-10 md:py-16">
 
         {/* Tags */}
         {tags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-10" data-papel="tags">
+          <div className="flex flex-wrap gap-2 mb-8 md:mb-10" data-papel="tags">
             {tags.map((tag) => (
               <span
                 key={tag.id}
@@ -473,7 +489,7 @@ export default function BlogPost() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="relative overflow-hidden rounded-3xl aurora-bg aurora-beams p-10 text-center mb-16"
+          className="relative overflow-hidden rounded-3xl aurora-bg aurora-beams p-7 md:p-10 text-center mb-16"
         >
           <div className="absolute inset-0 bg-grid-white opacity-30 pointer-events-none" />
           <div className="relative z-10">
@@ -489,7 +505,7 @@ export default function BlogPost() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-8 py-4 bg-white text-emerald-700 font-bold rounded-full shadow-xl hover:scale-[1.03] transition-all duration-300"
             >
-              Agendar Demo Gratuita
+              Falar com um especialista
               <ArrowRight className="h-4 w-4" />
             </a>
           </div>
@@ -538,7 +554,7 @@ export default function BlogPost() {
                             width={1200}
                             height={630}
                             onError={() => marcarRelacionadoPodre(rel.id)}
-                            className="w-full h-32 object-cover"
+                            className="w-full h-auto aspect-1200/630 object-cover"
                           />
                         )}
                       <div className="p-5">
@@ -580,6 +596,9 @@ export default function BlogPost() {
       </main>
 
       <Footer />
+      {/* A Jéssica, a mesma da página inicial: quem leu o artigo até aqui é
+          quem mais tem motivo para conversar. */}
+      <ChatbotPopup />
     </div>
   );
 }
