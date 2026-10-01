@@ -522,6 +522,7 @@ function recusaDoComando(limpo) {
      existe para fazer. */
   const POSTERIORES_DE_OUTRAS_FRENTES = Object.freeze([
     "20261001180000_leituras_dos_posts.sql",
+    "20261001210000_evolucao_das_leituras.sql",
   ]);
   afirmar(
     "toda migração posterior nomeada como de outra frente existe na pasta — a lista não é decorativa",
