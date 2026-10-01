@@ -11,29 +11,20 @@ export default function Footer() {
       id="contato"
       className="bg-zinc-950 text-zinc-300 py-8 border-t border-zinc-900"
     >
-      <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-5 gap-8">
-        <div>
+      {/* No celular as colunas andam de DUAS em duas, e não uma embaixo da
+          outra: empilhadas, o rodapé passava de uma tela inteira de altura. A
+          marca e o Contato ocupam a linha toda — o e-mail não cabe em meia.
+          No tablet a marca e o Contato dividem a primeira linha (`order`), e
+          as quatro listas de links ficam na segunda. */}
+      <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-4 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1.2fr_1.6fr] md:[&>div]:order-3 lg:[&>div]:order-none">
+        <div className="col-span-2 md:order-1! lg:order-none! lg:col-span-1">
           <div className="flex items-center space-x-2 mb-4">
             <img src={chatcleanLogoWhite} alt="ChatClean" className="h-7 w-auto" />
           </div>
-          <p className="text-zinc-400 mb-4 text-sm leading-relaxed">
+          <p className="text-zinc-400 text-sm leading-relaxed max-w-sm">
             A plataforma de CRM e ChatBot para WhatsApp com API Oficial mais
             completa do Brasil.
           </p>
-          <div className="space-y-2 text-sm text-zinc-400">
-            <div className="flex items-center gap-2">
-              <Phone className="w-4 h-4 flex-shrink-0" />
-              <span>+55 84 99890-0718</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 flex-shrink-0" />
-              <span>contato@chatclean.com.br</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>Av. Prudente de Morais, 5121, Natal-RN</span>
-            </div>
-          </div>
         </div>
 
         <div>
@@ -133,10 +124,38 @@ export default function Footer() {
               <button
                 type="button"
                 onClick={abrirPreferenciasDeCookies}
-                className="hover:text-emerald-400 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                className="text-left hover:text-emerald-400 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
               >
                 Preferências de cookies
               </button>
+            </li>
+          </ul>
+        </div>
+
+        <div className="col-span-2 md:order-2! lg:order-none! lg:col-span-1">
+          <h4 className="text-white font-bold mb-4">Contato</h4>
+          <ul className="space-y-2 text-sm text-zinc-400">
+            <li>
+              <a
+                href="tel:+5584998900718"
+                className="flex items-center gap-2 hover:text-emerald-400 transition-colors"
+              >
+                <Phone className="w-4 h-4 flex-shrink-0" />
+                <span>+55 84 99890-0718</span>
+              </a>
+            </li>
+            <li>
+              <a
+                href="mailto:contato@chatclean.com.br"
+                className="flex items-center gap-2 hover:text-emerald-400 transition-colors"
+              >
+                <Mail className="w-4 h-4 flex-shrink-0" />
+                <span>contato@chatclean.com.br</span>
+              </a>
+            </li>
+            <li className="flex items-start gap-2">
+              <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>Av. Prudente de Morais, 5121, Natal-RN</span>
             </li>
           </ul>
         </div>
