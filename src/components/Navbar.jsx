@@ -235,18 +235,26 @@ export default function Navbar() {
 
   const renderItem = (item, mobile = false) => {
     if (mobile) {
-      const cls =
-        "block px-4 py-3 text-base font-medium text-zinc-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors";
+      // As tintas acompanham o painel: brancas no vidro sobre a hero, escuras
+      // no painel claro depois dela.
+      const tinta = scrolled
+        ? "hover:bg-emerald-50 hover:text-emerald-700"
+        : "hover:bg-white/15";
+      const cls = `block px-4 py-3 text-base font-medium rounded-xl transition-colors ${tinta} ${
+        scrolled ? "text-zinc-700" : "text-white"
+      }`;
       if (!item.atalhos) return renderLink(item, cls, closeMobileMenu);
       // No celular não há hover: os atalhos aparecem direto, recuados sob Home
       return (
         <div key={item.name}>
           {renderLink(item, cls, closeMobileMenu)}
-          <div className="ml-4 border-l border-zinc-200 pl-2">
+          <div className={`ml-4 border-l pl-2 ${scrolled ? "border-zinc-200" : "border-white/30"}`}>
             {item.atalhos.map((atalho) =>
               renderLink(
                 atalho,
-                "block px-4 py-2.5 text-[15px] text-zinc-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors",
+                `block px-4 py-2.5 text-[15px] rounded-xl transition-colors ${tinta} ${
+                  scrolled ? "text-zinc-600" : "text-white/85"
+                }`,
                 closeMobileMenu,
               ),
             )}
@@ -403,26 +411,48 @@ export default function Navbar() {
             </div>
 
             {/* Mobile trigger */}
+            {/* O botão veste a MESMA pílula da barra do computador: vidro sobre
+                a hero, clara depois dela, uma dissolvendo na outra. */}
             <button
-              className={`md:hidden p-2 transition-colors ${
+              className={`relative md:hidden grid h-11 w-11 place-items-center rounded-full transition-colors duration-300 ${
                 scrolled ? "text-zinc-700 hover:text-emerald-600" : "text-white"
               }`}
               onClick={() => setIsMenuOpen(!isMenuOpen)}
-              aria-label="Abrir menu"
+              aria-label={isMenuOpen ? "Fechar menu" : "Abrir menu"}
+              aria-expanded={isMenuOpen}
             >
-              {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 -z-10 rounded-full border bg-white/15 border-white/30 backdrop-blur-md transition-opacity duration-300 ${
+                  scrolled ? "opacity-0" : "opacity-100"
+                }`}
+              />
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 -z-10 rounded-full border bg-zinc-50 border-zinc-100 shadow-sm transition-opacity duration-300 ${
+                  scrolled ? "opacity-100" : "opacity-0"
+                }`}
+              />
+              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
 
-          {/* Mobile menu */}
+          {/* Mobile menu. Sobre a hero ele é um cartão de vidro, como o card de
+              atalhos do computador; depois dela, o painel claro de sempre.
+              Só a ALTURA anima: opacidade abaixo de 1 no próprio elemento
+              cortaria o `backdrop-filter`, e o vidro surgiria chapado. */}
           <AnimatePresence onExitComplete={aoFecharMenuDoCelular}>
             {isMenuOpen && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
+                initial={{ height: 0 }}
+                animate={{ height: "auto" }}
+                exit={{ height: 0 }}
                 transition={{ duration: 0.3, ease: EASE.out }}
-                className="md:hidden overflow-hidden border-t border-zinc-100 bg-white/95 backdrop-blur-md"
+                className={`md:hidden overflow-hidden backdrop-blur-xl transition-colors duration-300 ${
+                  scrolled
+                    ? "border-t border-zinc-100 bg-white/95"
+                    : "mx-4 rounded-2xl bg-white/15 ring-1 ring-white/30 shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)]"
+                }`}
               >
                 <nav className="flex flex-col py-4 px-4 gap-1">
                   {NAV_ITEMS.map((item, idx) => (
@@ -437,9 +467,15 @@ export default function Navbar() {
                   ))}
                   <Button
                     onClick={() => { closeMobileMenu(); setIsLoginModalOpen(true); }}
-                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white mt-4 rounded-full font-bold"
+                    className="relative w-full bg-emerald-500 hover:bg-emerald-600 text-white mt-4 rounded-full font-bold"
                   >
-                    Área do Cliente
+                    <span
+                      aria-hidden="true"
+                      className={`botao-latao pointer-events-none absolute inset-0 rounded-full transition-opacity duration-300 ${
+                        scrolled ? "opacity-0" : "opacity-100"
+                      }`}
+                    />
+                    <span className="relative">Área do Cliente</span>
                   </Button>
                 </nav>
               </motion.div>
