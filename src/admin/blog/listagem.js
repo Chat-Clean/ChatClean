@@ -312,6 +312,53 @@ export function textoDoTempoDeLeitura(post) {
   }
 }
 
+/* ─── Leituras ───────────────────────────────────────────────────────────── */
+
+/**
+ * As leituras, indexadas pelo identificador do Post.
+ *
+ * A camada devolve uma linha por Post que já foi lido; a listagem pergunta por
+ * Post, uma vez por linha. O índice é o que impede uma varredura por linha.
+ */
+export function indiceDeLeituras(lista) {
+  const indice = new Map();
+  for (const linha of Array.isArray(lista) ? lista : []) {
+    if (typeof linha?.post_id !== "string") continue;
+    indice.set(linha.post_id, {
+      total: Number(linha.total) || 0,
+      ultimos30Dias: Number(linha.ultimos_30_dias) || 0,
+    });
+  }
+  return indice;
+}
+
+/**
+ * `120 leituras · 45 em 30 dias`: o que a linha diz sobre quem leu o Post.
+ *
+ * Devolve `null` quando não há o que dizer:
+ *
+ *   - as leituras ainda não chegaram, ou a leitura delas falhou (`indice` nulo).
+ *     Zero seria uma afirmação, e a tela não sabe;
+ *   - o Post nunca esteve no ar e não tem leitura. "0 leituras" num rascunho é
+ *     ruído.
+ *
+ * O recorte de 30 dias só aparece quando difere do total: num Post recente os
+ * dois números são o mesmo, e repeti-lo não informa nada.
+ */
+export function textoDasLeituras(post, indice) {
+  if (!(indice instanceof Map)) return null;
+  const leituras = indice.get(post?.id) ?? { total: 0, ultimos30Dias: 0 };
+  if (leituras.total === 0 && post?.estado !== "publicado") return null;
+  try {
+    const total = `${formatarNumero(leituras.total)} ${leituras.total === 1 ? "leitura" : "leituras"}`;
+    return leituras.ultimos30Dias === leituras.total
+      ? total
+      : `${total} · ${formatarNumero(leituras.ultimos30Dias)} em 30 dias`;
+  } catch {
+    return null;
+  }
+}
+
 /* ─── Rótulos que dependem do Post ───────────────────────────────────────── */
 
 /**

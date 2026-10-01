@@ -463,7 +463,15 @@ secao("(b) a arquitetura de acesso está onde deveria");
      `buscar_vagas_do_painel`), todas de leitura. Continua fechada nos dois
      sentidos: arquivo fora da lista reprova, e arquivo da lista que deixou de
      chamar `.rpc(` também (lista decorativa não protege nada). */
+  /* TROCA REGISTRADA (leituras dos Posts): entra `src/data/blog/leituras.js`, e
+     ele é a PRIMEIRA função de banco desta lista que ESCREVE. É exatamente o
+     "escrever sem escrever" de que o comentário acima fala, aceito de propósito
+     e por decisão de produto: contar a leitura de um artigo. O que o mantém
+     estreito está no banco, e não aqui: `registrar_leitura_do_post` só soma 1
+     à leitura de hoje de um Post que o público já enxerga, e `anon` não tem
+     privilégio nenhum na tabela. Ver a migração `leituras_dos_posts`. */
   const ARQUIVOS_COM_RPC = Object.freeze([
+    "src/data/blog/leituras.js",
     "src/data/blog/posts.js",
     "src/data/carreiras/leitura.js",
   ]);
@@ -471,7 +479,7 @@ secao("(b) a arquitetura de acesso está onde deveria");
     ...new Set(ocorrencias(fontes, /\.rpc\s*\(/).map((o) => o.split(":")[0])),
   ].sort();
   afirmar(
-    "as funções de banco chamadas por src/ saem só dos módulos de leitura da lista de permissão (a busca do Blog e a leitura de Carreiras)",
+    "as funções de banco chamadas por src/ saem só dos módulos da lista de permissão (a busca do Blog, a leitura de Carreiras e o registro de leitura do Post)",
     comRpc.length === ARQUIVOS_COM_RPC.length &&
       ARQUIVOS_COM_RPC.every((a) => comRpc.includes(a)),
     `encontrados: ${comRpc.join(", ") || "nenhum"} | permitidos: ${ARQUIVOS_COM_RPC.join(", ")}`,

@@ -510,6 +510,12 @@ afirmar(
     ["posts.js", "buscarPostsPublicos"],
     ["posts.js", "listarRelacionadosPublicos"],
     ["taxonomia.js", "listarTagsDoPostPublico"],
+    /* O registro de leitura do Post. Não é leitura, é a única ESCRITA que sai
+       do navegador, e está aqui pela regra que a lista cobra: o cliente é o
+       anônimo, incondicionalmente. Com sessão consultada, a leitura de um Autor
+       logado viajaria com a identidade dele, e a contagem deixaria de ser
+       anônima para quem mais lê o próprio blog. */
+    ["leituras.js", "registrarLeituraDoPost"],
   ];
   const DO_PAINEL = [
     ["posts.js", "listarPostsDoPainel"],
@@ -547,6 +553,11 @@ afirmar(
        uma Tag criada num rascunho nunca era sugerida — que é exatamente o caso
        em que o Autor recria "Atendimento" com outra grafia. */
     ["taxonomia.js", "listarTagsDoPainel"],
+    /* Os totais de leitura por Post. Só o Painel os lê: o banco não tem
+       política de leitura para `anon` nessa tabela, e pelo cliente anônimo a
+       resposta seria uma lista vazia com sucesso, que a listagem mostraria
+       como "ninguém leu". */
+    ["leituras.js", "listarLeiturasDoPainel"],
   ];
   const corpoDe = ([arquivo, nome]) => {
     const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";
@@ -1698,6 +1709,11 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "Post sem Categoria não tem relacionados — lista vazia com sucesso, e não erro",
   "as Tags públicas de um Post publicado voltam com nome",
   "SEPARAÇÃO: as Tags de um rascunho NÃO voltam pelo caminho público, mesmo com sessão aberta",
+  // As leituras dos Posts: o total é lido com sessão, então o bloco inteiro depende dela.
+  "registrar a leitura de um Post no ar soma EXATAMENTE 1, e o Painel lê o total",
+  "a leitura de um RASCUNHO responde igual e NÃO conta — nem revela que ele existe",
+  "identificador fora do formato é recusado ANTES da rede, com falha tipada",
+  "o visitante anônimo NÃO lê contagem nenhuma — o banco recusa, e não responde lista",
   "o visitante anônimo não extrai rascunho pela função de busca PÚBLICA",
   "e ele ALCANÇA o Post publicado pela mesma função — a recusa é do Estado, não da função",
   // Cada campo do critério, isolado — a mesma matriz que a busca do Painel tem.
@@ -3138,6 +3154,67 @@ if (temToken && ambienteCompleto) {
                   tagsDeRascunho.dados.length === 0,
                 JSON.stringify(tagsDeRascunho?.erro ?? tagsDeRascunho?.dados).slice(0, 220),
               );
+
+              /* — AS LEITURAS DOS POSTS —
+                 A única escrita que sai do navegador, provada contra o banco:
+                 Post no ar conta, rascunho NÃO conta (e a resposta é a mesma,
+                 para o efeito não revelar que ele existe), o Painel lê o total
+                 e o visitante não lê nada. As linhas semeadas somem com os
+                 Posts da matriz: a chave estrangeira apaga em cascata. */
+              {
+                const { registrarLeituraDoPost, listarLeiturasDoPainel, VISAO_DE_LEITURAS } =
+                  await import(urlDe("src/data/blog/leituras.js"));
+                const totalDe = async (id) => {
+                  const r = await chamar("listarLeiturasDoPainel", () => listarLeiturasDoPainel());
+                  if (r?.ok !== true) return null;
+                  return r.dados.find((l) => l.post_id === id)?.total ?? 0;
+                };
+                const idPublico = idDe.get(slug("publico"));
+                const idRascunho = idDe.get(slug("rascunho"));
+                const antes = await totalDe(idPublico);
+                const contou = await chamar("registrarLeituraDoPost (publicado)", () =>
+                  registrarLeituraDoPost(idPublico),
+                );
+                const doRascunho = await chamar("registrarLeituraDoPost (rascunho)", () =>
+                  registrarLeituraDoPost(idRascunho),
+                );
+                const depois = await totalDe(idPublico);
+                afirmar(
+                  "registrar a leitura de um Post no ar soma EXATAMENTE 1, e o Painel lê o total",
+                  contou?.ok === true && antes !== null && depois === antes + 1,
+                  `resposta: ${JSON.stringify(contou?.erro ?? "ok")} | antes: ${antes} | depois: ${depois}`,
+                );
+                afirmar(
+                  "a leitura de um RASCUNHO responde igual e NÃO conta — nem revela que ele existe",
+                  doRascunho?.ok === true && (await totalDe(idRascunho)) === 0,
+                  JSON.stringify(doRascunho?.erro ?? "ok"),
+                );
+                const foraDoFormato = await chamar("registrarLeituraDoPost (inválido)", () =>
+                  registrarLeituraDoPost("nao-e-uuid"),
+                );
+                afirmar(
+                  "identificador fora do formato é recusado ANTES da rede, com falha tipada",
+                  foraDoFormato?.ok === false,
+                  JSON.stringify(foraDoFormato).slice(0, 200),
+                );
+                let statusDoVisitante = 0;
+                let corpoDoVisitante = "";
+                try {
+                  const r = await fetch(
+                    `${URL_PROJETO}/rest/v1/${VISAO_DE_LEITURAS}?select=post_id,total`,
+                    { signal: AbortSignal.timeout(TIMEOUT_MS), headers: { apikey: chavePublicavel } },
+                  );
+                  statusDoVisitante = r.status;
+                  corpoDoVisitante = await r.text();
+                } catch (erro) {
+                  corpoDoVisitante = String(erro?.message ?? erro);
+                }
+                afirmar(
+                  "o visitante anônimo NÃO lê contagem nenhuma — o banco recusa, e não responde lista",
+                  statusDoVisitante === 401 || statusDoVisitante === 403,
+                  `HTTP ${statusDoVisitante} — ${corpoDoVisitante.slice(0, 160)}`,
+                );
+              }
 
               /* — E o visitante ANÔNIMO CRU contra a função nova — */
               //

@@ -514,10 +514,25 @@ function recusaDoComando(limpo) {
         .filter((n) => /^\d{14}_.+\.sql$/.test(n) && n.slice(0, 14) > CARIMBO_DAS_LANDINGS)
         .sort()
     : [];
+  /* MIGRAÇÃO POSTERIOR QUE NÃO É DE CARREIRAS. Enquanto Carreiras foi a última
+     frente a tocar o banco, "posterior à das landings" e "de Carreiras" eram a
+     mesma coisa. Deixaram de ser quando o Blog ganhou a contagem de leituras.
+     A lista é FECHADA e nomeada: migração nova que não esteja nem aqui nem em
+     `MIGRACOES_DE_CARREIRAS` continua reprovando, que é o que a asserção
+     existe para fazer. */
+  const POSTERIORES_DE_OUTRAS_FRENTES = Object.freeze([
+    "20261001180000_leituras_dos_posts.sql",
+  ]);
   afirmar(
-    "a lista de migrações de Carreiras cobre TODA migração posterior à das landings, e nada além",
-    igual(posteriores, [...MIGRACOES_DE_CARREIRAS]),
-    `na pasta: ${posteriores.join(", ") || "nenhuma"} | na lista: ${MIGRACOES_DE_CARREIRAS.join(", ")}`,
+    "toda migração posterior nomeada como de outra frente existe na pasta — a lista não é decorativa",
+    POSTERIORES_DE_OUTRAS_FRENTES.every((n) => posteriores.includes(n)),
+    `na lista e fora da pasta: ${POSTERIORES_DE_OUTRAS_FRENTES.filter((n) => !posteriores.includes(n)).join(", ")}`,
+  );
+  const deCarreiras = posteriores.filter((n) => !POSTERIORES_DE_OUTRAS_FRENTES.includes(n));
+  afirmar(
+    "a lista de migrações de Carreiras cobre TODA migração posterior à das landings que não é de outra frente, e nada além",
+    igual(deCarreiras, [...MIGRACOES_DE_CARREIRAS]),
+    `na pasta: ${deCarreiras.join(", ") || "nenhuma"} | na lista: ${MIGRACOES_DE_CARREIRAS.join(", ")}`,
   );
   afirmar(
     "as migrações de Carreiras estão na ordem do carimbo",

@@ -3095,6 +3095,12 @@ async function compilarComponentes() {
       "  listagem: { ok: true, dados: [] },\n" +
       "  aoListar: null,\n" +
       "  listagens: 0,\n" +
+      /* As LEITURAS de cada Post. `leituras` é o que a leitura dos totais
+         devolve ao Painel; `idas_as_leituras` conta quantas vezes ela foi
+         pedida; `leituras_registradas` guarda o que o SITE mandou contar. */
+      "  leituras: { ok: true, dados: [] },\n" +
+      "  idas_as_leituras: 0,\n" +
+      "  leituras_registradas: [],\n" +
       /* O que a listagem PEDIU, ida a ida. É por aqui que se prova que o termo
          e os Estados chegam à camada — e que uma rajada de teclas não vira uma
          ida por tecla (Story 2.11). */
@@ -3268,6 +3274,24 @@ async function compilarComponentes() {
       "}\n",
   );
 
+  /* AS LEITURAS. Sem este dublê a listagem chamaria o módulo de verdade, que
+     obtém o cliente da sessão — e o `BroadcastChannel` dele seguraria o
+     processo depois das seções, que é o que a asserção (k) acusa. */
+  const arquivoDasLeituras = path.join(pasta, "duble-leituras.js");
+  writeFileSync(
+    arquivoDasLeituras,
+    `export * from ${caminhoDeModulo("src/data/blog/leituras.js")};\n` +
+      'import { controle } from "./controle.js";\n' +
+      "export async function listarLeiturasDoPainel() {\n" +
+      "  controle.idas_as_leituras += 1;\n" +
+      "  return controle.leituras;\n" +
+      "}\n" +
+      "export async function registrarLeituraDoPost(id) {\n" +
+      "  controle.leituras_registradas.push(id);\n" +
+      "  return { ok: true, dados: null };\n" +
+      "}\n",
+  );
+
   const arquivoDaTaxonomia = path.join(pasta, "duble-taxonomia.js");
   writeFileSync(
     arquivoDaTaxonomia,
@@ -3385,6 +3409,7 @@ async function compilarComponentes() {
       "@/data/blog/escrita": arquivoDaEscrita,
       "@/data/blog/posts": arquivoDosPosts,
       "@/data/blog/taxonomia": arquivoDaTaxonomia,
+      "@/data/blog/leituras": arquivoDasLeituras,
       "@/data/blog/arquivos": arquivoDosArquivos,
     },
   });
@@ -6905,6 +6930,18 @@ if (janela && schema && configuracao && compilado) {
           liberar = resolver;
         });
 
+      /* AS LEITURAS chegam por uma leitura separada da listagem. Um Post no ar
+         com leitura antiga e recente, um arquivado com uma leitura só, e os
+         outros dois sem nenhuma. */
+      modulo.controle.idas_as_leituras = 0;
+      modulo.controle.leituras = {
+        ok: true,
+        dados: [
+          { post_id: ID_A, total: 1234, ultimos_30_dias: 56 },
+          { post_id: ID_D, total: 1, ultimos_30_dias: 1 },
+        ],
+      };
+
       const contagens = [];
       const abertos = [];
       const tela = await montarLista({
@@ -6981,6 +7018,41 @@ if (janela && schema && configuracao && compilado) {
             texto("tempo-de-leitura") === "7 min",
           `tempo: ${texto("tempo-de-leitura")}`,
         );
+        /* ── AS LEITURAS DO POST ───────────────────────────────────────
+           O número é acessório e vem de uma leitura à parte: a linha o mostra
+           quando ele existe, e não afirma zero quando não sabe. */
+        {
+          const leiturasDe = (id) =>
+            (tela.linha(id)?.querySelector('[data-papel="leituras"]')?.textContent ?? "").trim();
+          const { textoDasLeituras, indiceDeLeituras } = modulo.regrasDaListagem;
+          afirmar(
+            "a linha mostra quantas vezes o Post foi lido, com o recorte de 30 dias quando ele difere do total",
+            modulo.controle.idas_as_leituras === 1 &&
+              leiturasDe(ID_A) === "1.234 leituras · 56 em 30 dias" &&
+              (linha?.querySelector('[data-papel="leituras"]')?.className ?? "")
+                .split(/\s+/u)
+                .includes("dado"),
+            `idas: ${modulo.controle.idas_as_leituras} | na linha: ${JSON.stringify(leiturasDe(ID_A))}`,
+          );
+          afirmar(
+            "uma leitura é “1 leitura”, e o recorte igual ao total não é repetido — mesmo num Post que já saiu do ar",
+            leiturasDe(ID_D) === "1 leitura",
+            JSON.stringify(leiturasDe(ID_D)),
+          );
+          afirmar(
+            "Post que nunca esteve no ar e não foi lido fica SEM o número — “0 leituras” num rascunho é ruído",
+            tela.linha(ID_C)?.querySelector('[data-papel="leituras"]') === null &&
+              tela.linha(ID_B)?.querySelector('[data-papel="leituras"]') === null,
+          );
+          const publicado = POSTS_DE_PROVA.find((post) => post.id === ID_A);
+          afirmar(
+            "enquanto as leituras não chegam, ou se a leitura delas falha, a linha NÃO afirma zero — e Post no ar sem leitura diz “0 leituras”",
+            textoDasLeituras(publicado, null) === null &&
+              textoDasLeituras(publicado, indiceDeLeituras([])) === "0 leituras",
+            `sem índice: ${JSON.stringify(textoDasLeituras(publicado, null))} | índice vazio: ${JSON.stringify(textoDasLeituras(publicado, indiceDeLeituras([])))}`,
+          );
+          modulo.controle.leituras = { ok: true, dados: [] };
+        }
         afirmar(
           "o Destaque aparece na linha, com PALAVRA e não só com a estrela",
           linha?.querySelector('[data-destaque="true"]') !== null &&
