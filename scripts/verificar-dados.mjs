@@ -510,6 +510,12 @@ afirmar(
     ["posts.js", "buscarPostsPublicos"],
     ["posts.js", "listarRelacionadosPublicos"],
     ["taxonomia.js", "listarTagsDoPostPublico"],
+    /* O registro de leitura do Post. Não é leitura, é a única ESCRITA que sai
+       do navegador, e está aqui pela regra que a lista cobra: o cliente é o
+       anônimo, incondicionalmente. Com sessão consultada, a leitura de um Autor
+       logado viajaria com a identidade dele, e a contagem deixaria de ser
+       anônima para quem mais lê o próprio blog. */
+    ["leituras.js", "registrarLeituraDoPost"],
   ];
   const DO_PAINEL = [
     ["posts.js", "listarPostsDoPainel"],
@@ -547,6 +553,11 @@ afirmar(
        uma Tag criada num rascunho nunca era sugerida — que é exatamente o caso
        em que o Autor recria "Atendimento" com outra grafia. */
     ["taxonomia.js", "listarTagsDoPainel"],
+    /* Os totais de leitura por Post. Só o Painel os lê: o banco não tem
+       política de leitura para `anon` nessa tabela, e pelo cliente anônimo a
+       resposta seria uma lista vazia com sucesso, que a listagem mostraria
+       como "ninguém leu". */
+    ["leituras.js", "listarLeiturasDoPainel"],
   ];
   const corpoDe = ([arquivo, nome]) => {
     const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";

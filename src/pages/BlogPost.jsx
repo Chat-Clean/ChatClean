@@ -83,6 +83,7 @@ import {
   textoDoTempoDeLeitura,
 } from "./blogPublico";
 import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
+import { useContarLeitura } from "@/lib/leituraDoPost";
 
 
 export default function BlogPost() {
@@ -238,6 +239,11 @@ export default function BlogPost() {
 
   const situacao = situacaoDoArtigo({ slugValido: valido, carregando, erro, post });
   const html = htmlGravado(post);
+
+  /* A LEITURA. Só há o que contar quando o artigo está na tela: carregando,
+     erro e não encontrado desligam o relógio. A pré-visualização do Painel é
+     outra tela e não conta. */
+  useContarLeitura(situacao === ARTIGO_PRONTO ? (post?.id ?? null) : null);
 
   /**
    * Compartilhar — e NENHUM caminho daqui pode rejeitar sem tratamento.

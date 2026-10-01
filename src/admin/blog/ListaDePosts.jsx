@@ -147,9 +147,11 @@ import {
   TITULO_DO_VAZIO_DE_BUSCA,
   descricaoDoVazioDeBusca,
   haBuscaAtiva,
+  indiceDeLeituras,
   nomeDaCategoria,
   rotuloParaAbrir,
   textoDaData,
+  textoDasLeituras,
   textoDoAgendamento,
   textoDoTempoDeLeitura,
 } from "@/admin/blog/listagem";
@@ -160,6 +162,7 @@ import { notificarErro, notificarSucesso } from "@/admin/shell/Notificacoes";
 import { falaDoResiduo } from "@/admin/blog/capa";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "@/admin/shell/foco";
 import { definirDestaque, excluirPost } from "@/data/blog/escrita";
+import { listarLeiturasDoPainel } from "@/data/blog/leituras";
 import { listarPostsDoPainel, ordenarListagem } from "@/data/blog/posts";
 import { ERRO_NAO_ENCONTRADO } from "@/data/blog/resultado";
 import { OPERACAO_DESTACAR, OPERACAO_EXCLUIR } from "@/domain/blog/operacoes";
@@ -360,6 +363,30 @@ export default function ListaDePosts({
        que foi pedido" mudar. */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarregarEm, tentativa, termoAplicado, estadosAplicados, periodoAplicado]);
+
+  /* ── As leituras de cada Post ───────────────────────────────────────────
+     Leitura SEPARADA da listagem, e falha silenciosa de propósito: o número é
+     acessório, e a lista não pode esperar por ele nem cair com ele. `null` é
+     "não sei" — a linha fica sem o número, em vez de afirmar zero. Não depende
+     de busca nem de filtro: os totais são por Post, e a linha que estiver na
+     tela procura o dela. */
+  const [leituras, setLeituras] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      let resultado;
+      try {
+        resultado = await listarLeiturasDoPainel();
+      } catch {
+        resultado = { ok: false };
+      }
+      if (!vivo) return;
+      setLeituras(resultado?.ok === true ? indiceDeLeituras(resultado.dados) : null);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [recarregarEm, tentativa]);
 
   const tentarDeNovo = useCallback(() => setTentativa((n) => n + 1), []);
 
@@ -671,6 +698,7 @@ export default function ListaDePosts({
           <Linha
             key={post.id}
             post={post}
+            leituras={textoDasLeituras(post, leituras)}
             emCurso={emCurso?.id === post.id ? emCurso.operacao : null}
             /* O TRINCO É GLOBAL, então o impedimento também é: enquanto há
                pedido em voo, os alvos que escrevem desabilitam em TODAS as
@@ -745,6 +773,7 @@ export default function ListaDePosts({
  */
 function Linha({
   post,
+  leituras = null,
   emCurso = null,
   ocupado = false,
   aoAbrir,
@@ -862,6 +891,11 @@ function Linha({
           ) : null}
           {tempo !== null ? (
             <span className="dado" data-papel="tempo-de-leitura">{tempo}</span>
+          ) : null}
+          {/* Quantas vezes o Post foi lido. Ausente enquanto o número não
+              chega, e em Post que nunca esteve no ar. */}
+          {leituras !== null ? (
+            <span className="dado" data-papel="leituras">{leituras}</span>
           ) : null}
         </div>
       </div>
