@@ -51,6 +51,37 @@ export const MARCA_CORPO_FIM = "<!-- CORPO-DO-ARTIGO:FIM";
 export const ETIQUETAS_ACEITAS = ETIQUETAS_EMITIDAS;
 export const ATRIBUTOS_ACEITOS = ATRIBUTOS_EMITIDOS;
 
+/* Um atributo: separadores, o nome, e o valor quando há. O nome é tudo o que
+   não é separador, aspa, sinal de igual ou sinal de etiqueta — de propósito
+   mais largo que o formato de um nome válido, para que o nome torto seja LIDO e
+   recusado pelo vocabulário, em vez de fazer a leitura parar no meio. */
+const ATRIBUTO = /[\s/]*([^\s"'<>/=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/y;
+
+/**
+ * Confere os atributos de UMA etiqueta. Devolve `null` quando todos estão no
+ * vocabulário, ou a frase do defeito.
+ */
+function conferirAtributos(resto, nome) {
+  let posicao = 0;
+  while (posicao < resto.length) {
+    ATRIBUTO.lastIndex = posicao;
+    const achado = ATRIBUTO.exec(resto);
+    if (achado === null || achado[0].length === 0) break;
+    posicao = ATRIBUTO.lastIndex;
+    const atributo = achado[1];
+    if (!ATRIBUTOS_ACEITOS.includes(atributo.toLowerCase())) {
+      return `O Conteúdo traz o atributo \`${atributo}\` em \`${nome}\`, que não está no vocabulário do renderizador.`;
+    }
+  }
+  /* O QUE SOBROU PRECISA SER NADA. Separador no fim é o `/` da etiqueta
+     auto-fechada; qualquer outra coisa é um trecho que a leitura não entendeu,
+     e o que não foi entendido não foi conferido. */
+  if (/[^\s/]/.test(resto.slice(posicao))) {
+    return `O Conteúdo traz a etiqueta \`${nome}\` com um atributo malformado: ${resto.slice(posicao, posicao + 40)}`;
+  }
+  return null;
+}
+
 /**
  * Confere o HTML gravado contra o vocabulário fechado.
  *
@@ -104,16 +135,24 @@ export function conferirConteudo(html) {
 
     /* Os NOMES DE ATRIBUTO. `/` é separador válido em HTML, e por isso entra na
        classe de separadores: senão `<a/onclick=…>` chega aqui como um atributo
-       chamado `/onclick`, que não casa com nada e passaria despercebido. */
+       chamado `/onclick`, que não casa com nada e passaria despercebido.
+
+       ─── O VALOR É CONSUMIDO JUNTO COM O NOME ───────────────────────────────
+       A primeira versão procurava "separador seguido de palavra" na etiqueta
+       INTEIRA, valores inclusive. Um endereço tem barra e tem palavra: em
+       `src="https://images.unsplash.com/…"` ela lia um atributo chamado
+       `images`, e em `href="https://about.fb.com/…"` um chamado `about`. Todo
+       Post com link ou imagem de fora era recusado, e o blog inteiro ficava sem
+       corpo servido — com a página funcionando no navegador, que é como um
+       defeito desses passa meses sem ninguém ver.
+
+       Agora a etiqueta é lida como o navegador a lê: atributo a atributo, cada
+       um com o seu valor (entre aspas duplas, simples, ou sem aspas). O que não
+       couber nessa leitura — aspa que não fecha, sinal de igual solto — é
+       recusado, e não pulado. */
     const resto = corpo.slice(corpo.toLowerCase().indexOf(nome) + nome.length);
-    for (const [, atributo] of resto.matchAll(/[\s/]+([A-Za-z][A-Za-z0-9:_-]*)/g)) {
-      if (!ATRIBUTOS_ACEITOS.includes(atributo.toLowerCase())) {
-        return {
-          ok: false,
-          defeito: `O Conteúdo traz o atributo \`${atributo}\` em \`${nome}\`, que não está no vocabulário do renderizador.`,
-        };
-      }
-    }
+    const defeitoDosAtributos = conferirAtributos(resto, nome);
+    if (defeitoDosAtributos !== null) return { ok: false, defeito: defeitoDosAtributos };
   }
 
   /* E UM `<` SOLTO É RECUSADO. Um conteúdo com `<` que não abre etiqueta
@@ -252,4 +291,57 @@ export function corpoDoArtigo({ situacao, post, canonica, pagina = null }) {
     ].join("\n"),
     defeito: null,
   };
+}
+
+/**
+ * A região do corpo da LISTAGEM `/blog`: um link por Post no ar.
+ *
+ * ─── POR QUE A LISTAGEM TAMBÉM TEM CORPO ───────────────────────────────────
+ *
+ * Sem isto, quem não executa JavaScript recebe `/blog` sem link nenhum para
+ * artigo algum: a única porta para os Posts era o mapa do site. Um rastreador
+ * que chega pela listagem — que é para onde o menu aponta — não achava o
+ * caminho, e a página não passava adiante a relevância que recebe.
+ *
+ * O endereço é ABSOLUTO e sai da mesma raiz que a canônica, e o título e o
+ * Resumo são texto: passam pelo escape, nunca entram como HTML.
+ *
+ * ─── E NÃO TEM `h1` ────────────────────────────────────────────────────────
+ *
+ * O `h1` servido é o título de um ARTIGO (Story 4.6), e a listagem não é um.
+ * O título da página de listagem é desenhado pela aplicação; aqui vai só o
+ * que faltava: os links.
+ *
+ * Devolve `""` quando não há Post utilizável — lista vazia não declara nada.
+ */
+export function corpoDaListagem({ posts, raiz }) {
+  const semBarra = typeof raiz === "string" ? raiz.replace(/\/+$/, "") : "";
+  if (semBarra === "") return "";
+
+  const itens = [];
+  for (const post of Array.isArray(posts) ? posts : []) {
+    const slug = typeof post?.slug === "string" ? post.slug.trim() : "";
+    const titulo = typeof post?.titulo === "string" ? post.titulo.trim() : "";
+    if (slug === "" || titulo === "") continue;
+    const resumo = typeof post?.resumo === "string" ? post.resumo.trim() : "";
+    itens.push(
+      [
+        "          <li>",
+        `            <a href="${escapar(`${semBarra}/blog/${slug}`)}">${escapar(titulo)}</a>`,
+        ...(resumo === "" ? [] : [`            <p>${escapar(resumo)}</p>`]),
+        "          </li>",
+      ].join("\n"),
+    );
+  }
+  if (itens.length === 0) return "";
+
+  return [
+    "    <noscript>",
+    '      <section class="artigo">',
+    "        <ul>",
+    ...itens,
+    "        </ul>",
+    "      </section>",
+    "    </noscript>",
+  ].join("\n");
 }
