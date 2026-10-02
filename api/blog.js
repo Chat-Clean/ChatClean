@@ -58,7 +58,7 @@ import {
   DIAGNOSTICO_SEM_DOMINIO,
   DIAGNOSTICO_SEM_SHELL,
 } from "./_nucleo/diagnostico.js";
-import { situacaoDoEndereco } from "./_nucleo/leitura.js";
+import { postsNoAr, situacaoDoEndereco } from "./_nucleo/leitura.js";
 import {
   REDIRECIONADO,
   STATUS_DA_SITUACAO,
@@ -67,6 +67,7 @@ import {
 import {
   MARCA_CORPO_FIM,
   MARCA_CORPO_INICIO,
+  corpoDaListagem,
   corpoDoArtigo,
 } from "./_nucleo/artigo.js";
 import { MARCA_FIM, MARCA_INICIO, metadadosDaPagina, regiaoDeMetadados } from "./_nucleo/metadados.js";
@@ -191,7 +192,7 @@ export default async function handler(req, res) {
      artigos do ar. O corpo é omitido, a página continua funcionando no
      navegador — onde a aplicação renderiza normalmente —, e o diagnóstico
      desta resposta (Story 4.10) registra o desvio. */
-  const corpo = corpoDoArtigo({
+  let corpo = corpoDoArtigo({
     situacao,
     post,
     canonica: pagina.canonica,
@@ -200,6 +201,22 @@ export default async function handler(req, res) {
        seria a terceira opiniao sobre a mesma cadeia de heranca. */
     pagina,
   });
+
+  /* ─── A LISTAGEM ENTREGA OS LINKS DOS POSTS ─────────────────────────────
+     `/blog` não tem artigo, mas tem para onde levar: um link por Post no ar,
+     lidos pela MESMA leitura do mapa do site. Se ela falhar, a página sai sem
+     a lista — a aplicação monta a listagem no navegador do mesmo jeito — e o
+     diagnóstico registra o desvio. Uma listagem não cai porque a lista de
+     links que a acompanha não veio. */
+  let leituraDaListagemFalhou = null;
+  if (slug === null) {
+    const lidos = await postsNoAr();
+    if (lidos.ok) {
+      corpo = { html: corpoDaListagem({ posts: lidos.posts, raiz: dominio.raiz }), defeito: null };
+    } else {
+      leituraDaListagemFalhou = lidos.defeito ?? "a leitura dos posts no ar falhou";
+    }
+  }
 
   const comCorpo = trocarRegiao(comMetadados.html, corpo.html, {
     inicio: MARCA_CORPO_INICIO,
@@ -217,8 +234,13 @@ export default async function handler(req, res) {
     /* A etiqueta do POST so existe quando ha Post. Na listagem sobra a da
        colecao, que e o que ela e. */
     etiquetas: { slug: slugAtual },
-    diagnostico: corpo.defeito === null ? DIAGNOSTICO_OK : DIAGNOSTICO_CONTEUDO_RECUSADO,
+    diagnostico:
+      leituraDaListagemFalhou !== null
+        ? DIAGNOSTICO_LEITURA_FALHOU
+        : corpo.defeito === null
+          ? DIAGNOSTICO_OK
+          : DIAGNOSTICO_CONTEUDO_RECUSADO,
     rota: ROTA,
-    detalhe: corpo.defeito,
+    detalhe: leituraDaListagemFalhou ?? corpo.defeito,
   });
 }

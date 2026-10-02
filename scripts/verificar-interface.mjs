@@ -5228,7 +5228,7 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
      uma foi verificada por leitura do consumidor real antes de entrar aqui —
      não por semelhança de padrão. */
   "api/_nucleo/artigo.js": Object.freeze({
-    126: "defeito de `conferirConteudo()`: sobe como `corpo.defeito` até `responderDocumento()` (api/blog.js), que só o repassa a `registrarEvento()` — console.warn/console.error, nunca o corpo nem cabeçalho da resposta (api/_nucleo/entrega.js, api/_nucleo/diagnostico.js)",
+    165: "defeito de `conferirConteudo()`: sobe como `corpo.defeito` até `responderDocumento()` (api/blog.js), que só o repassa a `registrarEvento()` — console.warn/console.error, nunca o corpo nem cabeçalho da resposta (api/_nucleo/entrega.js, api/_nucleo/diagnostico.js)",
   }),
   "api/_nucleo/cache.js": Object.freeze({
     52: "throw de invariante conferida na CARGA do módulo (a política cobre todo `STATUS_EMITIDOS`): só dispara se o próprio código do módulo divergir de si mesmo, o que impediria o servidor de subir — nunca alcança uma requisição normal",

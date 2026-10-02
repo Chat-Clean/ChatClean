@@ -287,6 +287,26 @@ function relacoes(valor) {
  */
 const RELACOES_OBRIGATORIAS_EM_NOVA_JANELA = Object.freeze(["noopener", "noreferrer"]);
 
+/** Os hosts em que o próprio site responde. */
+const HOSTS_DO_SITE = Object.freeze(["chatclean.com.br", "www.chatclean.com.br"]);
+
+/**
+ * O endereço aponta para o próprio site?
+ *
+ * Caminho relativo, âncora e consulta são do site por definição. Endereço
+ * absoluto é do site quando o host é um dos dois em que ele responde.
+ * `//outro.com` começa com barra e NÃO é caminho: é endereço de outro host.
+ */
+export function ehEnderecoDoSite(href) {
+  const limpo = typeof href === "string" ? href.trim() : "";
+  if (limpo === "") return false;
+  if (limpo.startsWith("//")) return false;
+  if (limpo.startsWith("/") || limpo.startsWith("#") || limpo.startsWith("?")) return true;
+  const autoridade = /^https?:\/\/([^/?#]+)/i.exec(limpo)?.[1] ?? "";
+  if (autoridade === "" || autoridade.includes("@")) return false;
+  return HOSTS_DO_SITE.includes(autoridade.toLowerCase().replace(/:\d+$/, ""));
+}
+
 const MARCAS = Object.freeze({
   bold: ({ children }) => `<strong>${juntar(children)}</strong>`,
   italic: ({ children }) => `<em>${juntar(children)}</em>`,
@@ -326,7 +346,17 @@ const MARCAS = Object.freeze({
        saía sem `sponsored`. Uma decisão de SEO do Autor desaparecia, e o
        `nofollow` dele entrava no lugar. Agora o que ele declarou fica, e só o
        que falta de segurança é somado. */
-    const declaradas = relacoes(attrs.rel);
+    /* ─── E LINK PARA O PRÓPRIO SITE NÃO SAI COM `nofollow` ─────────────────
+       O editor grava `nofollow` em todo link que abre em nova janela, e o
+       schema completa com a mesma frase. Num link de fora isso é decisão de
+       SEO, e fica. Num link para uma página NOSSA ele diz ao buscador para não
+       seguir o caminho do artigo até o produto — que é o caminho que o artigo
+       existe para abrir. Ninguém escolheu isso: foi o padrão do editor
+       aplicado ao lugar errado. As outras palavras continuam como vieram. */
+    const interno = ehEnderecoDoSite(attrs.href);
+    const declaradas = relacoes(attrs.rel).filter(
+      (palavra) => !(interno && palavra === "nofollow"),
+    );
     const rel = (
       alvo === "_blank"
         ? [

@@ -12525,6 +12525,140 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     `sem nome: ${semNome.map(([n]) => n).join(" | ") || "nenhuma"}`,
   );
 
+  /* ── ENDEREÇO DENTRO DE VALOR NÃO É ATRIBUTO ────────────────────────── */
+  //
+  // O defeito que ficou meses em produção: a conferência procurava "separador
+  // seguido de palavra" na etiqueta inteira, valores inclusive. Em
+  // `src="https://images.unsplash.com/…"` ela lia um atributo `images`; em
+  // `href="https://about.fb.com/…"`, um `about`. Todo Post com link ou imagem
+  // de fora era recusado, e o blog inteiro ficava sem corpo servido. Os
+  // controles positivos de cima usavam `"v"` como valor, e por isso passavam.
+
+  const COM_ENDERECO = [
+    ["imagem de outro host", '<img src="https://images.unsplash.com/photo-1?w=1200&amp;q=80" alt="Mão segurando um smartphone" loading="lazy">'],
+    ["link para outro host, em nova janela", '<a href="https://about.fb.com/br/news/2026/06/x/" target="_blank" rel="noopener noreferrer">x</a>'],
+    ["valor com espaços, entre aspas simples", "<a href='/blog/outro' title='um título com espaços'>x</a>"],
+    ["etiqueta auto-fechada com atributos", '<img src="https://x.com/a.png" alt="" width="50" />'],
+    ["valor sem aspas com barra e palavra", "<a href=https://x.com/onclick/y>x</a>"],
+  ];
+  const enderecosRecusados = COM_ENDERECO.filter(([, html]) => !artigo.conferirConteudo(html).ok);
+  afirmar(
+    `controle positivo: as ${COM_ENDERECO.length} formas com endereço DE VERDADE dentro do valor atravessam — barra e palavra dentro de aspas não são atributo`,
+    enderecosRecusados.length === 0,
+    `recusadas: ${enderecosRecusados.map(([n, h]) => `${n} (${artigo.conferirConteudo(h).defeito})`).join(" | ") || "nenhuma"}`,
+  );
+
+  /* E a leitura por atributo não abriu fresta: o que vem DEPOIS de um valor
+     continua sendo conferido, e o que a leitura não entende é recusado em vez
+     de pulado. */
+  const DEPOIS_DO_VALOR = [
+    ["atributo colado no fim de um valor", '<a href="https://x.com"onclick=alert(1)>l</a>'],
+    ["atributo sem valor depois de um endereço", '<a href="https://x.com" onclick>l</a>'],
+    ["aspas simples", "<img src=\"https://x.com/a.png\" onerror='x()'>"],
+    ["aspa que não fecha", '<a href="x onclick=y>l</a>'],
+    ["sinal de igual solto", '<a href="x" =y>l</a>'],
+    ["sinal de maior dentro do valor, que corta a etiqueta", '<p alt="a > b" onclick=x>t</p>'],
+    ["tabulação como separador", '<a href="x"\tonmouseover="y">l</a>'],
+    ["atributo de dado fora do vocabulário", '<a href="x" data-x="1">l</a>'],
+  ];
+  const fresta = DEPOIS_DO_VALOR.filter(([, html]) => artigo.conferirConteudo(html).ok);
+  afirmar(
+    `e as ${DEPOIS_DO_VALOR.length} formas de esconder atributo depois de um valor continuam RECUSADAS, cada uma com defeito nomeado`,
+    fresta.length === 0 &&
+      DEPOIS_DO_VALOR.every(([, html]) => typeof artigo.conferirConteudo(html).defeito === "string"),
+    `passaram: ${fresta.map(([n]) => n).join(" | ") || "nenhuma"}`,
+  );
+
+  /* ── LINK PARA O PRÓPRIO SITE NÃO SAI COM `nofollow` ────────────────── */
+  //
+  // O editor grava `nofollow` em todo link de nova janela. Num link de fora é
+  // decisão de SEO e fica; num link para uma página nossa, ele manda o buscador
+  // não seguir o caminho do artigo até o produto.
+
+  {
+    const linkPara = (href) =>
+      renderizador.htmlDoDocumento({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "x",
+                marks: [{ type: "link", attrs: { href, target: "_blank", rel: "noopener noreferrer nofollow" } }],
+              },
+            ],
+          },
+        ],
+      });
+    const internos = ["https://chatclean.com.br/api-oficial-whatsapp", "https://www.chatclean.com.br/blog", "/integracoes"];
+    const externos = ["https://about.fb.com/br/", "https://chatclean.com.br.outro.com/x", "//chatclean.com.br.outro.com/x", "https://usuario@outro.com/chatclean.com.br"];
+    afirmar(
+      "link para o próprio site sai SEM `nofollow` e continua com `noopener noreferrer` — nos dois hosts e em caminho relativo",
+      internos.every((h) => {
+        const html = linkPara(h);
+        return !html.includes("nofollow") && html.includes('rel="noopener noreferrer"');
+      }),
+      internos.map(linkPara).join(" | ").slice(0, 300),
+    );
+    afirmar(
+      "e link de FORA mantém o `nofollow` declarado — inclusive o host que só começa parecido com o nosso",
+      externos
+        .filter((h) => !h.startsWith("//"))
+        .every((h) => linkPara(h).includes("nofollow")) &&
+        externos.every((h) => renderizador.ehEnderecoDoSite(h) === false) &&
+        internos.every((h) => renderizador.ehEnderecoDoSite(h) === true),
+      externos.map((h) => `${h}: ${renderizador.ehEnderecoDoSite(h)}`).join(" | "),
+    );
+    afirmar(
+      "o HTML de um link interno continua atravessando a conferência do corpo servido",
+      internos.every((h) => artigo.conferirConteudo(linkPara(h)).ok),
+    );
+  }
+
+  /* ── A LISTAGEM `/blog` ENTREGA UM LINK POR POST ────────────────────── */
+  //
+  // Sem isto, quem não executa JavaScript recebia a listagem sem link nenhum
+  // para artigo algum, e a única porta para os Posts era o mapa do site.
+
+  {
+    const lista = artigo.corpoDaListagem({
+      raiz: "https://exemplo.local/",
+      posts: [
+        { slug: "primeiro", titulo: 'Título com <b> & "aspas"', resumo: "Resumo <i>cru</i>" },
+        { slug: "segundo", titulo: "Sem resumo", resumo: null },
+        { slug: "", titulo: "Sem endereço", resumo: "x" },
+        { slug: "sem-titulo", titulo: "  ", resumo: "x" },
+      ],
+    });
+    afirmar(
+      "a listagem traz um link ABSOLUTO por Post utilizável, dentro de `<noscript>`, e pula o que não tem endereço ou título",
+      lista.includes("<noscript>") &&
+        lista.includes('href="https://exemplo.local/blog/primeiro"') &&
+        lista.includes('href="https://exemplo.local/blog/segundo"') &&
+        (lista.match(/<li>/g) ?? []).length === 2 &&
+        /* SEM `h1`: o título servido é o de um ARTIGO, e a listagem não é um. */
+        (lista.match(/<h1/g) ?? []).length === 0,
+      lista.replace(/\s+/g, " ").slice(0, 260),
+    );
+    afirmar(
+      "título e Resumo entram como TEXTO: o que parecia etiqueta sai escapado, e a região inteira atravessa a troca de região sem HTML de fora",
+      !lista.includes("<b>") &&
+        !lista.includes("<i>") &&
+        lista.includes("&lt;b&gt;") &&
+        lista.includes("&amp;") &&
+        lista.includes("&quot;aspas&quot;"),
+      lista.replace(/\s+/g, " ").slice(0, 260),
+    );
+    afirmar(
+      "sem Post utilizável, ou sem raiz, a listagem não declara nada — lista vazia não vira `<ul>` vazio",
+      artigo.corpoDaListagem({ raiz: "https://exemplo.local", posts: [] }) === "" &&
+        artigo.corpoDaListagem({ raiz: "https://exemplo.local", posts: null }) === "" &&
+        artigo.corpoDaListagem({ raiz: "", posts: [{ slug: "a", titulo: "A" }] }) === "",
+    );
+  }
+
   /* ── O CORPO VIVE EM `<noscript>`, ANTES DO CONTÊINER ───────────────── */
   //
   // Isto é o critério de CLS, e ele é resolvido por CONSTRUÇÃO: com JavaScript
@@ -13216,12 +13350,27 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
     const { createServer } = await import("node:http");
     /* O que a função de banco de mentira devolve. Trocado a cada caso. */
     let linhaDaEntrega = null;
+    /* O que `posts_no_ar()` de mentira devolve à listagem. `null` faz a
+       leitura falhar. */
+    let postsDaListagem = [];
     const pedidos = [];
     const servidorDaEntrega = createServer((req, res) => {
       let bruto = "";
       req.on("data", (p) => { bruto += p; });
       req.on("end", () => {
         pedidos.push({ url: req.url, corpo: bruto });
+        /* A LISTAGEM lê `posts_no_ar()`, e não a situação de um endereço.
+           `null` é a leitura FALHANDO: o banco de mentira responde 500. */
+        if (String(req.url).includes("rpc/posts_no_ar")) {
+          if (postsDaListagem === null) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ message: "falha de mentira" }));
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(postsDaListagem));
+          return;
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(linhaDaEntrega === null ? [] : [linhaDaEntrega]));
       });
@@ -13325,14 +13474,52 @@ secao("(f) as rotas servidas: o shell do build, e a falha que não se disfarça"
 
       /* A LISTAGEM continua 200: ela é uma página que existe, e não uma
          situação omitida. */
-      const listagem = await comAmbiente(
-        { VITE_DOMINIO_DO_SITE: DOMINIO },
-        () => dirigir("blog.js", { method: "GET", url: "/api/blog" }),
-      );
+      const dirigirListagem = () =>
+        comAmbiente(
+          {
+            VITE_DOMINIO_DO_SITE: DOMINIO,
+            SUPABASE_URL: URL_DE_MENTIRA,
+            SUPABASE_CHAVE_PUBLICAVEL: "sb_publishable_de_mentira",
+            VITE_SUPABASE_URL: undefined,
+            VITE_SUPABASE_PUBLISHABLE_KEY: undefined,
+          },
+          () => dirigir("blog.js", { method: "GET", url: "/api/blog" }),
+        );
+      postsDaListagem = [
+        { slug: "artigo-vivo", titulo: "O artigo que está no ar", resumo: "Um resumo.", publicado_em: "2027-01-02T00:00:00Z", atualizado_em: "2027-01-02T00:00:00Z" },
+        { slug: "outro-artigo", titulo: "Outro artigo", resumo: null, publicado_em: "2027-01-01T00:00:00Z", atualizado_em: "2027-01-01T00:00:00Z" },
+      ];
+      const listagem = await dirigirListagem();
       afirmar(
         "a listagem `/blog` continua 200 — ela é uma página que existe, e não uma situação esquecida",
         listagem.codigo === 200,
         String(listagem.codigo),
+      );
+      /* ── E ELA ENTREGA OS LINKS DOS POSTS, SEM JAVASCRIPT ─────────────
+         Sem isto, quem não executa JavaScript recebia a listagem sem link
+         nenhum para artigo algum. A leitura é a MESMA do mapa do site. */
+      afirmar(
+        "a listagem lê `posts_no_ar()` e entrega um link absoluto por Post, dentro de `<noscript>` e antes do contêiner",
+        pedidos.some((p) => p.url.includes("rpc/posts_no_ar")) &&
+          String(listagem.corpo).includes(`href="${DOMINIO}/blog/artigo-vivo"`) &&
+          String(listagem.corpo).includes(`href="${DOMINIO}/blog/outro-artigo"`) &&
+          String(listagem.corpo).indexOf("<noscript>", String(listagem.corpo).indexOf("CORPO-DO-ARTIGO:INICIO")) <
+            String(listagem.corpo).indexOf('id="root"'),
+        `${(String(listagem.corpo).match(/\/blog\/[a-z-]+"/g) ?? []).join(" ")}`,
+      );
+      /* A LISTA É ACESSÓRIA: se a leitura dela falha, a página sai sem a lista
+         e continua 200 — a aplicação monta a listagem no navegador do mesmo
+         jeito. O desvio fica no diagnóstico, e não no status. */
+      postsDaListagem = null;
+      const listagemSemLeitura = await dirigirListagem();
+      postsDaListagem = [];
+      afirmar(
+        "se a leitura dos Posts falha, a listagem continua 200, sai SEM a lista, e o diagnóstico nomeia o desvio",
+        listagemSemLeitura.codigo === 200 &&
+          /id="root"/.test(String(listagemSemLeitura.corpo)) &&
+          !String(listagemSemLeitura.corpo).includes("/blog/artigo-vivo") &&
+          listagemSemLeitura.cabecalhos["x-entrega-diagnostico"] === "degradado:leitura-falhou",
+        `${listagemSemLeitura.codigo} | ${listagemSemLeitura.cabecalhos["x-entrega-diagnostico"] ?? "sem diagnóstico"}`,
       );
 
       /* ── O 410 AINDA DESENHA, E NÃO TRAZ O ARTIGO ─────────────────── */
