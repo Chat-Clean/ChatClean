@@ -58,7 +58,6 @@ import {
 import { Button } from "../components/ui/button";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
-import ChatbotPopup from "@/components/ChatbotPopup";
 import { ehSlug } from "@/data/blog/comum";
 import { lerPostPublicoPorSlug, listarRelacionadosPublicos } from "@/data/blog/posts";
 import { listarTagsDoPostPublico } from "@/data/blog/taxonomia";
@@ -602,9 +601,6 @@ export default function BlogPost() {
       </main>
 
       <Footer />
-      {/* A Jéssica, a mesma da página inicial: quem leu o artigo até aqui é
-          quem mais tem motivo para conversar. */}
-      <ChatbotPopup />
     </div>
   );
 }
