@@ -39,6 +39,7 @@ import Assinar from "./pages/Assinar.jsx";
 import AssinaturaRecebida from "./pages/AssinaturaRecebida.jsx";
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
+import ChatbotDoSite from "./components/ChatbotDoSite.jsx";
 import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
 import { protegerImagens } from "@/lib/protecaoDeImagens";
 
@@ -53,6 +54,10 @@ createRoot(document.getElementById("root")).render(
       {/* Fora do <AnimatedRoutes> de propósito: a faixa não pertence a rota
           nenhuma, e é ela que decide se o Meta Pixel chega a carregar. */}
       <AvisoDeCookies />
+      {/* A Jéssica também mora fora das rotas: uma só para o site inteiro, e
+          a conversa atravessa a troca de página. Ela mesma decide onde não
+          aparecer (Painel e checkout). */}
+      <ChatbotDoSite />
       <AnimatedRoutes>
         <Route path="/" element={<App />} />
         <Route path="/blog" element={<Blog />} />

@@ -19,7 +19,6 @@ import Planos from "@/components/Planos";
 import ChamadaApiOficial from "@/components/ChamadaApiOficial";
 import ContinuarPedido from "@/components/ContinuarPedido";
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
-import ChatbotPopup from "@/components/ChatbotPopup";
 import Reveal from "@/components/animated/Reveal";
 import { StaggerGroup, StaggerItem } from "@/components/animated/StaggerGroup";
 import ScrollProgress from "@/components/animated/ScrollProgress";
@@ -339,7 +338,6 @@ function App() {
       <ChamadaApiOficial />
 
       <Footer />
-      <ChatbotPopup />
       <BackToTop />
     </div>
   );
