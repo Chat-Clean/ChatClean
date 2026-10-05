@@ -1,0 +1,65 @@
+# Mantém o projeto do Supabase ativo, e avisa se ele pausar.
+#
+# O plano gratuito do Supabase pausa o projeto depois de 7 dias sem atividade.
+# Este fluxo roda uma vez por dia e faz duas coisas, as duas SÓ DE LEITURA:
+#
+#   1. Uma consulta direta à API do banco: lê o identificador de UMA categoria.
+#      É o que conta como atividade. Não grava, não altera e não apaga nada.
+#      A chave usada é a publicável, a mesma que o site entrega ao navegador:
+#      ela só lê o que a política de leitura anônima já mostra a qualquer visitante.
+#
+#   2. O alarme de pausa que o repositório já tinha (Story 4.10) e que faltava
+#      agendar: ele busca o site publicado e acusa se o blog estiver sendo
+#      servido sem o banco.
+#
+# Por que aqui, e não um cron dentro do próprio banco: um agendamento que mora
+# no banco para junto com ele, e não há garantia documentada de que tarefa
+# interna conte como atividade. Uma requisição de fora conta.
+#
+# Se qualquer passo falhar, a execução fica vermelha e o GitHub avisa por
+# e-mail quem acompanha o repositório.
+
+name: Manter o Supabase ativo
+
+on:
+  schedule:
+    # Todo dia às 09:17 UTC (06:17 em Brasília). Minuto quebrado de propósito:
+    # na hora cheia a fila de agendamentos do GitHub atrasa.
+    - cron: "17 9 * * *"
+  # Permite rodar à mão, pela aba Actions.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  leitura:
+    name: Leitura diária
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ler uma linha do banco (só leitura)
+        env:
+          SUPABASE_URL: https://wvuaztlzifukmybtdbfh.supabase.co
+          # Chave PUBLICÁVEL: pública por natureza, a mesma do `.env.example`.
+          SUPABASE_CHAVE_PUBLICAVEL: sb_publishable_NHZVtS8N-M0Dc6OTw0H4PA_eBgGuQyp
+        run: |
+          codigo=$(curl --silent --show-error --max-time 30 \
+            --output resposta.json --write-out "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/categorias?select=id&limit=1" \
+            --header "apikey: $SUPABASE_CHAVE_PUBLICAVEL")
+          echo "O banco respondeu HTTP $codigo"
+          if [ "$codigo" != "200" ]; then
+            echo "::error::A leitura do Supabase falhou (HTTP $codigo). O projeto pode estar pausado."
+            cat resposta.json || true
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Alarme de pausa (o blog está sendo servido com o banco?)
+        run: node scripts/monitorar-pausa.mjs --dominio=https://chatclean.com.br
