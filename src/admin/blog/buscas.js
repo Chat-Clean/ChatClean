@@ -31,6 +31,22 @@ export const TITULO_SEM_DADOS = "Ainda não há dados do Google";
 export const DESCRICAO_SEM_DADOS =
   "Os números chegam por uma sincronização diária com o Google Search Console. " +
   "Se ela acabou de ser configurada, os primeiros dados aparecem em até um dia.";
+/* ─── TEMPORÁRIO: o aviso de "em breve" ──────────────────────────────────────
+ *
+ * A tela foi publicada ANTES de a conexão com o Google Search Console ser
+ * configurada (falta cadastrar os segredos da sincronização). Até lá, o cartão
+ * de "sem dados" leva uma faixa de "Em breve" e esta frase, para quem abrir a
+ * tela entender que ela ainda vai funcionar, e não que quebrou.
+ *
+ * REMOVER quando a sincronização estiver rodando: estas duas constantes e a
+ * faixa em `TelaDeBuscas.jsx` (procure por TEMPORÁRIO). O cartão volta a usar
+ * só `TITULO_SEM_DADOS` e `DESCRICAO_SEM_DADOS`, que continuam acima.
+ */
+export const ROTULO_EM_BREVE = "Em breve";
+export const DESCRICAO_EM_BREVE =
+  "Esta tela vai mostrar os cliques, as impressões e a posição do site no Google. " +
+  "Falta só concluir a conexão com o Google Search Console.";
+
 export const TITULO_SEM_TERMOS = "Nenhum termo de busca neste período";
 export const DESCRICAO_SEM_TERMOS =
   "O Google só mostra os termos que tiveram volume suficiente; os mais raros ele omite.";

@@ -44,7 +44,7 @@ import { AlertCircle, ChevronLeft, Search, X } from "lucide-react";
 import GraficoDeLeituras from "@/admin/blog/GraficoDeLeituras";
 import {
   DESCRICAO_DA_TELA,
-  DESCRICAO_SEM_DADOS,
+  DESCRICAO_EM_BREVE,
   DESCRICAO_SEM_TERMOS,
   MEDIDA_PADRAO,
   MEDIDAS,
@@ -52,6 +52,7 @@ import {
   ROTULO_DE_RECARREGAR,
   ROTULO_DE_VOLTAR,
   ROTULO_DO_SITE_INTEIRO,
+  ROTULO_EM_BREVE,
   TITULO_DA_TELA,
   TITULO_DAS_PAGINAS,
   TITULO_DO_ERRO,
@@ -282,11 +283,34 @@ export default function TelaDeBuscas() {
                ainda não gravou nada, e a frase diz isso. */
             <div
               data-papel="sem-dados"
-              className="mx-auto max-w-xl rounded-cartao border border-border-soft bg-surface p-8 text-center"
+              className="mx-auto max-w-xl overflow-hidden rounded-cartao border border-border-soft bg-surface text-center"
             >
-              <Search aria-hidden="true" className="mx-auto size-10 text-ink-muted" />
-              <h2 className="mt-3 text-base font-semibold text-ink">{TITULO_SEM_DADOS}</h2>
-              <p className="mt-2 text-sm text-ink-secondary">{DESCRICAO_SEM_DADOS}</p>
+              {/* TEMPORÁRIO: a faixa de "Em breve". A tela foi publicada antes de
+                  a conexão com o Google Search Console ser configurada. Quando a
+                  sincronização estiver rodando, REMOVER esta faixa e trocar
+                  `DESCRICAO_EM_BREVE` de volta por `DESCRICAO_SEM_DADOS` logo
+                  abaixo (ver o bloco TEMPORÁRIO em `buscas.js`). */}
+              {/* Amarela e preta, em listras diagonais, como fita de isolamento:
+                  é o desenho que todo mundo lê como "ainda não está pronto".
+                  O texto vai numa etiqueta amarela por cima das listras, porque
+                  letra direto sobre listra não se lê. */}
+              <div
+                data-papel="em-breve"
+                className="flex justify-center py-2"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(-45deg, #facc15 0 14px, #18181b 14px 28px)",
+                }}
+              >
+                <p className="rounded-controle bg-[#facc15] px-3 py-0.5 text-xs font-black uppercase tracking-widest text-[#18181b]">
+                  {ROTULO_EM_BREVE}
+                </p>
+              </div>
+              <div className="p-8">
+                <Search aria-hidden="true" className="mx-auto size-10 text-ink-muted" />
+                <h2 className="mt-3 text-base font-semibold text-ink">{TITULO_SEM_DADOS}</h2>
+                <p className="mt-2 text-sm text-ink-secondary">{DESCRICAO_EM_BREVE}</p>
+              </div>
             </div>
           ) : (
             <Conteudo
