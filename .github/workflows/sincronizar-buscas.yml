@@ -1,0 +1,69 @@
+# Copia os números do Google Search Console para o banco, uma vez por dia.
+#
+# O Painel mostra cliques, impressões e posição do site lendo a tabela
+# `buscas_do_google`. Quem a preenche é este fluxo: ele roda
+# `scripts/sincronizar-buscas.mjs`, que pede ao Google os últimos dez dias e
+# grava por cima do que já havia. Rodar duas vezes dá o mesmo resultado.
+#
+# Dois segredos, cadastrados em Settings → Secrets and variables → Actions:
+#
+#   GOOGLE_CONTA_DE_SERVICO    o JSON da chave da conta de serviço do Google,
+#                              inteiro. A conta precisa ser usuária da
+#                              propriedade https://chatclean.com.br/ no Search
+#                              Console (permissão restrita basta: só lê).
+#   SUPABASE_CHAVE_DE_SERVICO  a chave de serviço do Supabase. É a que grava.
+#
+# Enquanto NENHUM dos dois existir, o fluxo avisa e termina verde: é o estado
+# de quem ainda não configurou, e uma execução vermelha por dia só ensinaria a
+# ignorar o alarme. Com um só dos dois, ou com o Google recusando, ele falha.
+
+name: Sincronizar as buscas do Google
+
+on:
+  schedule:
+    # Todo dia às 10:23 UTC (07:23 em Brasília). Minuto quebrado de propósito:
+    # na hora cheia a fila de agendamentos do GitHub atrasa.
+    - cron: "23 10 * * *"
+  # Permite rodar à mão, pela aba Actions. `dias` serve para a primeira carga:
+  # 480 traz os dezesseis meses que o Google guarda.
+  workflow_dispatch:
+    inputs:
+      dias:
+        description: "Quantos dias buscar (10 no dia a dia; 480 na primeira carga)"
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  sincronizar:
+    name: Search Console para o banco
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_CONTA_DE_SERVICO: ${{ secrets.GOOGLE_CONTA_DE_SERVICO }}
+      SUPABASE_CHAVE_DE_SERVICO: ${{ secrets.SUPABASE_CHAVE_DE_SERVICO }}
+      DIAS: ${{ github.event.inputs.dias || '10' }}
+    steps:
+      - name: Os segredos estão cadastrados?
+        id: segredos
+        run: |
+          if [ -z "$GOOGLE_CONTA_DE_SERVICO" ] && [ -z "$SUPABASE_CHAVE_DE_SERVICO" ]; then
+            echo "::notice::A sincronização ainda não foi configurada: faltam os segredos GOOGLE_CONTA_DE_SERVICO e SUPABASE_CHAVE_DE_SERVICO. Nada foi feito."
+            echo "configurado=nao" >> "$GITHUB_OUTPUT"
+          else
+            echo "configurado=sim" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.segredos.outputs.configurado == 'sim'
+
+      - uses: actions/setup-node@v4
+        if: steps.segredos.outputs.configurado == 'sim'
+        with:
+          node-version: 22
+
+      - name: Buscar no Google e gravar no banco
+        if: steps.segredos.outputs.configurado == 'sim'
+        run: node scripts/sincronizar-buscas.mjs --dias="$DIAS"

@@ -562,6 +562,12 @@ afirmar(
        mesma razão da de cima. */
     ["leituras.js", "lerLeiturasPorDia"],
     ["leituras.js", "listarPostsMaisLidos"],
+    /* As buscas do Google: quatro leituras, todas com sessão. O banco não tem
+       política de leitura para `anon` nessa tabela. */
+    ["buscas.js", "lerBuscasPorDia"],
+    ["buscas.js", "listarPaginasBuscadas"],
+    ["buscas.js", "listarTermosBuscados"],
+    ["buscas.js", "lerUltimoDiaDeBuscas"],
   ];
   const corpoDe = ([arquivo, nome]) => {
     const fonte = arquivosDaCamada.find((a) => a.nome === arquivo)?.texto ?? "";
@@ -1722,6 +1728,10 @@ const ASSERCOES_QUE_EXIGEM_SESSAO = Object.freeze([
   "o ranking do período traz o Post lido com título e total, e NÃO traz o rascunho",
   "período e Post fora do formato são recusados ANTES da rede, com falha tipada",
   "o visitante anônimo NÃO executa as funções da evolução — o banco recusa",
+  "as buscas por dia vêm com um ponto por dia, sem buraco, e a lista de páginas e a de termos respondem como listas",
+  "o último dia de buscas é um dia ou nulo — nulo é a sincronização que ainda não gravou, e não um erro",
+  "período e página fora do formato são recusados ANTES da rede nas buscas, com falha tipada",
+  "o visitante anônimo NÃO lê as buscas do Google — nem pela tabela, nem pelas quatro funções",
   "o visitante anônimo não extrai rascunho pela função de busca PÚBLICA",
   "e ele ALCANÇA o Post publicado pela mesma função — a recusa é do Estado, não da função",
   // Cada campo do critério, isolado — a mesma matriz que a busca do Painel tem.
@@ -3303,6 +3313,93 @@ if (temToken && ambienteCompleto) {
                   "o visitante anônimo NÃO executa as funções da evolução — o banco recusa",
                   recusados.every((s) => s === 401 || s === 403),
                   `HTTP ${recusados.join(", ")}`,
+                );
+              }
+
+              /* — AS BUSCAS DO GOOGLE —
+                 A tabela é gravada pela sincronização, fora daqui. O que esta
+                 prova cobre é a LEITURA: a forma do que o Painel recebe, a
+                 recusa do que não é período nem página, e a porta fechada ao
+                 visitante. Ela não grava linha nenhuma. */
+              {
+                const buscas = await import(urlDe("src/data/blog/buscas.js"));
+                const porDia = await chamar("lerBuscasPorDia (7 dias)", () =>
+                  buscas.lerBuscasPorDia({ dias: 7 }),
+                );
+                const dias = porDia?.ok === true ? porDia.dados : [];
+                const semBuraco = dias.every(
+                  (p, i) =>
+                    i === 0 ||
+                    Date.parse(`${p.dia}T00:00:00Z`) - Date.parse(`${dias[i - 1].dia}T00:00:00Z`) === 86400000,
+                );
+                const paginas = await chamar("listarPaginasBuscadas", () =>
+                  buscas.listarPaginasBuscadas({ dias: 7 }),
+                );
+                const termos = await chamar("listarTermosBuscados", () =>
+                  buscas.listarTermosBuscados({ dias: 7, pagina: "/blog" }),
+                );
+                afirmar(
+                  "as buscas por dia vêm com um ponto por dia, sem buraco, e a lista de páginas e a de termos respondem como listas",
+                  porDia?.ok === true &&
+                    dias.length === 7 &&
+                    semBuraco &&
+                    paginas?.ok === true &&
+                    Array.isArray(paginas.dados) &&
+                    termos?.ok === true &&
+                    Array.isArray(termos.dados),
+                  JSON.stringify(porDia?.erro ?? paginas?.erro ?? termos?.erro ?? dias).slice(0, 260),
+                );
+
+                const ultimo = await chamar("lerUltimoDiaDeBuscas", () => buscas.lerUltimoDiaDeBuscas());
+                afirmar(
+                  "o último dia de buscas é um dia ou nulo — nulo é a sincronização que ainda não gravou, e não um erro",
+                  ultimo?.ok === true &&
+                    (ultimo.dados === null || /^\d{4}-\d{2}-\d{2}$/.test(String(ultimo.dados))),
+                  JSON.stringify(ultimo?.erro ?? ultimo?.dados ?? null).slice(0, 160),
+                );
+
+                const recusas = [
+                  await chamar("lerBuscasPorDia (0 dias)", () => buscas.lerBuscasPorDia({ dias: 0 })),
+                  await chamar("lerBuscasPorDia (página sem barra)", () =>
+                    buscas.lerBuscasPorDia({ dias: 7, pagina: "blog/x" }),
+                  ),
+                  await chamar("listarPaginasBuscadas (367 dias)", () =>
+                    buscas.listarPaginasBuscadas({ dias: 367 }),
+                  ),
+                  await chamar("listarTermosBuscados (página que não é texto)", () =>
+                    buscas.listarTermosBuscados({ dias: 7, pagina: 42 }),
+                  ),
+                ];
+                afirmar(
+                  "período e página fora do formato são recusados ANTES da rede nas buscas, com falha tipada",
+                  recusas.every((r) => r?.ok === false),
+                  recusas.map((r) => String(r?.ok)).join(", "),
+                );
+
+                const statusDe = async (caminho, corpo) => {
+                  try {
+                    const r = await fetch(`${URL_PROJETO}/rest/v1/${caminho}`, {
+                      method: corpo === null ? "GET" : "POST",
+                      signal: AbortSignal.timeout(TIMEOUT_MS),
+                      headers: { apikey: chavePublicavel, "Content-Type": "application/json" },
+                      body: corpo === null ? undefined : JSON.stringify(corpo),
+                    });
+                    return r.status;
+                  } catch {
+                    return 0;
+                  }
+                };
+                const fechados = [
+                  await statusDe("buscas_do_google?select=dia&limit=1", null),
+                  await statusDe(`rpc/${buscas.FUNCAO_DE_BUSCAS_POR_DIA}`, { p_dias: 7 }),
+                  await statusDe(`rpc/${buscas.FUNCAO_DE_BUSCAS_POR_PAGINA}`, { p_dias: 7 }),
+                  await statusDe(`rpc/${buscas.FUNCAO_DE_BUSCAS_POR_TERMO}`, { p_dias: 7 }),
+                  await statusDe(`rpc/${buscas.FUNCAO_DO_ULTIMO_DIA_DE_BUSCAS}`, {}),
+                ];
+                afirmar(
+                  "o visitante anônimo NÃO lê as buscas do Google — nem pela tabela, nem pelas quatro funções",
+                  fechados.every((s) => s === 401 || s === 403),
+                  `HTTP ${fechados.join(", ")}`,
                 );
               }
 

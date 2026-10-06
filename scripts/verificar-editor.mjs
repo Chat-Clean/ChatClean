@@ -3335,6 +3335,7 @@ async function compilarComponentes() {
       `export { ESPERA_DA_BUSCA_MS } from ${caminhoDeModulo(CAMINHO_LISTA)};\n` +
       `export * as regrasDaListagem from ${caminhoDeModulo(CAMINHO_MODULO_DA_LISTAGEM)};\n` +
       `export * as regrasDasLeituras from ${caminhoDeModulo("src/admin/blog/leituras.js")};\n` +
+      `export * as regrasDasBuscas from ${caminhoDeModulo("src/admin/blog/buscas.js")};\n` +
       `export * as regrasDasAcoes from ${caminhoDeModulo(CAMINHO_MODULO_DAS_ACOES)};\n` +
       `export { default as PreVisualizacaoDePost } from ${caminhoDeModulo(CAMINHO_PREVIA)};\n` +
       `export * as regrasDaPrevia from ${caminhoDeModulo(CAMINHO_MODULO_DA_PREVIA)};\n` +
@@ -7115,6 +7116,60 @@ if (janela && schema && configuracao && compilado) {
               r.textoDaMedia(3.44) === "3,4" &&
               r.textoDaMedia(38.7) === "39",
             [1 / 30, 0, 3.44, 38.7].map((n) => r.textoDaMedia(n)).join(" | "),
+          );
+        }
+
+        /* ── AS REGRAS DA TELA DE BUSCAS NO GOOGLE ─────────────────────
+           Puras, e por isso executadas. O que elas guardam: a taxa e a posição
+           do período saem dos TOTAIS (e não da média dos dias), "sem dado" não
+           vira zero, e os dias que o Google ainda não entregou não entram no
+           gráfico como se ninguém tivesse buscado. */
+        {
+          const b = modulo.regrasDasBuscas;
+          const serie = [
+            { dia: "2026-10-01", cliques: 1, impressoes: 10, posicao: 2 },
+            { dia: "2026-10-02", cliques: 9, impressoes: 990, posicao: 10 },
+            { dia: "2026-10-03", cliques: 0, impressoes: 0, posicao: 0 },
+            { dia: "2026-10-04", cliques: 0, impressoes: 0, posicao: 0 },
+          ];
+          const resumo = b.resumoDasBuscas(serie);
+          afirmar(
+            "o resumo das buscas soma cliques e impressões, e a posição do período é PONDERADA pelas impressões — um dia de dez não pesa como um de mil",
+            resumo.cliques === 10 &&
+              resumo.impressoes === 1000 &&
+              Math.abs(resumo.posicao - 9.92) < 1e-9 &&
+              b.resumoDasBuscas([]).posicao === 0,
+            JSON.stringify(resumo),
+          );
+          afirmar(
+            "a taxa sai dos totais (1,0%), e sem impressão não há taxa nem posição — “sem dado” não é zero",
+            b.textoDaTaxa(10, 1000) === "1,0%" &&
+              b.textoDaTaxa(0, 0) === null &&
+              b.textoDaPosicao(9.92) === "9,9" &&
+              b.textoDaPosicao(0) === null,
+            `${b.textoDaTaxa(10, 1000)} | ${b.textoDaTaxa(0, 0)} | ${b.textoDaPosicao(9.92)} | ${b.textoDaPosicao(0)}`,
+          );
+          const cortada = b.ateOUltimoDia(serie, "2026-10-02");
+          afirmar(
+            "a série é cortada no último dia que o Google entregou — os dias seguintes não entram como zero; sem último dia, ela volta inteira",
+            cortada.length === 2 &&
+              cortada[1].dia === "2026-10-02" &&
+              b.ateOUltimoDia(serie, null).length === 4,
+            cortada.map((p) => p.dia).join(", "),
+          );
+          afirmar(
+            "o gráfico recebe UMA medida por vez, na forma que ele desenha, com o rótulo no singular e no plural",
+            igual(b.serieDaMedida(serie, "impressoes").slice(0, 2).map((p) => p.total), [10, 990]) &&
+              igual(b.serieDaMedida(serie, "cliques").slice(0, 2).map((p) => p.total), [1, 9]) &&
+              b.rotularMedida("cliques")(1) === "1 clique" &&
+              b.rotularMedida("impressoes")(1234) === "1.234 impressões",
+            `${b.rotularMedida("cliques")(1)} | ${b.rotularMedida("impressoes")(1234)}`,
+          );
+          afirmar(
+            "a página aparece pelo título quando é um Post, pelo caminho quando não é, e a home não vira uma barra sozinha",
+            b.nomeDaPagina({ pagina: "/blog/x", titulo: "Um post" }) === "Um post" &&
+              b.nomeDaPagina({ pagina: "/sobre", titulo: null }) === "/sobre" &&
+              b.nomeDaPagina({ pagina: "/", titulo: null }) === "Página inicial",
           );
         }
         afirmar(

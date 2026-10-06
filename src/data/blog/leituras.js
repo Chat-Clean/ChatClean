@@ -119,7 +119,7 @@ export const MAXIMO_DE_DIAS = 366;
  * Recusado, e não corrigido: o banco cortaria em silêncio, e a tela mostraria
  * "últimos 30 dias" em cima de um gráfico de outro tamanho.
  */
-function diasValidos(dias) {
+export function diasValidos(dias) {
   return Number.isInteger(dias) && dias >= 1 && dias <= MAXIMO_DE_DIAS ? dias : null;
 }
 

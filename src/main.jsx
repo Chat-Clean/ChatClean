@@ -18,7 +18,9 @@ import AdminBlog from "./pages/AdminBlog.jsx";
 import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
 import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
 import TelaDeLeituras from "@/admin/blog/TelaDeLeituras";
+import TelaDeBuscas from "@/admin/blog/TelaDeBuscas";
 import {
+  ROTA_DAS_BUSCAS,
   ROTA_DAS_CATEGORIAS,
   ROTA_DAS_LEITURAS,
   ROTA_DA_PREVIA,
@@ -134,6 +136,9 @@ createRoot(document.getElementById("root")).render(
           {/* As Leituras: a evolução das leituras dos Posts. Irmã das
               Categorias, dentro do mesmo portão, antes da apanha-tudo. */}
           <Route path={ROTA_DAS_LEITURAS} element={<TelaDeLeituras />} />
+          {/* As Buscas no Google: o que o Search Console mede do site, lido
+              do banco. Irmã das Leituras, dentro do mesmo portão. */}
+          <Route path={ROTA_DAS_BUSCAS} element={<TelaDeBuscas />} />
           {/* Endereço desconhecido sob o Painel cai na mesma tela de ausência.
               Sem esta filha, o pai monta, o `Outlet` fica vazio e o Autor
               recebe uma página em branco — indistinguível de "o Painel

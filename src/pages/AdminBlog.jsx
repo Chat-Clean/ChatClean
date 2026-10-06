@@ -1,14 +1,18 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, Search, FileText, Briefcase, Tags, TrendingUp } from "lucide-react";
+import { Plus, Search, FileText, Briefcase, Tags, TrendingUp, Globe } from "lucide-react";
 
 import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
 import EditorDePost from "@/admin/blog/EditorDePost";
 import ListaDePosts from "@/admin/blog/ListaDePosts";
 import FiltroDeData from "@/admin/blog/FiltroDeData";
 import { selecionarEstadoExclusivo } from "@/admin/blog/listagem";
-import { ENDERECO_DAS_CATEGORIAS, ENDERECO_DAS_LEITURAS } from "@/admin/blog/rotas";
+import {
+  ENDERECO_DAS_BUSCAS,
+  ENDERECO_DAS_CATEGORIAS,
+  ENDERECO_DAS_LEITURAS,
+} from "@/admin/blog/rotas";
 import AbaDeCarreiras from "@/admin/carreiras/AbaDeCarreiras";
 import { ABA_DE_CARREIRAS, PARAMETRO_DA_ABA } from "@/admin/carreiras/rotas";
 import { ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
@@ -275,6 +279,18 @@ export default function AdminBlog() {
             </motion.div>
             {/* O vão que empurra "Novo Post" para a borda. */}
             <div className="flex-1" />
+            {/* A ENTRADA PARA AS BUSCAS NO GOOGLE: cliques, impressões e
+                posição do site inteiro, vindos do Search Console. */}
+            <motion.div variants={staggerItem}>
+              <Link
+                to={ENDERECO_DAS_BUSCAS}
+                data-acao="abrir-buscas"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+              >
+                <Globe className="w-4 h-4" />
+                <span className="hidden sm:inline">Google</span>
+              </Link>
+            </motion.div>
             {/* A ENTRADA PARA AS LEITURAS: a evolução das leituras dos Posts.
                 Link para uma rota irmã, como o das Categorias ao lado. */}
             <motion.div variants={staggerItem}>

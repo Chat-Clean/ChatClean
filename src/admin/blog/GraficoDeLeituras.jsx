@@ -39,7 +39,17 @@ const MARGEM = Object.freeze({ topo: 12, direita: 16, base: 28, esquerda: 44 });
 /** A largura usada enquanto o contêiner ainda não foi medido. */
 const LARGURA_INICIAL = 640;
 
-export default function GraficoDeLeituras({ serie, altura = 260 }) {
+/**
+ * `serie` é uma lista de `{ dia, total }`. `rotular` diz o valor de um ponto por
+ * extenso (`12 leituras`, `12 cliques`) e `nome` é o que o gráfico mede: os dois
+ * existem para o mesmo desenho servir a mais de uma medida sem duas cópias.
+ */
+export default function GraficoDeLeituras({
+  serie,
+  altura = 260,
+  rotular = textoDeLeituras,
+  nome = "Leituras",
+}) {
   const pontos = useMemo(() => (Array.isArray(serie) ? serie : []), [serie]);
   const moldura = useRef(null);
   const [largura, setLargura] = useState(LARGURA_INICIAL);
@@ -86,6 +96,9 @@ export default function GraficoDeLeituras({ serie, altura = 260 }) {
       : `${linha} L${xDe(pontos.length - 1).toFixed(2)},${chao} L${xDe(0).toFixed(2)},${chao} Z`;
 
   const ultimo = pontos.length - 1;
+  /* Quantas datas cabem no eixo sem encostar uma na outra: num celular são
+     três ou quatro, e não as seis de uma tela larga. */
+  const rotulosQueCabem = Math.min(6, Math.max(2, Math.floor(larguraUtil / 72)));
   const emFoco = ativo !== null && pontos[ativo] ? pontos[ativo] : null;
 
   /* O ponteiro só precisa estar PERTO de um dia: mira-se numa data, e não numa
@@ -127,7 +140,7 @@ export default function GraficoDeLeituras({ serie, altura = 260 }) {
         viewBox={`0 0 ${largura} ${altura}`}
         role="img"
         tabIndex={0}
-        aria-label={`Leituras por dia, de ${diaCompleto(pontos[0]?.dia)} a ${diaCompleto(pontos[ultimo]?.dia)}. Use as setas para percorrer os dias.`}
+        aria-label={`${nome} por dia, de ${diaCompleto(pontos[0]?.dia)} a ${diaCompleto(pontos[ultimo]?.dia)}. Use as setas para percorrer os dias.`}
         onPointerMove={aoMoverPonteiro}
         onPointerLeave={() => setAtivo(null)}
         onKeyDown={aoTeclar}
@@ -160,7 +173,7 @@ export default function GraficoDeLeituras({ serie, altura = 260 }) {
         ))}
 
         {/* O eixo do tempo: poucos rótulos, sempre com o primeiro e o último dia. */}
-        {marcasDoTempo(pontos.length).map((i) => (
+        {marcasDoTempo(pontos.length, rotulosQueCabem).map((i) => (
           <text
             key={pontos[i].dia}
             x={xDe(i)}
@@ -232,14 +245,14 @@ export default function GraficoDeLeituras({ serie, altura = 260 }) {
               : { right: Math.max(largura - xDoFoco + 12, 8) }
           }
         >
-          <p className="text-sm font-bold text-ink">{textoDeLeituras(emFoco.total)}</p>
+          <p className="text-sm font-bold text-ink">{rotular(emFoco.total)}</p>
           <p className="dado text-xs text-ink-muted">{diaCompleto(emFoco.dia)}</p>
         </div>
       ) : null}
 
       {/* O mesmo texto, para quem ouve a tela e anda pelos dias com as setas. */}
       <p role="status" aria-live="polite" className="sr-only" data-papel="dia-anunciado">
-        {emFoco === null ? "" : `${diaCompleto(emFoco.dia)}: ${textoDeLeituras(emFoco.total)}`}
+        {emFoco === null ? "" : `${diaCompleto(emFoco.dia)}: ${rotular(emFoco.total)}`}
       </p>
     </div>
   );
