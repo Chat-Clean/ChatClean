@@ -70,6 +70,21 @@ export const ROTA_DAS_LEITURAS = SEGMENTO_DAS_LEITURAS;
 /** O endereço absoluto da tela de Leituras. */
 export const ENDERECO_DAS_LEITURAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_LEITURAS}`;
 
+/**
+ * O segmento da tela de Buscas no Google: o que o Search Console mede do site.
+ *
+ * Irmã das Leituras e das Categorias, dentro do mesmo portão. Mora com as
+ * rotas do Blog porque é delas que pende, mas os números são do site inteiro,
+ * e não só dos Posts.
+ */
+export const SEGMENTO_DAS_BUSCAS = "buscas";
+
+/** O caminho da rota filha, RELATIVO ao pai `/admin`. */
+export const ROTA_DAS_BUSCAS = SEGMENTO_DAS_BUSCAS;
+
+/** O endereço absoluto da tela de Buscas no Google. */
+export const ENDERECO_DAS_BUSCAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_BUSCAS}`;
+
 /** O nome do parâmetro de rota. Escrito uma vez: a rota e a tela o leem daqui. */
 export const PARAMETRO_DA_PREVIA = "id";
 
