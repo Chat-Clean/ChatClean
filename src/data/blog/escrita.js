@@ -36,8 +36,10 @@ import {
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
   OPERACAO_EXCLUIR_CATEGORIA,
+  OPERACAO_EXCLUIR_NOTICIA,
   OPERACAO_SALVAR,
   OPERACAO_SALVAR_CATEGORIA,
+  OPERACAO_SALVAR_NOTICIA,
 } from "../../domain/blog/operacoes.js";
 import { ehUuid, tokenDoPainelOuFalha } from "./comum.js";
 import {
@@ -137,6 +139,21 @@ const VERBOS_DA_OPERACAO = Object.freeze({
     tentar: "tente excluir de novo",
     conflito: "Há posts usando esta categoria. Mude a categoria desses posts antes de excluí-la.",
     ausente: "Esta categoria já não está no Painel, alguém pode tê-la excluído antes.",
+  }),
+  /* As Notícias falam da NOTÍCIA, pela mesma razão das Categorias. */
+  [OPERACAO_SALVAR_NOTICIA]: Object.freeze({
+    fazer: "salvar a notícia",
+    tentar: "tente salvar de novo",
+    conflito:
+      "Esta notícia foi mudada por outra pessoa enquanto você mexia nela. Recarregue a lista de notícias para ver como ela está.",
+    ausente: "A notícia que você está editando já não está no Painel. Volte à lista de notícias para ver o que existe agora.",
+  }),
+  [OPERACAO_EXCLUIR_NOTICIA]: Object.freeze({
+    fazer: "excluir a notícia",
+    tentar: "tente excluir de novo",
+    conflito:
+      "Alguma coisa ainda depende desta notícia, então ela não pode sair agora. Recarregue a lista e tente excluir de novo.",
+    ausente: "Esta notícia já não está no Painel, alguém pode tê-la excluído antes.",
   }),
 });
 
@@ -543,6 +560,68 @@ export async function excluirCategoria(id, { buscar = globalThis.fetch, obterTok
   }
   return pedirAoServidor({
     operacao: OPERACAO_EXCLUIR_CATEGORIA,
+    rotulo,
+    corpo: { id: String(id).trim() },
+    buscar,
+    obterToken,
+  });
+}
+
+/* ─── Notícias ───────────────────────────────────────────────────────────── */
+
+/**
+ * Cria ou edita uma Notícia, pela MESMA porta.
+ *
+ * `campos` é `{ titulo, descricao, video, publicada }`. `video` é o que a pessoa
+ * colou (link ou identificador do YouTube): quem extrai o identificador e o
+ * grava é o servidor. `id` ausente CRIA; `id` presente edita, e é conferido
+ * aqui antes de viajar, como na Categoria.
+ *
+ * Devolve `{ ok: true, dados: { operacao, criada, noticia } }` ou
+ * `{ ok: false, erro }`. **Nunca lança.**
+ */
+export async function salvarNoticia(
+  campos,
+  { id = null, buscar = globalThis.fetch, obterToken } = {},
+) {
+  const rotulo = OPERACAO_SALVAR_NOTICIA;
+  const alvo = id === null || id === undefined || id === "" ? null : id;
+  if (alvo !== null && !ehUuid(alvo)) {
+    return falhaDeEscrita(ERRO_DADOS_INVALIDOS, {
+      operacao: rotulo,
+      mensagem: "Não reconhecemos qual notícia deve ser alterada.",
+      detalhe: `id fora do formato de identificador: ${JSON.stringify(String(id).slice(0, 60))}`,
+    });
+  }
+  const corpo = { ...(campos ?? {}) };
+  if (alvo !== null) corpo.id = String(alvo).trim();
+  else delete corpo.id;
+  return pedirAoServidor({
+    operacao: OPERACAO_SALVAR_NOTICIA,
+    rotulo,
+    corpo,
+    buscar,
+    obterToken,
+  });
+}
+
+/**
+ * Exclui uma Notícia, também pela mesma porta. O vídeo continua no YouTube.
+ *
+ * Devolve `{ ok: true, dados: { operacao, id, noticia } }` ou
+ * `{ ok: false, erro }`. **Nunca lança.**
+ */
+export async function excluirNoticia(id, { buscar = globalThis.fetch, obterToken } = {}) {
+  const rotulo = OPERACAO_EXCLUIR_NOTICIA;
+  if (!ehUuid(id)) {
+    return falhaDeEscrita(ERRO_DADOS_INVALIDOS, {
+      operacao: rotulo,
+      mensagem: "Não reconhecemos qual notícia deve ser excluída.",
+      detalhe: `id fora do formato de identificador: ${JSON.stringify(String(id).slice(0, 60))}`,
+    });
+  }
+  return pedirAoServidor({
+    operacao: OPERACAO_EXCLUIR_NOTICIA,
     rotulo,
     corpo: { id: String(id).trim() },
     buscar,

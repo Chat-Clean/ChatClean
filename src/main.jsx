@@ -9,6 +9,12 @@ import App from "./App.jsx";
 const Integracoes = lazy(() => import("./pages/Integracoes.jsx"));
 import Blog from "./pages/Blog.jsx";
 import BlogPost from "./pages/BlogPost.jsx";
+import Noticias from "./pages/Noticias.jsx";
+import NoticiaPublica from "./pages/NoticiaPublica.jsx";
+import {
+  ROTA_DA_NOTICIA as ROTA_DA_NOTICIA_NO_SITE,
+  ROTA_DAS_NOTICIAS as ROTA_DAS_NOTICIAS_NO_SITE,
+} from "./pages/noticiasPublico.js";
 import Carreiras from "./pages/Carreiras.jsx";
 import VagaPublica from "./pages/VagaPublica.jsx";
 import Sobre from "./pages/Sobre.jsx";
@@ -19,10 +25,12 @@ import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
 import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
 import TelaDeLeituras from "@/admin/blog/TelaDeLeituras";
 import TelaDeBuscas from "@/admin/blog/TelaDeBuscas";
+import TelaDeNoticias from "@/admin/blog/TelaDeNoticias";
 import {
   ROTA_DAS_BUSCAS,
   ROTA_DAS_CATEGORIAS,
   ROTA_DAS_LEITURAS,
+  ROTA_DAS_NOTICIAS,
   ROTA_DA_PREVIA,
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
@@ -64,6 +72,11 @@ createRoot(document.getElementById("root")).render(
         <Route path="/" element={<App />} />
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
+        {/* As Notícias em vídeo. Fora de `/blog/…` de propósito: lá o segundo
+            segmento é o Slug de um Post, e a plataforma reescreve o endereço
+            para a função que serve o artigo. */}
+        <Route path={ROTA_DAS_NOTICIAS_NO_SITE} element={<Noticias />} />
+        <Route path={ROTA_DA_NOTICIA_NO_SITE} element={<NoticiaPublica />} />
         <Route path="/carreiras" element={<Carreiras />} />
         <Route path="/carreiras/:slug" element={<VagaPublica />} />
         <Route
@@ -139,6 +152,9 @@ createRoot(document.getElementById("root")).render(
           {/* As Buscas no Google: o que o Search Console mede do site, lido
               do banco. Irmã das Leituras, dentro do mesmo portão. */}
           <Route path={ROTA_DAS_BUSCAS} element={<TelaDeBuscas />} />
+          {/* As Notícias: os vídeos do blog. Irmã das Categorias, dentro do
+              mesmo portão, antes da apanha-tudo. */}
+          <Route path={ROTA_DAS_NOTICIAS} element={<TelaDeNoticias />} />
           {/* Endereço desconhecido sob o Painel cai na mesma tela de ausência.
               Sem esta filha, o pai monta, o `Outlet` fica vazio e o Autor
               recebe uma página em branco — indistinguível de "o Painel

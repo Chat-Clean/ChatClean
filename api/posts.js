@@ -33,8 +33,10 @@ import {
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
   OPERACAO_EXCLUIR_CATEGORIA,
+  OPERACAO_EXCLUIR_NOTICIA,
   OPERACAO_SALVAR,
   OPERACAO_SALVAR_CATEGORIA,
+  OPERACAO_SALVAR_NOTICIA,
   OPERACOES,
   operacaoPedida,
 } from "../src/domain/blog/operacoes.js";
@@ -43,6 +45,7 @@ import {
   excluirCategoria,
   salvarCategoria,
 } from "./_nucleo/operacoesDaCategoria.js";
+import { excluirNoticia, salvarNoticia } from "./_nucleo/operacoesDaNoticia.js";
 import { definirDestaque, excluirPost } from "./_nucleo/operacoesDoPost.js";
 import {
   ERRO_CONFIGURACAO,
@@ -109,6 +112,10 @@ export const EXECUTORES = Object.freeze({
      erro e a ocultação do detalhe, quatro coisas que a segunda cópia faz pior. */
   [OPERACAO_SALVAR_CATEGORIA]: salvarCategoria,
   [OPERACAO_EXCLUIR_CATEGORIA]: excluirCategoria,
+  /* As Notícias (os vídeos do blog) entram pelo mesmo caminho da Categoria:
+     outra tabela, a mesma porta. */
+  [OPERACAO_SALVAR_NOTICIA]: salvarNoticia,
+  [OPERACAO_EXCLUIR_NOTICIA]: excluirNoticia,
 });
 
 /**
@@ -313,7 +320,7 @@ export default async function handler(req, res) {
     ? { ...resultado.dados, residuo: { arquivo: residuo.arquivo } }
     : resultado.dados;
 
-  /* 201 é do que NASCEU — o Post (`criado`) e a Categoria (`criada`). As
+  /* 201 é do que NASCEU — o Post (`criado`), a Categoria e a Notícia (`criada`). As
      operações que mexem no que já existe saem com 200, e nenhuma das duas
      chaves existe na resposta delas. */
   const nasceu =

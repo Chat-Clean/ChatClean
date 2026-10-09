@@ -129,9 +129,11 @@ import {
   OPERACAO_DESTACAR,
   OPERACAO_EXCLUIR,
   OPERACAO_EXCLUIR_CATEGORIA,
+  OPERACAO_EXCLUIR_NOTICIA,
   OPERACAO_PADRAO,
   OPERACAO_SALVAR,
   OPERACAO_SALVAR_CATEGORIA,
+  OPERACAO_SALVAR_NOTICIA,
   OPERACOES,
   operacaoPedida,
 } from "../src/domain/blog/operacoes.js";
@@ -3211,6 +3213,10 @@ secao("(c5) as operações: uma porta só, escolhida por lista de permissão");
     OPERACAO_DESTACAR,
     OPERACAO_SALVAR_CATEGORIA,
     OPERACAO_EXCLUIR_CATEGORIA,
+    /* E cresceu de novo com as Notícias (os vídeos do blog), pelo mesmo
+       caminho: operação na porta única, e não `api/noticias.js`. */
+    OPERACAO_SALVAR_NOTICIA,
+    OPERACAO_EXCLUIR_NOTICIA,
   ];
   afirmar(
     `o vocabulário declara as ${OPERACOES_ESPERADAS.length} operações da porta única, e nenhuma a mais`,

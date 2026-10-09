@@ -35,8 +35,6 @@ import {
   AlertCircle,
   ArrowRight,
   Calendar,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   FileText,
   Search,
@@ -66,6 +64,7 @@ import {
   estaRelendo,
   falaDaLista,
   falhaDeExcecao,
+  haFiltroAtivo,
   haMaisParaCarregar,
   nomeDaCategoria,
   nomeDoAutor,
@@ -75,6 +74,8 @@ import {
   textoDoTempoDeLeitura,
 } from "./blogPublico";
 import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
+import CarrosselDeCartoes from "./CarrosselDeCartoes";
+import SecaoDeNoticias from "./SecaoDeNoticias";
 
 
 /* ─── AS CATEGORIAS VÊM DO BANCO (Story 2.14) ──────────────────────────────
@@ -103,13 +104,17 @@ const PEDIDO_INICIAL = Object.freeze({
 
 /* A luz de latão no canto do cartão de Destaque, a mesma do cabeçalho da
    conversa com a Jéssica. */
-/* Em pixels. Abaixo do primeiro, o gesto ainda é um clique; acima do segundo,
-   o arrasto troca de cartão ao soltar. */
-const LIMIAR_DO_ARRASTO = 6;
-const LIMIAR_DE_TROCA = 40;
-
-const BOTAO_DO_CARROSSEL =
-  "grid h-10 w-10 cursor-pointer place-items-center rounded-full border border-emerald-950/15 bg-white text-emerald-950 transition-colors hover:bg-emerald-950 hover:text-creme disabled:pointer-events-none disabled:opacity-35";
+/* As frases e os nomes das setas do carrossel de destaques. O comportamento
+   mora em `CarrosselDeCartoes`, compartilhado com as Notícias em vídeo. */
+const ROTULOS_DO_CARROSSEL_DE_DESTAQUES = Object.freeze({
+  anterior: "Destaque anterior",
+  proximo: "Próximo destaque",
+  irPara: (posicao, total) => `Ir para o destaque ${posicao} de ${total}`,
+});
+const ACOES_DO_CARROSSEL_DE_DESTAQUES = Object.freeze({
+  anterior: "destaque-anterior",
+  proximo: "proximo-destaque",
+});
 
 const LUZ_DO_DESTAQUE =
   "radial-gradient(circle at 100% 0%, rgba(183,146,62,0.28), transparent 55%), radial-gradient(circle at 0% 100%, rgba(81,188,105,0.14), transparent 50%)";
@@ -409,6 +414,15 @@ export default function Blog() {
               : ""}
         </p>
 
+        {/* AS NOTÍCIAS EM VÍDEO, antes dos Posts e separadas deles. A seção lê
+            sozinha e some sozinha: sem vídeo publicado, com a leitura falhando
+            ou com busca ou Categoria em curso, ela não desenha nada — quem
+            filtrou está olhando para artigos. Fica MONTADA mesmo escondida,
+            para limpar o filtro não buscar os vídeos de novo. */}
+        <SecaoDeNoticias
+          filtrando={haFiltroAtivo({ termo: pedido.termo, categoria: categoriaAtiva })}
+        />
+
         {/* Carregando pela PRIMEIRA vez: esqueleto, nunca página em branco.
             Releitura não pisca — os cartões antigos ficam. */}
         {situacao === LISTA_CARREGANDO && (
@@ -446,10 +460,19 @@ export default function Blog() {
             data-papel="destaque"
           >
             {destaques.length > 1 ? (
-              <CarrosselDeDestaques
-                posts={destaques}
-                capasQuebradas={capasQuebradas}
-                aoQuebrar={marcarCapaQuebrada}
+              <CarrosselDeCartoes
+                itens={destaques}
+                titulo="Posts em destaque"
+                rotulos={ROTULOS_DO_CARROSSEL_DE_DESTAQUES}
+                acoes={ACOES_DO_CARROSSEL_DE_DESTAQUES}
+                papelDoTrilho="trilho-dos-destaques"
+                renderizar={(post) => (
+                  <CartaoDeDestaque
+                    post={post}
+                    capaQuebrada={capasQuebradas.has(post.id)}
+                    aoQuebrar={marcarCapaQuebrada}
+                  />
+                )}
               />
             ) : (
               <>
@@ -694,186 +717,6 @@ function CartaoDeDestaque({ post, capaQuebrada, aoQuebrar }) {
         </div>
       </div>
     </Link>
-  );
-}
-
-/**
- * Mais de um Post em destaque: um cartão por vez, numa faixa que rola de lado.
- *
- * A rolagem é a do NAVEGADOR (`scroll-snap`), e não uma animação nossa: o dedo
- * arrasta no celular, o trackpad e o teclado funcionam sem código, e as setas e
- * os pontos só pedem ao trilho que role até um cartão. Não há troca automática:
- * um cartão que some sozinho tira o texto de quem estava lendo.
- *
- * O cartão seguinte aparece na beirada, no celular e no computador: é o que diz
- * que há mais. No computador o trilho também se arrasta com o mouse.
- */
-function CarrosselDeDestaques({ posts, capasQuebradas, aoQuebrar }) {
-  const trilho = useRef(null);
-  const [ativo, setAtivo] = useState(0);
-  const atual = Math.min(ativo, posts.length - 1);
-
-  /* A distância entre o começo de um cartão e o do seguinte. */
-  const passoDoTrilho = () => {
-    const itens = trilho.current?.children;
-    return itens && itens.length > 1 ? itens[1].offsetLeft - itens[0].offsetLeft : 0;
-  };
-
-  const aoRolar = () => {
-    const passo = passoDoTrilho();
-    if (passo <= 0) return;
-    const indice = Math.round(trilho.current.scrollLeft / passo);
-    setAtivo(Math.min(posts.length - 1, Math.max(0, indice)));
-  };
-
-  const irPara = (indice) => {
-    trilho.current?.scrollTo({ left: indice * passoDoTrilho() });
-  };
-
-  /* ── ARRASTAR COM O MOUSE ──────────────────────────────────────────────
-     O dedo já arrasta sozinho (é rolagem nativa); o mouse não, e por isso só
-     ele é tratado aqui. Enquanto arrasta, o trilho segue o cursor sem encaixe
-     e sem suavização; ao soltar, vai para o cartão vizinho na direção do
-     arrasto — ou volta ao mesmo, se o movimento foi curto.
-
-     O clique que fecha um arrasto é descartado: sem isso, soltar o mouse em
-     cima do cartão abriria o Post que a pessoa só queria empurrar de lado. */
-  const arrasto = useRef({ ativo: false, moveu: false, x: 0, rolagem: 0, indice: 0 });
-
-  const aoApertar = (evento) => {
-    if (evento.pointerType !== "mouse" || evento.button !== 0) return;
-    arrasto.current = {
-      ativo: true,
-      moveu: false,
-      x: evento.clientX,
-      rolagem: trilho.current.scrollLeft,
-      indice: atual,
-    };
-  };
-
-  const aoMover = (evento) => {
-    const a = arrasto.current;
-    if (!a.ativo) return;
-    const dx = evento.clientX - a.x;
-    const el = trilho.current;
-    if (!a.moveu) {
-      if (Math.abs(dx) < LIMIAR_DO_ARRASTO) return;
-      a.moveu = true;
-      el.setPointerCapture?.(evento.pointerId);
-      el.style.scrollSnapType = "none";
-      el.style.scrollBehavior = "auto";
-      el.style.userSelect = "none";
-      el.style.cursor = "grabbing";
-    }
-    el.scrollLeft = a.rolagem - dx;
-  };
-
-  const aoSoltar = (evento) => {
-    const a = arrasto.current;
-    if (!a.ativo) return;
-    a.ativo = false;
-    if (!a.moveu) return;
-    const el = trilho.current;
-    const dx = evento.clientX - a.x;
-    const vizinho = Math.abs(dx) > LIMIAR_DE_TROCA ? a.indice + (dx < 0 ? 1 : -1) : a.indice;
-    const destino = Math.min(posts.length - 1, Math.max(0, vizinho));
-    const semMovimento = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    el.style.userSelect = "";
-    el.style.cursor = "";
-    el.scrollTo({ left: destino * passoDoTrilho(), behavior: semMovimento ? "auto" : "smooth" });
-    /* O encaixe só volta depois de a rolagem assentar: religado antes, o
-       navegador saltaria para o cartão mais próximo no meio do caminho. */
-    setTimeout(() => {
-      el.style.scrollSnapType = "";
-      el.style.scrollBehavior = "";
-    }, 500);
-  };
-
-  const aoClicarNoTrilho = (evento) => {
-    if (!arrasto.current.moveu) return;
-    arrasto.current.moveu = false;
-    evento.preventDefault();
-    evento.stopPropagation();
-  };
-
-  return (
-    <div role="group" aria-roledescription="carrossel" aria-label="Posts em destaque">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <p className="text-xs font-bold uppercase tracking-widest text-emerald-700">
-          Posts em destaque
-        </p>
-        <div className="hidden items-center gap-2 md:flex">
-          <button
-            type="button"
-            data-acao="destaque-anterior"
-            aria-label="Destaque anterior"
-            disabled={atual === 0}
-            onClick={() => irPara(atual - 1)}
-            className={BOTAO_DO_CARROSSEL}
-          >
-            <ChevronLeft aria-hidden="true" className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            data-acao="proximo-destaque"
-            aria-label="Próximo destaque"
-            disabled={atual === posts.length - 1}
-            onClick={() => irPara(atual + 1)}
-            className={BOTAO_DO_CARROSSEL}
-          >
-            <ChevronRight aria-hidden="true" className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      <div
-        ref={trilho}
-        onScroll={aoRolar}
-        onPointerDown={aoApertar}
-        onPointerMove={aoMover}
-        onPointerUp={aoSoltar}
-        onPointerCancel={aoSoltar}
-        onClickCapture={aoClicarNoTrilho}
-        onDragStart={(evento) => evento.preventDefault()}
-        data-papel="trilho-dos-destaques"
-        className="sem-barra-de-rolagem -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto scroll-smooth px-4 motion-reduce:scroll-auto md:mx-0 md:cursor-grab md:scroll-px-0 md:gap-6 md:px-0"
-      >
-        {posts.map((post, i) => (
-          <div
-            key={post.id}
-            role="group"
-            aria-roledescription="slide"
-            aria-label={`${i + 1} de ${posts.length}`}
-            className="w-[88%] shrink-0 snap-start md:w-[92%]"
-          >
-            <CartaoDeDestaque
-              post={post}
-              capaQuebrada={capasQuebradas.has(post.id)}
-              aoQuebrar={aoQuebrar}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4 flex items-center justify-center gap-2">
-        {posts.map((post, i) => (
-          <button
-            key={post.id}
-            type="button"
-            aria-label={`Ir para o destaque ${i + 1} de ${posts.length}`}
-            aria-current={i === atual ? "true" : undefined}
-            onClick={() => irPara(i)}
-            className="grid h-6 place-items-center cursor-pointer"
-          >
-            <span
-              className={`block h-2 rounded-full transition-all duration-300 ${
-                i === atual ? "w-6 bg-emerald-950" : "w-2 bg-emerald-950/25"
-              }`}
-            />
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 

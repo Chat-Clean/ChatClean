@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, Search, FileText, Briefcase, Tags, TrendingUp, Globe } from "lucide-react";
+import { Plus, Search, FileText, Briefcase, Tags, TrendingUp, Globe, Video } from "lucide-react";
 
 import BarraSuperior, { idDaAba } from "@/admin/shell/BarraSuperior";
 import EditorDePost from "@/admin/blog/EditorDePost";
@@ -12,6 +12,7 @@ import {
   ENDERECO_DAS_BUSCAS,
   ENDERECO_DAS_CATEGORIAS,
   ENDERECO_DAS_LEITURAS,
+  ENDERECO_DAS_NOTICIAS,
 } from "@/admin/blog/rotas";
 import AbaDeCarreiras from "@/admin/carreiras/AbaDeCarreiras";
 import { ABA_DE_CARREIRAS, PARAMETRO_DA_ABA } from "@/admin/carreiras/rotas";
@@ -301,6 +302,18 @@ export default function AdminBlog() {
               >
                 <TrendingUp className="w-4 h-4" />
                 <span className="hidden sm:inline">Leituras</span>
+              </Link>
+            </motion.div>
+            {/* A ENTRADA PARA AS NOTÍCIAS: os vídeos que aparecem no blog, antes
+                dos Posts. Link para uma rota irmã, como os dois ao lado. */}
+            <motion.div variants={staggerItem}>
+              <Link
+                to={ENDERECO_DAS_NOTICIAS}
+                data-acao="abrir-noticias"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+              >
+                <Video className="w-4 h-4" />
+                <span className="hidden sm:inline">Notícias</span>
               </Link>
             </motion.div>
             {/* A ENTRADA PARA AS CATEGORIAS (Story 2.14). É um LINK para uma

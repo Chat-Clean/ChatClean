@@ -56,7 +56,19 @@ export const OPERACAO_SALVAR_CATEGORIA = "salvarCategoria";
 export const OPERACAO_EXCLUIR_CATEGORIA = "excluirCategoria";
 
 /**
- * As cinco, na ordem em que o Painel as oferece.
+ * Criar ou editar uma Notícia: o vídeo do YouTube, o título, a descrição e se
+ * ela está publicada.
+ *
+ * Uma operação para as duas coisas, como `salvarCategoria`: identificador
+ * ausente cria, identificador presente edita.
+ */
+export const OPERACAO_SALVAR_NOTICIA = "salvarNoticia";
+
+/** Excluir uma Notícia. O vídeo continua no YouTube: o que sai é a Notícia. */
+export const OPERACAO_EXCLUIR_NOTICIA = "excluirNoticia";
+
+/**
+ * As sete, na ordem em que o Painel as oferece.
  *
  * `salvar` está aqui, e não implícito, porque o vocabulário precisa ser
  * COMPLETO para ser fechado: uma lista que só nomeia as operações novas deixa
@@ -72,6 +84,9 @@ export const OPERACAO_EXCLUIR_CATEGORIA = "excluirCategoria";
  * que a Story 2.14 faz: as duas operações de Categoria entram aqui, não em
  * `api/categorias.js`. A porta continua sendo uma; o que muda é o dado que ela
  * recebe.
+ *
+ * As duas de Notícia entraram pelo mesmo caminho, e pela mesma razão: mexem em
+ * outra tabela (`noticias`) e mesmo assim não ganham `api/noticias.js`.
  */
 export const OPERACOES = Object.freeze([
   OPERACAO_SALVAR,
@@ -79,6 +94,8 @@ export const OPERACOES = Object.freeze([
   OPERACAO_DESTACAR,
   OPERACAO_SALVAR_CATEGORIA,
   OPERACAO_EXCLUIR_CATEGORIA,
+  OPERACAO_SALVAR_NOTICIA,
+  OPERACAO_EXCLUIR_NOTICIA,
 ]);
 
 /**

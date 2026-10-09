@@ -85,6 +85,21 @@ export const ROTA_DAS_BUSCAS = SEGMENTO_DAS_BUSCAS;
 /** O endereço absoluto da tela de Buscas no Google. */
 export const ENDERECO_DAS_BUSCAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_BUSCAS}`;
 
+/**
+ * O segmento da tela de Notícias: os vídeos que aparecem no blog.
+ *
+ * Irmã das Categorias, dentro do mesmo portão, e pela mesma razão não é aba:
+ * a Notícia é do Blog, e uma terceira aba ficaria ao lado de Carreiras como se
+ * fosse outro módulo.
+ */
+export const SEGMENTO_DAS_NOTICIAS = "noticias";
+
+/** O caminho da rota filha, RELATIVO ao pai `/admin`. */
+export const ROTA_DAS_NOTICIAS = SEGMENTO_DAS_NOTICIAS;
+
+/** O endereço absoluto da tela de Notícias. */
+export const ENDERECO_DAS_NOTICIAS = `${BASE_DO_PAINEL}/${SEGMENTO_DAS_NOTICIAS}`;
+
 /** O nome do parâmetro de rota. Escrito uma vez: a rota e a tela o leem daqui. */
 export const PARAMETRO_DA_PREVIA = "id";
 

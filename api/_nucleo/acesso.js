@@ -182,6 +182,24 @@ export const COLUNAS_DA_CATEGORIA_NA_ESCRITA = Object.freeze([
 
 const SELECAO_DA_CATEGORIA = COLUNAS_DA_CATEGORIA_NA_ESCRITA.join(",");
 
+/**
+ * As colunas que uma gravação de Notícia devolve. Lista FECHADA pela razão da
+ * de Categoria, e a MESMA que a camada de leitura usa (`COLUNAS_DA_NOTICIA`,
+ * em `src/data/blog/noticias.js`).
+ */
+export const COLUNAS_DA_NOTICIA_NA_ESCRITA = Object.freeze([
+  "id",
+  "titulo",
+  "descricao",
+  "youtube_id",
+  "publicada",
+  "publicada_em",
+  "criado_em",
+  "atualizado_em",
+]);
+
+const SELECAO_DA_NOTICIA = COLUNAS_DA_NOTICIA_NA_ESCRITA.join(",");
+
 /** As colunas de uma Tag. Curta, e fechada pela mesma razão. */
 export const COLUNAS_DA_TAG_NA_ESCRITA = Object.freeze(["id", "nome", "slug"]);
 
@@ -784,6 +802,73 @@ export function criarAcesso({
       return primeira(
         await pedir(
           `/rest/v1/categorias?select=${SELECAO_DA_CATEGORIA}&id=eq.${encodeURIComponent(alvo)}`,
+          {
+            metodo: "DELETE",
+            cabecalhos: comServico({ Prefer: "return=representation" }),
+          },
+        ),
+      );
+    },
+
+    /* ─── Notícias ─────────────────────────────────────────────────────────
+       Os vídeos do blog. Mesma regra das Categorias: escrever é com a chave de
+       serviço, por aqui, e nenhuma política de escrita existe para `noticias`. */
+
+    /** A Notícia que já existe, ou `null`. */
+    async lerNoticia(id) {
+      return primeira(
+        await pedir(
+          `/rest/v1/noticias?select=${SELECAO_DA_NOTICIA}&id=eq.${encodeURIComponent(id)}&limit=1`,
+          { cabecalhos: comServico() },
+        ),
+      );
+    },
+
+    /** Cria uma Notícia. Um comando, com as colunas montadas pelo chamador. */
+    async inserirNoticia(campos) {
+      return primeira(
+        await pedir(`/rest/v1/noticias?select=${SELECAO_DA_NOTICIA}`, {
+          metodo: "POST",
+          corpo: campos,
+          cabecalhos: comServico({ Prefer: "return=representation" }),
+        }),
+      );
+    },
+
+    /** Atualiza uma Notícia existente. */
+    async atualizarNoticia(id, campos) {
+      return primeira(
+        await pedir(
+          `/rest/v1/noticias?select=${SELECAO_DA_NOTICIA}&id=eq.${encodeURIComponent(id)}`,
+          {
+            metodo: "PATCH",
+            corpo: campos,
+            cabecalhos: comServico({ Prefer: "return=representation" }),
+          },
+        ),
+      );
+    },
+
+    /**
+     * Apaga uma Notícia, com a MESMA guarda do `DELETE` de Post e de Categoria:
+     * filtro ausente ou malformado no PostgREST é um `DELETE` na tabela inteira.
+     */
+    async excluirNoticia(id) {
+      const alvo = typeof id === "string" ? id.trim() : "";
+      if (!PADRAO_DE_UUID.test(alvo)) {
+        return {
+          ok: false,
+          status: 0,
+          faixa: "",
+          codigo: "IdentificadorInvalido",
+          mensagem:
+            "exclusão de notícia recusada no transporte: identificador ausente ou fora do formato",
+          dados: null,
+        };
+      }
+      return primeira(
+        await pedir(
+          `/rest/v1/noticias?select=${SELECAO_DA_NOTICIA}&id=eq.${encodeURIComponent(alvo)}`,
           {
             metodo: "DELETE",
             cabecalhos: comServico({ Prefer: "return=representation" }),
