@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Plus, Search, FileText, Briefcase, Tags, TrendingUp, Globe, Video } from "lucide-react";
@@ -101,6 +101,19 @@ export default function AdminBlog() {
   const [versaoDaLista, setVersaoDaLista] = useState(0);
   const [blogView, setBlogView] = useState("list"); // "list" | "form"
   const [editingPost, setEditingPost] = useState(null);
+
+  /* ── A JANELA NÃO ROLA NESTA TELA ─────────────────────────────────
+     Quem rola é a lista, por dentro. Mesma garantia do Editor de Post e do
+     Editor de Vaga: enquanto a tela está montada, o documento não rola, venha
+     o empurrão de onde vier. O valor anterior volta na saída, porque as rotas
+     irmãs (Categorias, Leituras, a prévia) rolam a janela de propósito. */
+  useEffect(() => {
+    const anterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = anterior;
+    };
+  }, []);
 
   /* ── Estado — Carreiras ───────────────────────────────────────────
      Só a contagem da aba, pelo mesmo motivo e com a mesma regra da de Posts:
@@ -347,7 +360,12 @@ export default function AdminBlog() {
         role="tabpanel"
         aria-labelledby={idDaAba(activeTab)}
         tabIndex={-1}
-        className="flex-1 overflow-y-auto p-6"
+        /* `relative`: as listas terminam num aviso `sr-only`, que é
+           `position: absolute`. Sem um ancestral posicionado AQUI, a caixa que
+           o contém era o `body`: ele escapava do `overflow-y-auto`, ficava lá
+           embaixo, na altura do fim da lista, e esticava o documento — a
+           janela ganhava uma segunda rolagem, que terminava num vazio branco. */
+        className="relative min-h-0 flex-1 overflow-y-auto p-6"
       >
 
         {/* ── POSTS ───────────────────────────────────────────────
