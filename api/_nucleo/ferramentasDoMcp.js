@@ -14,7 +14,9 @@
  *   * o conteúdo chega em Markdown e é convertido para o documento do Editor
  *     (`markdown.js`), e o que não coube volta como aviso;
  *   * editar um post relê o que está gravado e troca só o que foi pedido, porque
- *     a gravação do Post exige o conteúdo inteiro.
+ *     a gravação do Post exige o conteúdo inteiro;
+ *   * imagem chega por ENDEREÇO (capa, compartilhamento ou `![](…)` no corpo) e é
+ *     trazida para o bucket do site antes de gravar (`imagensDoMcp.js`).
  */
 
 import { CHAVES_DE_ICONE_DE_CATEGORIA, CORES_DE_CATEGORIA } from "../../src/domain/blog/categorias.js";
@@ -25,8 +27,11 @@ import { acaoDoEstado, acoesDoEstado } from "../../src/domain/blog/transicoes.js
 import { ESTADOS_DA_VAGA } from "../../src/domain/carreiras/estados.js";
 import { acoesDoEstadoDaVaga } from "../../src/domain/carreiras/transicoes.js";
 
+import { TAMANHO_MAXIMO_DO_ALTERNATIVO } from "../../src/domain/blog/arquivos.js";
+
+import { RecusaDeImagem } from "./imagensDoMcp.js";
 import { ehIdentificador } from "./leiturasDoMcp.js";
-import { documentoDoMarkdown, markdownDoDocumento } from "./markdown.js";
+import { documentoDoMarkdown, enderecosDeImagemDoMarkdown, markdownDoDocumento } from "./markdown.js";
 import { excluirCategoria, salvarCategoria } from "./operacoesDaCategoria.js";
 import { excluirNoticia, salvarNoticia } from "./operacoesDaNoticia.js";
 import { excluirVaga, mudarEstadoDaVaga, salvarVaga } from "./operacoesDaVaga.js";
@@ -75,10 +80,80 @@ function resultadoDaEscrita(resultado) {
   throw new Recusa(partes.join(" "));
 }
 
-function conteudoDoMarkdown(markdown, vocabulario) {
-  const convertido = documentoDoMarkdown(markdown, vocabulario);
+function conteudoDoMarkdown(markdown, vocabulario, imagens) {
+  const convertido = documentoDoMarkdown(markdown, vocabulario, { imagens });
   if (!convertido.ok) throw new Recusa(convertido.mensagem);
   return convertido;
+}
+
+/* ─── Imagens ────────────────────────────────────────────────────────────── */
+
+const IMAGENS_POR_PEDIDO = 12;
+
+/** Uma imagem trazida para o bucket. Recusa vira `Recusa`, com o motivo. */
+async function importarImagem(ctx, endereco, destino) {
+  try {
+    return await ctx.importador.importar(String(endereco).trim(), destino);
+  } catch (excecao) {
+    if (excecao instanceof RecusaDeImagem) throw new Recusa(excecao.message);
+    throw excecao;
+  }
+}
+
+/**
+ * As imagens do corpo trazidas para o bucket: o mapa que `documentoDoMarkdown`
+ * usa. Imagem que falha não derruba o post: vira aviso, e o resto entra.
+ */
+async function imagensDoCorpo(ctx, markdown) {
+  const mapa = new Map();
+  const avisos = [];
+  const enderecos = enderecosDeImagemDoMarkdown(markdown);
+  if (enderecos.length > IMAGENS_POR_PEDIDO) {
+    throw new Recusa(`São ${enderecos.length} imagens no corpo; o limite por pedido é ${IMAGENS_POR_PEDIDO}. Divida em edições.`);
+  }
+  // Quatro de cada vez: uma por uma, um post com muitas imagens passaria do
+  // prazo da função; todas juntas, o pico de memória cresceria sem teto.
+  const fila = [...enderecos];
+  const trabalhar = async () => {
+    for (let endereco = fila.shift(); endereco !== undefined; endereco = fila.shift()) {
+      try {
+        mapa.set(endereco, await importarImagem(ctx, endereco, "corpo"));
+      } catch (excecao) {
+        if (!(excecao instanceof Recusa)) throw excecao;
+        avisos.push(`Imagem ${endereco.slice(0, 80)}: ${excecao.message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, enderecos.length) }, trabalhar));
+  return { mapa, avisos };
+}
+
+/**
+ * Capa e imagem de compartilhamento: endereço → coluna. `""` ou `null` tira a
+ * imagem. Capa exige descrição (o banco recusa capa sem `imagem_alt`).
+ */
+async function aplicarImagensDoPost(ctx, args, corpo) {
+  if (args.capa_url !== undefined) {
+    if (args.capa_url === null || String(args.capa_url).trim() === "") {
+      corpo.imagem_url = null;
+      corpo.imagem_alt = null;
+    } else {
+      const alt = String(args.capa_alt ?? corpo.imagem_alt ?? "").trim();
+      if (alt === "") throw new Recusa("Toda capa precisa de capa_alt: uma frase dizendo o que a imagem mostra.");
+      corpo.imagem_url = await importarImagem(ctx, args.capa_url, "capa");
+      corpo.imagem_alt = alt;
+    }
+  } else if (args.capa_alt !== undefined) {
+    corpo.imagem_alt = String(args.capa_alt).trim() || null;
+  }
+  if (corpo.imagem_alt && corpo.imagem_alt.length > TAMANHO_MAXIMO_DO_ALTERNATIVO) {
+    throw new Recusa(`capa_alt tem mais de ${TAMANHO_MAXIMO_DO_ALTERNATIVO} caracteres. Resuma.`);
+  }
+  if (args.imagem_compartilhamento_url !== undefined) {
+    const valor = args.imagem_compartilhamento_url;
+    corpo.seo_imagem_url =
+      valor === null || String(valor).trim() === "" ? null : await importarImagem(ctx, valor, "capa");
+  }
 }
 
 /* ─── Posts ──────────────────────────────────────────────────────────────── */
@@ -138,7 +213,19 @@ const CAMPOS_DO_POST = {
   conteudo_markdown: {
     type: "string",
     description:
-      "O artigo em Markdown. Use ## e ### para seções (o # é o título do post), **negrito**, *itálico*, links, listas, citações e blocos de código.",
+      "O artigo em Markdown. Use ## e ### para seções (o # é o título do post), **negrito**, *itálico*, links, listas, " +
+      "citações e blocos de código. Imagens: ![o que a imagem mostra](https://endereço-da-imagem), numa linha própria; " +
+      "o servidor traz cada uma para o site (até 12 por pedido).",
+  },
+  capa_url: {
+    type: "string",
+    description:
+      "Endereço https da imagem de capa (JPEG, PNG, WebP ou AVIF). O servidor baixa, otimiza e guarda no site. Vazio tira a capa.",
+  },
+  capa_alt: { type: "string", description: "O que a capa mostra, em uma frase (obrigatório com capa_url; até 300 caracteres)." },
+  imagem_compartilhamento_url: {
+    type: "string",
+    description: "Imagem para WhatsApp, redes e Google (opcional; vazio herda a capa). Mesmo formato da capa.",
   },
   categoria: { type: "string", description: "Nome (ou id) de uma categoria existente." },
   tags: { type: "array", items: { type: "string" }, description: "Nomes das tags; as que não existem são criadas." },
@@ -195,7 +282,9 @@ export const FERRAMENTAS = [
         autor: p.autor_nome,
         seo_titulo: p.seo_titulo,
         seo_descricao: p.seo_descricao,
-        tem_capa: Boolean(p.imagem_url),
+        capa_url: p.imagem_url,
+        capa_alt: p.imagem_alt,
+        imagem_compartilhamento_url: p.seo_imagem_url,
         acoes_de_estado_possiveis: acoesDoEstado(p.estado).filter((a) => a.chave !== "salvar").map((a) => a.chave),
         conteudo_markdown: markdownDoDocumento(p.conteudo),
       };
@@ -208,7 +297,8 @@ export const FERRAMENTAS = [
       "Cria um post novo como RASCUNHO. Não publica: para publicar ou agendar, use mudar_estado_do_post depois.",
     esquema: objeto(CAMPOS_DO_POST, ["titulo", "resumo", "conteudo_markdown"]),
     async executar(args, ctx) {
-      const conteudo = conteudoDoMarkdown(args.conteudo_markdown);
+      const imagens = await imagensDoCorpo(ctx, args.conteudo_markdown);
+      const conteudo = conteudoDoMarkdown(args.conteudo_markdown, undefined, imagens.mapa);
       let slug = args.slug?.trim();
       if (!slug) {
         const gerado = gerarSlug(args.titulo ?? "");
@@ -228,8 +318,9 @@ export const FERRAMENTAS = [
       };
       const categoria = await categoriaPorNomeOuId(ctx, args.categoria);
       if (categoria !== undefined) corpo.categoria_id = categoria;
+      await aplicarImagensDoPost(ctx, args, corpo);
       const gravado = resultadoDaEscrita(await ctx.escrever(salvarPost, corpo));
-      return { criado: resumoDoPost(gravado.post ?? gravado), avisos: conteudo.avisos };
+      return { criado: resumoDoPost(gravado.post ?? gravado), avisos: [...imagens.avisos, ...conteudo.avisos] };
     },
   },
   {
@@ -247,12 +338,14 @@ export const FERRAMENTAS = [
         if (args[campo] !== undefined) corpo[campo] = args[campo];
       }
       if (args.conteudo_markdown !== undefined) {
-        const conteudo = conteudoDoMarkdown(args.conteudo_markdown);
+        const imagens = await imagensDoCorpo(ctx, args.conteudo_markdown);
+        const conteudo = conteudoDoMarkdown(args.conteudo_markdown, undefined, imagens.mapa);
         corpo.conteudo = conteudo.documento;
-        avisos = conteudo.avisos;
+        avisos = [...imagens.avisos, ...conteudo.avisos];
       }
       const categoria = await categoriaPorNomeOuId(ctx, args.categoria);
       if (categoria !== undefined) corpo.categoria_id = categoria;
+      await aplicarImagensDoPost(ctx, args, corpo);
       const gravado = resultadoDaEscrita(await ctx.escrever(salvarPost, corpo));
       return { salvo: resumoDoPost(gravado.post ?? gravado), avisos };
     },
@@ -316,6 +409,25 @@ export const FERRAMENTAS = [
     async executar(args, ctx) {
       resultadoDaEscrita(await ctx.escrever(excluirPost, { id: exigirId(args.id, "o post") }));
       return { excluido: args.id };
+    },
+  },
+
+  {
+    nome: "enviar_imagem",
+    titulo: "Trazer imagem para o site",
+    descricao:
+      "Baixa uma imagem de um endereço https, otimiza (WebP, até 1600 px e 1 MB) e guarda no site. Devolve o endereço " +
+      "para usar no corpo (![descrição](endereço)) ou como capa. Normalmente não é preciso: criar_post e editar_post " +
+      "já trazem as imagens sozinhos.",
+    esquema: objeto(
+      {
+        url: { type: "string", description: "Endereço https da imagem." },
+        destino: { type: "string", enum: ["corpo", "capa"], description: "Onde ela vai ser usada. Padrão: corpo." },
+      },
+      ["url"],
+    ),
+    async executar(args, ctx) {
+      return { endereco: await importarImagem(ctx, args.url, args.destino ?? "corpo") };
     },
   },
 

@@ -89,7 +89,8 @@ export default function BotaoDoMcp() {
             Conectar o Claude ao Painel
           </DialogTitle>
           <DialogDescription>
-            O Claude passa a criar e editar posts, notícias e vagas e a consultar leituras e buscas do Google, sempre em
+            O Claude passa a criar e editar posts (com capa e imagens), notícias e vagas e a consultar leituras e buscas
+            do Google, sempre em
             nome de <strong className="text-ink">{autor}</strong>. Post novo nasce como rascunho, e publicar ou excluir
             pede a sua confirmação no Claude.
           </DialogDescription>

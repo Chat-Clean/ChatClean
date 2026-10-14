@@ -32,6 +32,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { acessoDoAmbiente, lerAmbiente } from "./acesso.js";
 import { FERRAMENTAS, Recusa } from "./ferramentasDoMcp.js";
+import { criarImportador } from "./imagensDoMcp.js";
 import { criarLeitor, ehIdentificador } from "./leiturasDoMcp.js";
 import {
   autorizar,
@@ -49,7 +50,9 @@ const INFORMACOES_DO_SERVIDOR = Object.freeze({ name: "chatclean-painel", title:
 
 const INSTRUCOES =
   "Ferramentas do Painel de conteúdo da ChatClean (blog, notícias em vídeo, vagas e métricas). " +
-  "Posts novos nascem como rascunho. Antes de publicar, agendar, arquivar, excluir ou colocar algo no ar, " +
+  "Posts novos nascem como rascunho. Imagens entram por endereço https (capa_url, imagem_compartilhamento_url ou " +
+  "![descrição](endereço) no corpo) e o servidor as traz para o site. " +
+  "Antes de publicar, agendar, arquivar, excluir ou colocar algo no ar, " +
   "mostre à pessoa o que vai acontecer e espere a confirmação. Escreva o conteúdo em Markdown, em português do Brasil.";
 
 /* ─── Tokens ─────────────────────────────────────────────────────────────── */
@@ -221,7 +224,7 @@ function corpoDoPedido(req) {
 }
 
 /** O contexto que as ferramentas recebem, montado depois de o token ser aceito. */
-export function montarContexto({ entrada, acesso, leitor }) {
+export function montarContexto({ entrada, acesso, leitor, importador = null }) {
   // O executor confere o token com `acesso.contaDoToken`; aqui ele já foi
   // conferido, e a resposta é a Conta dona do token.
   const acessoDoToken = {
@@ -231,6 +234,7 @@ export function montarContexto({ entrada, acesso, leitor }) {
   return {
     quem: entrada.nome,
     leitor,
+    importador,
     escrever: (executor, corpo) => executor({ token: "mcp", corpo, acesso: acessoDoToken }),
   };
 }
@@ -262,7 +266,11 @@ export function ehPedidoDoMcp(req) {
  * O ponto de entrada. `ambiente` e as fábricas são parâmetros para a
  * verificação poder exercitar o fluxo inteiro sem rede.
  */
-export async function atenderMcp(req, res, { ambiente = process.env, fabricarAcesso = acessoDoAmbiente, fabricarLeitor = criarLeitor } = {}) {
+export async function atenderMcp(
+  req,
+  res,
+  { ambiente = process.env, fabricarAcesso = acessoDoAmbiente, fabricarLeitor = criarLeitor, fabricarImportador = criarImportador } = {},
+) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     res.status(405).json(erroRpc(null, ERRO_DE_FORMA, "O MCP do Painel aceita apenas POST."));
@@ -292,6 +300,7 @@ export async function atenderMcp(req, res, { ambiente = process.env, fabricarAce
     entrada,
     acesso: montagem.acesso,
     leitor: fabricarLeitor(config.config),
+    importador: fabricarImportador(config.config),
   });
 
   const corpo = corpoDoPedido(req);

@@ -43,7 +43,7 @@ function hostDe(uri) {
 }
 
 const PODERES = [
-  "Ler, criar e editar posts, categorias, notícias em vídeo e vagas",
+  "Ler, criar e editar posts (com capa e imagens), categorias, notícias em vídeo e vagas",
   "Publicar, agendar, arquivar e excluir, sempre pedindo a sua confirmação no Claude",
   "Consultar as leituras do blog e as buscas no Google",
 ];

@@ -12,7 +12,17 @@ import fs from "node:fs";
 
 import { FERRAMENTAS } from "../api/_nucleo/ferramentasDoMcp.js";
 import { COLUNAS_DA_VAGA } from "../api/_nucleo/leiturasDoMcp.js";
-import { documentoDoMarkdown, markdownDoDocumento } from "../api/_nucleo/markdown.js";
+import sharp from "sharp";
+
+import {
+  RecusaDeImagem,
+  TETO_DO_DOWNLOAD,
+  baixarImagem,
+  criarImportador,
+  ehEnderecoInterno,
+  otimizarImagem,
+} from "../api/_nucleo/imagensDoMcp.js";
+import { documentoDoMarkdown, enderecosDeImagemDoMarkdown, markdownDoDocumento } from "../api/_nucleo/markdown.js";
 import {
   VERSOES_DO_PROTOCOLO,
   atenderMcp,
@@ -65,7 +75,7 @@ console.log("\nMarkdown ↔ documento");
   afirmar("ida e volta preservam o documento", ida2.ok && JSON.stringify(ida2.documento) === JSON.stringify(r.documento));
   afirmar("Markdown vazio é recusado com motivo", documentoDoMarkdown("  ").ok === false);
   const img = documentoDoMarkdown("![foto](https://x.com/a.png)\n\ntexto");
-  afirmar("imagem no corpo fica de fora com aviso", img.ok && img.avisos.some((a) => a.includes("Imagens")));
+  afirmar("imagem sem endereço no site fica de fora com aviso", img.ok && img.avisos.some((a) => a.includes("x.com/a.png")));
   const js = documentoDoMarkdown("[x](javascript:alert(1))");
   const temLink = js.ok && JSON.stringify(js.documento).includes("javascript:");
   afirmar("link javascript: não passa (a validação do Editor o derruba)", js.ok && !temLink);
@@ -229,6 +239,130 @@ afirmar(
   "esquema recusa valor fora da lista",
   problemaNosArgumentos(ferramenta("listar_posts").esquema, { estado: "publicada" }) !== null,
 );
+
+/* ─── Imagens ───────────────────────────────────────────────────────────── */
+
+console.log("\nImagens");
+{
+  const NOSSO = "https://exemplo.supabase.co/storage/v1/object/public/imagens-do-blog/corpo/aaaaaaaa-1111.webp";
+  const md = "Texto.\n\n![Gráfico](https://fotos.exemplo.com/a.png)\n\n![Outra](https://fora.exemplo.com/b.png)";
+  afirmar(
+    "acha os endereços das imagens do Markdown",
+    JSON.stringify(enderecosDeImagemDoMarkdown(md)) === JSON.stringify(["https://fotos.exemplo.com/a.png", "https://fora.exemplo.com/b.png"]),
+  );
+  const r = documentoDoMarkdown(md, undefined, { imagens: new Map([["https://fotos.exemplo.com/a.png", NOSSO]]) });
+  const img = r.ok ? r.documento.content.find((n) => n.type === "image") : null;
+  afirmar("imagem trazida vira bloco de imagem com o endereço do bucket e a descrição", img?.attrs?.src === NOSSO && img?.attrs?.alt === "Gráfico");
+  afirmar("imagem que não foi trazida fica de fora, com aviso", r.ok && r.avisos.some((a) => a.includes("fora.exemplo.com")));
+  afirmar("a imagem volta como ![descrição](endereço) ao ler", markdownDoDocumento(r.documento).includes(`![Gráfico](${NOSSO})`));
+
+  afirmar(
+    "endereços internos são reconhecidos",
+    ["127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.1", "169.254.169.254", "100.64.0.1", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"].every(ehEnderecoInterno),
+  );
+  afirmar("endereço público passa", !ehEnderecoInterno("8.8.8.8") && !ehEnderecoInterno("2606:4700::1111"));
+
+  const publico = async () => [{ address: "93.184.216.34", family: 4 }];
+  const interno = async () => [{ address: "10.0.0.5", family: 4 }];
+  const pngGrande = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: "#16a34a" } }).png().toBuffer();
+  const respostaDeImagem = (bytes) =>
+    new Response(bytes, { status: 200, headers: { "content-type": "image/png", "content-length": String(bytes.length) } });
+
+  const recusa = async (fn) => {
+    try {
+      await fn();
+      return "";
+    } catch (e) {
+      return e instanceof RecusaDeImagem ? e.message : `OUTRO: ${e.message}`;
+    }
+  };
+  afirmar("http:// é recusado", (await recusa(() => baixarImagem("http://fotos.exemplo.com/a.png", { resolver: publico }))).includes("https"));
+  afirmar(
+    "host que resolve para rede interna é recusado",
+    (await recusa(() => baixarImagem("https://interno.exemplo.com/a.png", { resolver: interno, buscar: async () => respostaDeImagem(pngGrande) }))) !== "",
+  );
+  afirmar("IP interno direto é recusado", (await recusa(() => baixarImagem("https://169.254.169.254/latest", { resolver: publico }))) !== "");
+  const redireciona = async (url) =>
+    String(url).includes("primeiro")
+      ? new Response(null, { status: 302, headers: { location: "https://127.0.0.1/segredo" } })
+      : respostaDeImagem(pngGrande);
+  afirmar(
+    "redirecionamento para rede interna é recusado",
+    (await recusa(() => baixarImagem("https://primeiro.exemplo.com/a.png", { resolver: publico, buscar: redireciona }))) !== "",
+  );
+  const enorme = async () => new Response("x", { status: 200, headers: { "content-length": String(TETO_DO_DOWNLOAD + 1) } });
+  afirmar("arquivo acima do teto é recusado antes de baixar", (await recusa(() => baixarImagem("https://a.exemplo.com/x.png", { resolver: publico, buscar: enorme }))).includes("20 MB"));
+
+  const otimizada = await otimizarImagem(pngGrande);
+  const meta = await sharp(otimizada.bytes).metadata();
+  afirmar("imagem grande vira WebP com no máximo 1600 px e 1 MB", meta.format === "webp" && meta.width === 1600 && otimizada.bytes.length <= 1024 * 1024);
+  afirmar("arquivo que não é imagem é recusado", (await recusa(() => otimizarImagem(Buffer.from("<html>não sou imagem</html>")))) !== "");
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+  afirmar("SVG é recusado", (await recusa(() => otimizarImagem(svg))).includes("SVG"));
+
+  const enviados = [];
+  const buscarFalso = async (url, opcoes = {}) => {
+    if (String(url).includes("/storage/v1/object/")) {
+      enviados.push({ url: String(url), metodo: opcoes.method, chave: opcoes.headers?.apikey, tipo: opcoes.headers?.["Content-Type"] });
+      return new Response("{}", { status: 200 });
+    }
+    return respostaDeImagem(pngGrande);
+  };
+  const importador = criarImportador(
+    { url: "https://exemplo.supabase.co", chaveDeServico: "chave-de-servico-de-teste" },
+    { buscar: buscarFalso, resolver: publico },
+  );
+  const enderecoCapa = await importador.importar("https://fotos.exemplo.com/capa.png", "capa");
+  afirmar(
+    "a capa vai para capas/ no bucket do site, como WebP, pela chave de serviço",
+    /\/storage\/v1\/object\/public\/imagens-do-blog\/capas\/[0-9a-f-]{36}\.webp$/.test(enderecoCapa) &&
+      enviados[0]?.metodo === "POST" &&
+      enviados[0]?.chave === "chave-de-servico-de-teste" &&
+      enviados[0]?.tipo === "image/webp",
+    enderecoCapa,
+  );
+  const enderecoCorpo = await importador.importar("https://fotos.exemplo.com/b.png", "corpo");
+  afirmar("a imagem do corpo vai para corpo/", /\/imagens-do-blog\/corpo\/[0-9a-f-]{36}\.webp$/.test(enderecoCorpo));
+  const antes = enviados.length;
+  afirmar("imagem que já é do bucket não é baixada de novo", (await importador.importar(NOSSO.replace("exemplo.supabase.co", "exemplo.supabase.co"), "corpo")) === NOSSO && enviados.length === antes);
+
+  /* As ferramentas */
+  const importadorFalso = {
+    importar: async (url, destino) => {
+      if (String(url).includes("quebrada")) throw new RecusaDeImagem("O site da imagem respondeu 404. Confira o endereço.");
+      return `https://exemplo.supabase.co/storage/v1/object/public/imagens-do-blog/${destino === "corpo" ? "corpo" : "capas"}/novo-${destino}.webp`;
+    },
+  };
+  const ctx = { ...contextoFalso(), importador: importadorFalso };
+  let semAlt = "";
+  try {
+    await ferramenta("criar_post").executar({ titulo: "Com capa", resumo: "R.", conteudo_markdown: "texto", capa_url: "https://fotos.exemplo.com/c.png" }, ctx);
+  } catch (e) {
+    semAlt = e.message;
+  }
+  afirmar("capa sem descrição é recusada antes de gravar", semAlt.includes("capa_alt"));
+  const ctx2 = { ...contextoFalso(), importador: importadorFalso };
+  const criado = await ferramenta("criar_post").executar(
+    {
+      titulo: "Post com imagens",
+      resumo: "R.",
+      conteudo_markdown: "Intro.\n\n![Painel](https://fotos.exemplo.com/p.png)\n\n![x](https://fotos.exemplo.com/quebrada.png)",
+      capa_url: "https://fotos.exemplo.com/capa.png",
+      capa_alt: "Equipe atendendo no WhatsApp",
+      imagem_compartilhamento_url: "https://fotos.exemplo.com/og.png",
+    },
+    ctx2,
+  );
+  const c = ctx2.escritas[0]?.corpo ?? {};
+  afirmar("criar_post grava a capa trazida e a descrição", c.imagem_url?.endsWith("/capas/novo-capa.webp") && c.imagem_alt === "Equipe atendendo no WhatsApp");
+  afirmar("e a imagem de compartilhamento", c.seo_imagem_url?.endsWith("/capas/novo-capa.webp"));
+  afirmar("e a imagem do corpo como bloco do Editor", JSON.stringify(c.conteudo).includes("/corpo/novo-corpo.webp"));
+  afirmar("imagem que falhou não derruba o post: vira aviso", criado.avisos.some((a) => a.includes("404")));
+  const ctx3 = { ...contextoFalso({ ...POST_GRAVADO, imagem_url: "https://x/capa.webp", imagem_alt: "algo" }), importador: importadorFalso };
+  await ferramenta("editar_post").executar({ id: POST_ID, capa_url: "" }, ctx3);
+  const c3 = ctx3.escritas[0]?.corpo ?? {};
+  afirmar("editar_post com capa_url vazio tira a capa", c3.imagem_url === null && c3.imagem_alt === null);
+}
 
 /* ─── Identidade chega ao executor de verdade ───────────────────────────── */
 

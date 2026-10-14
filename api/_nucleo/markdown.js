@@ -14,8 +14,12 @@
  * O que o Markdown tem e o vocabulário não tem vira texto simples, e não some:
  * título de nível 1 vira nível 2 (o nível 1 é o título do Post), de nível 4
  * em diante vira 3, código em linha vira texto, tabela e HTML viram parágrafo
- * com o texto cru. Imagem no corpo fica de fora, porque o vocabulário só aceita
- * imagem do nosso armazenamento, e é avisado.
+ * com o texto cru.
+ *
+ * Imagem (`![descrição](endereço)`) vira o bloco de imagem do Editor. Quem
+ * chama traz as imagens para o bucket ANTES (`enderecosDeImagemDoMarkdown` +
+ * `imagensDoMcp.js`) e passa o mapa endereço original → endereço no bucket;
+ * imagem fora do mapa fica de fora, com aviso.
  */
 
 import { Lexer } from "marked";
@@ -61,9 +65,8 @@ function emLinha(tokens, marcas, avisos) {
         saida.push({ type: "hardBreak" });
         break;
       case "image":
-        avisos.add(
-          "Imagens no corpo não entram pelo MCP: o Editor só aceita imagem enviada ao armazenamento do site. O texto alternativo ficou no lugar.",
-        );
+        // Imagem dentro de link, negrito etc. Imagem solta no parágrafo é
+        // tratada em `paragrafoComImagens`, como bloco.
         if (tk.text) saida.push(texto(semEntidades(tk.text), marcas));
         break;
       case "text":
@@ -88,7 +91,43 @@ function paragrafo(conteudo) {
   return conteudo.length > 0 ? { type: "paragraph", content: conteudo } : null;
 }
 
-function blocos(tokens, avisos) {
+/** O nó de imagem, se o endereço foi trazido para o bucket; senão, aviso. */
+function noDeImagem(tk, contexto) {
+  const destino = contexto.imagens.get(tk.href);
+  if (!destino) {
+    contexto.avisos.add(`A imagem ${String(tk.href).slice(0, 80)} não entrou (não foi possível trazê-la para o site).`);
+    return null;
+  }
+  const alt = semEntidades(tk.text ?? "").trim();
+  return { type: "image", attrs: { src: destino, alt: alt || null } };
+}
+
+/**
+ * Parágrafo do Markdown com imagens soltas: no Editor imagem é BLOCO, então o
+ * parágrafo é partido em volta de cada uma.
+ */
+function paragrafoComImagens(tokens, contexto) {
+  const saida = [];
+  let trecho = [];
+  const fechar = () => {
+    const p = paragrafo(emLinha(trecho, [], contexto.avisos));
+    if (p) saida.push(p);
+    trecho = [];
+  };
+  for (const tk of tokens ?? []) {
+    if (tk.type === "image") {
+      fechar();
+      const no = noDeImagem(tk, contexto);
+      if (no) saida.push(no);
+    } else if (!(tk.type === "br" && trecho.length === 0)) {
+      trecho.push(tk);
+    }
+  }
+  fechar();
+  return saida;
+}
+
+function blocos(tokens, avisos, contexto = { imagens: new Map(), avisos }) {
   const saida = [];
   for (const tk of tokens ?? []) {
     switch (tk.type) {
@@ -101,21 +140,21 @@ function blocos(tokens, avisos) {
         break;
       }
       case "paragraph":
-        saida.push(paragrafo(emLinha(tk.tokens, [], avisos)));
+        saida.push(...paragrafoComImagens(tk.tokens, contexto));
         break;
       case "text":
         // Texto solto de item de lista "apertado" chega como `text` com filhos.
-        saida.push(paragrafo(emLinha(tk.tokens ?? [tk], [], avisos)));
+        saida.push(...paragrafoComImagens(tk.tokens ?? [tk], contexto));
         break;
       case "blockquote": {
-        const filhos = blocos(tk.tokens, avisos);
+        const filhos = blocos(tk.tokens, avisos, contexto);
         if (filhos.length > 0) saida.push({ type: "blockquote", content: filhos });
         break;
       }
       case "list": {
         const itens = tk.items
           .map((item) => {
-            const filhos = blocos(item.tokens, avisos);
+            const filhos = blocos(item.tokens, avisos, contexto);
             return filhos.length > 0 ? { type: "listItem", content: filhos } : null;
           })
           .filter(Boolean);
@@ -155,7 +194,7 @@ function blocos(tokens, avisos) {
  * `vocabulario` é o do Post por padrão; a descrição da Vaga passa o dela, e o
  * que ela não aceita (código, citação, linha) cai na validação, com aviso.
  */
-export function documentoDoMarkdown(markdown, vocabulario = VOCABULARIO_DO_POST) {
+export function documentoDoMarkdown(markdown, vocabulario = VOCABULARIO_DO_POST, { imagens = new Map() } = {}) {
   if (typeof markdown !== "string" || markdown.trim() === "") {
     return { ok: false, mensagem: "O conteúdo veio vazio. Escreva o texto em Markdown." };
   }
@@ -166,7 +205,7 @@ export function documentoDoMarkdown(markdown, vocabulario = VOCABULARIO_DO_POST)
   } catch (excecao) {
     return { ok: false, mensagem: `Não consegui ler o Markdown: ${String(excecao?.message ?? excecao)}` };
   }
-  const bruto = { type: "doc", content: blocos(tokens, avisos) };
+  const bruto = { type: "doc", content: blocos(tokens, avisos, { imagens, avisos }) };
   const validado = validarDocumento(bruto, vocabulario);
   if (!validado.ok) return { ok: false, mensagem: validado.erro?.mensagem ?? "Conteúdo fora do formato." };
   if (validado.totalDescartado > 0) {
@@ -177,6 +216,24 @@ export function documentoDoMarkdown(markdown, vocabulario = VOCABULARIO_DO_POST)
     );
   }
   return { ok: true, documento: validado.documento, avisos: [...avisos] };
+}
+
+/** Os endereços das imagens do Markdown, na ordem e sem repetição. */
+export function enderecosDeImagemDoMarkdown(markdown) {
+  const achados = [];
+  const visitar = (tokens) => {
+    for (const tk of tokens ?? []) {
+      if (tk.type === "image" && typeof tk.href === "string" && !achados.includes(tk.href)) achados.push(tk.href);
+      visitar(tk.tokens);
+      if (Array.isArray(tk.items)) for (const item of tk.items) visitar(item.tokens);
+    }
+  };
+  try {
+    visitar(new Lexer({ gfm: true }).lex(String(markdown ?? "")));
+  } catch {
+    return [];
+  }
+  return achados;
 }
 
 /* ─── Documento → Markdown ──────────────────────────────────────────────── */
