@@ -214,7 +214,8 @@ const CAMPOS_DO_POST = {
     type: "string",
     description:
       "O artigo em Markdown. Use ## e ### para seções (o # é o título do post), **negrito**, *itálico*, links, listas, " +
-      "citações e blocos de código. Imagens: ![o que a imagem mostra](https://endereço-da-imagem), numa linha própria; " +
+      "citações e blocos de código. Marca-texto: ==texto== (amarelo) ou =={verde}texto== (cores: amarelo, verde, azul, rosa). " +
+      "Imagens: ![o que a imagem mostra](https://endereço-da-imagem), numa linha própria; " +
       "o servidor traz cada uma para o site (até 12 por pedido).",
   },
   capa_url: {

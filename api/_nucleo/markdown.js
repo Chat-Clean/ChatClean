@@ -16,18 +16,56 @@
  * em diante vira 3, código em linha vira texto, tabela e HTML viram parágrafo
  * com o texto cru.
  *
+ * Marca-texto: `==texto==` (amarelo, o padrão do Editor) ou `=={verde}texto==`,
+ * com as cores de `CORES_DE_DESTAQUE`. `<mark>texto</mark>` também vale.
+ *
  * Imagem (`![descrição](endereço)`) vira o bloco de imagem do Editor. Quem
  * chama traz as imagens para o bucket ANTES (`enderecosDeImagemDoMarkdown` +
  * `imagensDoMcp.js`) e passa o mapa endereço original → endereço no bucket;
  * imagem fora do mapa fica de fora, com aviso.
  */
 
-import { Lexer } from "marked";
+import { Marked } from "marked";
 
 import {
+  CORES_DE_DESTAQUE,
   VOCABULARIO_DO_POST,
   validarDocumento,
 } from "../../src/domain/blog/schema.js";
+
+const COR_PADRAO_DO_DESTAQUE = CORES_DE_DESTAQUE[0];
+
+/* O marca-texto não existe no Markdown padrão: entra como extensão do léxico. */
+const CORES = CORES_DE_DESTAQUE.join("|");
+const DESTAQUE_COM_IGUAIS = new RegExp(`^==(?:\\{(${CORES})\\})?(?=\\S)([\\s\\S]*?\\S)==(?!=)`);
+const DESTAQUE_COM_MARK = new RegExp(`^<mark(?:\\s+data-cor="(${CORES})")?\\s*>([\\s\\S]*?)</mark>`, "i");
+
+const extensaoDoDestaque = {
+  name: "destaque",
+  level: "inline",
+  start(src) {
+    const a = src.indexOf("==");
+    const b = src.toLowerCase().indexOf("<mark");
+    const achados = [a, b].filter((i) => i >= 0);
+    return achados.length ? Math.min(...achados) : undefined;
+  },
+  tokenizer(src) {
+    const m = DESTAQUE_COM_IGUAIS.exec(src) ?? DESTAQUE_COM_MARK.exec(src);
+    if (!m || m[2].trim() === "") return undefined;
+    return {
+      type: "destaque",
+      raw: m[0],
+      cor: m[1] ? m[1].toLowerCase() : COR_PADRAO_DO_DESTAQUE,
+      tokens: this.lexer.inlineTokens(m[2]),
+    };
+  },
+  renderer() {
+    return "";
+  },
+};
+
+const marcado = new Marked({ gfm: true, extensions: [extensaoDoDestaque] });
+const ler = (texto) => marcado.lexer(texto);
 
 /* ─── Markdown → documento ──────────────────────────────────────────────── */
 
@@ -46,12 +84,37 @@ function semEntidades(t) {
     .replace(/&amp;/g, "&");
 }
 
+/** Trechos de texto seguidos com as mesmas marcas viram um só. */
+function juntarTextos(nos) {
+  const saida = [];
+  for (const no of nos) {
+    const anterior = saida[saida.length - 1];
+    if (
+      anterior?.type === "text" &&
+      no.type === "text" &&
+      JSON.stringify(anterior.marks ?? []) === JSON.stringify(no.marks ?? [])
+    ) {
+      saida[saida.length - 1] = { ...anterior, text: anterior.text + no.text };
+    } else {
+      saida.push(no);
+    }
+  }
+  return saida;
+}
+
 function emLinha(tokens, marcas, avisos) {
+  return juntarTextos(emLinhaSoltos(tokens, marcas, avisos));
+}
+
+function emLinhaSoltos(tokens, marcas, avisos) {
   const saida = [];
   for (const tk of tokens ?? []) {
     switch (tk.type) {
       case "strong":
         saida.push(...emLinha(tk.tokens, [...marcas, { type: "bold" }], avisos));
+        break;
+      case "destaque":
+        saida.push(...emLinha(tk.tokens, [...marcas, { type: "highlight", attrs: { cor: tk.cor } }], avisos));
         break;
       case "em":
         saida.push(...emLinha(tk.tokens, [...marcas, { type: "italic" }], avisos));
@@ -201,7 +264,7 @@ export function documentoDoMarkdown(markdown, vocabulario = VOCABULARIO_DO_POST,
   const avisos = new Set();
   let tokens;
   try {
-    tokens = new Lexer({ gfm: true }).lex(markdown);
+    tokens = ler(markdown);
   } catch (excecao) {
     return { ok: false, mensagem: `Não consegui ler o Markdown: ${String(excecao?.message ?? excecao)}` };
   }
@@ -229,7 +292,7 @@ export function enderecosDeImagemDoMarkdown(markdown) {
     }
   };
   try {
-    visitar(new Lexer({ gfm: true }).lex(String(markdown ?? "")));
+    visitar(ler(String(markdown ?? "")));
   } catch {
     return [];
   }
@@ -239,10 +302,41 @@ export function enderecosDeImagemDoMarkdown(markdown) {
 /* ─── Documento → Markdown ──────────────────────────────────────────────── */
 
 function escapar(t) {
-  return String(t).replace(/([\\*_`[\]])/g, "\\$1");
+  return String(t).replace(/([\\*_`[\]])/g, "\\$1").replace(/==/g, "=\\=");
 }
 
+/**
+ * A linha com o marca-texto agrupado: trechos seguidos com a MESMA cor ficam
+ * dentro de um só `==…==`. Embrulhar trecho a trecho geraria `==a ====**b**==`,
+ * que não volta ao mesmo documento.
+ */
 function linhaDeTexto(nos) {
+  let s = "";
+  let grupo = [];
+  let corDoGrupo = null;
+  const fechar = () => {
+    if (grupo.length === 0) return;
+    const dentro = linhaSemDestaque(grupo);
+    s += corDoGrupo === COR_PADRAO_DO_DESTAQUE ? `==${dentro}==` : `=={${corDoGrupo}}${dentro}==`;
+    grupo = [];
+    corDoGrupo = null;
+  };
+  for (const no of nos ?? []) {
+    const destaque = no.type === "text" ? (no.marks ?? []).find((m) => m.type === "highlight") : null;
+    const cor = destaque ? (destaque.attrs?.cor ?? COR_PADRAO_DO_DESTAQUE) : null;
+    if (cor !== corDoGrupo) fechar();
+    if (cor) {
+      corDoGrupo = cor;
+      grupo.push({ ...no, marks: no.marks.filter((m) => m.type !== "highlight") });
+    } else {
+      s += linhaSemDestaque([no]);
+    }
+  }
+  fechar();
+  return s;
+}
+
+function linhaSemDestaque(nos) {
   let s = "";
   for (const no of nos ?? []) {
     if (no.type === "hardBreak") {

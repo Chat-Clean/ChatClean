@@ -45,8 +45,22 @@ import {
 } from "./oauthDoMcp.js";
 
 export const PREFIXO_DO_TOKEN = "ccmcp_";
-export const VERSOES_DO_PROTOCOLO = Object.freeze(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const INFORMACOES_DO_SERVIDOR = Object.freeze({ name: "chatclean-painel", title: "Painel ChatClean", version: "1.0.0" });
+export const VERSOES_DO_PROTOCOLO = Object.freeze(["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]);
+
+/**
+ * Quem é o servidor. O ícone (o balão da ChatClean, sem fundo) é o que o
+ * Claude mostra na lista de conectores; `icons` e `websiteUrl` são do
+ * protocolo desde 2025-11-25, e versões anteriores simplesmente os ignoram.
+ */
+export function informacoesDoServidor(base) {
+  return {
+    name: "chatclean-painel",
+    title: "Painel ChatClean",
+    version: "1.1.0",
+    websiteUrl: base,
+    icons: [{ src: `${base}/icone-chatclean.png`, mimeType: "image/png", sizes: ["512x512"] }],
+  };
+}
 
 const INSTRUCOES =
   "Ferramentas do Painel de conteúdo da ChatClean (blog, notícias em vídeo, vagas e métricas). " +
@@ -167,7 +181,7 @@ export async function responderMensagem(mensagem, contexto) {
       return respostaRpc(id, {
         protocolVersion: versao,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: INFORMACOES_DO_SERVIDOR,
+        serverInfo: informacoesDoServidor(contexto.base ?? "https://chatclean.com.br"),
         instructions: INSTRUCOES,
       });
     }
@@ -224,7 +238,7 @@ function corpoDoPedido(req) {
 }
 
 /** O contexto que as ferramentas recebem, montado depois de o token ser aceito. */
-export function montarContexto({ entrada, acesso, leitor, importador = null }) {
+export function montarContexto({ entrada, acesso, leitor, importador = null, base }) {
   // O executor confere o token com `acesso.contaDoToken`; aqui ele já foi
   // conferido, e a resposta é a Conta dona do token.
   const acessoDoToken = {
@@ -233,6 +247,7 @@ export function montarContexto({ entrada, acesso, leitor, importador = null }) {
   };
   return {
     quem: entrada.nome,
+    base,
     leitor,
     importador,
     escrever: (executor, corpo) => executor({ token: "mcp", corpo, acesso: acessoDoToken }),
@@ -301,6 +316,7 @@ export async function atenderMcp(
     acesso: montagem.acesso,
     leitor: fabricarLeitor(config.config),
     importador: fabricarImportador(config.config),
+    base: baseDoPedido(req),
   });
 
   const corpo = corpoDoPedido(req);

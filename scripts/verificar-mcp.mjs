@@ -128,6 +128,13 @@ console.log("\nTransporte");
   afirmar("token errado responde 401", (await pedir({ jsonrpc: "2.0", id: 1, method: "ping" }, { token: "ccmcp_x" })).status_ === 401);
   const ini = await pedir({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
   afirmar("initialize negocia a versão pedida e anuncia ferramentas", ini.corpo?.result?.protocolVersion === "2025-03-26" && Boolean(ini.corpo?.result?.capabilities?.tools));
+  const icone = ini.corpo?.result?.serverInfo?.icons?.[0];
+  afirmar(
+    "initialize anuncia o ícone da ChatClean (sem fundo) e o site",
+    icone?.src?.endsWith("/icone-chatclean.png") && icone?.mimeType === "image/png" && Boolean(ini.corpo?.result?.serverInfo?.websiteUrl),
+  );
+  const pngDoIcone = fs.existsSync("public/icone-chatclean.png") ? await sharp("public/icone-chatclean.png").metadata() : null;
+  afirmar("o ícone existe em public/, quadrado e com transparência", pngDoIcone?.width === pngDoIcone?.height && pngDoIcone?.hasAlpha === true);
   const ini2 = await pedir({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "1999-01-01" } });
   afirmar("versão desconhecida recebe a mais nova suportada", ini2.corpo?.result?.protocolVersion === VERSOES_DO_PROTOCOLO[0]);
   const notif = await pedir({ jsonrpc: "2.0", method: "notifications/initialized" });
@@ -255,6 +262,20 @@ console.log("\nImagens");
   afirmar("imagem trazida vira bloco de imagem com o endereço do bucket e a descrição", img?.attrs?.src === NOSSO && img?.attrs?.alt === "Gráfico");
   afirmar("imagem que não foi trazida fica de fora, com aviso", r.ok && r.avisos.some((a) => a.includes("fora.exemplo.com")));
   afirmar("a imagem volta como ![descrição](endereço) ao ler", markdownDoDocumento(r.documento).includes(`![Gráfico](${NOSSO})`));
+
+  const marca = documentoDoMarkdown("A ==amarela **forte**== e =={verde}verde== e <mark>mark</mark>; a == b fica.");
+  const trechos = marca.ok ? marca.documento.content[0].content : [];
+  const corDe = (t) => trechos.find((n) => n.text === t)?.marks?.find((m) => m.type === "highlight")?.attrs?.cor;
+  afirmar("marca-texto ==…== vira destaque amarelo, também com negrito dentro", corDe("amarela ") === "amarelo" && corDe("forte") === "amarelo");
+  afirmar("=={verde}…== escolhe a cor, e <mark> também vale", corDe("verde") === "verde" && corDe("mark") === "amarelo");
+  afirmar("'a == b' continua texto", trechos.some((n) => n.text?.includes("a == b") && !n.marks));
+  const voltaDaMarca = markdownDoDocumento(marca.documento);
+  afirmar(
+    "o marca-texto volta como ==…== e a ida e volta preserva o documento",
+    voltaDaMarca.includes("==amarela **forte**==") && voltaDaMarca.includes("=={verde}verde==") &&
+      JSON.stringify(documentoDoMarkdown(voltaDaMarca).documento) === JSON.stringify(marca.documento),
+    voltaDaMarca,
+  );
 
   afirmar(
     "endereços internos são reconhecidos",
