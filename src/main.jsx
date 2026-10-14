@@ -43,6 +43,8 @@ import {
 } from "@/admin/carreiras/rotas";
 import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
 import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
+import TelaDeAutorizacaoDoMcp from "./admin/shell/TelaDeAutorizacaoDoMcp.jsx";
+import { ROTA_DA_CONEXAO_DO_CLAUDE } from "./admin/shell/conexaoDoClaude.js";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
 import TermosServico from "./pages/TermosServico.jsx";
 import Assinar from "./pages/Assinar.jsx";
@@ -155,6 +157,9 @@ createRoot(document.getElementById("root")).render(
           {/* As Notícias: os vídeos do blog. Irmã das Categorias, dentro do
               mesmo portão, antes da apanha-tudo. */}
           <Route path={ROTA_DAS_NOTICIAS} element={<TelaDeNoticias />} />
+          {/* A autorização do Claude (MCP + OAuth): o Claude abre esta tela, e
+              quem está logado autoriza. Dentro do portão, antes da apanha-tudo. */}
+          <Route path={ROTA_DA_CONEXAO_DO_CLAUDE} element={<TelaDeAutorizacaoDoMcp />} />
           {/* Endereço desconhecido sob o Painel cai na mesma tela de ausência.
               Sem esta filha, o pai monta, o `Outlet` fica vazio e o Autor
               recebe uma página em branco — indistinguível de "o Painel

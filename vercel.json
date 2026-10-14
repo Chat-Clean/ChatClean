@@ -23,6 +23,13 @@
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/llms.txt", "destination": "/api/llms" },
     { "source": "/mcp", "destination": "/api/posts?via=mcp" },
+    { "source": "/mcp/registrar", "destination": "/api/posts?via=mcp-registrar" },
+    { "source": "/mcp/autorizar", "destination": "/api/posts?via=mcp-autorizar" },
+    { "source": "/mcp/token", "destination": "/api/posts?via=mcp-token" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "/api/posts?via=mcp-recurso" },
+    { "source": "/.well-known/oauth-protected-resource/mcp", "destination": "/api/posts?via=mcp-recurso" },
+    { "source": "/.well-known/oauth-authorization-server", "destination": "/api/posts?via=mcp-servidor" },
+    { "source": "/.well-known/oauth-authorization-server/mcp", "destination": "/api/posts?via=mcp-servidor" },
     { "source": "/carreiras", "destination": "/api/carreiras" },
     { "source": "/carreiras/:slug", "destination": "/api/carreiras?slug=:slug" },
     { "source": "/(.*)", "destination": "/index.html" }

@@ -33,6 +33,15 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { acessoDoAmbiente, lerAmbiente } from "./acesso.js";
 import { FERRAMENTAS, Recusa } from "./ferramentasDoMcp.js";
 import { criarLeitor, ehIdentificador } from "./leiturasDoMcp.js";
+import {
+  autorizar,
+  baseDoPedido,
+  entradaDoAcesso,
+  metadadosDoRecurso,
+  metadadosDoServidor,
+  registrarCliente,
+  trocarToken,
+} from "./oauthDoMcp.js";
 
 export const PREFIXO_DO_TOKEN = "ccmcp_";
 export const VERSOES_DO_PROTOCOLO = Object.freeze(["2025-06-18", "2025-03-26", "2024-11-05"]);
@@ -227,17 +236,26 @@ export function montarContexto({ entrada, acesso, leitor }) {
 }
 
 /**
- * Na Vercel a reescrita de `/mcp` entrega `via=mcp` em `req.query`. O servidor
- * de desenvolvimento (`vite.config.js`) não monta `req.query`, então a URL
+ * Qual rota do MCP o pedido é (`mcp`, `mcp-token`...), ou `null`.
+ *
+ * Na Vercel as reescritas entregam `via` em `req.query`. O servidor de
+ * desenvolvimento (`vite.config.js`) não monta `req.query`, então a URL
  * também é lida.
  */
-export function ehPedidoDoMcp(req) {
-  if (req.query?.via === "mcp") return true;
-  try {
-    return new URL(req.url ?? "", "http://local").searchParams.get("via") === "mcp";
-  } catch {
-    return false;
+export function viaDoPedido(req) {
+  let via = req.query?.via;
+  if (typeof via !== "string") {
+    try {
+      via = new URL(req.url ?? "", "http://local").searchParams.get("via");
+    } catch {
+      via = null;
+    }
   }
+  return typeof via === "string" && ROTAS.includes(via) ? via : null;
+}
+
+export function ehPedidoDoMcp(req) {
+  return viaDoPedido(req) !== null;
 }
 
 /**
@@ -251,9 +269,14 @@ export async function atenderMcp(req, res, { ambiente = process.env, fabricarAce
     return;
   }
 
-  const entrada = tokenReconhecido(tokenDoPedido(req), lerTokens(ambiente));
+  const token = tokenDoPedido(req);
+  const entrada = tokenReconhecido(token, lerTokens(ambiente)) ?? entradaDoAcesso(token, ambiente);
   if (entrada === null) {
-    res.setHeader("WWW-Authenticate", 'Bearer realm="Painel ChatClean"');
+    // O endereço dos metadados é o que faz o cliente começar o login (OAuth).
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer realm="Painel ChatClean", resource_metadata="${baseDoPedido(req)}/.well-known/oauth-protected-resource"`,
+    );
     res.status(401).json(erroRpc(null, ERRO_DE_FORMA, "Token do MCP ausente ou não reconhecido."));
     return;
   }
@@ -286,4 +309,103 @@ export async function atenderMcp(req, res, { ambiente = process.env, fabricarAce
   const resposta = await responderMensagem(corpo, contexto);
   if (resposta === null) res.status(202).end();
   else res.status(200).json(resposta);
+}
+
+/* ─── As rotas do OAuth ──────────────────────────────────────────────────── */
+
+const ROTAS = Object.freeze(["mcp", "mcp-recurso", "mcp-servidor", "mcp-registrar", "mcp-autorizar", "mcp-token"]);
+
+function permitirOrigens(res) {
+  // Sem cookie nenhum nestas rotas: a credencial é sempre o cabeçalho, então
+  // liberar origem não abre nada, e o inspetor do MCP roda no navegador.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Mcp-Protocol-Version");
+  res.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
+}
+
+function formulario(req) {
+  const b = req.body;
+  if (b && typeof b === "object" && !(b instanceof Uint8Array)) return b;
+  const texto = b instanceof Uint8Array ? new TextDecoder().decode(b) : String(b ?? "");
+  try {
+    return JSON.parse(texto);
+  } catch {
+    return Object.fromEntries(new URLSearchParams(texto));
+  }
+}
+
+/** A Conta e o nome de quem está logado no Painel, conferidos no Supabase. */
+async function quemEstaLogado(acesso, jwt) {
+  if (!jwt) return null;
+  const conta = await acesso.contaDoToken(jwt);
+  const id = conta.ok ? conta.dados?.id : null;
+  if (!ehIdentificador(id)) return null;
+  const perfil = await acesso.perfilDaConta(id);
+  if (!perfil.ok || !perfil.dados) return null;
+  return { conta: id, nome: perfil.dados.nome_exibicao ?? "Claude" };
+}
+
+/** Atende qualquer rota do MCP. `opcoes` como em `atenderMcp`. */
+export async function atenderRotaDoMcp(req, res, opcoes = {}) {
+  const via = viaDoPedido(req);
+  const ambiente = opcoes.ambiente ?? process.env;
+  const fabricarAcesso = opcoes.fabricarAcesso ?? acessoDoAmbiente;
+  permitirOrigens(res);
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  if (via === "mcp") {
+    await atenderMcp(req, res, opcoes);
+    return;
+  }
+
+  const base = baseDoPedido(req);
+  if (via === "mcp-recurso" || via === "mcp-servidor") {
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.status(200).json(via === "mcp-recurso" ? metadadosDoRecurso(base) : metadadosDoServidor(base));
+    return;
+  }
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    res.status(405).json({ error: "invalid_request", error_description: "Use POST." });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  if (via === "mcp-registrar") {
+    const r = registrarCliente(formulario(req), ambiente);
+    res.status(r.status).json(r.corpo);
+    return;
+  }
+
+  const montagem = fabricarAcesso(ambiente);
+  if (!montagem.ok) {
+    console.error("[mcp] OAuth sem configuração do Supabase.");
+    res.status(500).json({ error: "server_error", erro: "O servidor está sem configuração." });
+    return;
+  }
+  const acesso = montagem.acesso;
+
+  if (via === "mcp-autorizar") {
+    const r = await autorizar({
+      pedido: formulario(req),
+      tokenDaSessao: tokenDoPedido(req),
+      ambiente,
+      identificar: (jwt) => quemEstaLogado(acesso, jwt),
+    });
+    if (r.status === 200 && r.corpo.redirecionar?.includes("code=")) console.log("[mcp] conexão OAuth autorizada");
+    res.status(r.status).json(r.corpo);
+    return;
+  }
+  // mcp-token
+  const r = await trocarToken({
+    pedido: formulario(req),
+    ambiente,
+    aindaTemPerfil: async (conta) => {
+      const perfil = await acesso.perfilDaConta(conta);
+      return perfil.ok && Boolean(perfil.dados);
+    },
+  });
+  res.status(r.status).json(r.corpo);
 }

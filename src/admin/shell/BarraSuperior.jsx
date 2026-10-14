@@ -41,6 +41,7 @@ import { Link } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
 
+import BotaoDoMcp from "./BotaoDoMcp";
 import MenuDoAutor from "./MenuDoAutor";
 import { ALVO_DE_TOQUE, ANEL_DE_FOCO } from "./foco";
 
@@ -250,6 +251,10 @@ export default function BarraSuperior({
             <ExternalLink className="w-4 h-4" aria-hidden="true" />
           </Link>
         )}
+
+        {/* Conectar o Claude ao Painel (MCP). Fica na barra e não numa aba
+            porque vale para o Painel inteiro, não para um módulo. */}
+        <BotaoDoMcp />
 
         {/* Reaproveitado da Story 1.3, não reescrito. O anel de foco dele vem
             do mesmo módulo compartilhado que o do resto da barra. */}

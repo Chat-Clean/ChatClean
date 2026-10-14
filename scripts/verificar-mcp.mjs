@@ -24,6 +24,11 @@ import {
 } from "../api/_nucleo/mcp.js";
 import { excluirPost } from "../api/_nucleo/operacoesDoPost.js";
 import { COLUNAS_DA_VAGA as COLUNAS_DO_NAVEGADOR } from "../src/data/carreiras/leitura.js";
+import { createHash } from "node:crypto";
+
+import { atenderRotaDoMcp } from "../api/_nucleo/mcp.js";
+import { ROTA_DA_AUTORIZACAO, verificar as verificarAssinado } from "../api/_nucleo/oauthDoMcp.js";
+import { SEGMENTO_DA_CONEXAO_DO_CLAUDE } from "../src/admin/shell/conexaoDoClaude.js";
 
 let falhas = 0;
 function afirmar(descricao, condicao, detalhe = "") {
@@ -258,6 +263,123 @@ console.log("\nProjeto");
     "o MCP não gastou função: nenhum arquivo próprio em api/, e o teto de 12 do plano segue respeitado",
     !funcoes.some((n) => n.startsWith("mcp")) && funcoes.length < 12,
     funcoes.join(", "),
+  );
+}
+
+/* ─── OAuth ─────────────────────────────────────────────────────────────── */
+
+console.log("\nOAuth");
+{
+  let perfilExiste = true;
+  const JWT_DA_SESSAO = "jwt-da-sessao-do-painel";
+  const acessoOauth = () => ({
+    ok: true,
+    acesso: {
+      contaDoToken: async (t) => (t === JWT_DA_SESSAO ? { ok: true, dados: { id: CONTA } } : { ok: false, status: 401 }),
+      perfilDaConta: async (id) => ({ ok: true, dados: perfilExiste && id === CONTA ? { id, nome_exibicao: "Felix" } : null }),
+    },
+  });
+  async function rota(via, { metodo = "POST", corpo, auth, host = "chatclean.com.br" } = {}) {
+    const res = resposta();
+    await atenderRotaDoMcp(
+      { method: metodo, headers: { host, ...(auth ? { authorization: `Bearer ${auth}` } : {}) }, body: corpo, query: { via } },
+      res,
+      { ambiente: AMBIENTE, fabricarAcesso: acessoOauth, fabricarLeitor: leitorFalso },
+    );
+    return res;
+  }
+
+  const recurso = await rota("mcp-recurso", { metodo: "GET" });
+  afirmar(
+    "metadados do recurso apontam o servidor de autorização",
+    recurso.corpo?.resource === "https://chatclean.com.br/mcp" && recurso.corpo?.authorization_servers?.[0] === "https://chatclean.com.br",
+  );
+  const servidor = (await rota("mcp-servidor", { metodo: "GET" })).corpo ?? {};
+  afirmar(
+    "metadados do servidor anunciam PKCE S256, registro e a tela do Painel",
+    servidor.code_challenge_methods_supported?.includes("S256") &&
+      servidor.registration_endpoint?.endsWith("/mcp/registrar") &&
+      servidor.authorization_endpoint === "https://chatclean.com.br/admin/conectar-claude",
+  );
+  afirmar("a rota da tela de autorização é a mesma no servidor e no Painel", ROTA_DA_AUTORIZACAO === `/admin/${SEGMENTO_DA_CONEXAO_DO_CLAUDE}`);
+  const sem = await rota("mcp", { corpo: { jsonrpc: "2.0", id: 1, method: "ping" } });
+  afirmar(
+    "401 do /mcp diz onde começar o login (resource_metadata)",
+    /resource_metadata="https:\/\/chatclean\.com\.br\/\.well-known\/oauth-protected-resource"/.test(sem.cabecalhos["www-authenticate"] ?? ""),
+  );
+  afirmar("preflight OPTIONS responde 204 com CORS", (await rota("mcp-token", { metodo: "OPTIONS" })).status_ === 204);
+
+  const estranho = await rota("mcp-registrar", { corpo: { redirect_uris: ["https://golpe.example.com/cb"], client_name: "Claude" } });
+  afirmar("registro recusa retorno que não é do Claude", estranho.status_ === 400);
+  const RETORNO = "https://claude.ai/api/mcp/auth_callback";
+  const registro = await rota("mcp-registrar", { corpo: { redirect_uris: [RETORNO], client_name: "Claude" } });
+  const clientId = registro.corpo?.client_id;
+  afirmar("registro do claude.ai devolve client_id", registro.status_ === 201 && typeof clientId === "string");
+  const local = await rota("mcp-registrar", { corpo: { redirect_uris: ["http://localhost:53682/callback"] } });
+  afirmar("registro do Claude Code (porta local) é aceito", local.status_ === 201);
+
+  const verifier = "verificador-do-pkce-com-tamanho-suficiente-1234567890";
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const pedidoBase = { client_id: clientId, redirect_uri: RETORNO, code_challenge: challenge, code_challenge_method: "S256", state: "xyz" };
+  const semSessao = await rota("mcp-autorizar", { corpo: pedidoBase, auth: "jwt-invalido" });
+  afirmar("autorizar sem sessão válida do Painel é recusado", semSessao.status_ === 401);
+  const outroRetorno = await rota("mcp-autorizar", { corpo: { ...pedidoBase, redirect_uri: "https://claude.ai/outro" }, auth: JWT_DA_SESSAO });
+  afirmar("autorizar com retorno diferente do registrado é recusado", outroRetorno.status_ === 400);
+  const negado = await rota("mcp-autorizar", { corpo: { ...pedidoBase, negar: true }, auth: JWT_DA_SESSAO });
+  afirmar(
+    "cancelar devolve ao Claude com access_denied",
+    negado.corpo?.redirecionar?.startsWith(RETORNO) &&
+      negado.corpo.redirecionar.includes("error=access_denied") &&
+      negado.corpo.redirecionar.includes("state=xyz"),
+  );
+  const ok = await rota("mcp-autorizar", { corpo: pedidoBase, auth: JWT_DA_SESSAO });
+  const destino = ok.corpo?.redirecionar ? new URL(ok.corpo.redirecionar) : null;
+  const code = destino?.searchParams.get("code");
+  afirmar(
+    "autorizar devolve ao Claude com o código e o state",
+    destino?.origin === "https://claude.ai" && Boolean(code) && destino.searchParams.get("state") === "xyz",
+  );
+  const conteudoDoCodigo = verificarAssinado(code, "codigo", AMBIENTE);
+  afirmar("o código carrega a conta LOGADA como autora", conteudoDoCodigo?.conta === CONTA && conteudoDoCodigo?.nome === "Felix");
+
+  const formulario = (campos) => new URLSearchParams(campos).toString();
+  const errado = await rota("mcp-token", {
+    corpo: formulario({ grant_type: "authorization_code", code, redirect_uri: RETORNO, code_verifier: "outro", client_id: clientId }),
+  });
+  afirmar("verificador do PKCE errado é recusado (invalid_grant)", errado.status_ === 400 && errado.corpo?.error === "invalid_grant");
+  const troca = await rota("mcp-token", {
+    corpo: formulario({ grant_type: "authorization_code", code, redirect_uri: RETORNO, code_verifier: verifier, client_id: clientId }),
+  });
+  const tokens = troca.corpo ?? {};
+  afirmar(
+    "o código vira tokens (formulário urlencoded)",
+    troca.status_ === 200 && tokens.token_type === "Bearer" && Boolean(tokens.access_token) && Boolean(tokens.refresh_token),
+  );
+  const comAcesso = await rota("mcp", { corpo: { jsonrpc: "2.0", id: 9, method: "tools/list" }, auth: tokens.access_token });
+  afirmar("o token de acesso abre o /mcp", comAcesso.status_ === 200 && (comAcesso.corpo?.result?.tools?.length ?? 0) === FERRAMENTAS.length);
+  const comRenovacao = await rota("mcp", { corpo: { jsonrpc: "2.0", id: 9, method: "ping" }, auth: tokens.refresh_token });
+  afirmar("token de renovação não serve como acesso", comRenovacao.status_ === 401);
+  const adulterado = tokens.access_token.slice(0, -3) + "AAA";
+  const comAdulterado = await rota("mcp", { corpo: { jsonrpc: "2.0", id: 9, method: "ping" }, auth: adulterado });
+  afirmar("token adulterado é recusado", comAdulterado.status_ === 401);
+  const renovado = await rota("mcp-token", { corpo: { grant_type: "refresh_token", refresh_token: tokens.refresh_token } });
+  afirmar("a renovação devolve tokens novos", renovado.status_ === 200 && Boolean(renovado.corpo?.access_token));
+  perfilExiste = false;
+  const semPerfil = await rota("mcp-token", { corpo: { grant_type: "refresh_token", refresh_token: tokens.refresh_token } });
+  afirmar("conta que saiu do Painel não renova mais", semPerfil.status_ === 400 && semPerfil.corpo?.error === "invalid_grant");
+  afirmar("token vencido é recusado", verificarAssinado(tokens.access_token, "acesso", AMBIENTE, Date.now() + 2 * 3600 * 1000) === null);
+  const outraChave = { ...AMBIENTE, SUPABASE_CHAVE_DE_SERVICO: "outra-chave-de-servico" };
+  afirmar("trocar a chave de serviço invalida as conexões", verificarAssinado(tokens.access_token, "acesso", outraChave) === null);
+
+  const vercel = JSON.parse(fs.readFileSync("vercel.json", "utf8"));
+  const tudo = vercel.rewrites.findIndex((r) => r.source === "/(.*)");
+  const precisa = ["/mcp/registrar", "/mcp/token", "/mcp/autorizar", "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server"];
+  afirmar(
+    "as rotas do OAuth estão no vercel.json antes da reescrita geral",
+    precisa.every((src) => {
+      const i = vercel.rewrites.findIndex((r) => r.source === src);
+      return i >= 0 && i < tudo;
+    }),
   );
 }
 

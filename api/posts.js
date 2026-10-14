@@ -45,7 +45,7 @@ import {
   excluirCategoria,
   salvarCategoria,
 } from "./_nucleo/operacoesDaCategoria.js";
-import { atenderMcp, ehPedidoDoMcp } from "./_nucleo/mcp.js";
+import { atenderRotaDoMcp, ehPedidoDoMcp } from "./_nucleo/mcp.js";
 import { excluirNoticia, salvarNoticia } from "./_nucleo/operacoesDaNoticia.js";
 import { definirDestaque, excluirPost } from "./_nucleo/operacoesDoPost.js";
 import {
@@ -213,10 +213,11 @@ export function respostaDeErro(erro) {
 
 export default async function handler(req, res) {
   /* O MCP do Painel mora nesta função para não gastar uma das 12 que o
-     plano permite: `/mcp` chega aqui por reescrita do `vercel.json`. Ele tem a
+     plano permite: `/mcp` e as rotas do OAuth dele chegam aqui por reescrita
+     do `vercel.json`. Ele tem a
      própria porta (token do MCP) e escreve pelos MESMOS executores abaixo. */
   if (ehPedidoDoMcp(req)) {
-    await atenderMcp(req, res);
+    await atenderRotaDoMcp(req, res);
     return;
   }
 
