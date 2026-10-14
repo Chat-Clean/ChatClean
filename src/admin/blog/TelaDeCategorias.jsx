@@ -365,7 +365,7 @@ export default function TelaDeCategorias() {
       data-tela="categorias"
     >
       <header className="border-b border-border-soft bg-surface">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <Link
             to={BASE_DO_PAINEL}
             data-acao="voltar"
@@ -394,7 +394,7 @@ export default function TelaDeCategorias() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-8" data-estado-da-lista={situacao}>
+      <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8" data-estado-da-lista={situacao}>
         <h1 className="text-2xl font-black text-ink">{TITULO_DA_TELA}</h1>
         <p className="mt-2 text-sm text-ink-secondary">{DESCRICAO_DA_TELA}</p>
 
@@ -560,13 +560,18 @@ function Linha({
         "transition-colors hover:border-border-strong",
       )}
     >
-      <PilulaDeCategoria categoria={categoria} />
+      {/* Nome e endereço juntos: no celular eles ocupam a primeira linha
+          inteira, e uso e ações descem juntos para a segunda. Soltos, cada
+          linha da lista quebrava num lugar diferente. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 max-sm:basis-full">
+        <PilulaDeCategoria categoria={categoria} />
 
-      <span className="dado text-xs text-ink-muted" data-papel="endereco">
-        {categoria.slug}
-      </span>
+        <span className="dado text-xs text-ink-muted" data-papel="endereco">
+          {categoria.slug}
+        </span>
+      </div>
 
-      <div className="flex-1" />
+      <div className="flex-1 max-sm:hidden" />
 
       {/* O USO APARECE ANTES DE ALGUÉM TENTAR. É ele que explica por que o alvo
           de excluir está disponível ou não, e é o mesmo número que a recusa do
@@ -579,7 +584,7 @@ function Linha({
         {textoDoUso(categoria)}
       </span>
 
-      <div data-papel="acoes" className="flex shrink-0 items-center gap-1.5">
+      <div data-papel="acoes" className="flex shrink-0 items-center gap-1.5 max-sm:ml-auto">
         <button
           type="button"
           data-acao="editar"

@@ -448,6 +448,12 @@ export default function GavetaDeMetadados({
            muda, porque recolhida a gaveta é um trilho de 46px e 16px de cada
            lado não caberiam. */
         aberta ? "gap-4 p-4" : "gap-2 py-4",
+        /* ABAIXO DE `md`, ABERTA, ELA COBRE O EDITOR. Lado a lado, 340px de
+           gaveta num celular deixavam o texto sem largura nenhuma. Por cima,
+           com a largura da área toda, os campos ficam usáveis, e recolher
+           devolve o texto. O `!` vence a largura do `style`, que continua sendo
+           o valor declarado (e o que a verificação lê). */
+        aberta && "max-md:absolute max-md:inset-4 max-md:z-20 max-md:!w-auto max-md:shadow-xl",
         className,
       )}
     >

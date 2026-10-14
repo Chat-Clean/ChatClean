@@ -585,7 +585,7 @@ function Linha({ vaga, indice, emCurso = null, ocupado = false, aoMudarEstado, a
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 data-papel="titulo" className="min-w-0 max-w-full truncate text-sm font-bold text-ink">
+          <h3 data-papel="titulo" className="min-w-0 max-w-full text-sm font-bold text-ink max-sm:line-clamp-2 sm:truncate">
             {linha.titulo === "" ? "Vaga sem título" : linha.titulo}
           </h3>
           {linha.aparenciaDoEstado !== null ? (

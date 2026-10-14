@@ -812,7 +812,7 @@ function Linha({
         /* `flex-wrap` é a regra de tela estreita, e ela não é responsiva
            separada: com quatro alvos de 40px o bloco de ações não cabe ao lado
            do texto num telefone, e envolver é melhor que espremer o alvo. */
-        "flex flex-wrap items-center gap-4 rounded-cartao",
+        "flex flex-wrap items-center gap-x-4 gap-y-3 rounded-cartao",
         "border border-border-soft bg-surface p-4",
         "transition-colors hover:border-border-strong",
       )}
@@ -825,7 +825,7 @@ function Linha({
           caixa de 64px enquanto o Editor mostra o monograma para o MESMO Post:
           as duas respostas para a mesma pergunta que a degradação existe para
           não ter. */}
-      <div className="size-16 shrink-0 overflow-hidden rounded-cartao">
+      <div className="size-12 shrink-0 overflow-hidden rounded-cartao sm:size-16">
         {capa !== "" && !capaQuebrada ? (
           <img
             src={capa}
@@ -848,11 +848,15 @@ function Linha({
       </div>
 
       {/* ── O que a linha diz ───────────────────────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      {/* No celular o texto ocupa a primeira linha inteira ao lado da capa
+          (`basis`): sem isso a pílula de Estado disputava a mesma linha e o
+          título sobrava com meia dúzia de letras. Estado e ações descem juntos
+          para a segunda linha. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 max-sm:basis-[calc(100%-4rem)]">
         <div className="flex flex-wrap items-center gap-2">
           <h3
             data-papel="titulo"
-            className="min-w-0 max-w-full truncate text-sm font-bold text-ink"
+            className="min-w-0 max-w-full text-sm font-bold text-ink max-sm:line-clamp-2 sm:truncate"
           >
             {post.titulo}
           </h3>
@@ -901,7 +905,7 @@ function Linha({
       </div>
 
       {/* ── Estado ──────────────────────────────────────────────────────── */}
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      <div className="flex shrink-0 flex-col items-end gap-1 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:gap-2">
         <PilulaDeEstado estado={post.estado} publicadoEm={post.publicado_em} />
         {agendamento !== null ? (
           /* O "para quando" do agendado, junto do rótulo. Saber que está
@@ -912,7 +916,7 @@ function Linha({
       </div>
 
       {/* ── As ações, sempre à vista ────────────────────────────────────── */}
-      <div data-papel="acoes" className="flex shrink-0 items-center gap-1.5">
+      <div data-papel="acoes" className="flex shrink-0 items-center gap-1.5 max-sm:ml-auto">
         {/* EDITAR — o controle que abre o Post, agora como alvo de 40×40.
             `data-abrir` continua sendo o nome dele: é o mesmo controle da
             Story 2.10, com o mesmo rótulo, num alvo maior. */}

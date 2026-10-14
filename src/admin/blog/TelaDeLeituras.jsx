@@ -137,7 +137,7 @@ export default function TelaDeLeituras() {
       data-tela="leituras"
     >
       <header className="border-b border-border-soft bg-surface">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <Link
             to={BASE_DO_PAINEL}
             data-acao="voltar"
@@ -154,7 +154,7 @@ export default function TelaDeLeituras() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-8" data-situacao={situacao}>
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8" data-situacao={situacao}>
         <h1 className="text-2xl font-black text-ink">{TITULO_DA_TELA}</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-secondary">{DESCRICAO_DA_TELA}</p>
 
@@ -379,7 +379,11 @@ function Conteudo({ dados, relendo, postEscolhido, aoEscolherPost }) {
                   >
                     {linha.titulo}
                   </button>
-                  {ehEstado(linha.estado) ? <PilulaDeEstado estado={linha.estado} jaNoAr={Number(linha.total) > 0} /> : null}
+                  {/* No celular a pílula sai: ela tomava a largura do título, que
+                      sobrava com meia dúzia de letras. */}
+                  {ehEstado(linha.estado) ? (
+                    <PilulaDeEstado estado={linha.estado} jaNoAr={Number(linha.total) > 0} className="max-sm:hidden" />
+                  ) : null}
                   <span className="dado shrink-0 text-sm text-ink" data-papel="leituras-do-post">
                     {formatarNumero(linha.total)}
                   </span>

@@ -604,7 +604,7 @@ export default function TelaDeClassificacoes() {
   return (
     <div className="painel min-h-screen bg-background" data-tela="classificacoes">
       <header className="border-b border-border-soft bg-surface">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <Link
             to={ENDERECO_DA_LISTAGEM}
             data-acao="voltar"
@@ -624,7 +624,7 @@ export default function TelaDeClassificacoes() {
       <main
         ref={principal}
         tabIndex={-1}
-        className="mx-auto max-w-4xl px-6 py-8 outline-hidden"
+        className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 outline-hidden"
         data-estado-da-lista={situacao}
         aria-busy={emCurso !== null ? "true" : undefined}
       >
@@ -666,8 +666,8 @@ function Secao({ lista, itens, emCurso, atualizando, aoCriar, aoEditar, aoPedirE
   const idDoTitulo = `classificacoes-${lista.chave}`;
   return (
     <section data-lista={lista.chave} aria-labelledby={idDoTitulo} className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 id={idDoTitulo} className="text-lg font-bold text-ink">
+      <div className="flex items-center gap-3">
+        <h2 id={idDoTitulo} className="min-w-0 text-lg font-bold text-ink">
           {lista.plural}
         </h2>
         <div className="flex-1" />

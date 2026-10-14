@@ -524,6 +524,8 @@ function recusaDoComando(limpo) {
     "20261001180000_leituras_dos_posts.sql",
     "20261001210000_evolucao_das_leituras.sql",
     "20261006120000_buscas_do_google.sql",
+    "20261009120000_noticias_em_video.sql",
+    "20261014120000_filtro_do_agendado_no_ar.sql",
   ]);
   afirmar(
     "toda migração posterior nomeada como de outra frente existe na pasta — a lista não é decorativa",

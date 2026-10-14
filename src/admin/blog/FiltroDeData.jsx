@@ -106,7 +106,7 @@ export default function FiltroDeData({
           público. */}
       <PopoverContent
         align="start"
-        className="painel w-72 space-y-3"
+        className="painel w-[calc(100vw-2rem)] max-w-sm space-y-3 sm:w-72"
         aria-label="Escolher a data dos posts"
         data-filtro-de-data="painel"
       >

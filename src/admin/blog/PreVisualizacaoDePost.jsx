@@ -196,7 +196,7 @@ export default function PreVisualizacaoDePost() {
       data-situacao={situacao}
     >
       <header className="border-b border-border-soft bg-surface">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <Voltar />
           <div className="flex-1" />
           {post !== null ? <PilulaDeEstado estado={post.estado} publicadoEm={post.publicado_em} /> : null}
@@ -206,7 +206,7 @@ export default function PreVisualizacaoDePost() {
             página bonita e conclui que já está no ar. */}
         <p
           data-papel="aviso-da-previa"
-          className="mx-auto max-w-4xl px-6 pb-3 text-xs font-medium text-ink-muted"
+          className="mx-auto max-w-4xl px-4 pb-3 sm:px-6 text-xs font-medium text-ink-muted"
         >
           {AVISO_DA_PREVIA}
         </p>
@@ -215,7 +215,7 @@ export default function PreVisualizacaoDePost() {
             role="status"
             data-papel="aviso-de-pendencia"
             className={cn(
-              "mx-auto max-w-4xl px-6 pb-3 text-xs font-semibold",
+              "mx-auto max-w-4xl px-4 pb-3 sm:px-6 text-xs font-semibold",
               "text-brand-action",
             )}
           >
@@ -224,7 +224,7 @@ export default function PreVisualizacaoDePost() {
         ) : null}
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-8">
+      <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         <h1 className="sr-only">{TITULO_DA_TELA}</h1>
 
         {situacao === SITUACAO_CARREGANDO ? (

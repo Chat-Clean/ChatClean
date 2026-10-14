@@ -235,9 +235,9 @@ export default function AdminBlog() {
         variants={staggerContainer(0.08)}
         initial="hidden"
         animate="visible"
-        className="shrink-0 border-b border-zinc-800 px-6 py-4 flex items-center gap-3 flex-wrap"
+        className="shrink-0 border-b border-zinc-800 px-4 py-3 flex items-center gap-2 flex-wrap sm:px-6 sm:py-4 sm:gap-3"
       >
-            <motion.div variants={staggerItem} className="relative flex-1 min-w-[14rem] max-w-sm">
+            <motion.div variants={staggerItem} className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[14rem] sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted" />
               <input
                 value={buscaDePosts}
@@ -256,7 +256,9 @@ export default function AdminBlog() {
               variants={staggerItem}
               role="group"
               aria-label="Filtrar posts por estado"
-              className="flex flex-wrap items-center gap-1.5"
+              /* No celular, os quatro numa linha só, em colunas iguais: soltos,
+                 o último caía sozinho numa segunda linha. */
+              className="grid w-full grid-cols-4 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center"
             >
               {ESTADOS.map((estado) => {
                 const marcado = estadosDoFiltro.includes(estado);
@@ -269,7 +271,7 @@ export default function AdminBlog() {
                     onClick={() =>
                       setEstadosDoFiltro((atuais) => selecionarEstadoExclusivo(atuais, estado))
                     }
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                    className={`px-2 py-1.5 rounded-full text-xs font-bold border transition-colors sm:px-3 ${
                       marcado
                         ? "bg-emerald-50 border-emerald-500 text-emerald-700"
                         : "bg-surface border-border-soft text-ink-muted hover:text-ink hover:border-border-strong"
@@ -291,15 +293,17 @@ export default function AdminBlog() {
                 aoMudarAbertura={setFiltroDeDataAberto}
               />
             </motion.div>
-            {/* O vão que empurra "Novo Post" para a borda. */}
-            <div className="flex-1" />
+            {/* O vão que empurra "Novo Post" para a borda. No celular quem
+                empurra é a margem do primeiro atalho: o vão custava mais um
+                espaçamento, e no aparelho estreito o "+" caía de linha. */}
+            <div className="flex-1 max-sm:hidden" />
             {/* A ENTRADA PARA AS BUSCAS NO GOOGLE: cliques, impressões e
                 posição do site inteiro, vindos do Search Console. */}
-            <motion.div variants={staggerItem}>
+            <motion.div variants={staggerItem} className="max-sm:ml-auto">
               <Link
                 to={ENDERECO_DAS_BUSCAS}
                 data-acao="abrir-buscas"
-                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-3 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0 sm:px-4"
               >
                 <Globe className="w-4 h-4" />
                 <span className="hidden sm:inline">Google</span>
@@ -311,7 +315,7 @@ export default function AdminBlog() {
               <Link
                 to={ENDERECO_DAS_LEITURAS}
                 data-acao="abrir-leituras"
-                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-3 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0 sm:px-4"
               >
                 <TrendingUp className="w-4 h-4" />
                 <span className="hidden sm:inline">Leituras</span>
@@ -323,7 +327,7 @@ export default function AdminBlog() {
               <Link
                 to={ENDERECO_DAS_NOTICIAS}
                 data-acao="abrir-noticias"
-                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-3 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0 sm:px-4"
               >
                 <Video className="w-4 h-4" />
                 <span className="hidden sm:inline">Notícias</span>
@@ -335,7 +339,7 @@ export default function AdminBlog() {
               <Link
                 to={ENDERECO_DAS_CATEGORIAS}
                 data-acao="abrir-categorias"
-                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+                className="flex items-center gap-2 border border-border-soft hover:border-border-strong text-ink-secondary hover:text-ink px-3 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0 sm:px-4"
               >
                 <Tags className="w-4 h-4" />
                 <span className="hidden sm:inline">Categorias</span>
@@ -344,7 +348,8 @@ export default function AdminBlog() {
         <motion.button
           variants={staggerItem}
           onClick={() => { setEditingPost(null); setBlogView("form"); }}
-          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0"
+          aria-label="Novo Post"
+          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-2.5 rounded-xl text-sm font-bold transition-colors shrink-0 sm:px-4"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Novo Post</span>
@@ -365,7 +370,7 @@ export default function AdminBlog() {
            o contém era o `body`: ele escapava do `overflow-y-auto`, ficava lá
            embaixo, na altura do fim da lista, e esticava o documento — a
            janela ganhava uma segunda rolagem, que terminava num vazio branco. */
-        className="relative min-h-0 flex-1 overflow-y-auto p-6"
+        className="relative min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"
       >
 
         {/* ── POSTS ───────────────────────────────────────────────

@@ -1082,7 +1082,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
            Nenhuma lista de botões é escrita aqui: `acoes` vem da máquina do
            domínio, e a ordem é a que ela declara. A pílula é a mesma da
            listagem e do filtro — a palavra por extenso, sem sinônimo. */
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex max-w-full flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-between">
           <PilulaDeEstado estado={estado} publicadoEm={instanteGravado} />
           {/* VER — a MESMA decisão da linha da listagem, tomada no mesmo lugar
               (`acoes.js`). Ela deixou de sumir quando o Post não está
@@ -1152,7 +1152,9 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
               Salvar é o que se faz o tempo todo e fica a um toque; agendar,
               publicar e arquivar são decisões raras e difíceis de desfazer —
               custar um toque a mais é vantagem, não atrito. */}
-          <div className="flex items-center gap-2 sm:hidden">
+          {/* Os dois botões dividem a largura da tela, meio a meio: lado a
+              lado no tamanho natural, o segundo saía pela borda direita. */}
+          <div className="flex w-full items-center gap-2 sm:hidden">
             {acoesPrincipais.map((acao) => (
               <Button
                 key={acao.chave}
@@ -1162,12 +1164,12 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                 onClick={() => acionarAcao(acao)}
                 aria-busy={acaoEmCurso === acao.chave ? "true" : undefined}
                 disabled={salvando || carregando}
-                className={cn(ANEL_DE_FOCO, "gap-2")}
+                className={cn(ANEL_DE_FOCO, "min-w-0 gap-2")}
               >
                 {acaoEmCurso === acao.chave ? (
                   <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                 ) : null}
-                {acao.rotulo}
+                <span className="truncate">{acao.rotulo}</span>
               </Button>
             ))}
             {acoesSecundarias.length > 0 ? (
@@ -1177,9 +1179,9 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
                     type="button"
                     variant="outline"
                     disabled={salvando || carregando}
-                    className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "gap-2")}
+                    className={cn(ANEL_DE_FOCO, ALVO_DE_TOQUE, "min-w-0 flex-1 gap-2")}
                   >
-                    Mudar estado do post
+                    <span className="truncate">Mudar estado</span>
                     <ChevronDown aria-hidden="true" className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1223,7 +1225,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
         /* UMA linha, em qualquer largura de tela. A adaptação a tela estreita é
            a gaveta nascer recolhida — não uma segunda regra responsiva aqui,
            que divergiria daquela na primeira mudança. */
-        <div className="flex min-h-0 flex-1 gap-4 p-4">
+        <div className="relative flex min-h-0 flex-1 gap-4 p-4">
           {/* A medida do texto é travada pela própria classe `.artigo`, no
               próprio elemento; recolher a gaveta devolve largura ao CONTÊINER,
               e a coluna apenas se recentraliza. O texto nunca estica. */}
@@ -1445,7 +1447,9 @@ function Moldura({ aoSair, titulo, subtitulo, acao = null, children }) {
          Gaveta) já tem a própria rolagem, então a moldura não precisa de mais
          nenhuma. Mesmo padrão já usado em `AdminBlog.jsx`. */
       className="painel flex h-screen flex-col overflow-hidden bg-surface-sunk text-ink">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border-soft px-4 py-3">
+      {/* `flex-wrap`: no celular as ações descem para a linha de baixo. Numa
+          linha só elas empurravam o título e o voltar para fora da tela. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border-soft px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button
             type="button"

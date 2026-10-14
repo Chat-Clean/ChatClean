@@ -83,7 +83,7 @@ function Aba({ aba, ativa, aoSelecionar, aoNavegar, idDoConteudo, refDoBotao }) 
       onClick={() => aoSelecionar(aba.id)}
       onKeyDown={aoNavegar}
       className={cn(
-        "flex items-center gap-2 min-h-10 px-3.5 rounded-pilula text-sm font-semibold transition-colors",
+        "flex flex-1 items-center justify-center gap-2 min-h-10 px-3.5 rounded-pilula text-sm font-semibold transition-colors sm:flex-none",
         ANEL_DE_FOCO,
         ativa
           ? "bg-surface text-brand-chrome"
@@ -163,8 +163,12 @@ export default function BarraSuperior({
   };
 
   return (
-    <header className="shrink-0 bg-brand-chrome text-primary-foreground px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3 sm:gap-5 min-w-0">
+    /* NO CELULAR, DUAS LINHAS: logo e conta em cima, as abas embaixo, de
+       ponta a ponta. Numa linha só as abas não cabem e passavam por baixo do
+       menu da conta. A partir de `sm` volta a ser uma linha, na ordem de
+       sempre: logo, abas, ações. */
+    <header className="shrink-0 bg-brand-chrome text-primary-foreground px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:flex-nowrap">
+      <div className="order-1 flex items-center gap-3 sm:gap-5 min-w-0">
         {/* A logo de verdade, que já existia em `public/` enquanto a barra
             desenhava um quadrado com duas letras. Branca porque a superfície é
             a cromia escura. `width`/`height` reservam a proporção antes de o
@@ -180,30 +184,30 @@ export default function BarraSuperior({
         {/* O nome acessível do Painel. A logo é decorativa justamente porque
             este título já diz — e diz melhor — de que superfície se trata. */}
         <h1 className="sr-only">{titulo}</h1>
-
-        <div
-          role="tablist"
-          aria-label="Seções do Painel"
-          className="flex items-center gap-1"
-        >
-          {abas.map((a) => (
-            <Aba
-              key={a.id}
-              aba={a}
-              ativa={a.id === abaAtiva}
-              aoSelecionar={aoTrocarAba}
-              aoNavegar={aoNavegar}
-              idDoConteudo={idDoConteudo}
-              refDoBotao={(elemento) => {
-                if (elemento) refsDasAbas.current.set(a.id, elemento);
-                else refsDasAbas.current.delete(a.id);
-              }}
-            />
-          ))}
-        </div>
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
+      <div
+        role="tablist"
+        aria-label="Seções do Painel"
+        className="order-3 flex w-full items-center gap-1 sm:order-2 sm:mr-auto sm:w-auto"
+      >
+        {abas.map((a) => (
+          <Aba
+            key={a.id}
+            aba={a}
+            ativa={a.id === abaAtiva}
+            aoSelecionar={aoTrocarAba}
+            aoNavegar={aoNavegar}
+            idDoConteudo={idDoConteudo}
+            refDoBotao={(elemento) => {
+              if (elemento) refsDasAbas.current.set(a.id, elemento);
+              else refsDasAbas.current.delete(a.id);
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="order-2 flex items-center gap-1 shrink-0 sm:order-3">
         {/* Ações do módulo da aba ativa. Sem contorno: peso visual de ação
             secundária, que é o que elas são. O alvo de toque é declarado
             porque abaixo de `sm` o rótulo some e sobra só o ícone. */}
