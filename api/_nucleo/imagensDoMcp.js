@@ -23,8 +23,6 @@ import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import sharp from "sharp";
-
 import {
   BUCKET_DAS_IMAGENS,
   CACHE_DA_CAPA_EM_SEGUNDOS,
@@ -130,8 +128,29 @@ export async function baixarImagem(endereco, { buscar = globalThis.fetch, resolv
 
 /* ─── Otimização ─────────────────────────────────────────────────────────── */
 
+/*
+ * O `sharp` é carregado só quando uma imagem chega, e não no topo: este módulo
+ * entra na MESMA função que grava os posts do Painel (`api/posts.js`). Se o
+ * binário nativo falhar no servidor, quem perde é só a imagem pelo MCP, e o
+ * Painel continua salvando.
+ */
+let carregado = null;
+async function carregarSharp() {
+  if (carregado === null) {
+    carregado = import("sharp")
+      .then((m) => m.default)
+      .catch((excecao) => {
+        carregado = null;
+        console.error(`[mcp] sharp indisponível: ${String(excecao?.message ?? excecao)}`);
+        throw new RecusaDeImagem("O processamento de imagens está indisponível agora. Tente mais tarde.");
+      });
+  }
+  return carregado;
+}
+
 /** WebP de no máximo 1600 px de largura e 1 MB. */
 export async function otimizarImagem(bytes) {
+  const sharp = await carregarSharp();
   let meta;
   try {
     meta = await sharp(bytes, { animated: false, limitInputPixels: 80_000_000 }).metadata();
