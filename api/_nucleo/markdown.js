@@ -35,10 +35,29 @@ import {
 
 const COR_PADRAO_DO_DESTAQUE = CORES_DE_DESTAQUE[0];
 
+/*
+ * As cores do marca-texto são as do sistema (`CORES_DE_DESTAQUE`). O Claude
+ * pode escrevê-las em português ou inglês, no masculino ou no feminino; cor que
+ * o sistema não tem vira a padrão, com aviso, em vez de virar texto.
+ */
+const SINONIMOS_DE_COR = Object.freeze({
+  amarelo: "amarelo", amarela: "amarelo", yellow: "amarelo",
+  verde: "verde", green: "verde",
+  azul: "azul", blue: "azul",
+  rosa: "rosa", pink: "rosa", rosado: "rosa", rosada: "rosa",
+});
+export const CORES_DO_MARCA_TEXTO = CORES_DE_DESTAQUE;
+
+/** A cor do sistema para o que o Claude escreveu, ou `null`. */
+export function corDoMarcaTexto(nome) {
+  const chave = String(nome ?? "").trim().toLowerCase();
+  const cor = SINONIMOS_DE_COR[chave] ?? chave;
+  return CORES_DE_DESTAQUE.includes(cor) ? cor : null;
+}
+
 /* O marca-texto não existe no Markdown padrão: entra como extensão do léxico. */
-const CORES = CORES_DE_DESTAQUE.join("|");
-const DESTAQUE_COM_IGUAIS = new RegExp(`^==(?:\\{(${CORES})\\})?(?=\\S)([\\s\\S]*?\\S)==(?!=)`);
-const DESTAQUE_COM_MARK = new RegExp(`^<mark(?:\\s+data-cor="(${CORES})")?\\s*>([\\s\\S]*?)</mark>`, "i");
+const DESTAQUE_COM_IGUAIS = /^==(?:\{\s*([A-Za-zÀ-ú]+)\s*\})?(?=\S)([\s\S]*?\S)==(?!=)/;
+const DESTAQUE_COM_MARK = /^<mark(?:\s+data-cor="([A-Za-zÀ-ú]+)")?\s*>([\s\S]*?)<\/mark>/i;
 
 const extensaoDoDestaque = {
   name: "destaque",
@@ -52,10 +71,13 @@ const extensaoDoDestaque = {
   tokenizer(src) {
     const m = DESTAQUE_COM_IGUAIS.exec(src) ?? DESTAQUE_COM_MARK.exec(src);
     if (!m || m[2].trim() === "") return undefined;
+    const pedida = m[1] ?? null;
+    const cor = pedida === null ? COR_PADRAO_DO_DESTAQUE : (corDoMarcaTexto(pedida) ?? COR_PADRAO_DO_DESTAQUE);
     return {
       type: "destaque",
       raw: m[0],
-      cor: m[1] ? m[1].toLowerCase() : COR_PADRAO_DO_DESTAQUE,
+      cor,
+      corDesconhecida: pedida !== null && corDoMarcaTexto(pedida) === null ? pedida : null,
       tokens: this.lexer.inlineTokens(m[2]),
     };
   },
@@ -114,6 +136,12 @@ function emLinhaSoltos(tokens, marcas, avisos) {
         saida.push(...emLinha(tk.tokens, [...marcas, { type: "bold" }], avisos));
         break;
       case "destaque":
+        if (tk.corDesconhecida) {
+          avisos.add(
+            `O marca-texto não tem a cor "${tk.corDesconhecida}"; usei ${COR_PADRAO_DO_DESTAQUE}. ` +
+              `As cores do sistema são: ${CORES_DE_DESTAQUE.join(", ")}.`,
+          );
+        }
         saida.push(...emLinha(tk.tokens, [...marcas, { type: "highlight", attrs: { cor: tk.cor } }], avisos));
         break;
       case "em":

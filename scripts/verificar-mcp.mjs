@@ -269,6 +269,18 @@ console.log("\nImagens");
   afirmar("marca-texto ==…== vira destaque amarelo, também com negrito dentro", corDe("amarela ") === "amarelo" && corDe("forte") === "amarelo");
   afirmar("=={verde}…== escolhe a cor, e <mark> também vale", corDe("verde") === "verde" && corDe("mark") === "amarelo");
   afirmar("'a == b' continua texto", trechos.some((n) => n.text?.includes("a == b") && !n.marks));
+  const cores = documentoDoMarkdown("=={azul}a== =={rosa}b== =={ Green }c== =={amarela}d== =={pink}e== =={vermelho}f==");
+  const corDoTrecho = (t) =>
+    cores.ok ? cores.documento.content[0].content.find((n) => n.text === t)?.marks?.[0]?.attrs?.cor : null;
+  afirmar(
+    "as quatro cores do sistema, também em inglês ou no feminino",
+    corDoTrecho("a") === "azul" && corDoTrecho("b") === "rosa" && corDoTrecho("c") === "verde" &&
+      corDoTrecho("d") === "amarelo" && corDoTrecho("e") === "rosa",
+  );
+  afirmar(
+    "cor que o sistema não tem vira amarelo, com aviso listando as cores",
+    corDoTrecho("f") === "amarelo" && cores.avisos.some((t) => t.includes("vermelho") && t.includes("azul")),
+  );
   const voltaDaMarca = markdownDoDocumento(marca.documento);
   afirmar(
     "o marca-texto volta como ==…== e a ida e volta preserva o documento",

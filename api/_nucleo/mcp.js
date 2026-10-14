@@ -66,6 +66,8 @@ const INSTRUCOES =
   "Ferramentas do Painel de conteúdo da ChatClean (blog, notícias em vídeo, vagas e métricas). " +
   "Posts novos nascem como rascunho. Imagens entram por endereço https (capa_url, imagem_compartilhamento_url ou " +
   "![descrição](endereço) no corpo) e o servidor as traz para o site. " +
+  "Marca-texto tem quatro cores, escolhidas no próprio Markdown: =={amarelo}…==, =={verde}…==, =={azul}…== e =={rosa}…== " +
+  "(==…== sem cor é amarelo); use a cor que combinar com o sentido do trecho quando a pessoa não disser qual. " +
   "Antes de publicar, agendar, arquivar, excluir ou colocar algo no ar, " +
   "mostre à pessoa o que vai acontecer e espere a confirmação. Escreva o conteúdo em Markdown, em português do Brasil.";
 
