@@ -4777,6 +4777,11 @@ secao("(m) a herança de metadado: uma função, um lugar, nenhuma segunda opini
    */
   const NOMEIAM_CAMPO_DE_SEO = Object.freeze([
     "api/_nucleo/acesso.js",
+    /* O MCP do Painel: lê as três colunas para mostrar ao Claude e repassa as
+       que ele pedir para a MESMA gravação do Painel. Coluna lida e repassada,
+       sem decisão de herança; quem herda continua sendo o domínio. */
+    "api/_nucleo/ferramentasDoMcp.js",
+    "api/_nucleo/leiturasDoMcp.js",
     "api/_nucleo/salvarPost.js",
     "src/admin/blog/CartaoDeCompartilhamento.jsx",
     "src/admin/blog/GavetaDeMetadados.jsx",
@@ -5237,8 +5242,10 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
     37: "`DEFEITO_SEM_AMBIENTE`: vira `defeito`/`detalhe` que só chega a `registrarEvento()` via `responderDocumento()` (api/blog.js:140) — o corpo enviado nesse caminho é o shell fixo, nunca o texto do defeito",
   }),
   "api/posts.js": Object.freeze({
-    233: "dentro de um `console.error()` direto — o comentário duas linhas acima já diz: \"o que falta é dito no LOG, com nome. Na resposta, não\"",
-    309: "dentro de um `console.error()` direto do resíduo de Storage — o comentário logo abaixo confirma: \"o que sai na resposta é só o arquivo\", motivo interno fica só no log",
+    /* Linhas 242 e 318 desde que o MCP ganhou a entrada no topo do handler
+       (antes, 233 e 309). */
+    242: "dentro de um `console.error()` direto — o comentário duas linhas acima já diz: \"o que falta é dito no LOG, com nome. Na resposta, não\"",
+    318: "dentro de um `console.error()` direto do resíduo de Storage — o comentário logo abaixo confirma: \"o que sai na resposta é só o arquivo\", motivo interno fica só no log",
   }),
   "src/admin/blog/PilulaDeEstado.jsx": Object.freeze({
     /* Story 5.1: o mesmo texto de `exigir()`, na posição nova depois de o

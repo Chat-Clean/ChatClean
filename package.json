@@ -16,7 +16,7 @@
     "entrega:monitorar-pausa": "node scripts/monitorar-pausa.mjs",
     "asaas:simular-pagamento": "node scripts/simular-pagamento.mjs",
     "provisionamento": "node scripts/provisionamento.mjs",
-    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita && npm run verificar:assinatura && npm run verificar:checkout && npm run verificar:carreiras",
+    "verificar": "npm run verificar:fundacao && npm run verificar:artigo && npm run verificar:supabase && npm run verificar:dados && npm run verificar:acesso && npm run verificar:interface && npm run verificar:editor && npm run verificar:escrita && npm run verificar:assinatura && npm run verificar:checkout && npm run verificar:carreiras && npm run verificar:mcp",
     "verificar:fundacao": "node scripts/verificar-fundacao.mjs",
     "verificar:artigo": "node scripts/verificar-artigo.mjs",
     "verificar:supabase": "node scripts/verificar-supabase.mjs",
@@ -27,7 +27,8 @@
     "verificar:escrita": "node scripts/verificar-escrita.mjs",
     "verificar:assinatura": "node scripts/verificar-assinatura.mjs",
     "verificar:checkout": "node scripts/verificar-checkout.mjs",
-    "verificar:carreiras": "node scripts/verificar-carreiras.mjs"
+    "verificar:carreiras": "node scripts/verificar-carreiras.mjs",
+    "verificar:mcp": "node scripts/verificar-mcp.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -78,6 +79,7 @@
     "framer-motion": "^12.15.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.510.0",
+    "marked": "15.0.12",
     "next-themes": "^0.4.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
