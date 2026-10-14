@@ -436,8 +436,10 @@ function Conteudo({ dados, relendo, medida, aoEscolherMedida, paginaEscolhida, a
       </section>
 
       {/* Cada cartão pode encolher até a largura da coluna: sem isso, um
-          título longo, que é cortado com reticências, alargaria a página. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          título longo, que é cortado com reticências, alargaria a página.
+          `items-start`: cada cartão tem a altura do próprio conteúdo, em vez
+          de esticar até a do vizinho e sobrar um vazio embaixo. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         {/* ── As páginas, que também é onde se escolhe uma ─────────────── */}
         <section className="min-w-0 rounded-cartao border border-border-soft bg-surface p-5">
           <h2 className="text-sm font-bold text-ink">{TITULO_DAS_PAGINAS}</h2>
