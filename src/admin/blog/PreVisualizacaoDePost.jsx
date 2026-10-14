@@ -199,7 +199,7 @@ export default function PreVisualizacaoDePost() {
         <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3 px-6 py-4">
           <Voltar />
           <div className="flex-1" />
-          {post !== null ? <PilulaDeEstado estado={post.estado} /> : null}
+          {post !== null ? <PilulaDeEstado estado={post.estado} publicadoEm={post.publicado_em} /> : null}
         </div>
         {/* O AVISO É PERMANENTE, e não um enfeite: esta página tem a aparência
             do site e NÃO é o site. Sem ele, alguém confere um rascunho, vê a

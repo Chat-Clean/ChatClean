@@ -5242,8 +5242,9 @@ const TRAVESSAO_FORA_DE_ESCOPO = Object.freeze({
   }),
   "src/admin/blog/PilulaDeEstado.jsx": Object.freeze({
     /* Story 5.1: o mesmo texto de `exigir()`, na posição nova depois de o
-       desenho da pílula ir para `admin/comum` (antes, linha 37). */
-    30: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
+       desenho da pílula ir para `admin/comum` (antes, linha 37). Linha 52
+       desde a pílula do agendado já publicado (antes, linha 30). */
+    52: "mensagem de `exigir()` (admin/shell/voz.js): lança só em desenvolvimento, e em produção vira `console.error` — nunca alcança a tela vista por quem usa o Painel em produção",
   }),
   "src/admin/blog/configuracao.js": Object.freeze({
     /* Story 5.1: o mesmo `EXTENSOES_SEM_VOCABULARIO`, que continua no Blog, na

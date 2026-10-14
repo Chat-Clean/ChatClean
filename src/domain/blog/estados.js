@@ -126,3 +126,25 @@ export function jaEsteveNoAr(post) {
   const quando = post?.publicado_em ? Date.parse(post.publicado_em) : Number.NaN;
   return Number.isFinite(quando) && quando <= Date.now();
 }
+
+/**
+ * Este Post é um agendado cuja hora JÁ CHEGOU?
+ *
+ * No banco ele continua `agendado`, de propósito: é a política de leitura
+ * anônima que o publica pela passagem do tempo, sem ninguém regravar a linha.
+ * Mas, para quem lê o Painel, "Agendado" num Post que já está no ar diz o
+ * contrário do que aconteceu. A tela mostra "Publicado" e marca a origem.
+ */
+export function publicadoPorAgendamento(post) {
+  return post?.estado === "agendado" && jaEsteveNoAr(post);
+}
+
+/**
+ * O Estado como a TELA deve mostrá-lo: o agendado que já está no ar aparece
+ * como `publicado`. Qualquer outro caso devolve o Estado gravado, sem tocar.
+ * Só para exibição — as ações e as transições continuam lendo o Estado do
+ * banco.
+ */
+export function estadoAparente(post) {
+  return publicadoPorAgendamento(post) ? "publicado" : post?.estado;
+}

@@ -379,7 +379,7 @@ function Conteudo({ dados, relendo, postEscolhido, aoEscolherPost }) {
                   >
                     {linha.titulo}
                   </button>
-                  {ehEstado(linha.estado) ? <PilulaDeEstado estado={linha.estado} /> : null}
+                  {ehEstado(linha.estado) ? <PilulaDeEstado estado={linha.estado} jaNoAr={Number(linha.total) > 0} /> : null}
                   <span className="dado shrink-0 text-sm text-ink" data-papel="leituras-do-post">
                     {formatarNumero(linha.total)}
                   </span>

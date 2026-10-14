@@ -168,7 +168,7 @@ import { lerPostDoPainelPorId } from "@/data/blog/posts";
 import { listarCategorias, listarTagsDoPainel, listarTagsDoPostNoPainel } from "@/data/blog/taxonomia";
 import { dominioDoSite } from "@/admin/blog/dominio";
 import { CAMPOS_DE_SEO } from "@/domain/blog/compartilhamento";
-import { paraCampoDeInstante } from "@/domain/blog/formato";
+import { deCampoDeInstante, paraCampoDeInstante } from "@/domain/blog/formato";
 import { documentoVazio } from "@/domain/blog/schema";
 import { gerarSlug, problemaNoSlug } from "@/domain/blog/slug";
 import {
@@ -316,6 +316,16 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
      a mesma constante que o servidor usa como Estado de partida na criação. */
   const [estado, setEstado] = useState(ESTADO_INICIAL);
   const acoes = useMemo(() => acoesDoEstado(estado), [estado]);
+  /* A data de publicação como instante, para a pílula reconhecer o agendado
+     que já está no ar. `publicado_em` só muda pelo modal de agendamento, que
+     grava na hora: o que está em `valores` é o que está no banco. */
+  const instanteGravado = useMemo(() => {
+    try {
+      return deCampoDeInstante(valores.publicado_em);
+    } catch {
+      return null;
+    }
+  }, [valores.publicado_em]);
 
   /* A mesma lista, separada por ênfase: em tela estreita a ação de sempre
      fica visível e as decisões vão para o menu. A separação sai da máquina
@@ -1073,7 +1083,7 @@ export default function EditorDePost({ postId = null, aoSair, aoSalvar }) {
            domínio, e a ordem é a que ela declara. A pílula é a mesma da
            listagem e do filtro — a palavra por extenso, sem sinônimo. */
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <PilulaDeEstado estado={estado} />
+          <PilulaDeEstado estado={estado} publicadoEm={instanteGravado} />
           {/* VER — a MESMA decisão da linha da listagem, tomada no mesmo lugar
               (`acoes.js`). Ela deixou de sumir quando o Post não está
               publicado: leva à pré-visualização, que abre por identificador e

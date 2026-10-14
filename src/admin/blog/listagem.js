@@ -34,7 +34,7 @@ import {
   formatarDataEHora,
   formatarNumero,
 } from "@/domain/blog/formato";
-import { ehEstado, ESTADOS, rotuloDoEstado } from "@/domain/blog/estados";
+import { ehEstado, estadoAparente, ESTADOS, publicadoPorAgendamento, rotuloDoEstado } from "@/domain/blog/estados";
 /* O Período é DOMÍNIO, e não uma regra desta tela: a camada de dados converte a
    mesma faixa em instantes para consultar, e duas noções de "o que foi pedido"
    divergiriam na primeira ponta ausente. */
@@ -291,7 +291,7 @@ export function textoDaData(post) {
  * informação está a um campo de distância.
  */
 export function textoDoAgendamento(post) {
-  if (post?.estado !== "agendado") return null;
+  if (post?.estado !== "agendado" || publicadoPorAgendamento(post)) return null;
   const instante = post?.publicado_em;
   if (typeof instante !== "string" || instante.trim() === "") return null;
   try {
@@ -348,7 +348,7 @@ export function indiceDeLeituras(lista) {
 export function textoDasLeituras(post, indice) {
   if (!(indice instanceof Map)) return null;
   const leituras = indice.get(post?.id) ?? { total: 0, ultimos30Dias: 0 };
-  if (leituras.total === 0 && post?.estado !== "publicado") return null;
+  if (leituras.total === 0 && estadoAparente(post) !== "publicado") return null;
   try {
     const total = `${formatarNumero(leituras.total)} ${leituras.total === 1 ? "leitura" : "leituras"}`;
     return leituras.ultimos30Dias === leituras.total

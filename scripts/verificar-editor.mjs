@@ -6067,8 +6067,13 @@ if (janela && schema && configuracao && compilado) {
       });
 
       const NO_PASSADO = "2026-01-01T00:00:00+00:00";
+      /* O agendado do ciclo é o que ESPERA a hora: com data no passado ele já
+         está no ar, e a pílula o mostra como publicado (bloco logo abaixo). */
+      const NO_FUTURO = "2099-01-01T12:00:00+00:00";
+      const dataDoCiclo = (estado) =>
+        estado === "rascunho" ? null : estado === "agendado" ? NO_FUTURO : NO_PASSADO;
       for (const estado of Object.keys(ACOES_DO_CRITERIO)) {
-        modulo.controle.post = postNoEstado(estado, estado === "rascunho" ? null : NO_PASSADO);
+        modulo.controle.post = postNoEstado(estado, dataDoCiclo(estado));
         const tela = await montarTela({ postId: ID_DO_CICLO });
         const naTela = tela.acoes().map((b) => b.getAttribute("data-acao"));
         afirmar(
@@ -6134,6 +6139,30 @@ if (janela && schema && configuracao && compilado) {
           `o React não reclamou ao desenhar as ações de ${estado}`,
           tela.reclamacoes.length === 0,
           tela.reclamacoes.slice(0, 2).join(" | ").slice(0, 300),
+        );
+        await tela.desmontar();
+      }
+
+      /* ── O AGENDADO CUJA HORA CHEGOU APARECE PUBLICADO ──────────────── */
+      {
+        modulo.controle.post = postNoEstado("agendado", NO_PASSADO);
+        const tela = await montarTela({ postId: ID_DO_CICLO });
+        const texto = (tela.pilula()?.textContent ?? "").trim();
+        afirmar(
+          "um agendado cuja hora já chegou aparece como \"Publicado\", marcado como saído do agendamento",
+          tela.pilula()?.getAttribute("data-estado") === "publicado" &&
+            tela.pilula()?.getAttribute("data-origem") === "agendamento" &&
+            texto.startsWith("Publicado") &&
+            /agendamento/.test(tela.pilula()?.getAttribute("title") ?? ""),
+          `pílula: ${tela.pilula()?.getAttribute("data-estado")} / ${tela.pilula()?.getAttribute("data-origem")} / ${texto}`,
+        );
+        afirmar(
+          "e as ações continuam sendo as do Estado gravado (agendado)",
+          igual(
+            tela.acoes().map((b) => b.getAttribute("data-acao")),
+            ACOES_DO_CRITERIO.agendado,
+          ),
+          tela.acoes().map((b) => b.getAttribute("data-acao")).join(", "),
         );
         await tela.desmontar();
       }

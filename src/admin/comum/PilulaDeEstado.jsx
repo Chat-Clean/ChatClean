@@ -15,7 +15,7 @@
 
 import { cn } from "@/lib/utils";
 
-export default function PilulaDeEstado({ estado, aparencia, className }) {
+export default function PilulaDeEstado({ estado, aparencia, className, title, children, ...dados }) {
   /* Sem aparência não há o que desenhar: a palavra e a cor vêm dela. A pílula
      some em vez de derrubar a tela; a guarda que ACUSA o Estado desconhecido
      é da ligação, que conhece o vocabulário. */
@@ -28,6 +28,8 @@ export default function PilulaDeEstado({ estado, aparencia, className }) {
          ele que a verificação lê o que a tela está mostrando sem casar texto
          traduzido, e é ele que uma listagem pode usar para agrupar. */
       data-estado={estado}
+      title={title}
+      {...dados}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-pilula px-2.5 py-1",
         "text-xs font-semibold leading-none whitespace-nowrap",
@@ -43,6 +45,9 @@ export default function PilulaDeEstado({ estado, aparencia, className }) {
         style={{ backgroundColor: tinta }}
       />
       {rotulo}
+      {/* Um adorno opcional depois da palavra (o relógio do publicado por
+          agendamento, no Blog). A palavra continua sendo a do vocabulário. */}
+      {children}
     </span>
   );
 }

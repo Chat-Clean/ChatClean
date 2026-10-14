@@ -14,13 +14,35 @@
  * o render de uma listagem, onde derrubaria a tela inteira por causa de uma
  * linha. A política de `voz.js` decide: lança em desenvolvimento, registra em
  * produção, e em nenhum dos dois casos vira pílula em branco.
+ *
+ * ─── O AGENDADO QUE JÁ ESTÁ NO AR ──────────────────────────────────────────
+ *
+ * No banco ele continua `agendado` (é a passagem do tempo que o publica), mas
+ * "Agendado" num Post que todo mundo já pode ler parece que nada aconteceu. Com
+ * `publicadoEm` no passado, a pílula diz "Publicado", com a cor de publicado, e
+ * leva um relógio discreto que conta a origem: saiu pelo agendamento. A dica
+ * diz quando. `jaNoAr` serve a quem sabe que o Post esteve no ar sem ter a
+ * data (a tela de leituras: Post com leitura foi lido por alguém).
  */
 
-import { aparenciaDoEstado, ehEstado } from "@/domain/blog/estados";
+import { CalendarClock } from "lucide-react";
+
+import { aparenciaDoEstado, ehEstado, publicadoPorAgendamento } from "@/domain/blog/estados";
+import { formatarDataEHora } from "@/domain/blog/formato";
 import PilulaComum from "@/admin/comum/PilulaDeEstado";
 import { exigir } from "@/admin/shell/voz";
 
-export default function PilulaDeEstado({ estado, className }) {
+function dicaDoAgendamento(publicadoEm) {
+  try {
+    return publicadoEm
+      ? `Publicado pelo agendamento em ${formatarDataEHora(publicadoEm)}`
+      : "Publicado pelo agendamento";
+  } catch {
+    return "Publicado pelo agendamento";
+  }
+}
+
+export default function PilulaDeEstado({ estado, publicadoEm = null, jaNoAr = false, className }) {
   // Ausente: nada a mostrar, e nada de errado.
   if (estado === null || estado === undefined || estado === "") return null;
 
@@ -30,6 +52,26 @@ export default function PilulaDeEstado({ estado, className }) {
         "O vocabulário é fechado — veja `src/domain/blog/estados.js`.",
     );
     return null;
+  }
+
+  const porAgendamento =
+    estado === "agendado" &&
+    (jaNoAr || publicadoPorAgendamento({ estado, publicado_em: publicadoEm }));
+
+  if (porAgendamento) {
+    const dica = dicaDoAgendamento(publicadoEm);
+    return (
+      <PilulaComum
+        estado="publicado"
+        aparencia={aparenciaDoEstado("publicado")}
+        className={className}
+        title={dica}
+        data-origem="agendamento"
+      >
+        <CalendarClock aria-hidden="true" className="-mr-0.5 size-3 shrink-0 opacity-75" />
+        <span className="sr-only">{`, ${dica.charAt(0).toLowerCase()}${dica.slice(1)}`}</span>
+      </PilulaComum>
+    );
   }
 
   return (

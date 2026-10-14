@@ -902,7 +902,7 @@ function Linha({
 
       {/* ── Estado ──────────────────────────────────────────────────────── */}
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <PilulaDeEstado estado={post.estado} />
+        <PilulaDeEstado estado={post.estado} publicadoEm={post.publicado_em} />
         {agendamento !== null ? (
           /* O "para quando" do agendado, junto do rótulo. Saber que está
              agendado sem saber para quando não ajuda ninguém a decidir onde
