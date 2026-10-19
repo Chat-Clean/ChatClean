@@ -33,6 +33,7 @@ import {
   metadadosDoPost,
 } from "../../src/domain/blog/compartilhamento.js";
 import { NO_AR } from "../../src/domain/blog/entrega.js";
+import { CAMINHO_DO_FEED, TITULO_DO_FEED } from "./feed.js";
 
 /**
  * Os marcadores que cercam a região governada no `index.html`.
@@ -174,6 +175,9 @@ export function regiaoDeMetadados(pagina) {
     `    <link rel="canonical" href="${escapar(canonica)}" />`,
     `    <link rel="alternate" hreflang="pt-BR" href="${escapar(canonica)}" />`,
     `    <link rel="alternate" hreflang="x-default" href="${escapar(canonica)}" />`,
+    /* A DESCOBERTA DO FEED vale para toda página: é por ela que o leitor de
+       feed acha o RSS a partir de qualquer endereço do site. */
+    `    <link rel="alternate" type="application/rss+xml" title="${escapar(TITULO_DO_FEED)}" href="${escapar(`${new URL(canonica).origin}${CAMINHO_DO_FEED}`)}" />`,
     "",
     meta("property", "og:type", tipo),
     meta("property", "og:site_name", "ChatClean"),

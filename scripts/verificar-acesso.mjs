@@ -2404,6 +2404,7 @@ if (configuracaoDaEntrega !== null) {
     { source: "/blog/:slug", destination: "/api/blog?slug=:slug" },
     { source: "/sitemap.xml", destination: "/api/sitemap" },
     { source: "/llms.txt", destination: "/api/llms" },
+    { source: "/feed.xml", destination: "/api/feed" },
     /* TROCA REGISTRADA (Story 5.8): a lista nomeada ganha as duas rotas de
        Carreiras, servidas pela MESMA função da escrita (`api/carreiras.js`).
        A contagem logo abaixo continua sendo "a lista mais o apanha-tudo", e

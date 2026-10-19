@@ -22,6 +22,7 @@
     { "source": "/blog/:slug", "destination": "/api/blog?slug=:slug" },
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/llms.txt", "destination": "/api/llms" },
+    { "source": "/feed.xml", "destination": "/api/feed" },
     { "source": "/mcp", "destination": "/api/posts?via=mcp" },
     { "source": "/mcp/registrar", "destination": "/api/posts?via=mcp-registrar" },
     { "source": "/mcp/autorizar", "destination": "/api/posts?via=mcp-autorizar" },
