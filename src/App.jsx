@@ -1,16 +1,10 @@
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion.jsx";
-import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
 } from "@/components/ui/card.jsx";
-import { Star } from "lucide-react";
+import { ChevronDown, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import "./App.css";
 import Navbar from "@/components/Navbar";
@@ -29,17 +23,17 @@ import ModernHero from "./components/animated/ModernHero";
 import StatsSection from "./components/animated/StatsSection";
 import BentoFeatures from "./components/animated/BentoFeatures";
 import SecaoDeIntegracoes from "@/components/integracoes/SecaoDeIntegracoes";
-import bomTodo from "./assets/bom-todo.png";
+import bomTodo from "./assets/bom-todo.webp";
 import bonesRamalho from "./assets/bones-ramalho.svg";
 import imobee from "./assets/imobee.svg";
-import lapisDecor from "./assets/lapis-decor.svg";
-import lautoCargo from "./assets/lauto-cargo.png";
+import lapisDecor from "./assets/lapis-decor.webp";
+import lautoCargo from "./assets/lauto-cargo.webp";
 import ligaDooH from "./assets/liga-dooh.webp";
 import lindaBrazil from "./assets/linda-brazil.avif";
 import liv from "./assets/liv.svg";
-import simplo from "./assets/simplo.png";
+import simplo from "./assets/simplo.webp";
 import avelloz from "./assets/avelloz.svg";
-import wishBones from "./assets/wish-bones.svg";
+import wishBones from "./assets/wish-bones.webp";
 import { usePausaForaDaTela } from "@/lib/pausaForaDaTela";
 import { useCarrossel } from "@/lib/useCarrossel";
 import ControlesDeCarrossel from "@/components/animated/ControlesDeCarrossel";
@@ -295,41 +289,35 @@ function App() {
           </Reveal>
 
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Coluna esquerda */}
-            <Accordion type="single" collapsible className="space-y-3">
-              {faqs.slice(0, Math.ceil(faqs.length / 2)).map((faq, idx) => (
-                <AccordionItem
-                  key={idx}
-                  value={`left-${idx}`}
-                  className="bg-emerald-800/70 border border-emerald-700/60 hover:border-emerald-600 rounded-2xl overflow-hidden px-2 transition-all duration-300 data-[state=open]:border-emerald-500 data-[state=open]:bg-emerald-800/90"
-                >
-                  <AccordionTrigger className="px-5 py-4 hover:no-underline text-white/90 hover:text-white data-[state=open]:text-white font-semibold text-left text-sm transition-colors [&>svg]:text-white/50 [&>svg]:data-[state=open]:text-white">
-                    {faq.q}
-                  </AccordionTrigger>
-                  <AccordionContent className="px-5 pb-4 text-white/70 leading-relaxed text-sm">
-                    {faq.a}
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-
-            {/* Coluna direita */}
-            <Accordion type="single" collapsible className="space-y-3">
-              {faqs.slice(Math.ceil(faqs.length / 2)).map((faq, idx) => (
-                <AccordionItem
-                  key={idx}
-                  value={`right-${idx}`}
-                  className="bg-emerald-800/70 border border-emerald-700/60 hover:border-emerald-600 rounded-2xl overflow-hidden px-2 transition-all duration-300 data-[state=open]:border-emerald-500 data-[state=open]:bg-emerald-800/90"
-                >
-                  <AccordionTrigger className="px-5 py-4 hover:no-underline text-white/90 hover:text-white data-[state=open]:text-white font-semibold text-left text-sm transition-colors [&>svg]:text-white/50 [&>svg]:data-[state=open]:text-white">
-                    {faq.q}
-                  </AccordionTrigger>
-                  <AccordionContent className="px-5 pb-4 text-white/70 leading-relaxed text-sm">
-                    {faq.a}
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
+            {/* As duas colunas são `<details>` nativos, e não o Accordion do
+                Radix: ele montava as 14 respostas fechadas e media o estilo de
+                cada uma ao abrir a página, o que obrigava o navegador a
+                recalcular a home inteira antes da primeira tela. O `name`
+                deixa uma pergunta aberta por coluna, como antes, e o texto das
+                respostas continua na página para o buscador. */}
+            {[
+              { nome: "faq-esquerda", lista: faqs.slice(0, Math.ceil(faqs.length / 2)) },
+              { nome: "faq-direita", lista: faqs.slice(Math.ceil(faqs.length / 2)) },
+            ].map(({ nome, lista }) => (
+              <div key={nome} className="space-y-3">
+                {lista.map((faq) => (
+                  <details
+                    key={faq.q}
+                    name={nome}
+                    className="faq-pergunta group bg-emerald-800/70 border border-emerald-700/60 hover:border-emerald-600 rounded-2xl overflow-hidden px-2 transition-all duration-300 open:border-emerald-500 open:bg-emerald-800/90"
+                  >
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-md px-5 py-4 text-left text-sm font-semibold text-white/90 transition-colors outline-none hover:text-white group-open:text-white focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                      {faq.q}
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="pointer-events-none size-4 shrink-0 translate-y-0.5 text-white/50 transition-transform duration-200 group-open:rotate-180 group-open:text-white"
+                      />
+                    </summary>
+                    <div className="px-5 pb-4 text-white/70 leading-relaxed text-sm">{faq.a}</div>
+                  </details>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </section>

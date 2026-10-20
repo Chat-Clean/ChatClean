@@ -4,12 +4,22 @@ import { motion } from "framer-motion";
 import { ArrowRight, Play, Check, Bot } from "lucide-react";
 
 // A foto da hero: a atendente ao notebook, sobre a parede de plantas. É o
-// fundo inteiro da seção, e os balões foram posicionados sobre ELA. Ainda
-// não tem variante leve para o celular. A foto anterior, gerada por
-// scripts/recortar-foto-hero.mjs, continua em hero-atendimento.webp e
-// hero-atendimento-720.webp.
-import fotoAtendimento from "../../assets/hero-atendimento-teste.jpg";
-import fotoAtendimento720 from "../../assets/hero-atendimento-teste.jpg";
+// fundo inteiro da seção, e os balões foram posicionados sobre ELA.
+//
+// Ela mora em `public/hero/`, em WebP, gerada de
+// `src/assets/hero-atendimento-teste.jpg` (1280, 1920 e 2800 px), e não é
+// importada: o `index.html` pede a foto ao navegador ANTES do JavaScript
+// (`<link rel="preload">`), e para isso o endereço precisa ser fixo. A foto
+// anterior, de scripts/recortar-foto-hero.mjs, continua em
+// hero-atendimento.webp e hero-atendimento-720.webp.
+const FOTO_NO_CELULAR = "/hero/atendimento-1920.webp";
+const FOTOS_NO_COMPUTADOR =
+  "/hero/atendimento-1920.webp 1920w, /hero/atendimento-2800.webp 2800w";
+
+// O `src` das duas `<img>` é um pixel vazio: quem escolhe a foto é o
+// `<source>` com `media`. Uma `<img>` escondida por CSS é baixada assim
+// mesmo, e o celular baixava a foto do computador junto com a dele.
+const PIXEL_VAZIO = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
 
 /**
  * A demonstração em vídeo.
@@ -191,13 +201,17 @@ export default function ModernHero() {
       {/* A foto ocupa a seção inteira no desktop, ancorada à direita: a
           proporção do arquivo foi calculada para a atendente cair na coluna
           da direita em 1440x900 e crescer com a altura da tela. */}
-      <img
-        src={fotoAtendimento}
-        alt=""
-        aria-hidden="true"
-        draggable="false"
-        className="hidden lg:block absolute inset-0 w-full h-full object-cover object-right select-none pointer-events-none"
-      />
+      <picture>
+        <source media="(min-width: 1024px)" srcSet={FOTOS_NO_COMPUTADOR} sizes="100vw" />
+        <img
+          src={PIXEL_VAZIO}
+          alt=""
+          aria-hidden="true"
+          draggable="false"
+          fetchPriority="high"
+          className="hidden lg:block absolute inset-0 w-full h-full object-cover object-right select-none pointer-events-none"
+        />
+      </picture>
       {/* Véu só para o texto ler bem sobre o desfoque */}
       <div
         aria-hidden="true"
@@ -211,14 +225,16 @@ export default function ModernHero() {
         className="lg:hidden absolute inset-x-0 top-0 h-[60svh] pointer-events-none"
         aria-hidden="true"
       >
-        <img
-          src={fotoAtendimento720}
-          srcSet={`${fotoAtendimento720} 1400w, ${fotoAtendimento} 2800w`}
-          sizes="100vw"
-          alt=""
-          draggable="false"
-          className="absolute inset-0 w-full h-full object-cover object-[100%_50%] select-none"
-        />
+        <picture>
+          <source media="(max-width: 1023.98px)" srcSet={FOTO_NO_CELULAR} />
+          <img
+            src={PIXEL_VAZIO}
+            alt=""
+            draggable="false"
+            fetchPriority="high"
+            className="absolute inset-0 w-full h-full object-cover object-[100%_50%] select-none"
+          />
+        </picture>
         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(20,35,27,0.45)_0%,rgba(20,35,27,0)_20%,rgba(20,35,27,0)_50%,#14231b_100%)]" />
         <div className="absolute inset-0">
           <Baloes compacto />

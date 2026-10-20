@@ -13,7 +13,13 @@
     <!-- Identidade tipográfica: Playfair Display (display), Poppins (texto) e Montserrat (secundária) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet" />
+    <!-- As fontes NÃO bloqueiam a primeira pintura: a folha do Google entra
+         como `media="print"` (o navegador baixa sem esperar por ela) e vira
+         `all` quando chega. Até lá o texto aparece na fonte do sistema, e a
+         troca é o `display=swap` de sempre. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Poppins:wght@400;500;600;700&family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet" /></noscript>
 
     <!-- Política do site, IGUAL em toda página: não é identidade de página. -->
     <meta name="keywords" content="CRM para WhatsApp, API oficial WhatsApp, chatbot WhatsApp, multiatendimento WhatsApp, CRM omnichannel, CRM Brasil, atendimento WhatsApp empresas, plataforma CRM WhatsApp Instagram" />
@@ -71,6 +77,14 @@
     <meta name="twitter:description" content="Centralize WhatsApp, Instagram e seus canais de atendimento em um único CRM com API Oficial. Automatize com IA e venda mais." />
     <meta name="twitter:image" content="https://chatclean.com.br/imagem-padrao-do-site.png" />
     <meta name="twitter:image:alt" content="Logo da ChatClean, Plataforma de CRM e ChatBot para WhatsApp" />
+
+    <!-- A foto da hero, pedida ANTES do JavaScript: sem isto o navegador só a
+         descobre depois de baixar e executar a aplicação, e ela é o maior
+         elemento da primeira tela. Mora DENTRO da região porque é da home: a
+         página de um Post ou de Sobre não tem essa foto e não deve baixá-la.
+         Os endereços e as medidas são os de `ModernHero.jsx`. -->
+    <link rel="preload" as="image" type="image/webp" href="/hero/atendimento-1920.webp" media="(max-width: 1023.98px)" fetchpriority="high" />
+    <link rel="preload" as="image" type="image/webp" imagesrcset="/hero/atendimento-1920.webp 1920w, /hero/atendimento-2800.webp 2800w" imagesizes="100vw" media="(min-width: 1024px)" fetchpriority="high" />
 
 
     <!-- O FAQPage mora DENTRO da região de propósito (Story 4.3): ele é

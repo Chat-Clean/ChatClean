@@ -9642,7 +9642,15 @@ if (janela && schema && configuracao && compilado) {
         const dasRotas = mascararComentariosJs(ler(CAMINHO_MODULO_DAS_ROTAS));
         afirmar(
           "o identificador é conferido pela MESMA regra da camada de dados, importada — não por uma terceira cópia do formato",
-          /from "@\/data\/blog\/comum"/.test(ler(CAMINHO_MODULO_DAS_ROTAS)) &&
+          /* TROCA REGISTRADA (2026-10-20): a regra mora em `domain/uuid.js`, e
+             `data/blog/comum.js` a reexporta. Importar de `comum` trazia o
+             cliente do Supabase para o pacote da home; as rotas importam do
+             domínio, e a regra continua UMA só enquanto `comum` reexportar. */
+          (/from "@\/data\/blog\/comum"/.test(ler(CAMINHO_MODULO_DAS_ROTAS)) ||
+            (/from "@\/domain\/uuid"/.test(ler(CAMINHO_MODULO_DAS_ROTAS)) &&
+              /export \{[^}]*\behUuid\b[^}]*\} from "\.\.\/\.\.\/domain\/uuid\.js"/.test(
+                ler("src/data/blog/comum.js"),
+              ))) &&
             !/\[0-9a-f\]\{8\}/.test(dasRotas) &&
             !/\[0-9a-f\]\{8\}/.test(puro),
           "uma cópia do padrão de uuid aqui divergiria da do banco no primeiro ajuste",

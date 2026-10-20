@@ -796,9 +796,16 @@ if (principal !== null) {
     /* AS TELAS DO PAINEL, DERIVADAS DOS IMPORTS. Todo componente importado de
        `admin/` ou `pages/AdminBlog` é uma tela do Painel — e cada uma delas
        precisa ser montada dentro do bloco, e só lá. */
+    /* As duas formas de trazer uma tela: `import X from "…"` e, desde que as
+       páginas passaram a carregar sob demanda (2026-10-20),
+       `const X = lazy(() => import("…"))`. Ler só a primeira deixaria a lista
+       vazia, e uma lista vazia aprovaria qualquer coisa. */
     const telasDoPainel = [
       ...principal.matchAll(
         /import\s+([A-Z][\w]*)\s+from\s+["'][^"']*(?:admin\/|AdminBlog)[^"']*["']/g,
+      ),
+      ...principal.matchAll(
+        /const\s+([A-Z][\w]*)\s*=\s*lazy\(\s*\(\)\s*=>\s*import\(\s*["'][^"']*(?:admin\/|AdminBlog)[^"']*["']\s*\)\s*\)/g,
       ),
     ]
       .map((m) => m[1])

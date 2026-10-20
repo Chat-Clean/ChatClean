@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Routes, useLocation, useNavigationType } from "react-router-dom";
 import { chaveDaTransicao, pageTransition } from "@/lib/motion";
@@ -124,11 +124,18 @@ export default function AnimatedRoutes({ children }) {
     [tipoDeNavegacao, location.key],
   );
 
+  // AS PÁGINAS CHEGAM SOB DEMANDA (`lazy` em `main.jsx`): quem abre a home
+  // não baixa o Painel, o blog nem as outras páginas. A espera mora aqui, uma
+  // só para todas as rotas, e ocupa a tela inteira para o rodapé não subir.
+  const rotas = (
+    <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
+      <Routes location={location}>{children}</Routes>
+    </Suspense>
+  );
+
   if (reduce) {
     return (
-      <NavegacaoRealContext.Provider value={navegacaoReal}>
-        <Routes location={location}>{children}</Routes>
-      </NavegacaoRealContext.Provider>
+      <NavegacaoRealContext.Provider value={navegacaoReal}>{rotas}</NavegacaoRealContext.Provider>
     );
   }
 
@@ -141,7 +148,7 @@ export default function AnimatedRoutes({ children }) {
           animate={pageTransition.animate}
           exit={pageTransition.exit}
         >
-          <Routes location={location}>{children}</Routes>
+          {rotas}
         </motion.div>
       </AnimatePresence>
     </NavegacaoRealContext.Provider>

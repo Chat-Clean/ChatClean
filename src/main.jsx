@@ -7,25 +7,25 @@ import App from "./App.jsx";
 // /integracoes carrega sob demanda: é a página com o motion do Flow, a trilha
 // e 20 logos, e quem abre a home não precisa baixar nada disso.
 const Integracoes = lazy(() => import("./pages/Integracoes.jsx"));
-import Blog from "./pages/Blog.jsx";
-import BlogPost from "./pages/BlogPost.jsx";
-import Noticias from "./pages/Noticias.jsx";
-import NoticiaPublica from "./pages/NoticiaPublica.jsx";
+const Blog = lazy(() => import("./pages/Blog.jsx"));
+const BlogPost = lazy(() => import("./pages/BlogPost.jsx"));
+const Noticias = lazy(() => import("./pages/Noticias.jsx"));
+const NoticiaPublica = lazy(() => import("./pages/NoticiaPublica.jsx"));
 import {
   ROTA_DA_NOTICIA as ROTA_DA_NOTICIA_NO_SITE,
   ROTA_DAS_NOTICIAS as ROTA_DAS_NOTICIAS_NO_SITE,
 } from "./pages/noticiasPublico.js";
-import Carreiras from "./pages/Carreiras.jsx";
-import VagaPublica from "./pages/VagaPublica.jsx";
-import Sobre from "./pages/Sobre.jsx";
-import ApiOficialWhatsApp from "./pages/ApiOficialWhatsApp.jsx";
+const Carreiras = lazy(() => import("./pages/Carreiras.jsx"));
+const VagaPublica = lazy(() => import("./pages/VagaPublica.jsx"));
+const Sobre = lazy(() => import("./pages/Sobre.jsx"));
+const ApiOficialWhatsApp = lazy(() => import("./pages/ApiOficialWhatsApp.jsx"));
 import AnimatedRoutes from "@/components/animated/AnimatedRoutes";
-import AdminBlog from "./pages/AdminBlog.jsx";
-import PreVisualizacaoDePost from "@/admin/blog/PreVisualizacaoDePost";
-import TelaDeCategorias from "@/admin/blog/TelaDeCategorias";
-import TelaDeLeituras from "@/admin/blog/TelaDeLeituras";
-import TelaDeBuscas from "@/admin/blog/TelaDeBuscas";
-import TelaDeNoticias from "@/admin/blog/TelaDeNoticias";
+const AdminBlog = lazy(() => import("./pages/AdminBlog.jsx"));
+const PreVisualizacaoDePost = lazy(() => import("@/admin/blog/PreVisualizacaoDePost"));
+const TelaDeCategorias = lazy(() => import("@/admin/blog/TelaDeCategorias"));
+const TelaDeLeituras = lazy(() => import("@/admin/blog/TelaDeLeituras"));
+const TelaDeBuscas = lazy(() => import("@/admin/blog/TelaDeBuscas"));
+const TelaDeNoticias = lazy(() => import("@/admin/blog/TelaDeNoticias"));
 import {
   ROTA_DAS_BUSCAS,
   ROTA_DAS_CATEGORIAS,
@@ -34,25 +34,25 @@ import {
   ROTA_DA_PREVIA,
   ROTA_DESCONHECIDA,
 } from "@/admin/blog/rotas";
-import EditorDeVaga from "@/admin/carreiras/EditorDeVaga";
-import TelaDeClassificacoes from "@/admin/carreiras/TelaDeClassificacoes";
+const EditorDeVaga = lazy(() => import("@/admin/carreiras/EditorDeVaga"));
+const TelaDeClassificacoes = lazy(() => import("@/admin/carreiras/TelaDeClassificacoes"));
 import {
   ROTA_DAS_CLASSIFICACOES,
   ROTA_DA_VAGA,
   ROTA_DA_VAGA_NOVA,
 } from "@/admin/carreiras/rotas";
-import SessaoProvider from "./admin/shell/SessaoProvider.jsx";
-import PortaoDeSessao from "./admin/shell/PortaoDeSessao.jsx";
-import TelaDeAutorizacaoDoMcp from "./admin/shell/TelaDeAutorizacaoDoMcp.jsx";
+const SessaoProvider = lazy(() => import("./admin/shell/SessaoProvider.jsx"));
+const PortaoDeSessao = lazy(() => import("./admin/shell/PortaoDeSessao.jsx"));
+const TelaDeAutorizacaoDoMcp = lazy(() => import("./admin/shell/TelaDeAutorizacaoDoMcp.jsx"));
 import { ROTA_DA_CONEXAO_DO_CLAUDE } from "./admin/shell/conexaoDoClaude.js";
-import PoliticaPrivacidade from "./pages/PoliticaPrivacidade.jsx";
-import TermosServico from "./pages/TermosServico.jsx";
-import Assinar from "./pages/Assinar.jsx";
-import AssinaturaRecebida from "./pages/AssinaturaRecebida.jsx";
+const PoliticaPrivacidade = lazy(() => import("./pages/PoliticaPrivacidade.jsx"));
+const TermosServico = lazy(() => import("./pages/TermosServico.jsx"));
+const Assinar = lazy(() => import("./pages/Assinar.jsx"));
+const AssinaturaRecebida = lazy(() => import("./pages/AssinaturaRecebida.jsx"));
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 import ChatbotDoSite from "./components/ChatbotDoSite.jsx";
-import GarantirApiOficial from "./pages/GarantirApiOficial.jsx";
+const GarantirApiOficial = lazy(() => import("./pages/GarantirApiOficial.jsx"));
 import { protegerImagens } from "@/lib/protecaoDeImagens";
 
 protegerImagens();

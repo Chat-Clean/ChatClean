@@ -40,13 +40,13 @@ export function ehSlug(valor) {
   );
 }
 
-/** Formato de identificador do banco: `uuid` gerado pelo Postgres. */
-export const FORMATO_DE_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function ehUuid(valor) {
-  return typeof valor === "string" && FORMATO_DE_UUID.test(valor.trim());
-}
+/**
+ * Formato de identificador do banco: `uuid` gerado pelo Postgres.
+ *
+ * A definição mora em `domain/uuid.js`, que não arrasta o cliente do Supabase:
+ * quem só confere um endereço importa de lá, e o pacote da home fica sem ele.
+ */
+export { FORMATO_DE_UUID, ehUuid } from "../../domain/uuid.js";
 
 /* ─── Tamanho de página ──────────────────────────────────────────────────── */
 

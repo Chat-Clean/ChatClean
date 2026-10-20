@@ -27,7 +27,7 @@
  * e o transporte da função de servidor.
  */
 
-import { ehUuid } from "@/data/blog/comum";
+import { ehUuid } from "@/domain/uuid";
 
 /** A raiz do Painel — para onde as telas voltam, e de onde as filhas pendem. */
 export const BASE_DO_PAINEL = "/admin";

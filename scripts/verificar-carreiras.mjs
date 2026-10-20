@@ -5862,7 +5862,7 @@ secao("(m) as telas de Carreiras: a lista de permissão de imports e as rotas (S
     "`main.jsx` monta `<EditorDeVaga />` sem propriedade em `ROTA_DA_VAGA_NOVA` e `ROTA_DA_VAGA`, DENTRO do bloco de `/admin` e depois do índice, importando os dois nomes das rotas",
     /<Route index element=\{<AdminBlog \/>\} \/>.*<Route path=\{ROTA_DA_VAGA_NOVA\} element=\{<EditorDeVaga \/>\} \/>.*<Route path=\{ROTA_DA_VAGA\} element=\{<EditorDeVaga \/>\} \/>/.test(blocoDoAdmin) &&
       (blocoDoAdmin.match(/<EditorDeVaga\b/g) ?? []).length === 2 &&
-      /import EditorDeVaga from ["']@\/admin\/carreiras\/EditorDeVaga["']/.test(principal) &&
+      /(?:import EditorDeVaga from |const EditorDeVaga = lazy\(\(\) => import\()["']@\/admin\/carreiras\/EditorDeVaga["']/.test(principal) &&
       nomesDoImportDasRotas.includes("ROTA_DA_VAGA") &&
       nomesDoImportDasRotas.includes("ROTA_DA_VAGA_NOVA") &&
       (principal.match(/<EditorDeVaga\b[^>]*\/>/g) ?? []).every((t) => t === "<EditorDeVaga />") &&
@@ -10081,7 +10081,7 @@ if (doPainel !== null) {
       posDoIndice >= 0 &&
       posDaApanhaTudo > posDaTela &&
       (principal.match(/<TelaDeClassificacoes\b/g) ?? []).length === 1 &&
-      /import TelaDeClassificacoes from ["']@\/admin\/carreiras\/TelaDeClassificacoes["']/.test(principal) &&
+      /(?:import TelaDeClassificacoes from |const TelaDeClassificacoes = lazy\(\(\) => import\()["']@\/admin\/carreiras\/TelaDeClassificacoes["']/.test(principal) &&
       nomesDoImportDasRotas.includes("ROTA_DAS_CLASSIFICACOES"),
     `tela ${posDaTela} | índice ${posDoIndice} | apanha-tudo ${posDaApanhaTudo}`,
   );
@@ -12259,7 +12259,7 @@ function nomesImportadosDe(fonte, origem) {
   );
   afirmar(
     "a rota `/carreiras/:slug` monta `VagaPublica`, entre as públicas (depois de `/carreiras`) e FORA do bloco `/admin`",
-    rotaEmOrdem(posicoesDaRota) && /import VagaPublica from "\.\/pages\/VagaPublica\.jsx";/.test(main),
+    rotaEmOrdem(posicoesDaRota) && /(?:import VagaPublica from "\.\/pages\/VagaPublica\.jsx";|const VagaPublica = lazy\(\(\) => import\("\.\/pages\/VagaPublica\.jsx"\)\);)/.test(main),
     JSON.stringify(posicoesDaRota),
   );
 }

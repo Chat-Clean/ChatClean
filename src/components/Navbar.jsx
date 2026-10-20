@@ -119,11 +119,10 @@ export default function Navbar() {
       return;
     }
 
-    // Verificação inicial (caso a página já esteja scrollada ao carregar)
-    const rect = greenSection.getBoundingClientRect();
-    setScrolled(rect.bottom <= 0);
-
-    // Observa quando a seção verde sai completamente do viewport
+    // Observa quando a seção verde sai completamente do viewport. A primeira
+    // notificação do observador já diz se a página abriu rolada, então não
+    // há medição inicial: um `getBoundingClientRect` aqui forçava o layout
+    // da página inteira no meio da primeira renderização.
     const observer = new IntersectionObserver(
       ([entry]) => setScrolled(!entry.isIntersecting),
       { threshold: 0 }, // dispara quando o ÚLTIMO pixel sai da tela

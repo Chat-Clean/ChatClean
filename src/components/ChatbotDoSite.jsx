@@ -1,5 +1,9 @@
+import { Suspense, lazy } from "react";
 import { useLocation } from "react-router-dom";
-import ChatbotPopup from "@/components/ChatbotPopup";
+
+/* A janela da Jéssica chega DEPOIS da página: ela não faz parte da primeira
+   tela, e trazê-la junto atrasava a foto da home. Até chegar, nada aparece. */
+const ChatbotPopup = lazy(() => import("@/components/ChatbotPopup"));
 
 /* Onde a Jéssica NÃO aparece.
 
@@ -19,5 +23,9 @@ const SEM_JESSICA = [/^\/admin(\/|$)/i, /^\/assinar\/?$/i, /^\/assinatura(\/|$)/
 export default function ChatbotDoSite() {
   const { pathname } = useLocation();
   if (SEM_JESSICA.some((padrao) => padrao.test(pathname))) return null;
-  return <ChatbotPopup />;
+  return (
+    <Suspense fallback={null}>
+      <ChatbotPopup />
+    </Suspense>
+  );
 }

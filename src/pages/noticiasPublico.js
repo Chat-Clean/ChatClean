@@ -21,7 +21,7 @@
  * falha é dita.
  */
 
-import { ehUuid } from "@/data/blog/comum";
+import { ehUuid } from "@/domain/uuid";
 import {
   ERRO_NAO_ENCONTRADO,
   ERRO_REDE,
