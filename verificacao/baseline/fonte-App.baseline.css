@@ -1,6 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* No Tailwind 4 o plugin entra pelo CSS, não por arquivo de configuração.
+   Registrado aqui para que `prose` esteja disponível a quem precisar dela;
+   `.artigo` não a aplica em bloco, e a razão está no comentário daquele
+   bloco, mais abaixo. */
+@plugin "@tailwindcss/typography";
+
+/* A ferramenta de verificação cita nomes de classe no código e no comentário,
+   e o instantâneo do baseline é cópia congelada de componentes. Nenhum dos
+   dois é fonte da interface: sem estas exclusões o Tailwind gera utilitário
+   de verdade a partir do texto da ferramenta e o CSS publicado engorda com
+   regra que tela nenhuma usa. */
+@source not "../scripts";
+@source not "../verificacao";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -23,6 +37,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-ink: var(--destructive-ink);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -39,7 +54,228 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* --- Marca ChatClean: nomes de cor do Painel (AD-14) ------------------
+     São apenas nomes disponíveis como utilitário (bg-brand-action, text-ink,
+     rounded-cartao...). O remapeamento dos tokens do shadcn para estes
+     valores acontece exclusivamente sob `.painel`, nunca em `:root`. */
+  --color-brand-chrome: var(--brand-chrome);
+  --color-brand-action: var(--brand-action);
+  --color-brand-vivid: var(--brand-vivid);
+  --color-brand-wash: var(--brand-wash);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-surface: var(--surface);
+  --color-surface-sunk: var(--surface-sunk);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-state-publicado-bg: var(--state-publicado-bg);
+  --color-state-publicado-ink: var(--state-publicado-ink);
+  --color-state-agendado-bg: var(--state-agendado-bg);
+  --color-state-agendado-ink: var(--state-agendado-ink);
+  --color-state-rascunho-bg: var(--state-rascunho-bg);
+  --color-state-rascunho-ink: var(--state-rascunho-ink);
+  --color-state-arquivado-bg: var(--state-arquivado-bg);
+  --color-state-arquivado-ink: var(--state-arquivado-ink);
+
+  /* Raios da direção Etiqueta: cartão mais macio que controle.
+     Valor literal, não `var(--radius-cartao)`: a chave do tema tem o mesmo
+     nome da variável de `:root`, e a referência viraria um ciclo no CSS
+     compilado (`--radius-cartao: var(--radius-cartao)`). */
+  --radius-cartao: 14px;
+  --radius-controle: 12px;
+  --radius-pilula: 999px;
+
+  /* --- Destaque de cor (Editor avançado): vocabulário FECHADO ------------
+     `CORES_DE_DESTAQUE`, em `src/domain/blog/schema.js`, é a lista — quatro
+     nomes, nunca `style` livre nem hexadecimal escolhido pelo Autor. Os
+     valores CRUS moram em `:root`, e não em `.painel`, pela MESMA razão da
+     marca ChatClean: `.artigo mark[data-cor="…"]`, mais abaixo, é GLOBAL — o
+     mesmo artigo no Editor e no site público —, e `.artigo` não pode ler
+     token que `.painel` remapeia (ver o comentário do bloco `.artigo`).
+     Registrados aqui (e não só como `var()`, ao contrário da Categoria) de
+     propósito: o Popover de destaque do Editor ESCREVE a classe
+     (`bg-destaque-amarelo`), porque o conjunto é fixo e conhecido em tempo
+     de build — a Categoria é dado que vem do banco, e por isso só é lida
+     como `var()` dentro de `style`. */
+  --color-destaque-amarelo: var(--destaque-amarelo);
+  --color-destaque-verde: var(--destaque-verde);
+  --color-destaque-azul: var(--destaque-azul);
+  --color-destaque-rosa: var(--destaque-rosa);
 }
+
+/* ===========================================================
+   IDENTIDADE CHATCLEAN — fontes e paleta do site público
+   -----------------------------------------------------------
+   Fontes: Playfair Display (display: h1 e h2), Poppins (texto corrido) e
+   Montserrat (secundária: h3–h6, botões e rótulos em caixa alta). As regras
+   de elemento moram em `src/index.css`; aqui só nascem os tokens e os
+   utilitários `font-display` e `font-secundaria`.
+
+   Cores: a paleta da marca entra pelo caminho que o site inteiro já usa —
+   as escalas `emerald`, `green`, `yellow`, `zinc` e `sky` do Tailwind são
+   REDEFINIDAS a partir dos seis valores da identidade (51bc69, 1f4a34,
+   14231b, f1efe5, b7923e, bce5ff). Nenhuma classe muda de nome; toda tela
+   muda de cor. Os tons intermediários são interpolações entre os valores da
+   marca e o branco/preto; o 600 do verde é escuro o bastante para texto
+   sobre branco (4,6:1), o 700 para texto pequeno (7,5:1).
+
+   `:root` continua intocado: isto é `@theme`, não token do shadcn, e o
+   remapeamento do Painel em `.painel` não é afetado.
+   =========================================================== */
+
+/* As fontes são servidas pelo PRÓPRIO site (`public/fonts`, só o
+   subconjunto latin, o mesmo arquivo que o Google Fonts entregava) e as
+   duas da primeira tela são pedidas no `index.html` antes de tudo. Vindo do
+   Google, elas chegavam depois da primeira pintura e o título da home mudava
+   de tamanho ao trocar de fonte: era quase todo o CLS do computador.
+
+   Cada uma tem uma RESERVA local com as mesmas medidas (`size-adjust` e os
+   `*-override`, calculados pelo @capsizecss/metrics como faz o next/font):
+   enquanto a fonte não chega, o texto ocupa o mesmo espaço que vai ocupar. */
+@font-face {
+  font-family: "Playfair Display";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("/fonts/playfair-display-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("/fonts/montserrat-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/poppins-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/poppins-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/poppins-600-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/poppins-700-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Playfair Display Reserva";
+  src: local("Times New Roman");
+  size-adjust: 111.26%;
+  ascent-override: 97.25%;
+  descent-override: 22.56%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Poppins Reserva";
+  src: local("Arial");
+  size-adjust: 112.16%;
+  ascent-override: 93.62%;
+  descent-override: 31.21%;
+  line-gap-override: 8.92%;
+}
+@font-face {
+  font-family: "Montserrat Reserva";
+  src: local("Arial");
+  size-adjust: 112.83%;
+  ascent-override: 85.79%;
+  descent-override: 22.25%;
+  line-gap-override: 0%;
+}
+
+@theme {
+  --font-sans: "Poppins", "Poppins Reserva", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Playfair Display", "Playfair Display Reserva", Georgia, "Times New Roman", serif;
+  --font-secundaria: "Montserrat", "Montserrat Reserva", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-emerald-50: #eef8f0;
+  --color-emerald-100: #dbf0e0;
+  --color-emerald-200: #b9e2c3;
+  --color-emerald-300: #8fd2a0;
+  --color-emerald-400: #6cc684;
+  --color-emerald-500: #51bc69;
+  --color-emerald-600: #35894a;
+  --color-emerald-700: #256339;
+  --color-emerald-800: #1f4a34;
+  --color-emerald-900: #17372a;
+  --color-emerald-950: #14231b;
+
+  --color-green-50: #eef8f0;
+  --color-green-100: #dbf0e0;
+  --color-green-200: #b9e2c3;
+  --color-green-300: #8fd2a0;
+  --color-green-400: #6cc684;
+  --color-green-500: #51bc69;
+  --color-green-600: #35894a;
+  --color-green-700: #256339;
+  --color-green-800: #1f4a34;
+  --color-green-900: #17372a;
+  --color-green-950: #14231b;
+
+  --color-yellow-100: #f3ead2;
+  --color-yellow-200: #e6d3a3;
+  --color-yellow-300: #d2b56a;
+  --color-yellow-400: #b7923e;
+  --color-yellow-500: #a17f33;
+  --color-yellow-600: #856826;
+
+  --color-sky-100: #e3f3ff;
+  --color-sky-200: #bce5ff;
+  --color-sky-300: #8fd0f7;
+
+  --color-zinc-50: #f8f7f3;
+  --color-zinc-100: #f1efe5;
+  --color-zinc-800: #1c2b23;
+  --color-zinc-900: #14231b;
+
+  /* O papel do site: as seções claras ficam no creme da marca e os cartões
+     continuam brancos, destacando-se sobre ele. `creme-profundo` é a faixa
+     alternada (antes zinc-50, que ficaria MAIS clara que o fundo) e
+     `creme-borda` o fio entre seções, que em zinc-100 sumiria no creme. */
+  --color-creme: #f1efe5;
+  --color-creme-profundo: #e9e5d6;
+  --color-creme-borda: #ddd8c6;
+
+  /* Cores dos canais nas cenas de funcionalidade: são as marcas dos
+     aplicativos, reconhecíveis de relance. O WhatsApp usa o verde da própria
+     ChatClean. Ícone branco sobre elas: Instagram 4,6:1, Facebook 4,2:1 e
+     Telegram 3,0:1 — ícone não é texto, e o nome do canal aparece ao lado. */
+  --color-canal-instagram: #e1306c;
+  --color-canal-facebook: #1877f2;
+  --color-canal-telegram: #229ed9;
+
+  /* O creme tira contraste do cinza de apoio: o zinc-500 padrão cai de
+     4,83:1 no branco para 4,19:1 no creme, abaixo do piso de 4,5:1. Este
+     cinza esverdeado, entre 14231b e f1efe5, dá 5,20:1 no creme e 4,75:1
+     no creme-profundo. */
+  --color-zinc-500: #5e6560;
+}
+
 
 :root {
   --radius: 0.625rem;
@@ -58,9 +294,512 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* --- Tinta de perigo sobre superfície CLARA (Story 2.13) --------------
+     ADIÇÃO PURA: nenhuma declaração acima muda.
+
+     `--destructive` é o vermelho de SUPERFÍCIE do sistema — ele existe para
+     ser fundo de botão destrutivo, com tinta clara por cima, e nesse papel ele
+     está certo. O cartão de erro usa o papel oposto: a mesma cor como TINTA,
+     sobre um tom dela mesma a 10%. Medido, esse par dá 3,71:1 — abaixo do piso
+     de 4,5:1 para texto, e por isso a mensagem que mais importa ler era a menos
+     legível da tela.
+
+     Este token existe para esse papel, e só para ele. A razão sobre o cartão é
+     5,03:1, calculada em `verificar:interface` com a composição por alfa — não
+     afirmada aqui. */
+  --destructive-ink: #b91c1c;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* --- Adição pura: tokens antes mortos ---------------------------------
+     `--chart-*` e `--sidebar-*` já eram mapeados em `@theme inline` sem
+     origem alguma. Recebem aqui os valores padrão do shadcn (base neutral),
+     para que componentes instalados pelo CLI nasçam com cor. Nada no código
+     os consome hoje, então a definição é inerte. */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* --- Adição pura: valores nomeados da marca ----------------------------
+     Declarados aqui apenas como vocabulário. NENHUM token do shadcn é
+     remapeado neste escopo — o site público continua no neutro padrão.
+     O remapeamento vive em `.painel` (AD-14). */
+  --brand-chrome: #005c3a;
+  --brand-action: #007a2a;
+  --brand-vivid: #00bd42;
+  --brand-wash: #e8f5ec;
+  --ink: #0f172a;
+  --ink-secondary: #37414f;
+  --ink-muted: #5b6672;
+  --surface: #ffffff;
+  --surface-sunk: #f4f7f5;
+  --border-soft: #e6eae8;
+  --border-strong: #cfd6d2;
+
+  /* Pares de Estado: fundo e tinta, entre 4,9:1 e 6,7:1. */
+  --state-publicado-bg: #e8f5ec;
+  --state-publicado-ink: #007a2a;
+  --state-agendado-bg: #e7f0f7;
+  --state-agendado-ink: #0b6a9e;
+  --state-rascunho-bg: #eef0f2;
+  --state-rascunho-ink: #5b6672;
+  --state-arquivado-bg: #f7ece5;
+  --state-arquivado-ink: #8a4b2a;
+
+  /* Pares de Categoria (Story 2.14): fundo e tinta, entre 4,9:1 e 6,7:1.
+
+     São VALOR CSS aplicado por `style`, nunca classe utilitária — o valor
+     gravado em `categorias.cor` é a própria referência `var(--categoria-…-bg)`,
+     e o par vem do vocabulário fechado de `src/domain/blog/categorias.js`.
+     `bg-categoria-${cor}` não existiria no CSS compilado: o Tailwind lê o fonte
+     como texto e nunca vê a string final.
+
+     Eles não são registrados em `@theme inline` de propósito: não há utilitário
+     `bg-categoria-*` para gerar, porque ninguém escreve a classe. Quem os lê é
+     o JavaScript, e o detector de variável órfã conta `var()` escrito em JS
+     justamente por causa deste caso. */
+  --categoria-verde-bg: #e8f5ec;
+  --categoria-verde-ink: #007a2a;
+  --categoria-azul-bg: #e7f0f7;
+  --categoria-azul-ink: #0b6a9e;
+  --categoria-roxo-bg: #f1eaf9;
+  --categoria-roxo-ink: #6b34a8;
+  --categoria-ambar-bg: #f9f0e0;
+  --categoria-ambar-ink: #8a5a00;
+  --categoria-rosa-bg: #fbe9ef;
+  --categoria-rosa-ink: #a8215a;
+  --categoria-ciano-bg: #e2f2f4;
+  --categoria-ciano-ink: #126b78;
+  --categoria-terracota-bg: #f7ece5;
+  --categoria-terracota-ink: #8a4b2a;
+  --categoria-cinza-bg: #eef0f2;
+  --categoria-cinza-ink: #5b6672;
+
+  /* Destaque de cor (Editor avançado): pastel o bastante para o texto — na
+     tinta escura de `.artigo` (`--ink-secondary`) — continuar legível por
+     cima. A referência declarada é `CORES_DE_DESTAQUE`, em
+     `domain/blog/schema.js`; os quatro nomes aqui são a ÚNICA tradução para
+     valor CSS que existe no projeto. */
+  --destaque-amarelo: #fde68a;
+  --destaque-verde: #bbf7d0;
+  --destaque-azul: #bae6fd;
+  --destaque-rosa: #fbcfe8;
+
+  /* Raios da direção Etiqueta. */
+  --radius-cartao: 14px;
+  --radius-controle: 12px;
+  --radius-pilula: 999px;
+}
+
+/* --- Escopo da marca: raiz do Painel (AD-14) ---------------------------
+   Redefinir os tokens do shadcn aqui basta para trocar toda a paleta do
+   Painel, porque `@theme inline` resolve `var(--primary)` em tempo de
+   cascata. `:root` fica intocado e o site público não muda. */
+.painel {
+  --background: var(--surface-sunk);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand-action);
+  --primary-foreground: #ffffff; /* ~5,5:1 sobre brand-action */
+  --secondary: var(--brand-wash);
+  --secondary-foreground: var(--brand-action);
+  --muted: var(--surface-sunk);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--brand-wash);
+  --accent-foreground: var(--brand-action);
+  --border: var(--border-soft);
+  --input: var(--border-strong);
+  --ring: var(--brand-action);
+  --radius: var(--radius-controle);
+  /* `--destructive` fica no vermelho padrão do sistema de propósito: a
+     direção Etiqueta não define cor de perigo, e inventar uma aqui seria
+     decisão de design sem origem no DESIGN.md. */
+}
+
+/* --- Dado: data, contador e slug ---------------------------------------
+   Não é prosa. Data, contador e slug são lidos em coluna, comparados entre
+   linhas e conferidos caractere a caractere — a pilha de interface, com
+   largura variável por glifo, faz "11/08" e "30/12" ocuparem larguras
+   diferentes e a coluna deixa de alinhar. Pilha monoespaçada e numeral
+   tabular resolvem os dois problemas de uma vez.
+
+   Escopada em `.painel` como todo o resto da marca (AD-14): fora dela o site
+   público continua exatamente como está. */
+.painel .dado {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-variant-numeric: tabular-nums;
+  /* Redundante em navegador moderno, e é de propósito: `font-feature-settings`
+     cobre a pilha que ainda não implementa `font-variant-numeric`. */
+  font-feature-settings: "tnum" 1;
+}
+
+/* --- Estilo canônico do artigo (AD-3) ----------------------------------
+   GLOBAL de propósito, e é a única exceção ao escopo do Painel (AD-14).
+   O mesmo artigo precisa ter a mesma aparência no Editor, na página pública
+   e no HTML servido — escopá-lo faria o Autor escrever numa aparência e
+   publicar noutra, que é justamente a divergência que este bloco existe
+   para eliminar. Por isso `.artigo` NÃO fica dentro de `.painel`.
+
+   Consequência direta disso: nenhum token que `.painel` remapeia pode ser
+   lido aqui. `--foreground`, `--muted-foreground`, `--border`, `--primary`,
+   `--background` e `--radius` resolvem valores DIFERENTES dentro e fora do
+   Painel; usá-los faria o artigo mudar de cara ao cruzar a fronteira. Só
+   entram os nomes de marca declarados em `:root`, que `.painel` não toca.
+
+   O HTML do artigo não carrega `class` nenhuma — o renderizador emite HTML
+   semântico puro, e classe utilitária gerada em tempo de execução nunca
+   chega ao compilador do Tailwind. Quem envolve, estiliza.
+
+   `@tailwindcss/typography` está instalado e registrado no topo do arquivo,
+   mas `prose` não é aplicada em bloco: ela estiliza `h1`, e a story proíbe
+   o elemento — o título é da página, e dois `h1` por página é o defeito que
+   o site tem hoje. `img` deixou de estar fora do v1 (Editor avançado: imagem
+   inline e destaque de cor) — `prose` também o estiliza, com medida e
+   moldura que divergem do que este arquivo declara abaixo, então ele
+   continua nomeado à mão, e não herdado de `prose`. Aplicar e depois
+   desfazer deixaria o seletor de `h1` no CSS compilado, que é o oposto do
+   que se quer provar.
+
+   Por isso também não há seletor coringa (`.artigo *`, `.artigo > * + *`):
+   ele alcançaria `h1` por tabela. Cada elemento é nomeado.
+
+   SOBRE O TEMA ESCURO. `.dark`, logo abaixo, remapeia `--background` e
+   `--foreground`, mas não toca `--ink`, `--ink-secondary` nem
+   `--surface-sunk`, que é de onde o artigo tira tinta. Se `.dark` fosse
+   montada, o artigo ficaria tinta quase preta sobre superfície quase preta —
+   1,92:1, medido. Não há ramo escuro aqui porque NINGUÉM monta `.dark`: não
+   existe provedor de tema no projeto, e a classe nunca chega ao DOM. A
+   verificação trava exatamente isso: no dia em que alguma fonte montar
+   `.dark`, a asserção de terceiro escopo passa a exigir que o artigo
+   permaneça legível, e esta decisão terá de ser revista. */
+.artigo {
+  color: var(--ink-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  /* Medida do texto. `prose` traria `max-width: 65ch` e não é aplicada aqui;
+     sem substituto, texto corrido em contêiner largo fica ilegível por
+     comprimento de linha. 68ch é a medida que o Painel fixa. */
+  max-width: 68ch;
+  /* URL longa em texto corrido não estoura o contêiner. */
+  overflow-wrap: break-word;
+}
+
+.artigo h2 {
+  color: var(--ink);
+  font-size: 1.625rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin-block: 2.25rem 0.875rem;
+}
+
+.artigo h3 {
+  color: var(--ink);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  margin-block: 1.75rem 0.625rem;
+}
+
+/* Primeiro filho não empurra o topo do artigo para baixo. */
+.artigo h2:first-child,
+.artigo h3:first-child {
+  margin-block-start: 0;
+}
+
+.artigo p {
+  margin-block: 0 1.125rem;
+}
+
+/* Alinhamento de texto (correção de UI/UX do Editor). `data-alinhamento` vem
+   do renderizador único (`render/blog/paraHtml.js`), que só o emite para
+   `center`/`right` — esquerda é o padrão e nunca carrega o atributo, então não
+   precisa de regra. Os dois níveis de título entram pela mesma razão que o
+   parágrafo: o schema declara `textAlign` nos dois (`domain/blog/schema.js`). */
+.artigo p[data-alinhamento="center"],
+.artigo h2[data-alinhamento="center"],
+.artigo h3[data-alinhamento="center"] {
+  text-align: center;
+}
+
+.artigo p[data-alinhamento="right"],
+.artigo h2[data-alinhamento="right"],
+.artigo h3[data-alinhamento="right"] {
+  text-align: right;
+}
+
+/* A IMAGEM ALINHA POR MARGEM, e não por `text-align`.
+   `.artigo img` é `display: block`: `text-align` alinha o conteúdo EM LINHA
+   de um bloco, e não o bloco em si — numa imagem de bloco ele não faz nada.
+   O que a move é a margem automática do lado oposto. Esquerda continua sem
+   regra, como no texto: bloco já nasce encostado à esquerda, e o
+   renderizador nem emite o atributo nesse caso. */
+.artigo img[data-alinhamento="center"] {
+  margin-inline: auto;
+}
+
+.artigo img[data-alinhamento="right"] {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
+
+.artigo strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.artigo em {
+  font-style: italic;
+}
+
+/* O preflight do Tailwind zera marcador, margem e recuo de lista: sem estas
+   duas regras a lista sai indistinguível de parágrafo. */
+.artigo ul,
+.artigo ol {
+  margin-block: 0 1.5rem;
+  padding-inline-start: 1.5rem;
+}
+
+/* `list-style-type` explícito, não o atalho: `list-style: disc outside` é
+   minificado para `list-style: outside` — `disc` é o valor inicial e some —,
+   e aí a verificação do marcador com marcadores só poderia afirmar a
+   POSIÇÃO, enquanto a da lista ordenada afirma o TIPO. Duas asserções
+   assimétricas sobre a mesma coisa. */
+.artigo ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.artigo ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.artigo li {
+  margin-block: 0.375rem;
+  padding-inline-start: 0.25rem;
+}
+
+.artigo li::marker {
+  color: var(--ink-muted);
+}
+
+/* Lista aninhada: recuo menor e sem o respiro de fim de bloco, que só faz
+   sentido entre a lista e o texto que vem depois dela. */
+.artigo li > ul,
+.artigo li > ol {
+  margin-block: 0.375rem 0.375rem;
+  padding-inline-start: 1.25rem;
+}
+
+/* Link: a afordância NÃO é só a cor. Sublinhado permanente e peso maior
+   continuam distinguindo o link para quem não percebe a diferença de matiz. */
+.artigo a {
+  color: var(--brand-chrome);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--brand-action);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.artigo a:hover {
+  color: var(--brand-action);
+  text-decoration-thickness: 0.14em;
+}
+
+.artigo a:focus-visible {
+  outline: 2px solid var(--brand-action);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Citação: recuo mais marca visual — a barra é o que sobrevive quando a cor
+   não é percebida. */
+.artigo blockquote {
+  margin-block: 1.5rem;
+  margin-inline: 0;
+  padding-block: 0.125rem;
+  padding-inline-start: 1.125rem;
+  border-inline-start: 3px solid var(--brand-action);
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.artigo blockquote p:last-child {
+  margin-block-end: 0;
+}
+
+/* --- Colisões entre elementos aninhados --------------------------------
+   Cada uma destas regras existe porque duas declarações corretas isoladas
+   produzem, juntas, um defeito visível. */
+
+/* A citação é itálica e `em` também: sem isto, ênfase DENTRO de citação
+   desaparece — o leitor não vê marca nenhuma. */
+.artigo blockquote em {
+  font-style: normal;
+}
+
+/* Negrito dentro de link perdia a cor do link e sobrava só o sublinhado. */
+.artigo a strong {
+  color: inherit;
+}
+
+/* Link dentro de título caía para peso 500 — mesma especificidade, e
+   `.artigo a` vem depois de `.artigo h2`. A cor do link fica: é ela que
+   distingue o link; o peso é do título. */
+.artigo h2 a,
+.artigo h3 a {
+  font-weight: inherit;
+}
+
+/* Parágrafo dentro de item de lista (lista "solta") mantinha margem que
+   dobrava o espaçamento entre itens. */
+.artigo li > p:last-child {
+  margin-block-end: 0;
+}
+
+/* O último bloco do artigo não empurra o rodapé do invólucro. Enumerado, e
+   não `.artigo > :last-child`, porque um composto sem tipo de elemento
+   alcançaria `h1` — a proibição central da story. */
+.artigo > h2:last-child,
+.artigo > h3:last-child,
+.artigo > p:last-child,
+.artigo > ul:last-child,
+.artigo > ol:last-child,
+.artigo > blockquote:last-child,
+.artigo > pre:last-child,
+.artigo > hr:last-child,
+.artigo > img:last-child {
+  margin-block-end: 0;
+}
+
+/* Pilha monoespaçada repetida do bloco `.dado` de propósito: `.dado` é
+   escopada em `.painel` e o artigo é global — referenciá-la amarraria a
+   aparência do artigo ao escopo do Painel, que é o que este bloco evita. */
+.artigo pre,
+.artigo code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* Código inline: fundo tênue da marca, distinto do bloco. */
+.artigo code {
+  background-color: var(--brand-wash);
+  color: var(--brand-chrome);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+
+/* Bloco de código: fundo escuro, que se enxerga sem depender de borda de
+   baixo contraste, e ROLAGEM PRÓPRIA — linha longa rola dentro do bloco em
+   vez de empurrar a página. */
+.artigo pre {
+  margin-block: 1.5rem;
+  padding: 1rem 1.125rem;
+  background-color: var(--ink);
+  color: var(--surface-sunk);
+  border-radius: var(--radius-cartao);
+  font-size: 0.875em;
+  line-height: 1.6;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  /* Tabulação de oito colunas do padrão desperdiça a largura rolável. */
+  tab-size: 2;
+}
+
+/* Região rolável precisa ser alcançável por teclado (WCAG 2.1.1): quem
+   navega sem mouse não tem outra forma de ler o fim de uma linha longa. O
+   Firefox dá foco a contêiner rolável sozinho; o Chrome não, e o `tabindex`
+   é atributo — tem de vir do renderizador, não daqui. O indicador de foco
+   fica pronto no CSS para quando ele vier, e a verificação afirma que ele
+   existe: sem isto, o dia em que o `tabindex` chegasse o foco seria
+   invisível. */
+.artigo pre:focus-visible {
+  outline: 2px solid var(--brand-action);
+  outline-offset: 2px;
+}
+
+/* Dentro do bloco, o `code` é só o veículo semântico: herda tudo. */
+.artigo pre code {
+  background-color: transparent;
+  color: inherit;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+  white-space: inherit;
+}
+
+/* Linha divisória: regra visível, com respiro dos dois lados. */
+.artigo hr {
+  margin-block: 2.5rem;
+  border: 0;
+  border-block-start: 1px solid var(--ink-muted);
+}
+
+/* Imagem inline (Editor avançado). `max-width: 100%` é o que impede uma
+   imagem maior que a coluna de estourar o contêiner — a MESMA garantia que
+   `overflow-wrap` já dá ao texto corrido, agora para o elemento que não é
+   texto. `height: auto` preserva a proporção quando a largura encolhe.
+   `display: block` remove o respiro fantasma que `inline` deixa embaixo da
+   imagem (a mesma classe de defeito que a lista já resolve com
+   `list-style-position`). Cantos levemente arredondados, no mesmo raio de
+   cartão do resto do Painel — `--radius-cartao` é nome de marca, declarado
+   em `:root`, e `.artigo` pode lê-lo. */
+.artigo img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-block: 1.75rem;
+  border-radius: var(--radius-cartao);
+}
+
+/* Destaque de cor. `data-cor` vem do renderizador único
+   (`render/blog/paraHtml.js`), a partir do vocabulário FECHADO de
+   `CORES_DE_DESTAQUE` (`domain/blog/schema.js`) — nunca `style` livre nem
+   hexadecimal. Os quatro valores são os MESMOS tokens que o Popover de
+   destaque do Editor usa para pintar a amostra de cada cor
+   (`admin/blog/BarraDoEditor.jsx`): a cor que o Autor escolhe é a cor que o
+   artigo publicado mostra. Sem `color`: o `<mark>` do navegador já zera a
+   tinta para a do texto ao redor, e a tinta de `.artigo` — escura — segue
+   legível sobre qualquer uma das quatro, que são pastel de propósito. */
+.artigo mark {
+  border-radius: 2px;
+  padding-inline: 0.15em;
+}
+
+.artigo mark[data-cor="amarelo"] {
+  background-color: var(--destaque-amarelo);
+}
+
+.artigo mark[data-cor="verde"] {
+  background-color: var(--destaque-verde);
+}
+
+.artigo mark[data-cor="azul"] {
+  background-color: var(--destaque-azul);
+}
+
+.artigo mark[data-cor="rosa"] {
+  background-color: var(--destaque-rosa);
 }
 
 .dark {
@@ -94,16 +833,38 @@
 .logos-track {
   display: flex;
   width: max-content;
-  animation: scroll-logos 10s linear infinite;
-  will-change: transform;
+}
+
+/* A esteira são DOIS grupos iguais lado a lado, e cada grupo anda a própria
+   largura (-100%). Um grupo é sempre mais largo que a tela, então quando o
+   primeiro termina de sair o segundo ocupa exatamente o lugar de onde ele
+   partiu: o laço encosta sem corte nem vão.
+   Por que não uma trilha só andando -50%: ela chegava a ~9.000px de largura,
+   e no celular (2x ou 3x de densidade) passa do tamanho de textura que a
+   placa de vídeo aceita; o navegador pinta em pedaços e a esteira pisca.
+   Cada grupo tem um terço disso.
+   A duração é de um grupo: cada logo nova alonga o grupo e, com a duração
+   fixa, acelera a esteira. Ao incluir logo, aumente aqui. Com 11 logos, 25s
+   dá ~93 px/s no desktop. */
+.logos-grupo {
+  display: flex;
+  flex-shrink: 0;
+  animation: scroll-logos 25s linear infinite;
 }
 
 .logos-container img {
   filter: none !important; /* Remove o grayscale anterior */
   opacity: 1 !important;
-  margin: 0 3.5rem;
-  height: 4.5rem; /* Aumentado levemente para destaque */
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  flex-shrink: 0;
+  margin: 0 2.5rem;
+  height: 2.75rem;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Logo claro demais para o creme (Liga DOOH, Linda Brazil): pintado de
+   preto. Mais específico que a regra acima, que zera o `filter`. */
+.logos-container img.logo-escurecido {
+  filter: brightness(0) !important;
 }
 
 .logos-container img:hover {
@@ -112,7 +873,7 @@
 
 @keyframes scroll-logos {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  100% { transform: translateX(-100%); }
 }
 
 
@@ -192,10 +953,52 @@ button, .cursor-pointer, a[role="button"] {
 
 @media (max-width: 768px) {
   .logos-container img {
-    height: 3rem;
-    margin: 0 2rem;
+    height: 2rem;
+    margin: 0 1.5rem;
   }
   .cards-carousel {
     height: 360px;
+  }
+}
+/* As seções da home ABAIXO da primeira tela só são calculadas quando chegam
+   perto dela. Na abertura o navegador calculava estilo e layout dos ~7.700 px
+   da página inteira, e era isso que mais ocupava a thread principal. O
+   `auto` no tamanho reservado guarda a altura real depois que a seção
+   aparece uma vez, então rolar de volta não pula.
+
+   Só entram filhas diretas que são seção, o rodapé ou o invólucro das
+   funcionalidades: o cabeçalho e os botões fixos ficam de fora, e a hero
+   (`#home`) também, porque é a primeira tela. Toda seção que entra já tem
+   `overflow-hidden` ou nada que vaze, então o recorte do `contain: paint`
+   não muda o desenho. */
+.home-secoes-adiadas > :is(section, footer, #funcionalidades):not(#home) {
+  content-visibility: auto;
+  /* A altura média medida das seções: ~900 px no celular, ~750 no
+     computador. Errar para mais só faz a barra de rolagem mentir. */
+  contain-intrinsic-size: auto 900px;
+}
+@media (min-width: 1024px) {
+  .home-secoes-adiadas > :is(section, footer, #funcionalidades):not(#home) {
+    contain-intrinsic-size: auto 750px;
+  }
+}
+
+/* O FAQ da home é `<details>` nativo (ver App.jsx). Onde o navegador sabe
+   animar a altura até `auto`, a resposta abre deslizando como o Accordion
+   abria; onde não sabe, ela simplesmente aparece. */
+.faq-pergunta {
+  interpolate-size: allow-keywords;
+}
+.faq-pergunta::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size 0.2s ease-out, content-visibility 0.2s ease-out allow-discrete;
+}
+.faq-pergunta[open]::details-content {
+  block-size: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .faq-pergunta::details-content {
+    transition: none;
   }
 }

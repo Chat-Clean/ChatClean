@@ -19,7 +19,7 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-4 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1.2fr_1.6fr] md:[&>div]:order-3 lg:[&>div]:order-none">
         <div className="col-span-2 md:order-1! lg:order-none! lg:col-span-1">
           <div className="flex items-center space-x-2 mb-4">
-            <img src={chatcleanLogoWhite} alt="ChatClean" className="h-7 w-auto" />
+            <img src={chatcleanLogoWhite} alt="ChatClean" width="140" height="28" className="h-7 w-auto" />
           </div>
           <p className="text-zinc-400 text-sm leading-relaxed max-w-sm">
             A plataforma de CRM e ChatBot para WhatsApp com API Oficial mais

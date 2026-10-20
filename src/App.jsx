@@ -131,17 +131,17 @@ const faqs = [
 // `escurecer`: o logo é claro demais e sumiria no fundo creme; o filtro o
 // pinta de preto sem precisar de outra versão do arquivo.
 const CLIENT_LOGOS = [
-  { src: lautoCargo, nome: "L'auto Cargo" },
-  { src: imobee, nome: "Imobee" },
-  { src: bonesRamalho, nome: "Bonés Ramalho" },
-  { src: bomTodo, nome: "Bom Todo" },
-  { src: wishBones, nome: "Wishbone Custom Caps" },
-  { src: lapisDecor, nome: "Lápis Decor" },
-  { src: ligaDooH, nome: "Liga DOOH", escurecer: true },
-  { src: lindaBrazil, nome: "Linda Brazil", escurecer: true },
-  { src: liv, nome: "LIV Energia Solar" },
-  { src: simplo, nome: "Simplo Manuais Técnicos Automotivos" },
-  { src: avelloz, nome: "Avelloz Motos" },
+  { src: lautoCargo, nome: "L'auto Cargo", largura: 281, altura: 96 },
+  { src: imobee, nome: "Imobee", largura: 1500, altura: 400 },
+  { src: bonesRamalho, nome: "Bonés Ramalho", largura: 912, altura: 215 },
+  { src: bomTodo, nome: "Bom Todo", largura: 150, altura: 96 },
+  { src: wishBones, nome: "Wishbone Custom Caps", largura: 335, altura: 96 },
+  { src: lapisDecor, nome: "Lápis Decor", largura: 340, altura: 96 },
+  { src: ligaDooH, nome: "Liga DOOH", largura: 227, altura: 96, escurecer: true },
+  { src: lindaBrazil, nome: "Linda Brazil", largura: 256, altura: 128, escurecer: true },
+  { src: liv, nome: "LIV Energia Solar", largura: 433, altura: 168 },
+  { src: simplo, nome: "Simplo Manuais Técnicos Automotivos", largura: 258, altura: 96 },
+  { src: avelloz, nome: "Avelloz Motos", largura: 1910, altura: 554 },
 ];
 
 function App() {
@@ -153,7 +153,7 @@ function App() {
   const depoimentos = useCarrossel(testimonials.length);
 
   return (
-    <div className="min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
+    <div className="home-secoes-adiadas min-h-screen bg-creme text-zinc-900 selection:bg-emerald-500 selection:text-white">
       <ScrollProgress />
       <Navbar />
 
@@ -182,7 +182,9 @@ function App() {
                       key={logo.nome}
                       src={logo.src}
                       alt={grupo === 0 ? logo.nome : ""}
-                      className={`h-12 object-contain${logo.escurecer ? " logo-escurecido" : ""}`}
+                      width={logo.largura}
+                      height={logo.altura}
+                      className={`h-12 w-auto object-contain${logo.escurecer ? " logo-escurecido" : ""}`}
                     />
                   ))}
                 </div>

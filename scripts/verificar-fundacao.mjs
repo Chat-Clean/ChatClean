@@ -110,6 +110,13 @@ const caminhoBaselineCss = path.join(dirBaseline, "dist-index.baseline.css");
  * evidência histórica, e continua sendo lido onde "novo" tem de significar
  * "novo desde a fundação" — a regra autoral com texto branco sobre
  * brand-vivid, abaixo, e a adição pura da `.artigo` em `verificar:artigo`.
+ *
+ * Regravada em 2026-10-20, também por decisão do Felix: as fontes passaram a
+ * ser servidas pelo próprio site (`public/fonts`) e `--font-sans`,
+ * `--font-display` e `--font-secundaria` ganharam uma RESERVA local com as
+ * mesmas medidas ("Poppins Reserva" etc., `src/App.css`), que zerou a troca
+ * de layout do topo da home no computador. A família principal, as cores e os
+ * tamanhos não mudaram.
  */
 const caminhoBaselineCssIdentidade = path.join(
   dirBaseline,

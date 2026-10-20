@@ -124,10 +124,94 @@
    `:root` continua intocado: isto é `@theme`, não token do shadcn, e o
    remapeamento do Painel em `.painel` não é afetado.
    =========================================================== */
+
+/* As fontes são servidas pelo PRÓPRIO site (`public/fonts`, só o
+   subconjunto latin, o mesmo arquivo que o Google Fonts entregava) e as
+   duas da primeira tela são pedidas no `index.html` antes de tudo. Vindo do
+   Google, elas chegavam depois da primeira pintura e o título da home mudava
+   de tamanho ao trocar de fonte: era quase todo o CLS do computador.
+
+   Cada uma tem uma RESERVA local com as mesmas medidas (`size-adjust` e os
+   `*-override`, calculados pelo @capsizecss/metrics como faz o next/font):
+   enquanto a fonte não chega, o texto ocupa o mesmo espaço que vai ocupar. */
+@font-face {
+  font-family: "Playfair Display";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("/fonts/playfair-display-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("/fonts/montserrat-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/poppins-400-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/poppins-500-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/poppins-600-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/poppins-700-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Playfair Display Reserva";
+  src: local("Times New Roman");
+  size-adjust: 111.26%;
+  ascent-override: 97.25%;
+  descent-override: 22.56%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Poppins Reserva";
+  src: local("Arial");
+  size-adjust: 112.16%;
+  ascent-override: 93.62%;
+  descent-override: 31.21%;
+  line-gap-override: 8.92%;
+}
+@font-face {
+  font-family: "Montserrat Reserva";
+  src: local("Arial");
+  size-adjust: 112.83%;
+  ascent-override: 85.79%;
+  descent-override: 22.25%;
+  line-gap-override: 0%;
+}
+
 @theme {
-  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
-  --font-secundaria: "Montserrat", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Poppins", "Poppins Reserva", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Playfair Display", "Playfair Display Reserva", Georgia, "Times New Roman", serif;
+  --font-secundaria: "Montserrat", "Montserrat Reserva", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --color-emerald-50: #eef8f0;
   --color-emerald-100: #dbf0e0;
@@ -876,6 +960,29 @@ button, .cursor-pointer, a[role="button"] {
     height: 360px;
   }
 }
+/* As seções da home ABAIXO da primeira tela só são calculadas quando chegam
+   perto dela. Na abertura o navegador calculava estilo e layout dos ~7.700 px
+   da página inteira, e era isso que mais ocupava a thread principal. O
+   `auto` no tamanho reservado guarda a altura real depois que a seção
+   aparece uma vez, então rolar de volta não pula.
+
+   Só entram filhas diretas que são seção, o rodapé ou o invólucro das
+   funcionalidades: o cabeçalho e os botões fixos ficam de fora, e a hero
+   (`#home`) também, porque é a primeira tela. Toda seção que entra já tem
+   `overflow-hidden` ou nada que vaze, então o recorte do `contain: paint`
+   não muda o desenho. */
+.home-secoes-adiadas > :is(section, footer, #funcionalidades):not(#home) {
+  content-visibility: auto;
+  /* A altura média medida das seções: ~900 px no celular, ~750 no
+     computador. Errar para mais só faz a barra de rolagem mentir. */
+  contain-intrinsic-size: auto 900px;
+}
+@media (min-width: 1024px) {
+  .home-secoes-adiadas > :is(section, footer, #funcionalidades):not(#home) {
+    contain-intrinsic-size: auto 750px;
+  }
+}
+
 /* O FAQ da home é `<details>` nativo (ver App.jsx). Onde o navegador sabe
    animar a altura até `auto`, a resposta abre deslizando como o Accordion
    abria; onde não sabe, ela simplesmente aparece. */

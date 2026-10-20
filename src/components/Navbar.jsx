@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.jsx";
 import { EASE } from "@/lib/motion";
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
 // Sobre a hero escura a marca é a versão em latão; depois dela, a verde
-import chatcleanLogoLatao from "/chatclean-latao.png";
+import chatcleanLogoLatao from "/chatclean-latao.webp";
 import chatcleanLogoGreen from "/chatclean.svg";
 
 /* `atalhos`: seções da própria home. Não ocupam a barra; abrem num card
@@ -359,11 +359,15 @@ export default function Navbar() {
                 <img
                   src={chatcleanLogoGreen}
                   alt="ChatClean"
+                  width="180"
+                  height="36"
                   className={`h-9 w-auto transition-opacity duration-300 ${scrolled ? "opacity-100" : "opacity-0"}`}
                 />
                 <img
                   src={chatcleanLogoLatao}
                   alt=""
+                  width="349"
+                  height="72"
                   aria-hidden="true"
                   className={`absolute left-0 top-0 h-9 w-auto transition-opacity duration-300 ${scrolled ? "opacity-0" : "opacity-100"}`}
                 />

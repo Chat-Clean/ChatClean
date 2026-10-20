@@ -12,7 +12,7 @@ import { ArrowRight, Play, Check, Bot } from "lucide-react";
 // (`<link rel="preload">`), e para isso o endereço precisa ser fixo. A foto
 // anterior, de scripts/recortar-foto-hero.mjs, continua em
 // hero-atendimento.webp e hero-atendimento-720.webp.
-const FOTO_NO_CELULAR = "/hero/atendimento-1920.webp";
+const FOTO_NO_CELULAR = "/hero/atendimento-1280.webp";
 const FOTOS_NO_COMPUTADOR =
   "/hero/atendimento-1920.webp 1920w, /hero/atendimento-2800.webp 2800w";
 
