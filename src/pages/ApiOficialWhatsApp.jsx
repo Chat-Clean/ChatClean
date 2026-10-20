@@ -14,6 +14,10 @@ import {
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { LINK_DO_WHATSAPP } from "@/domain/whatsapp";
+import { paginaFixa } from "@/domain/paginasFixas";
+
+/* Título e descrição vêm da mesma lista que o build usa no HTML servido. */
+const METADADOS_DA_PAGINA = paginaFixa("/api-oficial-whatsapp");
 
 /**
  * Pagina pilar para SEO: /api-oficial-whatsapp
@@ -24,8 +28,7 @@ export default function ApiOficialWhatsApp() {
   // Atualiza title e meta description ao montar (SPA)
   useEffect(() => {
     const previousTitle = document.title;
-    document.title =
-      "API Oficial do WhatsApp Business no Brasil | ChatClean";
+    document.title = METADADOS_DA_PAGINA.titulo;
 
     let metaDescription = document.querySelector('meta[name="description"]');
     const previousDescription = metaDescription
@@ -36,10 +39,7 @@ export default function ApiOficialWhatsApp() {
       metaDescription.setAttribute("name", "description");
       document.head.appendChild(metaDescription);
     }
-    metaDescription.setAttribute(
-      "content",
-      "API Oficial do WhatsApp Business com a ChatClean: ative em poucos dias, multiatendimento com varios atendentes, integracao com CRM e ChatBot com IA. Saiba como funciona, quanto custa e como migrar.",
-    );
+    metaDescription.setAttribute("content", METADADOS_DA_PAGINA.descricao);
 
     let canonical = document.querySelector('link[rel="canonical"]');
     const previousCanonical = canonical

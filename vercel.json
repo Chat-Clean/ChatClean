@@ -33,6 +33,12 @@
     { "source": "/.well-known/oauth-authorization-server/mcp", "destination": "/api/posts?via=mcp-servidor" },
     { "source": "/carreiras", "destination": "/api/carreiras" },
     { "source": "/carreiras/:slug", "destination": "/api/carreiras?slug=:slug" },
+    { "source": "/api-oficial-whatsapp", "destination": "/paginas/api-oficial-whatsapp.html" },
+    { "source": "/integracoes", "destination": "/paginas/integracoes.html" },
+    { "source": "/sobre", "destination": "/paginas/sobre.html" },
+    { "source": "/noticias", "destination": "/paginas/noticias.html" },
+    { "source": "/politica-de-privacidade", "destination": "/paginas/politica-de-privacidade.html" },
+    { "source": "/termos-de-servico", "destination": "/paginas/termos-de-servico.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

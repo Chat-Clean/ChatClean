@@ -21,6 +21,7 @@ import trello from "@/assets/integracoes/trello.svg";
 import whatsapp from "@/assets/integracoes/whatsapp.svg";
 import woocommerce from "@/assets/integracoes/woocommerce.svg";
 import zapier from "@/assets/integracoes/zapier.svg";
+import { paginaFixa } from "@/domain/paginasFixas";
 
 /**
  * O conteúdo da página `/integracoes`.
@@ -168,10 +169,6 @@ export const PERGUNTAS = Object.freeze([
   }),
 ]);
 
-/** O que a página declara ao buscador (a página aplica no `<head>` ao montar). */
-export const METADADOS_DA_PAGINA = Object.freeze({
-  titulo: "Integrações da ChatClean | CRM e WhatsApp conectados às suas ferramentas",
-  descricao:
-    "Conecte a ChatClean ao seu CRM, e-commerce, meios de pagamento e IA. Webhook, API e o Flow, o editor de fluxos da ChatClean: se a ferramenta tem API, ela conversa com a ChatClean.",
-  caminho: "/integracoes",
-});
+/** O que a página declara ao buscador (a página aplica no `<head>` ao montar).
+ * Vem de `PAGINAS_FIXAS`, a mesma lista que o build usa no HTML servido. */
+export const METADADOS_DA_PAGINA = paginaFixa("/integracoes");

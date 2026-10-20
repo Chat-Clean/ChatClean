@@ -2411,6 +2411,15 @@ if (configuracaoDaEntrega !== null) {
        passa de 5 para 7 por causa desta troca, e não por piso relaxado. */
     { source: "/carreiras", destination: "/api/carreiras" },
     { source: "/carreiras/:slug", destination: "/api/carreiras?slug=:slug" },
+    /* As páginas fixas, cada uma na cópia do shell com os metadados dela
+       (`scripts/gerar-paginas-fixas.mjs`). Sem isto elas se declaravam
+       cópias da home. */
+    { source: "/api-oficial-whatsapp", destination: "/paginas/api-oficial-whatsapp.html" },
+    { source: "/integracoes", destination: "/paginas/integracoes.html" },
+    { source: "/sobre", destination: "/paginas/sobre.html" },
+    { source: "/noticias", destination: "/paginas/noticias.html" },
+    { source: "/politica-de-privacidade", destination: "/paginas/politica-de-privacidade.html" },
+    { source: "/termos-de-servico", destination: "/paginas/termos-de-servico.html" },
   ]);
   const APANHA_TUDO = Object.freeze({ source: "/(.*)", destination: "/index.html" });
 
