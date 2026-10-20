@@ -6,15 +6,15 @@ import { ArrowRight, Play, Check, Bot } from "lucide-react";
 // A foto da hero: a atendente ao notebook, sobre a parede de plantas. É o
 // fundo inteiro da seção, e os balões foram posicionados sobre ELA.
 //
-// Ela mora em `public/hero/`, em WebP, gerada de
-// `src/assets/hero-atendimento-teste.jpg` (1280, 1920 e 2800 px), e não é
-// importada: o `index.html` pede a foto ao navegador ANTES do JavaScript
-// (`<link rel="preload">`), e para isso o endereço precisa ser fixo. A foto
-// anterior, de scripts/recortar-foto-hero.mjs, continua em
-// hero-atendimento.webp e hero-atendimento-720.webp.
-const FOTO_NO_CELULAR = "/hero/atendimento-1280.webp";
-const FOTOS_NO_COMPUTADOR =
-  "/hero/atendimento-1920.webp 1920w, /hero/atendimento-2800.webp 2800w";
+// Ela mora em `public/hero/atendimento-original.jpg`: cópia byte a byte de
+// `src/assets/hero-atendimento-teste.jpg` (2800 px), no celular e no
+// computador. As versões menores em WebP deixavam a foto borrada, e a
+// qualidade dela vale mais que os KB economizados (decisão do Felix em
+// 2026-10-20). Não é importada: o `index.html` pede a foto ao navegador
+// ANTES do JavaScript (`<link rel="preload">`), e para isso o endereço
+// precisa ser fixo. A foto anterior, de scripts/recortar-foto-hero.mjs,
+// continua em hero-atendimento.webp e hero-atendimento-720.webp.
+const FOTO_DA_HERO = "/hero/atendimento-original.jpg";
 
 // O `src` das duas `<img>` é um pixel vazio: quem escolhe a foto é o
 // `<source>` com `media`. Uma `<img>` escondida por CSS é baixada assim
@@ -202,7 +202,7 @@ export default function ModernHero() {
           proporção do arquivo foi calculada para a atendente cair na coluna
           da direita em 1440x900 e crescer com a altura da tela. */}
       <picture>
-        <source media="(min-width: 1024px)" srcSet={FOTOS_NO_COMPUTADOR} sizes="100vw" />
+        <source media="(min-width: 1024px)" srcSet={FOTO_DA_HERO} />
         <img
           src={PIXEL_VAZIO}
           alt=""
@@ -226,7 +226,7 @@ export default function ModernHero() {
         aria-hidden="true"
       >
         <picture>
-          <source media="(max-width: 1023.98px)" srcSet={FOTO_NO_CELULAR} />
+          <source media="(max-width: 1023.98px)" srcSet={FOTO_DA_HERO} />
           <img
             src={PIXEL_VAZIO}
             alt=""
