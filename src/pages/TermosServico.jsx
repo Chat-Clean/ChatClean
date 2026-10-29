@@ -51,7 +51,18 @@ A ChatClean se reserva o direito de encerrar contas com informações falsas ou 
 O descumprimento poderá resultar na suspensão imediata da conta.`,
   },
   {
-    titulo: "5. Contratação, Pagamento e Assinatura",
+    titulo: "5. WhatsApp e Outros Canais da Meta",
+    texto: `Para usar a API Oficial do WhatsApp, o Instagram ou o Facebook, você conecta as contas da sua empresa à ChatClean pelo cadastro integrado da Meta e autoriza a ChatClean a acessá-las em seu nome. Ao fazer isso, você:
+
+• Declara que tem autorização para conectar a conta e o número;
+• Concorda com os Termos e as Políticas do WhatsApp Business e da Meta, que valem junto com estes Termos;
+• É responsável pelo conteúdo que envia, pelo consentimento dos seus contatos para receber mensagens e pelo uso de modelos de mensagem aprovados;
+• Entende que a Meta pode limitar, suspender ou banir números e contas por decisão própria.
+
+Os dados dos seus clientes que passam pela plataforma são tratados pela ChatClean como operadora, em seu nome, conforme a Política de Privacidade. Você pode desconectar a conta a qualquer momento nas configurações da plataforma, e o nosso acesso termina na hora.`,
+  },
+  {
+    titulo: "6. Contratação, Pagamento e Assinatura",
     texto: `A contratação acontece pelo próprio site, em três passos: você escolhe o plano e o dimensionamento, preenche os dados da empresa e aceita estes Termos, e paga a primeira cobrança. No momento do aceite registramos a versão destes Termos, a data e o endereço IP de origem, como prova do consentimento.
 
 O contrato passa a valer quando o pagamento é confirmado pelo processador. A partir daí a conta é criada e o acesso é enviado para o e-mail cadastrado no pedido.
@@ -63,7 +74,7 @@ Sobre a cobrança:
 • Você escolhe o dia de vencimento, entre 1 e 28. A primeira cobrança vence na primeira data disponível a partir do pedido, e as seguintes no mesmo dia de cada mês;
 • O pagamento é processado pela Asaas, nossa processadora de pagamentos, por Pix ou boleto. A ChatClean não recebe nem armazena dados de cartão;
 • O valor da assinatura é cobrado antecipadamente, no início de cada período;
-• Não há reembolso por períodos parcialmente utilizados, ressalvado o direito de arrependimento descrito na seção 6 e as demais hipóteses previstas em lei;
+• Não há reembolso por períodos parcialmente utilizados, ressalvado o direito de arrependimento descrito na seção 7 e as demais hipóteses previstas em lei;
 • Em caso de inadimplência, o acesso poderá ser suspenso após notificação;
 • Os preços podem ser reajustados mediante aviso prévio de 30 dias;
 • Custos da API Oficial do WhatsApp, cobrados pela Meta, são de responsabilidade do cliente.
@@ -71,21 +82,21 @@ Sobre a cobrança:
 Se o pagamento for confirmado e a conta não for liberada por falha nossa, o pedido fica registrado como pendente de liberação e resolvemos sem custo adicional. Se não conseguirmos entregar o serviço contratado, devolvemos o valor integralmente.`,
   },
   {
-    titulo: "6. Direito de Arrependimento",
+    titulo: "7. Direito de Arrependimento",
     texto: `A contratação acontece pela internet, fora de estabelecimento comercial. Por isso você pode desistir em até 7 (sete) dias corridos, contados da confirmação do pagamento, e receber de volta tudo o que pagou, monetariamente atualizado. É o direito previsto no artigo 49 do Código de Defesa do Consumidor.
 
-Para exercer, basta pedir por qualquer canal de contato listado na seção 13. Não pedimos justificativa.
+Para exercer, basta pedir por qualquer canal de contato listado na seção 14. Não pedimos justificativa.
 
 O estorno é feito pelo mesmo meio usado no pagamento, em até 7 (sete) dias contados do pedido de desistência. Valores que a Meta já tenha cobrado pelo uso da API Oficial do WhatsApp no período não são estornados por nós, porque não são cobrados por nós.`,
   },
   {
-    titulo: "7. Propriedade Intelectual",
+    titulo: "8. Propriedade Intelectual",
     texto: `A plataforma ChatClean, incluindo seu software, design, marca, logotipos e conteúdo, é de propriedade exclusiva da ChatClean e protegida por leis de propriedade intelectual.
 
 Você retém todos os direitos sobre os dados e conteúdos que você inserir na plataforma. Ao usar o serviço, você concede à ChatClean uma licença limitada para processar esses dados exclusivamente para a prestação do serviço contratado.`,
   },
   {
-    titulo: "8. Disponibilidade e SLA",
+    titulo: "9. Disponibilidade e SLA",
     texto: `A ChatClean se compromete a manter a plataforma disponível com uptime mínimo de 99% ao mês, exceto em:
 
 • Manutenções programadas (comunicadas com antecedência);
@@ -95,7 +106,7 @@ Você retém todos os direitos sobre os dados e conteúdos que você inserir na 
 O status em tempo real da plataforma pode ser consultado em status.chatclean.com.br.`,
   },
   {
-    titulo: "9. Limitação de Responsabilidade",
+    titulo: "10. Limitação de Responsabilidade",
     texto: `Na máxima extensão permitida por lei, a ChatClean não será responsável por:
 
 • Danos indiretos, incidentais, especiais ou consequentes;
@@ -106,21 +117,21 @@ O status em tempo real da plataforma pode ser consultado em status.chatclean.com
 Nossa responsabilidade total não excederá o valor pago pelo cliente nos últimos 3 meses de serviço.`,
   },
   {
-    titulo: "10. Rescisão",
-    texto: `Você pode cancelar sua assinatura a qualquer momento entrando em contato com a gente, por qualquer um dos canais da seção 13. Não há multa nem prazo de fidelidade, e o acesso permanece ativo até o fim do período já pago.
+    titulo: "11. Rescisão",
+    texto: `Você pode cancelar sua assinatura a qualquer momento entrando em contato com a gente, por qualquer um dos canais da seção 14. Não há multa nem prazo de fidelidade, e o acesso permanece ativo até o fim do período já pago.
 
 A ChatClean pode suspender ou encerrar sua conta imediatamente em caso de violação destes Termos, uso fraudulento ou inadimplência recorrente, com ou sem aviso prévio dependendo da gravidade.`,
   },
   {
-    titulo: "11. Alterações nos Termos",
+    titulo: "12. Alterações nos Termos",
     texto: `Podemos revisar estes Termos periodicamente. Alterações significativas serão comunicadas por e-mail ou notificação na plataforma com no mínimo 15 dias de antecedência. O uso continuado do serviço após esse prazo implica na aceitação dos novos termos.`,
   },
   {
-    titulo: "12. Lei Aplicável e Foro",
+    titulo: "13. Lei Aplicável e Foro",
     texto: `Estes Termos são regidos pelas leis da República Federativa do Brasil. Qualquer disputa será submetida ao foro da Comarca de Natal, Rio Grande do Norte, com renúncia a qualquer outro, por mais privilegiado que seja.`,
   },
   {
-    titulo: "13. Contato",
+    titulo: "14. Contato",
     texto: `Para dúvidas sobre estes Termos de Serviço, entre em contato:
 
 ChatClean, CNPJ: 57.487.327/0001-57
@@ -165,7 +176,7 @@ export default function TermosServico() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-white/70 text-sm"
           >
-            Última atualização: 04/09/2026
+            Última atualização: 29/10/2026
           </motion.p>
         </div>
       </section>

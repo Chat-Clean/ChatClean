@@ -31,7 +31,7 @@ Também coletamos automaticamente dados de uso da plataforma, como endereço IP,
 
 Podemos compartilhar suas informações nas seguintes situações:
 
-• Com prestadores de serviços que nos auxiliam na operação da plataforma, sempre sob acordos de confidencialidade. Hoje são a Asaas, que processa as cobranças e recebe nome, e-mail, telefone, CNPJ e razão social de quem contrata, e a nossa infraestrutura de nuvem e de banco de dados;
+• Com prestadores de serviços que nos auxiliam na operação da plataforma, sempre sob acordos de confidencialidade. Hoje são a Asaas, que processa as cobranças e recebe nome, e-mail, telefone, CNPJ e razão social de quem contrata, a Amazon Web Services (AWS), que hospeda a plataforma, guarda os anexos e os backups e envia os e-mails transacionais, e a Meta Platforms, que entrega as mensagens de WhatsApp, Instagram e Facebook dos canais que você conecta;
 • Quando exigido por lei, ordem judicial ou autoridade competente;
 • Para proteger os direitos, propriedade ou segurança da ChatClean, nossos clientes ou terceiros;
 • Em caso de fusão, aquisição ou venda de ativos, mediante aviso prévio.`,
@@ -80,11 +80,30 @@ Você pode revisar ou retirar a sua escolha a qualquer momento em "Preferências
     texto: `Mantemos suas informações pelo tempo necessário para fornecer nossos serviços e cumprir obrigações legais. Quando você encerra sua conta, podemos reter certas informações conforme exigido por lei ou para fins legítimos de negócios, como resolver disputas ou fazer cumprir nossos acordos.`,
   },
   {
-    titulo: "8. Alterações nesta Política",
+    titulo: "8. Dados Tratados em Nome dos Clientes",
+    texto: `Quando uma empresa usa a ChatClean para atender os próprios clientes, ela é a controladora desses dados e a ChatClean é a operadora, nos termos da LGPD. Tratamos esses dados só para prestar o serviço contratado e seguindo as instruções da empresa.
+
+São eles: mensagens, áudios, imagens e arquivos trocados nos canais conectados; nome, telefone, e-mail e foto de perfil dos contatos; e os dados das contas conectadas, como o número e o identificador da conta do WhatsApp Business e os modelos de mensagem.
+
+No WhatsApp, a empresa autoriza a ChatClean a acessar a conta dela pelo cadastro integrado da Meta. Usamos as permissões whatsapp_business_messaging e whatsapp_business_management só para receber e enviar as mensagens dessa conta, registrar o número e gerenciar os modelos de mensagem. Não usamos esses dados para publicidade, não os vendemos e não os compartilhamos com outras empresas.`,
+  },
+  {
+    titulo: "9. Onde os Dados Ficam",
+    texto: `A plataforma roda na Amazon Web Services, na região do Norte da Virgínia, nos Estados Unidos. Por isso há transferência internacional de dados, feita com as garantias contratuais do provedor e com as medidas de segurança da seção 4, conforme o artigo 33 da LGPD.`,
+  },
+  {
+    id: "exclusao-de-dados",
+    titulo: "10. Exclusão de Dados",
+    texto: `Para pedir a exclusão dos seus dados, ou dos dados de uma conta conectada, escreva para contato@chatclean.com.br com o assunto "Exclusão de dados", informando o nome da empresa e o número ou a conta em questão. Respondemos em até 15 dias.
+
+Desconectar o WhatsApp na plataforma interrompe na hora o nosso acesso à conta. Quando a assinatura é encerrada, apagamos as conversas, os contatos e os anexos da empresa em até 30 dias, e as cópias de segurança expiram no mesmo prazo, salvo o que a lei obrigar a guardar.`,
+  },
+  {
+    titulo: "11. Alterações nesta Política",
     texto: `Podemos atualizar esta Política de Privacidade periodicamente. Notificaremos você sobre alterações significativas publicando a nova política nesta página e, quando apropriado, enviando uma notificação por e-mail. Recomendamos que você revise esta política regularmente.`,
   },
   {
-    titulo: "9. Contato",
+    titulo: "12. Contato",
     texto: `Se tiver dúvidas sobre esta Política de Privacidade ou sobre o tratamento dos seus dados, entre em contato conosco:
 
 ChatClean, CNPJ: 57.487.327/0001-57
@@ -129,7 +148,7 @@ export default function PoliticaPrivacidade() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-white/70 text-sm"
           >
-            Última atualização: 28/05/2026
+            Última atualização: 29/10/2026
           </motion.p>
         </div>
       </section>
@@ -149,6 +168,8 @@ export default function PoliticaPrivacidade() {
           {SECTIONS.map((s, i) => (
             <motion.section
               key={i}
+              id={s.id}
+              className={s.id ? "scroll-mt-28" : undefined}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
