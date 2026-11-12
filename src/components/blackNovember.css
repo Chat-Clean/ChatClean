@@ -7,7 +7,7 @@
   left: 6px;
   bottom: 96px;
   z-index: 45; /* abaixo do menu, da Jéssica e da faixa de cookies */
-  width: clamp(92px, 9vw, 148px);
+  width: clamp(132px, 14vw, 220px);
   padding: 0;
   border: 0;
   background: none;
@@ -238,7 +238,8 @@
 @media (max-width: 640px) {
   .bn-etiqueta {
     bottom: 88px;
-    left: 2px;
+    left: 0;
+    width: 136px;
   }
 }
 
