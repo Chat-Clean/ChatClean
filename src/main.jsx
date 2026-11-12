@@ -52,6 +52,7 @@ const AssinaturaRecebida = lazy(() => import("./pages/AssinaturaRecebida.jsx"));
 import { CHECKOUT_ATIVO } from "@/lib/checkout";
 import AvisoDeCookies from "./components/AvisoDeCookies.jsx";
 import ChatbotDoSite from "./components/ChatbotDoSite.jsx";
+import BlackNovember from "./components/BlackNovember.jsx";
 const GarantirApiOficial = lazy(() => import("./pages/GarantirApiOficial.jsx"));
 import { protegerImagens } from "@/lib/protecaoDeImagens";
 
@@ -70,6 +71,9 @@ createRoot(document.getElementById("root")).render(
           a conversa atravessa a troca de página. Ela mesma decide onde não
           aparecer (Painel e checkout). */}
       <ChatbotDoSite />
+      {/* Black November: pop-up na entrada e etiqueta flutuante em toda página
+          pública. Some sozinha quando novembro acaba. */}
+      <BlackNovember />
       <AnimatedRoutes>
         <Route path="/" element={<App />} />
         <Route path="/blog" element={<Blog />} />
